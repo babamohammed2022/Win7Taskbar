@@ -1,69 +1,94 @@
-# Prerequisites
-*.d
+# ---------------------------------------------------------------------------
+# Win7Taskbar - .gitignore
+# ---------------------------------------------------------------------------
 
-# Compiled Object files
+# --- .NET / C# -------------------------------------------------------------
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+publish/
+publish-*/
+TestResults/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.dotCover
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+packages/
+!packages/build/
+.vs/
+.vscode/
+*.csproj.user
+*.props.user
+
+# --- Strumenti / IDE ------------------------------------------------------
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- C/C++ -----------------------------------------------------------------
+*.d
 *.slo
 *.lo
 *.o
 *.obj
-
-# Precompiled Headers
 *.gch
 *.pch
-
-# Linker files
 *.ilk
-
-# Debugger Files
 *.pdb
-
-# Compiled Dynamic libraries
 *.so
 *.dylib
 *.dll
 *.so.*
-
-
-# Fortran module files
 *.mod
 *.smod
-
-# Compiled Static libraries
 *.lai
 *.la
 *.a
 *.lib
-
-# Executables
 *.exe
 *.out
 *.app
 
-# Build directories
+# --- CMake / vcpkg ---------------------------------------------------------
 build/
-Build/
 build-*/
-
-# CMake generated files
+Build/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
-Makefile
 install_manifest.txt
 compile_commands.json
-
-# Temporary files
-*.tmp
-*.log
-*.bak
-*.swp
-
-# vcpkg
 vcpkg_installed/
+CMakeUserPresets.json
 
-# debug information files
+# --- Debugger / analisi ----------------------------------------------------
+*.log
+*.tmp
+*.bak
 *.dwo
-
-# test output & cache
 Testing/
 .cache/
+
+# --- Output della release --------------------------------------------------
+dist/
+release/
+*.zip
+*.7z
+*.tar.gz
+
+# --- Cartelle di lavoro temporanee -----------------------------------------
+_staging/
+_local/
+*.tmp.zip

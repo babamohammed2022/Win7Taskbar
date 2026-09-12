@@ -1,0 +1,234 @@
+# Win7Taskbar - pipeline unica (import sorgenti + build release self-contained)
+#
+# COME SI USA (una volta sola):
+#   1. Su GitHub apri: Add file -> Create new file
+#   2. Nome del file: .github/workflows/win7taskbar-ci.yml
+#   3. Incolla il contenuto di QUESTO file e committa su `main`
+#   4. Vai in Actions -> "Win7Taskbar CI" -> Run workflow e lascia i valori di default
+#
+# Il job "fetch-sources" scarica i bundle MediaFire dal runner GitHub (che ha
+# accesso a Internet) e li committa nel branch scelto; il job "build-release"
+# compila e pubblica la release 1.0.0-alpha self-contained (nessun .NET da
+# installare per l'utente finale).
+
+name: Win7Taskbar CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: "Branch su cui importare i sorgenti scaricati"
+        required: true
+        default: "arena/01a0966f-win7taskbar"
+      skip_fetch:
+        description: "Salta il download da MediaFire (sorgenti gia' importati)"
+        type: boolean
+        required: false
+        default: false
+      build_release:
+        description: "Compila la release self-contained x64"
+        type: boolean
+        required: false
+        default: true
+      publish_release:
+        description: "Pubblica la release su GitHub (tag v1.0.0-alpha)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_VERSION: "1.0.0-alpha"
+  TFM_FALLBACK: "net9.0-windows"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) Import dei sorgenti originali dal bundle MediaFire
+  # ---------------------------------------------------------------------------
+  fetch-sources:
+    name: Import sorgenti da MediaFire
+    if: ${{ inputs.skip_fetch == false }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del branch di destinazione
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download dei bundle MediaFire
+        run: python3 tools/fetch_sources.py --out _incoming --extract
+
+      - name: Riepilogo dei contenuti scaricati
+        run: |
+          echo "===== albero dei file importati ====="
+          find _incoming -maxdepth 3 | head -200
+          echo "===== dimensione totale ====="
+          du -sh _incoming
+
+      - name: Commit e push sul branch di destinazione
+        run: |
+          git config user.name  "win7taskbar-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          # I binari sono esclusi da .gitignore: forziamo le estensioni note.
+          find _incoming -type f \( -iname '*.dll' -o -iname '*.lib' -o -iname '*.exe' \
+            -o -iname '*.pdb' -o -iname '*.ico' -o -iname '*.png' -o -iname '*.res' \) \
+            -exec git add -f {} + || true
+          git commit -m "feat: import Win7Taskbar sources and binaries from MediaFire" || echo "nessuna modifica"
+          git push origin "HEAD:${{ inputs.target_branch }}"
+
+      - name: Salva i bundle come artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediafire-bundles
+          path: _incoming/*.zip
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # 2) Build della release self-contained (nessun runtime .NET richiesto)
+  # ---------------------------------------------------------------------------
+  build-release:
+    name: Build release ${{ github.event.inputs.build_release }}
+    needs: [fetch-sources]
+    if: ${{ always() && !cancelled() && inputs.build_release }}
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout del branch di destinazione
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Individua il progetto da compilare
+        id: detect
+        shell: pwsh
+        run: |
+          $projects = @(Get-ChildItem -Recurse -Filter *.csproj -File |
+            Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' })
+          Write-Host "Progetti trovati:"
+          $projects | ForEach-Object { Write-Host " - $($_.FullName)" }
+
+          $main = $projects | Where-Object {
+            $xml = Get-Content $_.FullName -Raw
+            $xml -match 'UseWPF>\s*true' -or $xml -match 'WinExe'
+          } | Select-Object -First 1
+          if (-not $main) { $main = $projects | Select-Object -First 1 }
+
+          $tfm = "${{ env.TFM_FALLBACK }}"
+          if ($main) {
+            $xml = Get-Content $main.FullName -Raw
+            $m = [regex]::Match($xml, '<TargetFrameworks?>([^<;]+)')
+            if ($m.Success) { $tfm = $m.Groups[1].Value.Trim() }
+            Write-Host "Progetto principale: $($main.FullName) (TFM $tfm)"
+            Write-Output "project=$($main.FullName)" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "Nessun .csproj trovato: la build .NET verra' saltata."
+          }
+          Write-Output "tfm=$tfm" >> $env:GITHUB_OUTPUT
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            6.0.x
+            8.0.x
+            9.0.x
+
+      - name: Build della parte nativa C++ (se presente)
+        if: ${{ hashFiles('**/CMakeLists.txt') != '' }}
+        shell: pwsh
+        run: |
+          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts/buildsystems/vcpkg.cmake'
+          $args = @('-S', '.', '-B', 'build-native', '-A', 'x64')
+          if (Test-Path $toolchain) { $args += "-DCMAKE_TOOLCHAIN_FILE=$toolchain" }
+          cmake @args
+          cmake --build build-native --config Release --parallel
+
+      - name: Publish self-contained (cartella portatile)
+        if: ${{ steps.detect.outputs.project != '' }}
+        shell: pwsh
+        run: |
+          $proj = "${{ steps.detect.outputs.project }}"
+          dotnet publish $proj -c Release -r win-x64 --self-contained true `
+            -p:DebugType=None -p:DebugSymbols=false `
+            -o "${{ github.workspace }}\artifacts\portable"
+
+      - name: Publish self-contained (singolo .exe)
+        if: ${{ steps.detect.outputs.project != '' }}
+        shell: pwsh
+        run: |
+          $proj = "${{ steps.detect.outputs.project }}"
+          dotnet publish $proj -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:IncludeAllContentForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:DebugType=None -p:DebugSymbols=false `
+            -o "${{ github.workspace }}\artifacts\singlefile"
+
+      - name: Aggiungi licenza, README e parti native alle cartelle pubblicate
+        if: ${{ steps.detect.outputs.project != '' }}
+        shell: pwsh
+        run: |
+          foreach ($dir in @("artifacts\portable", "artifacts\singlefile")) {
+            if (Test-Path $dir) {
+              Copy-Item LICENSE "$dir\LICENSE.txt" -Force
+              if (Test-Path README.md) { Copy-Item README.md "$dir\README.md" -Force }
+            }
+          }
+          # Le DLL native prodotte da CMake vengono copiate accanto all'exe.
+          Get-ChildItem -Recurse -Filter *.dll -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\build-native\\' } |
+            ForEach-Object { Copy-Item $_.FullName "artifacts\portable\" -Force }
+
+      - name: Crea gli ZIP della release
+        if: ${{ steps.detect.outputs.project != '' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $ver = "${{ env.RELEASE_VERSION }}"
+          Compress-Archive -Path "artifacts\portable\*" -DestinationPath "dist\Win7Taskbar-$ver-win-x64-portable.zip" -Force
+          $exe = Get-ChildItem "artifacts\singlefile\*.exe" | Select-Object -First 1
+          if ($exe) { Copy-Item $exe.FullName "dist\Win7Taskbar-$ver-win-x64-selfcontained.exe" -Force }
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - name: Carica gli artifact della build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Win7Taskbar-${{ env.RELEASE_VERSION }}-win-x64
+          path: dist/*
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Pubblica la release su GitHub
+        if: ${{ inputs.publish_release && steps.detect.outputs.project != '' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ver = "${{ env.RELEASE_VERSION }}"
+          $tag = "v$ver"
+          $notes = @"
+          ## Win7Taskbar $ver (alpha)
+
+          Release **self-contained**: non serve installare nessuna versione di .NET.
+
+          * ``Win7Taskbar-$ver-win-x64-portable.zip`` - versione portatile completa (scompatta e avvia).
+          * ``Win7Taskbar-$ver-win-x64-selfcontained.exe`` - eseguibile singolo, nessuna installazione.
+
+          Requisiti: Windows 10 (21H2 o superiore) / Windows 11, x64.
+          "@
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag dist/* --clobber
+          } else {
+            gh release create $tag dist/* --title "Win7Taskbar $ver" --notes $notes --prerelease
+          }
