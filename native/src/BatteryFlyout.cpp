@@ -256,13 +256,16 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
     const int  percent  = (sps.BatteryLifePercent <= 100)
                           ? static_cast<int>(sps.BatteryLifePercent) : -1;
 
-    /* scegli il glifo: colore per soglia, livello per decile */
+    /* scegli il glifo: livello per decile, serie per stato. La striscia del
+     * progetto disegna la batteria con la spina quando il PC e' collegato
+     * alla rete elettrica, quindi la spina non si sovrappone piu': e' gia'
+     * dentro il glifo della serie giusta. */
     int idx = battassets::IdxEmpty;
     if (noBatt) idx = battassets::IdxNoBatt;
     else if (percent >= 0) {
-        int base = battassets::IdxGreenBase, maxLvl = 10;
-        if (percent <= 15)      { base = battassets::IdxRedBase;    maxLvl = 6; }
-        else if (percent <= 35) { base = battassets::IdxYellowBase; maxLvl = 10; }
+        int base = battassets::IdxLevelBase, maxLvl = 10;
+        if (charging)           { base = battassets::IdxChargingBase; maxLvl = 10; }
+        else if (percent <= 15) { base = battassets::IdxLowBase;      maxLvl = 6;  }
         int lvl = (percent + 9) / 10;
         if (lvl < 1) lvl = 1;
         if (lvl > maxLvl) lvl = maxLvl;
@@ -286,12 +289,6 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
         /* v2.41: prima GDI+ alta qualita', ripiego GDI identico. */
         if (!(m_gdip[idx] && GdipDrawHQ(hdc, m_gdip[idx], 20, iy, dw, dh)))
             DrawBitmapScaled(hdc, m_icons[idx], dw, dh, 20, iy);
-        if (charging && (m_icons[battassets::IdxPlug] ||
-                         m_gdip[battassets::IdxPlug])) {
-            if (!(m_gdip[battassets::IdxPlug] &&
-                  GdipDrawHQ(hdc, m_gdip[battassets::IdxPlug], 8, iy + 10, 12, 26)))
-                DrawBitmapScaled(hdc, m_icons[battassets::IdxPlug], 12, 26, 8, iy + 10);
-        }
     }
 
     SetBkMode(hdc, TRANSPARENT);

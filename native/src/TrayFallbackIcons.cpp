@@ -303,18 +303,21 @@ bool TrayFallbackIcons::Render(SystemIconKind kind, ArgbBitmap& out) {
                 if (level < 1) level = 1;
                 if (level > 10) level = 10;
 
+                /* Le tre serie della striscia: batteria piena (livello per
+                 * decile), batteria con la spina quando e' collegato alla
+                 * rete elettrica, e la serie "scarica" per i livelli bassi. */
                 if (unknown) {
                     index = battassets::IdxWarn;
                 } else if (noBattery) {
                     index = battassets::IdxNoBatt;
-                } else if (charging || percent >= 30) {
-                    index = battassets::IdxGreenBase + (level - 1);
-                } else if (percent >= 10) {
-                    index = battassets::IdxYellowBase + (level - 1);
+                } else if (charging) {
+                    index = battassets::IdxChargingBase + (level - 1);
+                } else if (percent >= 15) {
+                    index = battassets::IdxLevelBase + (level - 1);
                 } else {
-                    index = battassets::IdxRedBase + (level - 1);
-                    if (index > battassets::IdxRedBase + 5) {
-                        index = battassets::IdxRedBase + 5;
+                    index = battassets::IdxLowBase + (level - 1);
+                    if (index > battassets::IdxLowBase + 5) {
+                        index = battassets::IdxLowBase + 5;
                     }
                 }
             }

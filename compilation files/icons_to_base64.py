@@ -102,16 +102,18 @@ BATTERY_FOOTER = """\
 static const IconB64 kAll[] = {
 %(entries)s};
 
-/* Idx* prefix so that it does not clash with the base64 array names. */
+/* Idx* prefix so that it does not clash with the base64 array names. The
+ * names say what the drawing shows, because that is what the callers pick:
+ * the strip has no colour variants (the fill is white), so "low" and "full"
+ * differ by the height of the fill, not by a colour. */
 enum Idx {
-    IdxGreenBase = 0,    /* + level 1..10 -> index = base + lvl - 1 */
-    IdxYellowBase = 10,
-    IdxRedBase = 20,     /* levels 1..6 */
-    IdxEmpty = 26,
-    IdxNoBatt = 27,
-    IdxWarn = 28,
-    IdxChargeErr = 29,
-    IdxPlug = 30,
+    IdxLevelBase = 0,    /* on battery: + level 1..10 -> base + lvl - 1 */
+    IdxChargingBase = 10,/* on AC, battery + plug: same level arithmetic */
+    IdxLowBase = 20,     /* low/critical levels 1..6 */
+    IdxEmpty = 26,       /* battery outline, no fill (unknown/absent) */
+    IdxNoBatt = 27,      /* on AC with no battery at all */
+    IdxWarn = 28,        /* warning triangle */
+    IdxChargeErr = 29,   /* AC plug + red X: charging refuses */
     IdxCount = %(count)d,
 };
 
@@ -159,13 +161,19 @@ def trim(image: Image.Image, box=None) -> Image.Image:
     return image.crop(bbox)
 
 
-def strip_slices(image: Image.Image):
+def strip_slices(image: Image.Image, alpha_cut: int = 0):
     """Column ranges of the glyphs of a horizontal strip.
 
-    Glyphs are separated by fully transparent columns; the cut itself is then
+    Glyphs are separated by transparent columns; the cut itself is then
     refined on each glyph's own alpha bounding box, so a strip with uneven
     spacing or a non-transparent background line still works as long as the
     columns between the glyphs are empty.
+
+    ``alpha_cut`` is the alpha value below which a pixel counts as empty. The
+    default (0) treats any non-zero alpha as ink, which keeps glyphs whose
+    anti-aliasing bleeds one column into the neighbour together. Raising it
+    (e.g. 16) separates two drawings that touch only through faint pixels,
+    without any coordinate being written by hand.
     """
     alpha = image.split()[3]
     width, height = image.size
@@ -174,7 +182,7 @@ def strip_slices(image: Image.Image):
     for x in range(width):
         empty = True
         for y in range(height):
-            if pixels[x, y] != 0:
+            if pixels[x, y] > alpha_cut:
                 empty = False
                 break
         columns.append(not empty)
@@ -326,6 +334,19 @@ def parse_args(argv):
                         help="single icon; repeatable, order is preserved")
     parser.add_argument("--strip", metavar="FILE",
                         help="horizontal strip cut on the alpha bounding box")
+    parser.add_argument("--alpha-cut", type=int, default=0, metavar="N",
+                        help="alpha below N counts as empty when the strip is "
+                             "split (default 0: any ink splits)")
+    parser.add_argument("--cells", metavar="LIST",
+                        help="comma-separated indices of the strip glyphs to "
+                             "use, in order: for a strip whose drawing order "
+                             "is not the order of the table (see --list-runs)")
+    parser.add_argument("--note", action="append", default=[], metavar="TEXT",
+                        help="line added to the generated header (repeatable): "
+                             "use it to record how the drawings were mapped")
+    parser.add_argument("--list-runs", action="store_true",
+                        help="print the glyph inventory of --strip with sizes, "
+                             "then exit")
     parser.add_argument("--names", metavar="LIST",
                         help="comma-separated names for the glyphs of --strip")
     parser.add_argument("--names-file", metavar="FILE",
@@ -355,9 +376,32 @@ def collect_glyphs(args):
             raise SystemExit("error: --icon expects NAME=FILE, got '%s'" % spec)
         name, path = spec.split("=", 1)
         glyphs.append((c_identifier(name), trim(load_rgba(path)), path))
+    if args.strip and args.list_runs:
+        image = load_rgba(args.strip)
+        spans = strip_slices(image, args.alpha_cut)
+        log("%s: %d glyphs (alpha cut %d)" % (args.strip, len(spans), args.alpha_cut))
+        for index, span in enumerate(spans):
+            glyph = trim(image, (span[0], 0, span[1], image.size[1]))
+            log("    %2d  x=%3d..%-3d  %dx%d"
+                % (index, span[0], span[1] - 1, glyph.size[0], glyph.size[1]))
+        raise SystemExit(0)
     if args.strip:
         image = load_rgba(args.strip)
-        spans = strip_slices(image)
+        spans = strip_slices(image, args.alpha_cut)
+        if args.cells:
+            wanted = []
+            for token in args.cells.split(","):
+                token = token.strip()
+                if not token:
+                    continue
+                if not token.isdigit():
+                    raise SystemExit("error: --cells expects indices, got '%s'" % token)
+                index = int(token)
+                if index >= len(spans):
+                    raise SystemExit("error: --cells asks glyph %d, the strip "
+                                     "has %d" % (index, len(spans)))
+                wanted.append(spans[index])
+            spans = wanted
         if args.names_file:
             with open(args.names_file, "r", encoding="utf-8") as handle:
                 names = [line.strip() for line in handle if line.strip()]
@@ -379,6 +423,15 @@ def collect_glyphs(args):
 
 def render_cpp(args, glyphs):
     lines = []
+    if args.note:
+        # Documented mapping: it lives in the file it describes, next to the
+        # table, so a future replacement of the source PNG does not have to
+        # guess which drawing went where.
+        lines.append("/*")
+        for note in args.note:
+            lines.append(" * " + note)
+        lines.append(" */")
+        lines.append("")
     for name, image, source in glyphs:
         width, height = image.size
         lines.append("/* %s (%dx%d) <- %s */" % (name, width, height, source))
@@ -439,8 +492,9 @@ def main(argv=None):
     if not glyphs:
         raise SystemExit("error: nothing to do: pass --icon and/or --strip")
 
-    if args.style == "battery" and len(glyphs) != len(BATTERY_NAMES):
-        raise SystemExit("error: the battery strip has %d glyphs, expected %d"
+    if args.style == "battery" and not args.cells and len(glyphs) != len(BATTERY_NAMES):
+        raise SystemExit("error: the battery strip has %d glyphs, expected %d "
+                         "(use --cells to pick the drawings in table order)"
                          % (len(glyphs), len(BATTERY_NAMES)))
 
     output = render_cpp(args, glyphs)

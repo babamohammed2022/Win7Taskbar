@@ -15,97 +15,122 @@ namespace trayassets {
 
 struct IconB64 { const char* b64; int nativeW; int nativeH; };
 
-/* kVolume0 (25x23) <- assets/icon-sources/volume-0.png */
+/*
+ * Order: volume 0..3 (muted -> full), network 0..5 (bars), warning, not working.
+ * Drawn by the user of the project; the PNG sources are not committed
+ * (assets/icon-sources/ is ignored by git).
+ */
+
+/* kVolume0 (16x16) <- assets/icon-sources/volume-0.png */
 static const char kVolume0[] = R"W7B(
-iVBORw0KGgoAAAANSUhEUgAAABkAAAAXCAYAAAD+4+QTAAAApUlEQVR42s2UPQ7AIAhGgfRETg49EQdy6tyTOHTySu3SwRiLGiGWxYQQHh8/
-Arx27e4GI6McYAWiMrEFiHxMWDq1QQQAYA3CVuJaAZKFEO6qEimhhiLqqXwWRDWnNkjstzSjWu+ZGZszsVJErQANEPUE+ZhwdJVz20b2Pr2v
-Ow9QV6J+J73tW6bkayE26c9hZlzWrl9C0HomPiZUVVJu3cwBDyt6AG16UxuUZr2nAAAAAElFTkSuQmCC
+iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABtUlEQVR42p2SP0xTURTGfxdbUdpSiX8KTx0wJiwkUg2DDtQFYvLSyUiTTq4k
+xsGEwbi8AZkZCCRMhAFf0smti6kTIZqYuGkMakjbJzZVKoiB9PG5vNSG8CLwLWe49/zud+534HDFgExQj60YYLuuWwLsEzdLEuCcuPmogEhg
+cxjAdd1MLpe7e1zbjiQ5jqODOoqDjv9dEFiC9Mtr1/VmZESCtMBqHyFUUzD46WZ3pX89QrZeA6/MfvTUu9XUJVT28gZehDuoVnlwK3k/9dHn
+T3Mfv1TCeN/oWFzijonw+UZiWWCFAzY26GucYW90FL/R4Of4OP72NuTzMD+P5RmAVDigWKRzx+fCwgK/HQeztsaPsTH8Wg1sm9PRBMA9ghgd
+wCkUCq9bEUxPa+d8TNrakiStT06qboy+Dw3J39xU8+oVCZ62vxkH7BZkZUX1vk5pZqbF/Doxobox8gYG9CsZleD2QeP/IJWKPgwnpWxWmpuT
+dnclSV8yGa2C3vefVXuch0KewONXvb0qx+Nqnkto72JSXleXij09EqQBTMgXxoP1fivonr1sPQSeBWfPH1WqiwaqAH8B8+v2MNxk1UcAAAAA
+SUVORK5CYII=
 )W7B";
 
-/* kVolume1 (23x15) <- assets/icon-sources/volume-1.png */
+/* kVolume1 (13x16) <- assets/icon-sources/volume-1.png */
 static const char kVolume1[] = R"W7B(
-iVBORw0KGgoAAAANSUhEUgAAABcAAAAPCAYAAAAPr1RWAAAAPUlEQVR42mNkoBKYNm3af3QxJgYagqFrOAs1wjYrK4txeAXLwIQ5KWE7/IKF
-tmH+//9/jLBlZGRkHNnBAgCwug7lFY/qEwAAAABJRU5ErkJggg==
+iVBORw0KGgoAAAANSUhEUgAAAA0AAAAQCAYAAADNo/U5AAAAr0lEQVR42pXSsQ3CMBCF4V90VlghFQu4oIAKQeslKLMFjlgiJWWkDAEdFBRe
+ICPQJuXRJJKTIHF+zck6fbL0dPA7GXAYpioZ4Oq6vgMuCYiIAD4J/ENuWPoYzFGe5yVwGt9eRMR7L/PEqOu6j7X2CmxW2naMMZeqqnbAVo2A
+m7V2n/RTnBR0DiE8gVaN+r4vi6J4Ae9J5U3TPLSVj1kDLoaai1hALZpA7cHG8DjMRb40sXxAobO46gAAAABJRU5ErkJggg==
 )W7B";
 
-/* kVolume2 (23x15) <- assets/icon-sources/volume-2.png */
+/* kVolume2 (15x16) <- assets/icon-sources/volume-2.png */
 static const char kVolume2[] = R"W7B(
-iVBORw0KGgoAAAANSUhEUgAAABcAAAAPCAYAAAAPr1RWAAAAPUlEQVR42mNkoBKYNm3af3QxJgYagqFrOAs1wjYrK4txeAXLwIT5////McKW
-kZGRcWQEC23DnBphO/yCBQDJVg7la+cvpgAAAABJRU5ErkJggg==
+iVBORw0KGgoAAAANSUhEUgAAAA8AAAAQCAYAAADJViUEAAABJ0lEQVR42p2TMUvDUBSFv8QpVEQI6RaXinMEB53EQpZkcuhuh0D+hS/oIILO
+WQriVKi7Qwa76SDYWZDuhTqVNItcl0TSktLUs1x4731nuOc8qFYDOM3nRmoAfr/ffwH8f4EiIoAqX3qed7PKcAGsgkVk2O127wC3OPPzR6oM
+lmHbtiOgLSJulmUz0zQVsAOgRESUUrKsAk7TdOo4zhXQEpHrXq/3CLT1OoswDOMyjuNj4Ah4cl33EDjQay7ywXGcE6AFjC3L2gN2dTbXj6Zp
+W4BeF74YjUavwBewP5lMxsB3LXg+n0dhGL4B78B5kiQfwOdCVIPBYLgmqnaWZbNmsxkVURXaBvyyQUVJnoMguC+XZKXBMtzpdG7X9f3PYNOP
+UTY4y+dK/QKQ5q43yAgnGQAAAABJRU5ErkJggg==
 )W7B";
 
-/* kVolume3 (23x15) <- assets/icon-sources/volume-3.png */
+/* kVolume3 (20x20) <- assets/icon-sources/volume-3.png */
 static const char kVolume3[] = R"W7B(
-iVBORw0KGgoAAAANSUhEUgAAABcAAAAPCAYAAAAPr1RWAAAAO0lEQVR42mNkoBKYNm3af3QxJgYagqFrOAupGv7//48RtoyMjIzDK1gGJsxJ
-CdvhFyy0DXNqhO3wCxYA4fIO5WCXcq8AAAAASUVORK5CYII=
+iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAABw0lEQVR42q2UMWhTURSGv7xAtDQgSESpoUukxEFKwDjo4FSozZRJRDJkSEFI
+9jgEL2YQBIfHC2QRcQs4BIJYkFpChpaQVwRxKFSSoaJTFuMg4vUdl/ukxNS8kP7T+e+59+Ny7zknzMmygA3gPrAIfGJOrdfr9S0REUDNC7ud
+z+dfaK31aQBXU6nUs9Fo9F2MpgDvAomTkpei0Wh1MBh8lmP6H7Db7W5blvUIOO+vZcwBBah2u70vY5oAzAAXAETEaTQaDWDdTyoREaWUKKVk
+ksaBzWbzlYEiIgta65/JZPIxELNmeNs1P8hms7+KxeIacC0UCv0Ih8MPq9XqCnA9MLBQKNw5Bq2XSqWbQNr4TjqdvgosBwY6jrMZiURuGdtL
+JBKrwGXjj2Kx2BJwLjBQRH5rrWXavsDAcrn80vO8XWNv9Pv9D8AX45eHw+FX4FtgoG3bW8A7Yx84jrMHuH5nua57ABzN8stv/aDVap2p1Wrb
+wEcRWfA872mlUjkE9v8p7E6n8z5gYV8cK+yNSbdYmrX1er3eznjrzTsc7gFXpo6vXC73/LTG198Ba9v2axGReDz+BDgb5FBoSj5j2ssF3gQB
+/gGC5xFKpf7l3QAAAABJRU5ErkJggg==
 )W7B";
 
-/* kNetwork0 (24x19) <- assets/icon-sources/network-0.png */
+/* kNetwork0 (16x12) <- assets/icon-sources/network-0.png */
 static const char kNetwork0[] = R"W7B(
-iVBORw0KGgoAAAANSUhEUgAAABgAAAATCAYAAACKsM07AAAAPklEQVR42mNkoDLIy8v7j8xnYqAxGPoWsFAzvCdNmsQ4/IJo8MQBMeE9PINo
-YOKA3PAejQPy4oCa4T08gwgAf6sSd6W0dW0AAAAASUVORK5CYII=
+iVBORw0KGgoAAAANSUhEUgAAABAAAAAMCAYAAABr5z2BAAAAR0lEQVR42qWSQQ4AIAjDBuHf7OleFxONjt642GII/EMdEs4LZJNsACjHahWo
+VSnH+lxwst4K+Puh6Vj3AmJAOtbxISkxXWEBFdsXFYKMLh4AAAAASUVORK5CYII=
 )W7B";
 
-/* kNetwork1 (24x19) <- assets/icon-sources/network-1.png */
+/* kNetwork1 (16x12) <- assets/icon-sources/network-1.png */
 static const char kNetwork1[] = R"W7B(
-iVBORw0KGgoAAAANSUhEUgAAABgAAAATCAYAAACKsM07AAAARklEQVR42mNkoDLIy8v7j8xnYqAxGPoWsFAzvCdNmsQ4/IJo8MQBMeE9PINo
-YOKA3PAejQPy4uD///8o4c3IyMg4GkTIAACa2xJ3hdszAQAAAABJRU5ErkJggg==
+iVBORw0KGgoAAAANSUhEUgAAABAAAAAMCAYAAABr5z2BAAAAS0lEQVR42qWQMQ7AMAjEHJR/cz8nK6rUqjm8sWDD4h71IXA2SCkpAbZjtQq6
+tbMd6++CN+tXgW4fGo71WSAGBEBVZVWlvWDCmp5wAEKXGg9Uw8+bAAAAAElFTkSuQmCC
 )W7B";
 
-/* kNetwork2 (24x19) <- assets/icon-sources/network-2.png */
+/* kNetwork2 (16x12) <- assets/icon-sources/network-2.png */
 static const char kNetwork2[] = R"W7B(
-iVBORw0KGgoAAAANSUhEUgAAABgAAAATCAYAAACKsM07AAAARklEQVR42mNkoDLIy8v7j8xnYqAxGPoWsFAzvCdNmsQ4/IJo8MQBMeE9PINo
-YOLg////KOHNyMjIOHKDiPZxQM3wHp5BBAC2CxJ3XeyJIAAAAABJRU5ErkJggg==
+iVBORw0KGgoAAAANSUhEUgAAABAAAAAMCAYAAABr5z2BAAAATUlEQVR42qWSMQ4AIAgDq+Hf9Od1JTEaqd1YegdhoB/WYcJpIJNkAkA4VMug
+UmvCoT4bnKg3A3YPuhlISkn5WhAOdTPoUr8fqWb8rrAAzp4dCWqQfEoAAAAASUVORK5CYII=
 )W7B";
 
-/* kNetwork3 (24x19) <- assets/icon-sources/network-3.png */
+/* kNetwork3 (16x12) <- assets/icon-sources/network-3.png */
 static const char kNetwork3[] = R"W7B(
-iVBORw0KGgoAAAANSUhEUgAAABgAAAATCAYAAACKsM07AAAARUlEQVR42mNkoDLIy8v7j8xnYqAxGPoWsFAzvCdNmsQ4/IJo8MTB////UcKb
-kZGRcWQE0cDEAbnhPRoH5MUBNcN7eAYRANE7EneBSWMJAAAAAElFTkSuQmCC
+iVBORw0KGgoAAAANSUhEUgAAABAAAAAMCAYAAABr5z2BAAAAS0lEQVR42qWSQQoAIAgEt/Df7s+3q3SQWucmhDNCC/+wDhvOBjJJJgCEY7UK
+qrUSjvW5QFJKyu5NONa24MV6FxADtmMdf6TKmp5wALn/IAPGny7VAAAAAElFTkSuQmCC
 )W7B";
 
-/* kNetwork4 (24x19) <- assets/icon-sources/network-4.png */
+/* kNetwork4 (16x12) <- assets/icon-sources/network-4.png */
 static const char kNetwork4[] = R"W7B(
-iVBORw0KGgoAAAANSUhEUgAAABgAAAATCAYAAACKsM07AAAAQ0lEQVR42mNkoDLIy8v7j8xnYqAxGPoWsFCi+f///yjhzcjIyDj8gmjwxAEx
-4T08g2hg4oDc8B6NA/LigJrhPTyDCADsaxJ3VUc8TgAAAABJRU5ErkJggg==
+iVBORw0KGgoAAAANSUhEUgAAABAAAAAMCAYAAABr5z2BAAAAS0lEQVR42qWSMQ4AIAgDK+Hf9Od1NSYaLd1g4A7CwH+4FgFnAlkkCwDSoVoG
+kkpS7f10qM8GJ+rNgL8HDYe6GxCNhENtP9Ka0V1hAgS6Iv2dcz2WAAAAAElFTkSuQmCC
 )W7B";
 
-/* kNetwork5 (24x19) <- assets/icon-sources/network-5.png */
+/* kNetwork5 (16x12) <- assets/icon-sources/network-5.png */
 static const char kNetwork5[] = R"W7B(
-iVBORw0KGgoAAAANSUhEUgAAABgAAAATCAYAAACKsM07AAAAPklEQVR42mNkoDL4////f2Q+EwONwdC3gIWa4c3IyMg4/IJo8MQBMeE9PINo
-YOKA3PAejQPy4oCa4T08gwgAnXIUKtMbRsgAAAAASUVORK5CYII=
+iVBORw0KGgoAAAANSUhEUgAAABAAAAAMCAYAAABr5z2BAAAASElEQVR42qWSMQ4AIAjEDsK/4efnSkw0enRjscVg+Kf64MIDIJkkEwBCsUoF
+3doJxfpccLLeCur3Q12x7gWFAa5Yx4fUsekKC66xJfcAgpYSAAAAAElFTkSuQmCC
 )W7B";
 
-/* kNetworkWarning (27x24) <- assets/icon-sources/network-warning.png */
+/* kNetworkWarning (16x14) <- assets/icon-sources/network-warning.png */
 static const char kNetworkWarning[] = R"W7B(
-iVBORw0KGgoAAAANSUhEUgAAABsAAAAYCAYAAAALQIb7AAAApklEQVR42mNgIANoaGj8Z6AH0NDQ+P9kt81/cixkYqAjYCLVV3smizAwMDAw
-7JksQnJwDk6fIfsKBkj13eDzGTZfkeM7JlIs8i97S5GFgycY8QUfOb4bHD4jxVfE+o6uPmMkxVc/fv1n4GBjJGioS+4bhhs3bjBS5LOGOZ+p
-6zNy4opY3zHRwiJciWVgkj41fYXLd/T3GS18hc139M3UdGuWMTAwAACvqlD1pQbB5gAAAABJRU5ErkJggg==
+iVBORw0KGgoAAAANSUhEUgAAABAAAAAOCAYAAAAmL5yKAAABE0lEQVR42p2SMUvDQBiGnxwhpsFA6KzgWBKkc3Spmz/DSbSLP6GHayddXIr4
+M9yEIA6ZHB0i3BCEIMiBIlKk5yCpaTHR5oXjuG/43ud9OYvVJasPQZsNUo6klCMAu41rK4Kqa1X2f12zLCPP89UIqq6fb4/cnKbEkQi01rUL
+ZOUs6HD/GYDx0BkopeoJlrNqrYkjEazbL0RHWzhrXt+loKSwmxoGUEoxHjqDZZrza/VDUNew1hqXgt1t0fc7MwD8zoy98AmX4u8SlVLz7L3N
+6cJdzq2mCHEkgrsL9wTg9V3wkDv0Nqb43jfNzvHHWRPAwf2le2sSz5jEM+mka8IwNOmka8qZSbwrq+kbmMSb9/IbAcAX3rF2bmjT7gUAAAAA
+SUVORK5CYII=
 )W7B";
 
-/* kNetworkNotWorking (27x24) <- assets/icon-sources/network-not-working.png */
+/* kNetworkNotWorking (23x20) <- assets/icon-sources/network-not-working.png */
 static const char kNetworkNotWorking[] = R"W7B(
-iVBORw0KGgoAAAANSUhEUgAAABsAAAAYCAYAAAALQIb7AAABB0lEQVR42mNgIANoaGj8Z6AH0NDQ+P9kt81/cixkYqAjYCLVV3smizAwMDAw
-7JksQnJwDk6fIfsKBkj13eDzGTZfkeM7JkosItXCwROMyL5qmPOJ4eilXwwMDAwMfcu/MOw+9ZNk3xHts+wQHoZF278x3Hz4h+H1h38Mrmbs
-JPuMkZS4WrPvO8Oqvd8ZJhXxM0gIM2PV55L7huHGjRuMFMfZ95//GZiZITTV4gybr568+stw7uZvhtZ0PobJq78y/P9Pesok2mcTVnxhSPHn
-YlCSZmGQl2Rm2H78B+VxRky+IgZgizsmWliEKzgHJlNT01e4fEd/n9HCV9h8R1efMdKtWcbAwAAAkr14/L0BU9EAAAAASUVORK5CYII=
+iVBORw0KGgoAAAANSUhEUgAAABcAAAAUCAYAAABmvqYOAAACI0lEQVR42rWUsUsbURzHP3e9kJOY2CE0kYtpUiycoOgiWIdWsELAJZt1Ebc4
+BDpZcDL5DzoEIZu4OLuJtVBcKp1aCHhIaBIhmCUQk5i8QEg6pB6Xtiknxi88eHfv9z7vve/v/Z7Ew5UY9E9hGPREYtfST971ZR5RypBsGBp8
+oA1DgQshqFQqCCEAyOfzqKqK1+u9N/wvG87Pz/u+8/n8nyEqIBS7NtTrdTKZDMfHx8loXfDqtsmYaEFY36VQ4kZ18tU1wpfelE1g39Ztabfb
+ZDIZ5EaDs+DkVqRc6YEtGhMtIuUKZ8HJrXHFEQI25QE2WBvZbBYhBB/KNSZmpn1aOoXscfdNkj1utHSKiZlp35EWWgP8ip3bUCqViNYF/kYT
+7/s4oyvLBA8PuFrfoFOtIXvcBA8PcE7pALRi8dCeL7Bgu4gWb5sAXG/v0LowcE7pBA8PcAQ0E9y6MLje3unFj7jmFLtF4fntcada42p9wwS+
+ODvt7fbCME8CoEqST7lPUdypU61RjMVNMEAxFjfBD3pb7pJn1T+TbBd4ozpNsNXjn6/f9uXAskBBsuv5x2faUsTlfqOlU4yuLPd5bF2w/ukz
+xVgcIGl341Eg8e35y1xuNdqtnZx2L2fnu0ZYN9vl7Hy3dnLaza1Gu0ZY/w4g2YSrwNa44vAfaaE1j/wk9J/YH8CSnjMq0j3y6AfeAU/3fIGF
+xRHXnCpJPst4AdjXc4Zp8y/wVuN08M4PUAAAAABJRU5ErkJggg==
 )W7B";
 
 /* Table: index -> glyph. Idx* names are provided by the enum below so that
  * the C++ code never depends on a position. */
 static const IconB64 kAll[] = {
-    { kVolume0, 25, 23 },
-    { kVolume1, 23, 15 },
-    { kVolume2, 23, 15 },
-    { kVolume3, 23, 15 },
-    { kNetwork0, 24, 19 },
-    { kNetwork1, 24, 19 },
-    { kNetwork2, 24, 19 },
-    { kNetwork3, 24, 19 },
-    { kNetwork4, 24, 19 },
-    { kNetwork5, 24, 19 },
-    { kNetworkWarning, 27, 24 },
-    { kNetworkNotWorking, 27, 24 },
+    { kVolume0, 16, 16 },
+    { kVolume1, 13, 16 },
+    { kVolume2, 15, 16 },
+    { kVolume3, 20, 20 },
+    { kNetwork0, 16, 12 },
+    { kNetwork1, 16, 12 },
+    { kNetwork2, 16, 12 },
+    { kNetwork3, 16, 12 },
+    { kNetwork4, 16, 12 },
+    { kNetwork5, 16, 12 },
+    { kNetworkWarning, 16, 14 },
+    { kNetworkNotWorking, 23, 20 },
 };
 
 enum Idx {
