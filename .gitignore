@@ -84,11 +84,11 @@ Testing/
 # --- Output della release --------------------------------------------------
 dist/
 release/
-*.zip
-*.7z
-*.tar.gz
 
 # --- Cartelle di lavoro temporanee -----------------------------------------
 _staging/
 _local/
 *.tmp.zip
+
+# --- Archivi caricati a mano per l'import (RIMUOVERE dopo l'import) ---------
+# (nessuna esclusione: i .zip di import devono poter essere committati)
