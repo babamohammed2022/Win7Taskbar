@@ -2,17 +2,17 @@
 
 <img src="docs/icon-256.png" alt="Win7Taskbar" width="96" align="left" hspace="12" vspace="4">
 
-A Windows 7-inspired taskbar for Windows 10 and 11.
+A Windows 7-inspired taskbar recreation for Windows 10 and 11.
 
-Win7Taskbar combines a WPF/XAML frontend with a native C++/Win32 backend to reproduce the Windows 7 Superbar experience, including grouped task buttons, jump lists, the notification area, system flyouts, overflow handling, and the Properties interface.
+Win7Taskbar is a software that recreates the Windows 7 taskbar on Windows 10 and Windows 11. It combines a XAML frontend with a native C++/Win32 backend to reproduce the Windows 7 Superbar, including grouped task buttons, the notification area, system flyouts, overflow handling, and a very similar Properties interface.
 
-**Current version: `1.0.0-alpha`** — an incomplete alpha release. See [Releases](https://github.com/babamohammed2022/Win7Taskbar/releases) for downloads and release notes.
+**Current state: `Alpha`**
 
 > **Self-contained:** official releases include the .NET runtime and do not require a separate .NET installation.
 
 ## Requirements
 
-- Windows 10 21H2 or later, or Windows 11
+- Windows 10/11
 - x64
 - No separate .NET installation required for official releases
 
@@ -25,7 +25,7 @@ Win7Taskbar combines a WPF/XAML frontend with a native C++/Win32 backend to repr
 
 ## Current status
 
-Win7Taskbar is still under development. Window thumbnail previews are temporarily disabled because the previous preview implementations were not reliable on real systems. The application-name tooltip remains available.
+Win7Taskbar is still under development. Window thumbnail previews are temporarily disabled because the previous preview implementations were not reliable on real systems. Additionally, jump lists are not implemented yet. The application-name tooltip remains available.
 
 Other known limitations include unsupported decorative taskbar rotation and system windows that are hooked and repositioned rather than fully recreated.
 
