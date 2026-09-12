@@ -68,20 +68,16 @@ constexpr Strings kAr = {
 
           s = s.replace('case 10: return kEn; /* Arabic uses the WPF dictionary for the managed UI. */',
                         'case 10: return kAr;')
-          s = s.replace('/* v2.42: dialogo Proprieta\' tradotto in TUTTE le lingue della mod',
-                        '/* v2.42: dialogo Proprieta\' tradotto in TUTTE le lingue della mod')
 
           path.write_text(s, encoding='utf-8')
 
-          # Validate that all expected language initializers exist and have the same field count.
           names = ['kIt','kEn','kEs','kFr','kDe','kPt','kPl','kRu','kJa','kZh','kAr']
           counts = {}
           for name in names:
               m = re.search(r'constexpr Strings ' + name + r' = \{(.*?)\n\};', s, re.S)
               if not m:
                   raise SystemExit(f'missing {name}')
-              body = m.group(1)
-              counts[name] = len(re.findall(r'L"', body))
+              counts[name] = len(re.findall(r'L"', m.group(1)))
           print('String literal counts:', counts)
           if len(set(counts.values())) != 1:
               raise SystemExit('Language string counts do not match')
