@@ -20,7 +20,7 @@ struct PropsApplyMsg {
     int32_t seconds;        // 0/1 mostra secondi
     int32_t nativeFlyout;   // 0/1 flyout orologio nativo
     int32_t enableSearch;   // 0/1 ricerca applicazioni
-    int32_t lang;           // 0=it, 1=en
+    int32_t lang;           // 0=it, 1=en, 2=es, 3=fr, 4=de, 5=pt, 6=pl, 7=ru, 8=ja, 9=zh, 10=ar
     int32_t openSearch;     // 1 = apri il pannello ricerca dopo l'apply
     int32_t closeApp;       // 1 = chiudi Win7Taskbar
     int32_t netFlyoutMode;  // 0 = Win7 ricreato, 1 = Windows 10/11
