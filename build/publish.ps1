@@ -26,12 +26,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$target = Join-Path (Split-Path -Parent $PSScriptRoot) 'compilation files/publish.ps1'
+$root = Split-Path -Parent $PSScriptRoot
+$target = Join-Path $root 'compilation files/publish.ps1'
 if (-not (Test-Path $target)) {
     Write-Host "!!  $target not found: the packaging script has been moved or removed." -ForegroundColor Red
     exit 1
 }
 
 Write-Host "==> build/publish.ps1 is a compatibility shim: running 'compilation files/publish.ps1'" -ForegroundColor Yellow
-& $target @ForwardArgs
+
+# The arguments are handed to a new instance of the current shell on purpose.
+# Forwarding them with "& $target @ForwardArgs" would pass "-SkipNative" as a
+# positional string and the real script would refuse it; handing them to a
+# native command keeps the "-Name value" shape intact, whatever the caller used.
+$shell = (Get-Process -Id $PID).Path
+& $shell -NoProfile -ExecutionPolicy Bypass -File $target @ForwardArgs
 exit $LASTEXITCODE
