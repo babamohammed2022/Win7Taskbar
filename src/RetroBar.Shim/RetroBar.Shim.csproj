@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Win7Taskbar - shim di compatibilita' per il tema Windows7.xaml.
+
+    L'AssemblyName DEVE essere "RetroBar": il tema dichiara
+    xmlns:controls="clr-namespace:RetroBar.Controls;assembly=RetroBar"
+    e senza un assembly con quel nome il XAML non compila.
+
+    Il codice qui dentro e' scritto da zero; da RetroBar (Copyright (c) dremin,
+    Apache 2.0) e' ripresa solo la superficie pubblica necessaria ai binding.
+    Vedere CREDITS.txt.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>RetroBar</AssemblyName>
+    <RootNamespace>RetroBar</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- Consente di compilare (non eseguire) su Linux/macOS. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Product>Win7Taskbar RetroBar theme compatibility shim</Product>
+    <Description>Superficie pubblica minima richiesta dai temi RetroBar.</Description>
+    <Copyright>Copyright (c) 2026 Win7Taskbar contributors</Copyright>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <Version>1.7.0</Version>
+    <AssemblyVersion>1.7.0.0</AssemblyVersion>
+    <FileVersion>1.7.0.0</FileVersion>
+  
+    <!-- v2.58: no symbols in the published package (the executable's project
+         sets the same; this assembly is the one that used to leave a .pdb). -->
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+</PropertyGroup>
+
+  <!-- Themes/Base.xaml viene incluso automaticamente come <Page> dall'SDK. -->
+
+</Project>

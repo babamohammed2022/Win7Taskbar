@@ -1,94 +1,33 @@
-# ---------------------------------------------------------------------------
-# Win7Taskbar - .gitignore
-# ---------------------------------------------------------------------------
+# Build output
+bin/
+obj/
+out/
+dist-package/          # self-contained package produced by build/publish.ps1 (CI artifact)
+dist/*.pdb
+Win7Taskbar-*-win-x64.zip
+release/
 
-# --- .NET / C# -------------------------------------------------------------
-[Bb]in/
-[Oo]bj/
-[Ll]og/
-[Ll]ogs/
-artifacts/
-publish/
-publish-*/
-TestResults/
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
-*.userprefs
-*.dotCover
-*.nupkg
-*.snupkg
-project.lock.json
-project.fragment.lock.json
-packages/
-!packages/build/
+# CMake build trees
+native/build/
+native/build-*/
+*.log
+
+# IDE
 .vs/
 .vscode/
-*.csproj.user
-*.props.user
-
-# --- Strumenti / IDE ------------------------------------------------------
 .idea/
-*.swp
-*.swo
-*~
-.DS_Store
-Thumbs.db
-desktop.ini
+*.user
+*.suo
+*.userprefs
+*.csproj.user
 
-# --- C/C++ -----------------------------------------------------------------
-*.d
-*.slo
-*.lo
-*.o
-*.obj
-*.gch
-*.pch
-*.ilk
-*.pdb
-*.so
-*.dylib
-*.dll
-*.so.*
-*.mod
-*.smod
-*.lai
-*.la
-*.a
-*.lib
-*.exe
-*.out
-*.app
-
-# --- CMake / vcpkg ---------------------------------------------------------
-build/
-build-*/
-Build/
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-install_manifest.txt
-compile_commands.json
-vcpkg_installed/
-CMakeUserPresets.json
-
-# --- Debugger / analisi ----------------------------------------------------
+# Misc
 *.log
 *.tmp
 *.bak
-*.dwo
-Testing/
-.cache/
-
-# --- Output della release --------------------------------------------------
-dist/
-release/
-
-# --- Cartelle di lavoro temporanee -----------------------------------------
-_staging/
-_local/
-*.tmp.zip
-
-# --- Archivi caricati a mano per l'import (RIMUOVERE dopo l'import) ---------
-# (nessuna esclusione: i .zip di import devono poter essere committati)
+*.swp
+*~
+__pycache__/
+Thumbs.db
+desktop.ini
+.DS_Store
