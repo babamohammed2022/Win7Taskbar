@@ -201,13 +201,17 @@ int TrayFallbackIcons::NetworkLevel() {
                                       CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER,
                                       IID_PPV_ARGS(&manager));
         if (SUCCEEDED(hr) && manager != nullptr) {
-            VARIANT_BOOL value = VARIANT_FALSE;
-            if (SUCCEEDED(manager->IsConnected(&value))) {
-                connected = (value != VARIANT_FALSE);
-            }
-            value = VARIANT_FALSE;
-            if (SUCCEEDED(manager->IsConnectedToInternet(&value))) {
-                internet = (value != VARIANT_FALSE);
+            /* GetConnectivity() e' il metodo usato anche dal flyout di rete:
+             * le property IsConnected/IsConnectedToInternet sono dichiarate
+             * con nomi diversi dai due compilatori (MSVC le prefissa con
+             * get_), mentre questo metodo esiste con lo stesso nome ovunque. */
+            NLM_CONNECTIVITY connectivity = NLM_CONNECTIVITY_DISCONNECTED;
+            if (SUCCEEDED(manager->GetConnectivity(&connectivity))) {
+                const NLM_CONNECTIVITY internetMask =
+                    (NLM_CONNECTIVITY)(NLM_CONNECTIVITY_IPV4_INTERNET |
+                                       NLM_CONNECTIVITY_IPV6_INTERNET);
+                connected = (connectivity != NLM_CONNECTIVITY_DISCONNECTED);
+                internet  = (connectivity & internetMask) != 0;
             }
             manager->Release();
         }
