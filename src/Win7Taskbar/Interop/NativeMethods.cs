@@ -380,6 +380,14 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_OverflowUsesShellFlyout();
 
+        /// <summary>
+        /// v2.61: vero se il sistema e' Windows 11 (build >= 22000). Letto
+        /// dal core con RtlGetVersion: la versione gestita non e'
+        /// affidabile, perche' il manifest dell'app non dichiara Windows 10.
+        /// </summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int W7T_IsWindows11();
+
         // v3.0: optional app search panel.
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppSearchInit(ulong ownerTaskbar, byte[]? argbPixels, int iconW, int iconH);

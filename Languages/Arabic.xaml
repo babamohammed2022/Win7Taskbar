@@ -43,5 +43,18 @@
     <s:String x:Key="lang_about_title">حول</s:String>
     <s:String x:Key="lang_about_text">يُعد Win7Taskbar مشروعاً يخضع لتحسين مستمر، ويهدف إلى محاكاة شريط مهام Windows 7 فوق شريط المهام الحديث، وستتحسن دقة الأداء مع مرور الوقت. تشمل القيود المعروفة عدم دعم تغيير اتجاه شريط المهام إلى الجانب أو الأعلى، مما يجعل الخيار المتعلق بذلك تجميلياً في الوقت الحالي؛ كما يتم ربط نوافذ النظام، مثل القوائم المنبثقة وقائمة ابدأ، وإعادة تموضعها بدلاً من إعادة إنشائها.</s:String>
     <s:String x:Key="lang_credits">شكر وتقدير لـ 3ds على بعض الموارد الرسومية وعلى الإلهام وراء فكرة XAML. الترجمة العربية من إعداد MAHMOGAMER.</s:String>
+    <s:String x:Key="lang_menu_toolbars">أشرطة الأدوات</s:String>
+    <s:String x:Key="lang_menu_desktop">سطح المكتب</s:String>
+    <s:String x:Key="lang_menu_links">الارتباطات</s:String>
+    <s:String x:Key="lang_menu_address">العنوان</s:String>
+    <s:String x:Key="lang_menu_cascade">تعاقب النوافذ</s:String>
+    <s:String x:Key="lang_menu_stack">إظهار النوافذ مكدسة</s:String>
+    <s:String x:Key="lang_menu_sidebyside">إظهار النوافذ جنباً إلى جنب</s:String>
+    <s:String x:Key="lang_menu_lock">تأمين شريط المهام</s:String>
+    <s:String x:Key="lang_menu_pin">تثبيت هذا البرنامج على شريط المهام</s:String>
+    <s:String x:Key="lang_menu_unpin">إلغاء تثبيت هذا البرنامج من شريط المهام</s:String>
+    <s:String x:Key="lang_address_tip">العنوان: اكتب مساراً أو رابطاً ثم اضغط Enter</s:String>
+    <s:String x:Key="lang_tray_pin_tip">النقل بين شريط الإشعارات والقائمة المخفية (تثبيت/إلغاء التثبيت)</s:String>
+    <s:String x:Key="lang_close_tip">إغلاق</s:String>
 </ResourceDictionary>
 

@@ -36,7 +36,7 @@
                         DockPanel.Dock="Right"
                         Style="{DynamicResource NotifyBalloonCloseButton}"
                         Click="CloseButton_Click"
-                        ToolTip="Chiudi">
+                        ToolTip="{DynamicResource lang_close_tip}">
                     <Path Data="M 0,0 L 7,7 M 7,0 L 0,7"
                           Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
                           StrokeThickness="1.4"

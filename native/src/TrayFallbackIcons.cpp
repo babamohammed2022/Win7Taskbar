@@ -328,6 +328,22 @@ bool TrayFallbackIcons::Render(SystemIconKind kind, ArgbBitmap& out) {
             return false;
     }
 
+    /* v2.61 - L'ICONA ESISTE SEMPRE.
+     *
+     * Se il glifo dello stato corrente non c'e' (asset mancante, stato che
+     * non ha un disegno) non si torna a mani vuote: si usa il glifo
+     * "stato non disponibile" dello stesso tipo, che esiste di sicuro.
+     * Prima un fallimento qui lasciava la voce fuori dal modello e l'utente
+     * vedeva una tray con due icone invece di tre, senza capire perche'. */
+    if (glyph == nullptr || glyph->empty()) {
+        switch (kind) {
+            case SystemIconKind::Network: glyph = TrayGlyph(trayassets::IdxNetworkNotWorking); break;
+            case SystemIconKind::Volume:  glyph = TrayGlyph(trayassets::IdxVolume0); break;
+            case SystemIconKind::Battery: glyph = TrayGlyph(trayassets::IdxNetworkNotWorking); break;
+            default: break;
+        }
+    }
+
     if (glyph == nullptr || glyph->empty()) {
         return false;
     }

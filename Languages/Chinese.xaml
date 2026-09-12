@@ -38,4 +38,17 @@
     <s:String x:Key="lang_about_title">关于</s:String>
     <s:String x:Key="lang_about_text">Win7Taskbar 是一个持续改进的尽力而为（best-effort）项目，在现代任务栏之上重现 Windows 7 任务栏：精确度会随时间提高。已知限制：不支持任务栏旋转（侧边/顶部），因此相关选项目前仅起装饰作用；系统窗口（弹出面板、开始菜单）是被钩取并重新定位的，并非重新创建。</s:String>
     <s:String x:Key="lang_credits">致谢：感谢 3ds 提供的部分图形资源以及 XAML 创意的启发。</s:String>
+    <s:String x:Key="lang_menu_toolbars">工具栏</s:String>
+    <s:String x:Key="lang_menu_desktop">桌面</s:String>
+    <s:String x:Key="lang_menu_links">链接</s:String>
+    <s:String x:Key="lang_menu_address">地址</s:String>
+    <s:String x:Key="lang_menu_cascade">层叠窗口</s:String>
+    <s:String x:Key="lang_menu_stack">堆叠显示窗口</s:String>
+    <s:String x:Key="lang_menu_sidebyside">并排显示窗口</s:String>
+    <s:String x:Key="lang_menu_lock">锁定任务栏</s:String>
+    <s:String x:Key="lang_menu_pin">将此程序固定到任务栏</s:String>
+    <s:String x:Key="lang_menu_unpin">从此任务栏取消固定此程序</s:String>
+    <s:String x:Key="lang_address_tip">地址：输入路径或 URL 并按 Enter</s:String>
+    <s:String x:Key="lang_tray_pin_tip">在通知区域和溢出区域之间移动 (固定/取消固定)</s:String>
+    <s:String x:Key="lang_close_tip">关闭</s:String>
 </ResourceDictionary>

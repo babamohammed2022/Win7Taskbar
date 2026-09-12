@@ -106,6 +106,28 @@ public:
      * it above the anchor rectangle. */
     bool RequestOverflowFlyout(const RECT& anchor);
 
+    /**
+     * Vero se il lettore ha un thread vivo che sta consegnando snapshot.
+     *
+     * v2.61: serve a NON considerare "lettore avviato" una cosa sola.
+     * Prima bastava che EnableWin11Tray() fosse stata chiamata una volta
+     * per non riprovare mai piu': se Start() falliva (thread non partito,
+     * shell sotto stress all'avvio) la tray restava senza nessuna lettura
+     * per sempre, ed e' uno dei motivi per cui le icone comparivano solo
+     * dopo molti minuti, se comparivano.
+     */
+    bool IsRunning() const { return m_started.load() && m_threadId != 0; }
+
+    /**
+     * Vero se l'ULTIMA lettura ha davvero attraversato la tray della shell.
+     *
+     * v2.61: distingue "Explorer non ha risposto / isola non ancora pronta"
+     * da "l'utente non ha icone". Serve a decidere se ritentare in backoff:
+     * una lettura non valida non deve mai essere interpretata come assenza.
+     */
+    bool IsLastReadValid() const { return m_lastReadValid.load(); }
+
+
 private:
     Win11TrayReader() = default;
     Win11TrayReader(const Win11TrayReader&) = delete;
@@ -122,6 +144,7 @@ private:
     DWORD              m_threadId = 0;
     std::atomic<bool>  m_running{ false };
     std::atomic<bool>  m_started{ false };
+    std::atomic<bool>  m_lastReadValid{ false };
     std::atomic<bool>  m_threadDone{ false };
 
     mutable std::mutex         m_mutex;

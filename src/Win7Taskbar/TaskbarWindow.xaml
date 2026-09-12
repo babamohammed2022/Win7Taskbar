@@ -432,12 +432,23 @@
                             Orientation="Horizontal"
                             Visibility="Collapsed">
                     <Button Style="{StaticResource BandButton}"
-                            ToolTip="Desktop"
+                            ToolTip="{DynamicResource lang_menu_desktop}"
                             Click="DesktopBandToggle_Click">
                         <!-- v3.0: come negli screenshot di Windows 7, la scritta
                              della banda Desktop e' BIANCA sulla barra Aero,
                              non nera. -->
-                        <TextBlock Text="Desktop &#9662;" FontSize="11" VerticalAlignment="Center" Foreground="White" />
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="{DynamicResource lang_menu_desktop}"
+                                       FontSize="11"
+                                       Foreground="White"
+                                       VerticalAlignment="Center" />
+                            <!-- La freccia e' un glifo, non testo: non si traduce. -->
+                            <TextBlock Text="&#9662;"
+                                       FontSize="11"
+                                       Margin="3,0,0,0"
+                                       Foreground="White"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
                     </Button>
                     <Popup x:Name="DesktopBandPopup"
                            Placement="Top"
@@ -509,7 +520,7 @@
                              VerticalContentAlignment="Center"
                              KeyDown="AddressBand_KeyDown"
                              LostKeyboardFocus="AddressBand_LostKeyboardFocus"
-                             ToolTip="Indirizzo: digita un percorso o un URL e premi Invio" />
+                             ToolTip="{DynamicResource lang_address_tip}" />
                 </Border>
             </StackPanel>
 
@@ -609,7 +620,7 @@
                                                                       VerticalAlignment="Top"
                                                                       Margin="0,1,1,0"
                                                                       Opacity="0"
-                                                                      ToolTip="Sposta fra tray e overflow (pin/unpin)"
+                                                                      ToolTip="{DynamicResource lang_tray_pin_tip}"
                                                                       IsChecked="{Binding IsPinned, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
                                                             <ToggleButton.Style>
                                                                 <Style TargetType="ToggleButton">
@@ -699,7 +710,7 @@
                                             </LinearGradientBrush>
                                         </Border.Background>
                                         <TextBlock x:Name="CustomizeLink"
-                                                   Text="Personalizza..."
+                                                   Text="{DynamicResource lang_customize}"
                                                    FontSize="11"
                                                    Foreground="#FF0066CC"
                                                    Cursor="Hand"

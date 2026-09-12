@@ -38,4 +38,17 @@
     <s:String x:Key="lang_about_title">Sobre</s:String>
     <s:String x:Key="lang_about_text">O Win7Taskbar é um projeto best-effort em constante melhoria que recria a barra de tarefas do Windows 7 sobre a moderna: a precisão melhorará com o tempo. Limitações conhecidas: a rotação da barra de tarefas (lados/topo) não é suportada, então a opção correspondente é atualmente decorativa; as janelas do sistema (painéis, menu Iniciar) são ancoradas e reposicionadas, não recriadas.</s:String>
     <s:String x:Key="lang_credits">Créditos: 3ds por alguns dos recursos gráficos e pela inspiração da ideia XAML.</s:String>
+    <s:String x:Key="lang_menu_toolbars">Barras de ferramentas</s:String>
+    <s:String x:Key="lang_menu_desktop">Área de trabalho</s:String>
+    <s:String x:Key="lang_menu_links">Links</s:String>
+    <s:String x:Key="lang_menu_address">Endereço</s:String>
+    <s:String x:Key="lang_menu_cascade">Organizar janelas em cascata</s:String>
+    <s:String x:Key="lang_menu_stack">Mostrar janelas empilhadas</s:String>
+    <s:String x:Key="lang_menu_sidebyside">Mostrar janelas lado a lado</s:String>
+    <s:String x:Key="lang_menu_lock">Bloquear a barra de tarefas</s:String>
+    <s:String x:Key="lang_menu_pin">Fixar este programa na barra de tarefas</s:String>
+    <s:String x:Key="lang_menu_unpin">Desafixar este programa da barra de tarefas</s:String>
+    <s:String x:Key="lang_address_tip">Endereço: digite um caminho ou URL e pressione Enter</s:String>
+    <s:String x:Key="lang_tray_pin_tip">Mover entre a bandeja e o transbordamento (fixar/desafixar)</s:String>
+    <s:String x:Key="lang_close_tip">Fechar</s:String>
 </ResourceDictionary>

@@ -342,6 +342,18 @@ void GrowClockFlyoutHeight(HWND flyout) {
 /*  API pubblica del modulo                                               */
 /* ====================================================================== */
 
+int32_t FlyoutLauncher::InvokeFlyoutAt(FlyoutKind kind, FlyoutAction action,
+                                       const RECT& anchorRect) {
+    ComScope com;
+
+    return ToCoreResult(ImmersiveFlyouts::Invoke(kind, action,
+                                                 MakeWinRtRect(anchorRect)));
+}
+
+int32_t FlyoutLauncher::ShowVolumeFlyoutAt(const RECT& anchorRect) {
+    return InvokeFlyoutAt(FlyoutKind::Sound, FlyoutAction::Show, anchorRect);
+}
+
 int32_t FlyoutLauncher::InvokeFlyout(FlyoutKind kind, FlyoutAction action,
                                      HWND taskbarHwnd) {
     RECT barRect = {};
@@ -351,9 +363,7 @@ int32_t FlyoutLauncher::InvokeFlyout(FlyoutKind kind, FlyoutAction action,
         return W7T_ERR_INVALID_ARG;
     }
 
-    ComScope com;
-
-    return ToCoreResult(ImmersiveFlyouts::Invoke(kind, action, MakeWinRtRect(barRect)));
+    return InvokeFlyoutAt(kind, action, barRect);
 }
 
 int32_t FlyoutLauncher::ShowClockFlyout(HWND taskbarHwnd) {

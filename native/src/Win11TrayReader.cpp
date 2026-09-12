@@ -659,7 +659,10 @@ void Win11TrayReader::WorkerMain() {
 
         if (uia == nullptr || (taskbar == nullptr && overflow == nullptr)) {
             /* No island at all: the shell is restarting or not ready. Keep
-             * the last good snapshot, a failed read never clears icons. */
+             * the last good snapshot, a failed read never clears icons.
+             * v2.61: la lettura si dichiara NON valida, cosi' il chiamante
+             * ritenta in backoff invece di considerare la tray vuota. */
+            m_lastReadValid.store(false);
             return;
         }
 
@@ -670,6 +673,9 @@ void Win11TrayReader::WorkerMain() {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_snapshot = items;
         }
+        /* L'isola c'era ed e' stata attraversata: la lettura e' valida anche
+         * se non ha trovato nulla (tutte le icone nascoste dall'utente). */
+        m_lastReadValid.store(true);
         wchar_t line[160] = {};
         swprintf(line, 160, L"tray Win11: %u icone (UI Automation)",
                  static_cast<unsigned>(items.size()));

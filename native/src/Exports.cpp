@@ -782,6 +782,14 @@ extern "C" W7T_API int32_t W7T_CALL W7T_OverflowUsesShellFlyout(void) {
     return 0;
 }
 
+/* v2.61: il frontend deve poter distinguere Windows 11 senza indovinare
+ * dalla versione gestita (il manifest puo' mentire: senza i GUID supportedOS
+ * GetVersionEx riferisce Windows 8.1). Il core lo sa con certezza, perche'
+ * legge RtlGetVersion. */
+extern "C" W7T_API int32_t W7T_CALL W7T_IsWindows11(void) {
+    return w7t::IsWindows11OrBetter() ? 1 : 0;
+}
+
 extern "C" W7T_API void W7T_CALL W7T_OverflowHide(void) {
     g_overflowWindow.Hide();
 }

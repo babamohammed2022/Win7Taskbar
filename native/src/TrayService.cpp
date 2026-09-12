@@ -506,6 +506,20 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
      * riempie il lettore UI Automation, che risponde in modo asincrono su
      * kMsgUiaTray (vedi ApplyWin11TraySnapshot). */
     if (m_win11Tray) {
+        /* v2.61: alimentazione e rete cambiano il DISEGNO delle nostre tre
+         * icone. Si aggiornano subito, senza aspettare la lettura della
+         * shell (che comunque parte qui sotto). */
+        if (sources & (kReconcilePower | kReconcileNetwork | kReconcileInitial
+                       | kReconcileExplorer)) {
+            int added = 0, updated = 0;
+            bool pixel = false;
+            EnsureSyntheticSystemIcons(nullptr, nullptr, &added, &updated,
+                                       &pixel);
+            if (added != 0 || updated != 0 || pixel) {
+                SyncToolbarModel();
+                TrayOverflowWindow::NotifyTrayChanged();
+            }
+        }
         Win11TrayReader::Instance().RequestRead();
         return;
     }
@@ -1551,6 +1565,7 @@ void TrayService::DestroyWindows() {
     if (m_trayWnd != nullptr) {
         KillTimer(m_trayWnd, kTimerBackstop);
         KillTimer(m_trayWnd, kTimerDebounce);
+        KillTimer(m_trayWnd, kTimerSynthetic);
     }
 
     // Unregister power notifications (RAII handles will auto-unregister)
@@ -1620,6 +1635,23 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
     if (msg == WM_TIMER) {
         if (static_cast<UINT_PTR>(wParam) == kTimerDebounce) {
             self.RunDeferredReconciles();
+            return 0;
+        }
+        if (static_cast<UINT_PTR>(wParam) == kTimerSynthetic) {
+            /* v2.61: solo il disegno delle icone nostre. Nessuna lettura di
+             * Explorer, nessuna finestra toccata: se lo stato e' cambiato
+             * (volume, rete, batteria) la voce si aggiorna, altrimenti
+             * questa passata non produce nulla. */
+            if (self.m_win11Tray) {
+                int added = 0, updated = 0;
+                bool pixel = false;
+                self.EnsureSyntheticSystemIcons(nullptr, nullptr, &added,
+                                                &updated, &pixel);
+                if (added != 0 || updated != 0 || pixel) {
+                    self.SyncToolbarModel();
+                    TrayOverflowWindow::NotifyTrayChanged();
+                }
+            }
             return 0;
         }
         if (static_cast<UINT_PTR>(wParam) == kTimerBackstop) {
@@ -2153,6 +2185,27 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
 /*  Query dal managed layer                                            */
 /* ------------------------------------------------------------------ */
 
+bool TrayService::CurrentIconRect(const TrayIconKey& key, RECT& out) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    auto it = m_iconRects.find(key);
+    if (it == m_iconRects.end()) {
+        return false;
+    }
+
+    const RECT r = it->second;
+    if (r.right - r.left <= 0 || r.bottom - r.top <= 0) {
+        return false;
+    }
+    /* Un rettangolo che non appartiene a nessun monitor non e' una
+     * posizione: e' memoria di un layout che non esiste piu' (monitor
+     * staccato, barra spostata). Meglio il ripiego del chiamante. */
+    if (MonitorFromRect(&r, MONITOR_DEFAULTTONULL) == nullptr) {
+        return false;
+    }
+    out = r;
+    return true;
+}
+
 void TrayService::SetIconRect(uint64_t ownerHwnd, uint32_t uid, const RECT& rect) {
     TrayIconKey key{ ownerHwnd, uid };
     HWND flyout = nullptr;
@@ -2321,20 +2374,50 @@ int32_t TrayService::GetCount() {
 /* ------------------------------------------------------------------ */
 
 void TrayService::EnableWin11Tray() {
-    if (m_win11Tray || m_trayWnd == nullptr) {
-        return;
-    }
-    if (!Win11TrayReader::Detect()) {
+    if (m_trayWnd == nullptr) {
         return;
     }
 
-    m_win11Tray = true;
-    Win11TrayReader::Instance().SetNotify(m_trayWnd, kMsgUiaTray);
-    if (Win11TrayReader::Instance().Start()) {
-        AppendCoreLog(L"tray: Windows 11, lettura UI Automation attiva");
-    } else {
-        AppendCoreLog(L"tray: Windows 11, lettura UI Automation non partita");
+    if (!m_win11Tray) {
+        if (!Win11TrayReader::Detect()) {
+            /* Isola non ancora pronta (avvio, Explorer che si ricrea): si
+             * riprova alla prossima passata, senza latitare niente. */
+            return;
+        }
+        m_win11Tray = true;
+        Win11TrayReader::Instance().SetNotify(m_trayWnd, kMsgUiaTray);
     }
+
+    /* v2.61 - IL LETTORE SI AVVIA SEMPRE, E SE NON E' PARTITO SI RIPROVA.
+     *
+     * Prima bastava una chiamata andata male una volta (shell occupata
+     * all'avvio, thread non ancora pubblicato) per non riprovare mai piu':
+     * m_win11Tray restava true e questa funzione usciva subito. Il
+     * risultato, sulla macchina dell'utente, era una tray senza letture per
+     * minuti interi: le icone comparivano solo se e quando qualcos'altro
+     * faceva ripartire il lettore. */
+    if (!Win11TrayReader::Instance().IsRunning()) {
+        if (Win11TrayReader::Instance().Start()) {
+            AppendCoreLog(L"tray: Windows 11, lettura UI Automation attiva");
+        } else {
+            AppendCoreLog(L"tray: Windows 11, lettura non partita, si riprova");
+            ScheduleReconcile(kReconcileUiaTray, m_uiaRetryDelayMs);
+            m_uiaRetryDelayMs = (std::min)(15000ul, m_uiaRetryDelayMs * 2);
+            return;
+        }
+    }
+
+    /* v2.61: le tre icone di sistema che la shell non espone entrano nel
+     * modello ADESSO, non al primo giro di lettura riuscito. Da questo
+     * momento la tray ha sempre volume, rete e batteria, qualunque cosa
+     * faccia Explorer. */
+    int added = 0, updated = 0;
+    bool pixel = false;
+    EnsureSyntheticSystemIcons(nullptr, nullptr, &added, &updated, &pixel);
+
+    /* Risveglio leggero dello stato (il volume non manda eventi alla tray):
+     * non tocca Explorer, non apre nulla, non muove finestre. */
+    SetTimer(m_trayWnd, kTimerSynthetic, 10000, nullptr);
 
     /* Le isole XAML non sono finestre della tray: quando il flyout delle
      * icone nascoste si apre, o quando una qualunque finestra della shell
@@ -2357,6 +2440,161 @@ void TrayService::EnableWin11Tray() {
 /*  quindi sul thread dei messaggi, dove vive il resto del modello.    */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/*  v2.61 - LE TRE ICONE DI SISTEMA CHE LA SHELL DI WINDOWS 11 NON     */
+/*  ESPONE (volume, rete, batteria)                                    */
+/*                                                                     */
+/*  Perche' e' una funzione a se': queste voci NON sono il risultato    */
+/*  di una lettura di Explorer. Devono esistere appena la modalita'     */
+/*  Windows 11 e' attiva, prima di qualunque lettura, e restare nel     */
+/*  modello anche quando Explorer non risponde: erano proprio i due     */
+/*  casi in cui l'utente non le vedeva mai (o le vedeva dopo dieci      */
+/*  minuti, quando una lettura andava finalmente a buon fine).          */
+/*                                                                     */
+/*  Chi la chiama: EnableWin11Tray (subito), ApplyWin11TraySnapshot     */
+/*  (anche a lettura vuota), il timer leggero kTimerSynthetic (stato),  */
+/*  gli eventi di alimentazione e di rete.                              */
+/* ------------------------------------------------------------------ */
+void TrayService::EnsureSyntheticSystemIcons(
+        const std::set<SystemIconKind>* shellExposed,
+        std::set<uint32_t>* presentUids,
+        int* added, int* updated, bool* bitmapChanged) {
+    /* uid riservati alle icone sintetiche: in cima allo spazio dei 32 bit,
+     * lontano dagli hash FNV-1a delle voci UI Automation (0x77000000|hash)
+     * e da qualunque ownerHwnd reale. */
+    constexpr uint32_t kSyntheticSystemUidBase = 0x7F000000u;
+
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+            /*  v2.61 - LE TRE ICONE DI SISTEMA CHE LA SHELL NON ESPONE            */
+            /*                                                                    */
+            /*  Da Windows 11 22H2 (e ancora su 24H2) volume e rete non sono piu'  */
+            /*  pulsanti separati della tray: la shell ne disegna UNO solo, il     */
+            /*  centro delle notifiche rapide, e i tre stati vivono dentro il suo  */
+            /*  riquadro. La lettura UI Automation riporta quindi solo cio' che    */
+            /*  esiste davvero - per esempio la batteria - e la tray restava con   */
+            /*  una sola icona.                                                    */
+            /*                                                                    */
+            /*  Qui i tipi che la shell non espone vengono DISEGNATI da noi con    */
+            /*  gli stessi glifi del ripiego di Windows 10 (TrayFallbackIcons      */
+            /*  segue lo stato corrente: volume, connessione, batteria) e il clic  */
+            /*  apre il riquadro nativo corrispondente (vedi SendClick).           */
+            /*                                                                    */
+            /*  Regola di precedenza: appena la shell espone QUEL tipo, la voce    */
+            /*  sintetica non viene piu' rinnovata e sparisce da sola dopo due     */
+            /*  letture (la shell ha sempre l'ultima parola). Limite dichiarato    */
+            /*  nella documentazione (docs/Windows11.md): su Windows 11 la tray    */
+            /*  mostra le icone che la shell fornisce PIU' le nostre tre.          */
+            /* ------------------------------------------------------------------ */
+            static const SystemIconKind kSyntheticKinds[] = {
+                SystemIconKind::Volume,
+                SystemIconKind::Network,
+                SystemIconKind::Battery,
+            };
+            const PropStrings& sysNames = PropStringsFor(CurrentLanguage());
+            auto syntheticLabel = [&sysNames](SystemIconKind kind) {
+                const wchar_t* raw = (kind == SystemIconKind::Volume) ? sysNames.lblVolume
+                                   : (kind == SystemIconKind::Network) ? sysNames.lblNetwork
+                                                                       : sysNames.lblBattery;
+                std::wstring word(raw != nullptr ? raw : L"");
+                /* Le etichette delle Proprieta' finiscono con ':' ("Volume:\"). */
+                while (!word.empty() && (word.back() == L':' || word.back() == L' ')) {
+                    word.pop_back();
+                }
+                return word;
+            };
+            auto syntheticGuidKey = [](SystemIconKind kind) -> const wchar_t* {
+                switch (kind) {
+                    case SystemIconKind::Volume:  return L"uia:volume";
+                    case SystemIconKind::Network: return L"uia:network";
+                    default:                      return L"uia:battery";
+                }
+            };
+
+            for (SystemIconKind kind : kSyntheticKinds) {
+                if (shellExposed != nullptr && shellExposed->count(kind) != 0) {
+                    continue;   /* la shell la espone: vince la sua */
+                }
+
+                const uint32_t uid = kSyntheticSystemUidBase |
+                                     static_cast<uint32_t>(kind);
+                const TrayIconKey key{ 0, uid };
+                /* Inserita tra le "presenti": la passata di rimozione del
+                 * chiamante non deve portarla via. */
+                if (presentUids != nullptr) {
+                    presentUids->insert(uid);
+                }
+
+                ArgbBitmap glyph;
+                const bool drawn = TrayFallbackIcons::Render(kind, glyph);
+
+                auto it = m_icons.find(key);
+                if (it == m_icons.end()) {
+                    if (!drawn) {
+                        continue;   /* niente stato da disegnare: meglio il vuoto */
+                    }
+                    TrayIconEntry entry;
+                    entry.key           = key;
+                    entry.fromWin11Uia  = true;    /* nessun HWND proprietario   */
+                    entry.syntheticKind = kind;    /* il clic apre il riquadro   */
+                    entry.tooltip       = syntheticLabel(kind);
+                    entry.bitmap        = std::move(glyph);
+                    entry.pixelHash     = ArgbHash(entry.bitmap);
+                    entry.iconRevision  = 1;
+                    entry.usingFallback = true;
+                    entry.isPinned      = true;
+                    entry.hiddenDesired = false;
+                    entry.state         = 0;
+                    entry.sysChecked    = true;
+                    entry.systemKind    = kind;
+                    entry.guidKey       = syntheticGuidKey(kind);
+                    entry.toolbarId     = EnsureToolbarId(key);
+                    m_icons[key] = std::move(entry);
+                    m_order.push_back(key);
+                    if (added != nullptr) {
+                        ++added;
+                    }
+                    CoreState::Instance().QueueEvent(W7T_EVT_TRAY_ADD, 0, uid);
+                    continue;
+                }
+
+                TrayIconEntry& entry = it->second;
+                entry.missCount = 0;
+                entry.lastReadFailed = false;
+
+                /* Cambio di lingua: l'etichetta della voce sintetica e' nostra,
+                 * quindi si riallinea qui (le voci della shell portano il nome
+                 * che da' lei). */
+                const std::wstring label = syntheticLabel(kind);
+                if (entry.tooltip != label) {
+                    entry.tooltip = label;
+                    if (updated != nullptr) {
+                        ++updated;
+                    }
+                    CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY, 0, uid);
+                }
+
+                if (!drawn) {
+                    continue;
+                }
+                const uint64_t hash = ArgbHash(glyph);
+                if (hash == entry.pixelHash) {
+                    continue;
+                }
+                entry.bitmap        = std::move(glyph);
+                entry.pixelHash     = hash;
+                entry.usingFallback = true;
+                ++entry.iconRevision;
+                if (bitmapChanged != nullptr) {
+                    *bitmapChanged = true;
+                }
+                if (updated != nullptr) {
+                    ++updated;
+                }
+                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY, 0, uid);
+            }
+}
+
+
 void TrayService::ApplyWin11TraySnapshot() {
     if (!m_win11Tray) {
         return;
@@ -2365,12 +2603,55 @@ void TrayService::ApplyWin11TraySnapshot() {
     const std::vector<Win11TrayItem> items =
         Win11TrayReader::Instance().TakeSnapshot();
     if (items.empty()) {
-        /* Nessuna lettura valida: non si tocca niente. Un desktop senza
-         * icone di sistema e' possibile solo se l'utente le ha nascoste
-         * tutte dalle impostazioni, e in quel caso la passata precedente
-         * ha gia' scritto lo stato giusto. */
+        /* Nessuna icona dalla shell in questa lettura: il modello non si
+         * tocca (una lettura incompleta non e' una sparizione), ma le NOSTRE
+         * tre ci sono lo stesso: sono l'unica cosa che possiamo disegnare
+         * senza chiedere niente a Explorer. */
+        int added = 0, updated = 0;
+        bool pixel = false;
+        EnsureSyntheticSystemIcons(nullptr, nullptr, &added, &updated, &pixel);
+        if (added != 0 || updated != 0 || pixel) {
+            SyncToolbarModel();
+            TrayOverflowWindow::NotifyTrayChanged();
+        }
+
+        /* Nessuna icona della shell. Due casi diversi, e vanno trattati
+         * diversamente:
+         *
+         *  - lettura NON valida (isola assente, Explorer sotto stress,
+         *    lettore non partito): si ritenta in backoff 1 s -> 2 s -> 4 s ->
+         *    8 s -> 15 s, e appena una lettura riesce si torna a 1 s. Il
+         *    risveglio di sicurezza a 30 s resta comunque attivo.
+         *  - lettura valida ma vuota: non c'e' nulla da leggere (l'utente ha
+         *    nascosto tutto), quindi non si ritenta: si aspetta un evento.
+         *
+         * Il log dice quale dei due casi si e' verificato: senza questa riga
+         * un utente che segnala "le icone non si vedono" non lascia nessuna
+         * traccia di cosa e' successo nel core. */
+        if (!Win11TrayReader::Instance().IsLastReadValid()) {
+            wchar_t line[160] = {};
+            swprintf(line, 160,
+                     L"tray Win11: lettura non valida (lettore %s), riprovo fra %lu ms",
+                     Win11TrayReader::Instance().IsRunning() ? L"attivo" : L"fermo",
+                     m_uiaRetryDelayMs);
+            AppendCoreLog(line);
+
+            /* Un lettore fermo non si rianima da solo: si riavvia qui. */
+            if (!Win11TrayReader::Instance().IsRunning()) {
+                if (Win11TrayReader::Instance().Start()) {
+                    AppendCoreLog(L"tray Win11: lettore riavviato");
+                }
+            }
+
+            ScheduleReconcile(kReconcileUiaTray, m_uiaRetryDelayMs);
+            m_uiaRetryDelayMs = (std::min)(15000ul, m_uiaRetryDelayMs * 2);
+        } else {
+            m_uiaRetryDelayMs = 1000;
+        }
         return;
     }
+    /* Lettura valida: il backoff riparte da un secondo. */
+    m_uiaRetryDelayMs = 1000;
 
     std::set<uint32_t> present;
     std::set<SystemIconKind> presentKinds;
@@ -2380,11 +2661,6 @@ void TrayService::ApplyWin11TraySnapshot() {
             presentKinds.insert(item.kind);
         }
     }
-
-    /* uid riservati alle icone sintetiche: in cima allo spazio dei 32 bit,
-     * lontano dagli hash FNV-1a delle voci UI Automation (0x77000000|hash)
-     * e da qualunque ownerHwnd reale. */
-    constexpr uint32_t kSyntheticSystemUidBase = 0x7F000000u;
 
     int added = 0;
     int updated = 0;
@@ -2462,123 +2738,11 @@ void TrayService::ApplyWin11TraySnapshot() {
         }
 
         /* ------------------------------------------------------------------ */
-        /*  v2.61 - LE TRE ICONE DI SISTEMA CHE LA SHELL NON ESPONE            */
-        /*                                                                    */
-        /*  Da Windows 11 22H2 (e ancora su 24H2) volume e rete non sono piu'  */
-        /*  pulsanti separati della tray: la shell ne disegna UNO solo, il     */
-        /*  centro delle notifiche rapide, e i tre stati vivono dentro il suo  */
-        /*  riquadro. La lettura UI Automation riporta quindi solo cio' che    */
-        /*  esiste davvero - per esempio la batteria - e la tray restava con   */
-        /*  una sola icona.                                                    */
-        /*                                                                    */
-        /*  Qui i tipi che la shell non espone vengono DISEGNATI da noi con    */
-        /*  gli stessi glifi del ripiego di Windows 10 (TrayFallbackIcons      */
-        /*  segue lo stato corrente: volume, connessione, batteria) e il clic  */
-        /*  apre il riquadro nativo corrispondente (vedi SendClick).           */
-        /*                                                                    */
-        /*  Regola di precedenza: appena la shell espone QUEL tipo, la voce    */
-        /*  sintetica non viene piu' rinnovata e sparisce da sola dopo due     */
-        /*  letture (la shell ha sempre l'ultima parola). Limite dichiarato    */
-        /*  nella documentazione (docs/Windows11.md): su Windows 11 la tray    */
-        /*  mostra le icone che la shell fornisce PIU' le nostre tre.          */
-        /* ------------------------------------------------------------------ */
-        static const SystemIconKind kSyntheticKinds[] = {
-            SystemIconKind::Volume,
-            SystemIconKind::Network,
-            SystemIconKind::Battery,
-        };
-        const PropStrings& sysNames = PropStringsFor(CurrentLanguage());
-        auto syntheticLabel = [&sysNames](SystemIconKind kind) {
-            const wchar_t* raw = (kind == SystemIconKind::Volume) ? sysNames.lblVolume
-                               : (kind == SystemIconKind::Network) ? sysNames.lblNetwork
-                                                                   : sysNames.lblBattery;
-            std::wstring word(raw != nullptr ? raw : L"");
-            /* Le etichette delle Proprieta' finiscono con ':' ("Volume:\"). */
-            while (!word.empty() && (word.back() == L':' || word.back() == L' ')) {
-                word.pop_back();
-            }
-            return word;
-        };
-        auto syntheticGuidKey = [](SystemIconKind kind) -> const wchar_t* {
-            switch (kind) {
-                case SystemIconKind::Volume:  return L"uia:volume";
-                case SystemIconKind::Network: return L"uia:network";
-                default:                      return L"uia:battery";
-            }
-        };
+        /* v2.61: le tre icone che la shell non espone: la funzione qui
+         * sopra non dipende da questa lettura. */
+        EnsureSyntheticSystemIcons(&presentKinds, &present, &added, &updated,
+                                   &anyBitmapChange);
 
-        for (SystemIconKind kind : kSyntheticKinds) {
-            if (presentKinds.count(kind) != 0) {
-                continue;   /* la shell la espone: vince la sua */
-            }
-
-            const uint32_t uid = kSyntheticSystemUidBase |
-                                 static_cast<uint32_t>(kind);
-            const TrayIconKey key{ 0, uid };
-            /* Inserita tra le "presenti": la passata di rimozione qui sotto
-             * non deve portarla via. */
-            present.insert(uid);
-
-            ArgbBitmap glyph;
-            const bool drawn = TrayFallbackIcons::Render(kind, glyph);
-
-            auto it = m_icons.find(key);
-            if (it == m_icons.end()) {
-                if (!drawn) {
-                    continue;   /* niente stato da disegnare: meglio il vuoto */
-                }
-                TrayIconEntry entry;
-                entry.key           = key;
-                entry.fromWin11Uia  = true;    /* nessun HWND proprietario   */
-                entry.syntheticKind = kind;    /* il clic apre il riquadro   */
-                entry.tooltip       = syntheticLabel(kind);
-                entry.bitmap        = std::move(glyph);
-                entry.pixelHash     = ArgbHash(entry.bitmap);
-                entry.iconRevision  = 1;
-                entry.usingFallback = true;
-                entry.isPinned      = true;
-                entry.hiddenDesired = false;
-                entry.state         = 0;
-                entry.sysChecked    = true;
-                entry.systemKind    = kind;
-                entry.guidKey       = syntheticGuidKey(kind);
-                entry.toolbarId     = EnsureToolbarId(key);
-                m_icons[key] = std::move(entry);
-                m_order.push_back(key);
-                ++added;
-                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_ADD, 0, uid);
-                continue;
-            }
-
-            TrayIconEntry& entry = it->second;
-            entry.missCount = 0;
-            entry.lastReadFailed = false;
-
-            /* Cambio di lingua: l'etichetta della voce sintetica e' nostra,
-             * quindi si riallinea qui (le voci della shell portano il nome
-             * che da' lei). */
-            const std::wstring label = syntheticLabel(kind);
-            if (entry.tooltip != label) {
-                entry.tooltip = label;
-                ++updated;
-                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY, 0, uid);
-            }
-
-            if (!drawn) {
-                continue;
-            }
-            const uint64_t hash = ArgbHash(glyph);
-            if (hash == entry.pixelHash) {
-                continue;
-            }
-            entry.bitmap        = std::move(glyph);
-            entry.pixelHash     = hash;
-            entry.usingFallback = true;
-            ++entry.iconRevision;
-            anyBitmapChange = true;
-            ++updated;
-            CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY, 0, uid);
-        }
 
         /* Rimozione delle voci della tray di Windows 11 sparite. Due
          * assenze consecutive, come per le icone di Explorer: una lettura
@@ -3366,12 +3530,30 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
         if (clickType == W7T_TRAY_CLICK_MIDDLE) {
             return W7T_ERR_INVALID_ARG;
         }
+
+        /* v2.61 - IL FLYOUT VA DOVE STA L'ICONA ADESSO.
+         *
+         * Il rettangolo arriva dal frontend (W7T_SetIconRect) e viene
+         * rimandato a ogni movimento reale dell'icona: barra spostata, DPI
+         * cambiato, altro monitor, icone riordinate, overflow aperto o
+         * chiuso, Explorer riavviato. Qui si usa quello, non la posizione
+         * dell'importazione; se manca o non e' plausibile (fuori da ogni
+         * monitor, rettangolo vuoto) si ripiega sul rettangolo della barra,
+         * che il core conosce perche' il frontend glielo riporta a ogni
+         * layout (W7T_SetShellRects). */
+        RECT anchor{};
+        if (!CurrentIconRect(TrayIconKey{ ownerHwnd, uid }, anchor)) {
+            if (m_trayWnd == nullptr || !GetWindowRect(m_trayWnd, &anchor)) {
+                return W7T_ERR_NOT_FOUND;
+            }
+        }
+
         if (syntheticKind == SystemIconKind::Volume) {
-            return FlyoutLauncher::ShowVolumeFlyout(m_trayWnd);
+            return FlyoutLauncher::ShowVolumeFlyoutAt(anchor);
         }
         const FlyoutKind flyout = (syntheticKind == SystemIconKind::Network)
             ? FlyoutKind::Network : FlyoutKind::Battery;
-        return FlyoutLauncher::InvokeFlyout(flyout, FlyoutAction::Show, m_trayWnd);
+        return FlyoutLauncher::InvokeFlyoutAt(flyout, FlyoutAction::Show, anchor);
     }
 
     /* v2.60 - Voci della tray di Windows 11: non esiste nessun proprietario

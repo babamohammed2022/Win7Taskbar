@@ -38,4 +38,17 @@
     <s:String x:Key="lang_about_title">Informacje</s:String>
     <s:String x:Key="lang_about_text">Win7Taskbar to projekt typu best-effort, stale ulepszany, który odtwarza pasek zadań systemu Windows 7 na nowoczesnym pasku: dokładność będzie się z czasem poprawiać. Znane ograniczenia: obracanie paska zadań (bok/góra) nie jest obsługiwane, więc odpowiednia opcja jest obecnie dekoracyjna; okna systemowe (panele, menu Start) są przechwytywane i przenoszone, a nie odtwarzane.</s:String>
     <s:String x:Key="lang_credits">Podziękowania: 3ds za część zasobów graficznych i za inspirację pomysłem XAML.</s:String>
+    <s:String x:Key="lang_menu_toolbars">Paski narzędzi</s:String>
+    <s:String x:Key="lang_menu_desktop">Pulpit</s:String>
+    <s:String x:Key="lang_menu_links">Łącza</s:String>
+    <s:String x:Key="lang_menu_address">Adres</s:String>
+    <s:String x:Key="lang_menu_cascade">Okna kaskadowe</s:String>
+    <s:String x:Key="lang_menu_stack">Pokaż okna jeden nad drugim</s:String>
+    <s:String x:Key="lang_menu_sidebyside">Pokaż okna obok siebie</s:String>
+    <s:String x:Key="lang_menu_lock">Zablokuj pasek zadań</s:String>
+    <s:String x:Key="lang_menu_pin">Przypnij ten program do paska zadań</s:String>
+    <s:String x:Key="lang_menu_unpin">Odepnij ten program od paska zadań</s:String>
+    <s:String x:Key="lang_address_tip">Adres: wpisz ścieżkę lub adres URL i naciśnij Enter</s:String>
+    <s:String x:Key="lang_tray_pin_tip">Przenieś między zasobnikiem a przepełnieniem (przypnij/odepnij)</s:String>
+    <s:String x:Key="lang_close_tip">Zamknij</s:String>
 </ResourceDictionary>

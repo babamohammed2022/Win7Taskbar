@@ -59,6 +59,23 @@ public:
      */
     static int32_t InvokeFlyout(FlyoutKind kind, FlyoutAction action, HWND taskbarHwnd);
 
+    /**
+     * Come InvokeFlyout, ma l'ancora e' il RETTANGOLO dell'icona (pixel
+     * fisici, coordinate schermo), non la finestra della barra.
+     *
+     * v2.61: il flyout di un'icona della tray va ancorato alla posizione
+     * ATTUALE dell'icona, ricalcolata a ogni clic (il frontend riporta il
+     * rettangolo reale con W7T_SetIconRect: layout, DPI, monitor, apertura
+     * dell'overflow, riavvio di Explorer). Passare il rettangolo della barra
+     * faceva comparire il riquadro nella posizione sbagliata appena la barra
+     * si spostava o cambiava monitor.
+     */
+    static int32_t InvokeFlyoutAt(FlyoutKind kind, FlyoutAction action,
+                                  const RECT& anchorRect);
+
+    /** Riquadro del volume ancorato al rettangolo dell'icona. */
+    static int32_t ShowVolumeFlyoutAt(const RECT& anchorRect);
+
     /** Apre il mixer volume classico (SndVol.exe). */
     static int32_t ShowVolumeMixer();
 

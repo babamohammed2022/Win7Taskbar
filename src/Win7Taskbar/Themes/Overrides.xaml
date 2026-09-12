@@ -34,6 +34,12 @@
          ne indica la posizione, e non disegna nulla con una sola finestra. -->
     <conv:WindowStackVisibilityConverter x:Key="WindowStackVisibility" />
 
+    <!-- v2.61: sposta di una percentuale della larghezza del pulsante (5%)
+         le linee dell'indicatore "finestre impilate". Proporzionale alla
+         larghezza reale, quindi identico a 100%, 125% e 150% e con pulsanti
+         larghi o stretti: si ricalcola da ActualWidth. -->
+    <conv:WidthRatioConverter x:Key="WidthRatio" />
+
     <!-- ==================================================================
          v2.51: CORNICE DELL'ANTEPRIMA, a griglia 3x3 (9-slice).
 
@@ -235,6 +241,17 @@
                   Visibility="{Binding WindowCount,
                                Converter={StaticResource WindowStackVisibility},
                                ConverterParameter=1}">
+                <!-- v2.61: le tre linee si spostano del 5% della larghezza del
+                     pulsante verso destra, come chiesto (riferimento: il
+                     Windows 11 Taskbar Styler). E' una RenderTransform: non
+                     tocca il layout, quindi l'icona e il pulsante restano
+                     esattamente dove sono, si muovono solo le linee. -->
+                <Grid.RenderTransform>
+                    <TranslateTransform X="{Binding ActualWidth,
+                        RelativeSource={RelativeSource AncestorType=Button},
+                        Converter={StaticResource WidthRatio},
+                        ConverterParameter=0.05}" />
+                </Grid.RenderTransform>
                 <Border Width="3"
                         Height="40"
                         HorizontalAlignment="Left"

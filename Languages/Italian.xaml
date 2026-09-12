@@ -38,4 +38,17 @@
     <s:String x:Key="lang_about_title">Informazioni</s:String>
     <s:String x:Key="lang_about_text">Win7Taskbar e' un progetto best-effort in costante miglioramento che ricrea la barra delle applicazioni di Windows 7 sopra quella moderna: la precisione migliorera' col tempo. Limitazioni note: la rotazione della barra (laterale/alto) non e' supportata, quindi l'opzione relativa e' al momento decorativa; le finestre di sistema (flyout, menu start) vengono agganciate e riposizionate, non ricreate.</s:String>
     <s:String x:Key="lang_credits">Ringraziamenti: 3ds per alcune delle risorse grafiche e per l'ispirazione dell'idea XAML.</s:String>
+    <s:String x:Key="lang_menu_toolbars">Barre degli strumenti</s:String>
+    <s:String x:Key="lang_menu_desktop">Desktop</s:String>
+    <s:String x:Key="lang_menu_links">Collegamenti</s:String>
+    <s:String x:Key="lang_menu_address">Indirizzo</s:String>
+    <s:String x:Key="lang_menu_cascade">Sovrapponi le finestre</s:String>
+    <s:String x:Key="lang_menu_stack">Mostra le finestre in pila</s:String>
+    <s:String x:Key="lang_menu_sidebyside">Mostra le finestre affiancate</s:String>
+    <s:String x:Key="lang_menu_lock">Blocca la barra delle applicazioni</s:String>
+    <s:String x:Key="lang_menu_pin">Fissa questo programma alla barra delle applicazioni</s:String>
+    <s:String x:Key="lang_menu_unpin">Rimuovi questo programma dalla barra delle applicazioni</s:String>
+    <s:String x:Key="lang_address_tip">Indirizzo: digita un percorso o un URL e premi Invio</s:String>
+    <s:String x:Key="lang_tray_pin_tip">Sposta fra tray e overflow (pin/unpin)</s:String>
+    <s:String x:Key="lang_close_tip">Chiudi</s:String>
 </ResourceDictionary>

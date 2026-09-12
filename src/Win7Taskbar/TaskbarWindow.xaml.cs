@@ -297,6 +297,16 @@ namespace Win7Taskbar
                 LocationChanged += (_, _) => { ReportShellRects(); ScheduleIconRectReport(); };
             });
 
+            RunStage("riquadro-orologio", () =>
+            {
+                /* v2.61: il calendario di Windows 7 si costruisce ADESSO,
+                 * all'avvio, non al primo clic. Al clic resta solo da
+                 * mostrarlo: nessun lavoro di layout mentre l'utente aspetta
+                 * (ed e' anche il momento in cui il riquadro nativo di
+                 * Windows ci metteva meno a comparire). */
+                EnsureCalendarFlyout();
+            });
+
             RunStage("orologio", () =>
             {
                 ApplyClockSecondsFormat();
@@ -1587,8 +1597,8 @@ namespace Win7Taskbar
                 (int)Math.Round(origin.X),
                 (int)Math.Round(origin.Y),
                 bottomEdge: true,
-                "Mostra desktop",
-                "Visualizza desktop");
+                L("lang_show_desktop", "Show desktop"),
+                L("lang_peek_desktop", "Peek at desktop"));
 
             switch (choice)
             {
@@ -2356,9 +2366,13 @@ namespace Win7Taskbar
             {
                 // Pin non avviato: avvia / fissa-rimuovi.
                 string pinText = group.IsPinned
-                    ? "Rimuovi questo programma dalla barra delle applicazioni"
-                    : "Fissa questo programma alla barra delle applicazioni";
-                int choice = _bridge.ShowContextMenu(x, y, bottomEdge: true, "Avvia", pinText);
+                    ? L("lang_menu_unpin",
+                        "Unpin this program from taskbar")
+                    : L("lang_menu_pin",
+                        "Pin this program to taskbar");
+                int choice = _bridge.ShowContextMenu(
+                    x, y, bottomEdge: true,
+                    L("lang_start_tip", "Start"), pinText);
                 switch (choice)
                 {
                     case 1:
@@ -2380,7 +2394,8 @@ namespace Win7Taskbar
             {
                 // Piu' finestre: menu di gruppo (riduci a icona / chiudi tutte).
                 int r = _bridge.ShowGroupMenu(group.Windows[0].Hwnd, x, y,
-                    "Riduci a icona il gruppo", "Chiudi tutte le finestre", bottomEdge: true);
+                    L("lang_minimize_group", "Minimize group"),
+                    L("lang_close_group", "Close group"), bottomEdge: true);
                 if (r == 1) _viewModel.MinimizeGroup(group);
                 else if (r == 2) _viewModel.CloseGroup(group);
             }
@@ -2549,6 +2564,37 @@ namespace Win7Taskbar
             {
                 _bridge.Log($"jump list: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// v2.61 - Testo di menu localizzato.
+        ///
+        /// Le voci dei menu che costruiamo qui (barra, orologio, gruppo di
+        /// finestre) erano scritte in italiano nel codice: su un sistema
+        /// inglese, tedesco o giapponese il menu restava italiano. Ora ogni
+        /// voce arriva dai dizionari Languages/*.xaml - una traduzione per
+        /// lingua, con l'inglese come ripiego - e il cambio di lingua si
+        /// vede subito, perche' il testo si ricostruisce a ogni apertura.
+        ///
+        /// Il secondo argomento e' il ripiego inglese: serve solo se il
+        /// dizionario della lingua non e' ancora caricato.
+        /// </summary>
+        private string L(string key, string fallback)
+        {
+            try
+            {
+                if (Application.Current?.TryFindResource(key) is string text &&
+                    !string.IsNullOrEmpty(text))
+                {
+                    return text;
+                }
+            }
+            catch
+            {
+                /* risorsa non disponibile: si usa il ripiego inglese */
+            }
+
+            return fallback;
         }
 
         private static MenuItem CreateMenuItem(string header, Action action, bool enabled = true)
@@ -3352,6 +3398,11 @@ namespace Win7Taskbar
             // Italiano: Invia click alla finestra proprietaria, che aprirà il flyout
             _trayDownUtc = DateTime.MinValue;
 
+            // v2.61: il rettangolo corrente dell'icona prima del clic (vedi
+            // ReportClickedIconRect): il riquadro si ancora dove l'icona sta
+            // adesso, non dove stava quando e' stata importata.
+            ReportClickedIconRect(element, icon);
+
             // v2.2: come in Windows 7, il click su un'icona del pannello
             // overflow avvia l'app e chiude il pannello.
             CloseOverflowPopup();
@@ -3447,6 +3498,43 @@ namespace Win7Taskbar
             _trayDownUtc = DateTime.UtcNow;
         }
 
+        /// <summary>
+        /// v2.61: riporta al core il rettangolo ATTUALE dell'icona cliccata,
+        /// un attimo prima del clic.
+        ///
+        /// Serve al core per ancorare il riquadro di sistema che sta per
+        /// aprire: quel rettangolo viene letto ADESSO dall'elemento vero, con
+        /// lo schermo e il DPI di adesso. Cosi' il flyout segue l'icona se la
+        /// barra si e' spostata, il DPI e' cambiato, le icone sono state
+        /// riordinate, l'overflow e' stato aperto/chiuso o Explorer e'
+        /// ripartito: mai una coordinata ricordata dall'importazione.
+        /// Vale anche per le icone che stanno nel pannello di overflow, che
+        /// il rapporto periodico dei rettangoli non copre.
+        /// </summary>
+        private void ReportClickedIconRect(FrameworkElement element, TrayIconModel icon)
+        {
+            try
+            {
+                double scale = _hwndSource?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                if (scale <= 0)
+                {
+                    scale = 1.0;
+                }
+
+                Point origin = element.PointToScreen(new Point(0, 0));
+                _bridge.SetIconRect(
+                    icon.OwnerHwnd, icon.Uid,
+                    (int)origin.X, (int)origin.Y,
+                    (int)(origin.X + element.ActualWidth * scale),
+                    (int)(origin.Y + element.ActualHeight * scale));
+            }
+            catch
+            {
+                /* cosmetico: se il rapporto non riesce, il core usa il
+                 * rettangolo della barra (ripiego dichiarato). */
+            }
+        }
+
         private void TrayIcon_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             if (sender is not FrameworkElement element ||
@@ -3455,6 +3543,7 @@ namespace Win7Taskbar
                 return;
             }
 
+            ReportClickedIconRect(element, icon);
             Point screen = element.PointToScreen(e.GetPosition(element));
             _viewModel.SendTrayClick(icon, TrayClick.Right, (int)screen.X, (int)screen.Y);
             e.Handled = true;
@@ -3525,7 +3614,8 @@ namespace Win7Taskbar
                 if (_calendarPopup != null)
                 {
                     _calendarPopup.IsOpen = false;
-                    _calendarPopup = null;
+                    /* v2.61: l'istanza resta in memoria, pronta per il
+                     * prossimo clic (prima si buttava via per ricostruirla). */
                 }
                 _globalMouseHook?.Stop();
             }
@@ -3661,23 +3751,27 @@ namespace Win7Taskbar
                 // consumano indici: 1-3 barre, 4 data/ora, 5 icone notifica,
                 // 6 sovrapponi, 7 pila, 8 affiancate, 9 desktop, 10 gest.
                 // attivita', 11 blocca, 12 proprieta'.
-                ">Barre degli strumenti\n" +
-                (DesktopBandHost.Visibility == Visibility.Visible ? "*" : "") + "Desktop\n" +
-                (LinksBandHost.Visibility == Visibility.Visible ? "*" : "") + "Collegamenti\n" +
-                (AddressBandHost.Visibility == Visibility.Visible ? "*" : "") + "Indirizzo\n" +
+                ">" + L("lang_menu_toolbars", "Toolbars") + "\n" +
+                (DesktopBandHost.Visibility == Visibility.Visible ? "*" : "") +
+                    L("lang_menu_desktop", "Desktop") + "\n" +
+                (LinksBandHost.Visibility == Visibility.Visible ? "*" : "") +
+                    L("lang_menu_links", "Links") + "\n" +
+                (AddressBandHost.Visibility == Visibility.Visible ? "*" : "") +
+                    L("lang_menu_address", "Address") + "\n" +
                 "<\n" +
-                "Modifica data/ora\n" +
-                "Personalizza icone di notifica\n" +
+                L("lang_edit_datetime", "Adjust date/time") + "\n" +
+                L("lang_customize_notify", "Customize notification area...") + "\n" +
                 "-\n" +
-                "Sovrapponi le finestre\n" +
-                "Mostra le finestre in pila\n" +
-                "Mostra le finestre affiancate\n" +
-                "Mostra desktop\n" +
+                L("lang_menu_cascade", "Cascade windows") + "\n" +
+                L("lang_menu_stack", "Show windows stacked") + "\n" +
+                L("lang_menu_sidebyside", "Show windows side by side") + "\n" +
+                L("lang_show_desktop", "Show desktop") + "\n" +
                 "-\n" +
-                "Avvia Gestione attività\n" +
+                L("lang_task_manager", "Start Task Manager") + "\n" +
                 "-\n" +
-                (_taskbarLocked ? "*" : "") + "Blocca la barra delle applicazioni\n" +
-                "Proprietà",
+                (_taskbarLocked ? "*" : "") +
+                    L("lang_menu_lock", "Lock the taskbar") + "\n" +
+                L("lang_properties", "Properties"),
                 // v2.43: il menu dell'orologio si apre DOVE STA IL CURSORE
                 // (come un menu contestuale normale), non ancorato alla
                 // barra: e' la stessa richiesta fatta per il menu semplice
@@ -3747,7 +3841,17 @@ namespace Win7Taskbar
         {
             e.Handled = true;
 
-            if (Settings.Instance.UseNativeClockFlyout)
+            /* v2.61 - UN SOLO RIQUADRO, E QUELLO DI WINDOWS 7.
+             *
+             * Su Windows 11 il riquadro nativo del calendario e' un'isola
+             * XAML che la shell apre quando decide lei: chiedendolo, il
+             * nativo compariva prima del nostro e i due si sovrapponevano.
+             * Li' quindi il percorso nativo non si usa piu': il calendario
+             * di Windows 7 (gia' creato e tenuto in memoria, vedi
+             * EnsureCalendarFlyout) si limita a comparire. Su Windows 10 e
+             * precedenti l'impostazione "riquadro nativo" resta valida e
+             * funzionante. */
+            if (Settings.Instance.UseNativeClockFlyout && !IsWindows11Host())
             {
                 IntPtr handle = _hwndSource?.Handle ?? IntPtr.Zero;
 
@@ -3994,14 +4098,49 @@ namespace Win7Taskbar
         }
 
         private Popup? _calendarPopup;
+        private TextBlock? _calendarHeader;
+        private bool _calendarFlyoutReady;
 
-        private void ShowClassicCalendarFlyout(FrameworkElement? target)
+        /// <summary>
+        /// Vero se il sistema che ci ospita e' Windows 11 (build >= 22000).
+        /// Letto una volta sola dal core, che lo sa con certezza: il manifest
+        /// dell'app non dichiara Windows 10 e quindi la versione gestita
+        /// mentirebbe.
+        /// </summary>
+        private bool IsWindows11Host()
         {
-            if (_calendarPopup is { IsOpen: true })
+            if (_isWindows11Host == null)
             {
-                _calendarPopup.IsOpen = false;
-                _calendarPopup = null;
-                _globalMouseHook?.Stop();
+                try
+                {
+                    _isWindows11Host = _bridge.IsWindows11();
+                }
+                catch
+                {
+                    _isWindows11Host = false;
+                }
+            }
+
+            return _isWindows11Host.Value;
+        }
+
+        private bool? _isWindows11Host;
+
+        /// <summary>
+        /// v2.61: crea UNA VOLTA il riquadro del calendario di Windows 7 e lo
+        /// tiene in memoria.
+        ///
+        /// Prima veniva costruito a ogni clic e distrutto alla chiusura: il
+        /// primo clic pagava la costruzione dell'albero visuale del
+        /// calendario mentre l'utente guardava lo schermo, ed era il momento
+        /// in cui il riquadro nativo trovava il tempo di comparire.
+        /// Ora l'istanza e' pronta da prima (viene costruita all'avvio) e
+        /// mostrarla e' solo IsOpen = true.
+        /// </summary>
+        private void EnsureCalendarFlyout()
+        {
+            if (_calendarFlyoutReady && _calendarPopup != null)
+            {
                 return;
             }
 
@@ -4012,7 +4151,7 @@ namespace Win7Taskbar
                 Margin = new Thickness(4)
             };
 
-            var header = new TextBlock
+            _calendarHeader = new TextBlock
             {
                 Text = DateTime.Now.ToString("dddd d MMMM yyyy"),
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -4024,12 +4163,15 @@ namespace Win7Taskbar
             };
 
             var stack = new StackPanel();
-            stack.Children.Add(header);
+            stack.Children.Add(_calendarHeader);
             stack.Children.Add(calendar);
 
             _calendarPopup = new Popup
             {
-                PlacementTarget = target ?? (UIElement)this,
+                /* La mira vera la imposta ShowClassicCalendarFlyout a ogni
+                 * apertura (l'orologio puo' essersi spostato, la barra puo'
+                 * essere su un altro monitor): qui basta un valore valido. */
+                PlacementTarget = (UIElement)this,
                 Placement = PlacementMode.Custom,
                 CustomPopupPlacementCallback = (size, targetSize, _) =>
                     new[]
@@ -4057,6 +4199,36 @@ namespace Win7Taskbar
             _calendarPopup.MouseLeave += CalendarPopup_MouseLeave;
             _calendarPopup.Opened += CalendarPopup_Opened;
             _calendarPopup.Closed += CalendarPopup_Closed;
+            _calendarFlyoutReady = true;
+        }
+
+        private void ShowClassicCalendarFlyout(FrameworkElement? target)
+        {
+            /* Riquadro gia' pronto: mostrarlo o nasconderlo non costruisce
+             * niente. La data si riallinea al momento dell'apertura. */
+            EnsureCalendarFlyout();
+
+            if (_calendarPopup == null)
+            {
+                return;
+            }
+
+            if (_calendarPopup.IsOpen)
+            {
+                _calendarPopup.IsOpen = false;
+                _globalMouseHook?.Stop();
+                return;
+            }
+
+            if (_calendarHeader != null)
+            {
+                _calendarHeader.Text = DateTime.Now.ToString("dddd d MMMM yyyy");
+            }
+
+            /* La mira e' l'orologio di ADESSO: se la barra si e' spostata o
+             * il DPI e' cambiato, il riquadro compare comunque attaccato
+             * all'orologio. */
+            _calendarPopup.PlacementTarget = target ?? (UIElement)this;
             _calendarPopup.IsOpen = true;
         }
 
@@ -4112,7 +4284,8 @@ namespace Win7Taskbar
                 if (_calendarPopup != null && _calendarPopup.IsOpen)
                 {
                     _calendarPopup.IsOpen = false;
-                    _calendarPopup = null;
+                    /* v2.61: l'istanza resta in memoria, pronta per il
+                     * prossimo clic (prima si buttava via per ricostruirla). */
                     _globalMouseHook?.Stop();
                 }
             }));
@@ -4138,7 +4311,8 @@ namespace Win7Taskbar
                 if (_calendarPopup != null)
                 {
                     _calendarPopup.IsOpen = false;
-                    _calendarPopup = null;
+                    /* v2.61: l'istanza resta in memoria, pronta per il
+                     * prossimo clic (prima si buttava via per ricostruirla). */
                     _globalMouseHook?.Stop();
                 }
             };
@@ -4184,21 +4358,25 @@ namespace Win7Taskbar
             {
                 // Spunte: tre barre visibili + "Blocca la barra" quando bloccata.
                 string items =
-                    ">Barre degli strumenti\n" +
-                    (DesktopBandHost.Visibility == Visibility.Visible ? "*" : "") + "Desktop\n" +
-                    (LinksBandHost.Visibility == Visibility.Visible ? "*" : "") + "Collegamenti\n" +
-                    (AddressBandHost.Visibility == Visibility.Visible ? "*" : "") + "Indirizzo\n" +
+                    ">" + L("lang_menu_toolbars", "Toolbars") + "\n" +
+                    (DesktopBandHost.Visibility == Visibility.Visible ? "*" : "") +
+                        L("lang_menu_desktop", "Desktop") + "\n" +
+                    (LinksBandHost.Visibility == Visibility.Visible ? "*" : "") +
+                        L("lang_menu_links", "Links") + "\n" +
+                    (AddressBandHost.Visibility == Visibility.Visible ? "*" : "") +
+                        L("lang_menu_address", "Address") + "\n" +
                     "<\n" +
                     "-\n" +
-                    "Sovrapponi le finestre\n" +
-                    "Mostra le finestre in pila\n" +
-                    "Mostra le finestre affiancate\n" +
-                    "Mostra desktop\n" +
+                    L("lang_menu_cascade", "Cascade windows") + "\n" +
+                    L("lang_menu_stack", "Show windows stacked") + "\n" +
+                    L("lang_menu_sidebyside", "Show windows side by side") + "\n" +
+                    L("lang_show_desktop", "Show desktop") + "\n" +
                     "-\n" +
-                    "Avvia Gestione attività\n" +
+                    L("lang_task_manager", "Start Task Manager") + "\n" +
                     "-\n" +
-                    (_taskbarLocked ? "*" : "") + "Blocca la barra delle applicazioni\n" +
-                    "Proprietà";
+                    (_taskbarLocked ? "*" : "") +
+                        L("lang_menu_lock", "Lock the taskbar") + "\n" +
+                    L("lang_properties", "Properties");
 
                 // v2.43: anche il menu semplice della barra (Proprieta',
                 // Avvia Gestione attivita'...) si apre dove sta il cursore,

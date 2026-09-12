@@ -227,6 +227,24 @@ public:
      * finestre che ospitano la tray XAML). Idempotente. */
     void EnableWin11Tray();
 
+    /* v2.61: crea/aggiorna le tre icone di sistema che la tray di Windows 11
+     * non espone (volume, rete, batteria). Non dipende da nessuna lettura di
+     * Explorer: esiste appena la modalita' Windows 11 e' attiva, e da quel
+     * momento resta nel modello. `shellExposed` (se non nullo) sono i tipi
+     * che la shell fornisce in QUESTA lettura: per quelli la voce sintetica
+     * non viene rinnovata e sparisce da sola. `presentUids` (se non nullo)
+     * riceve gli uid sintetici, cosi' la passata di rimozione non li tocca. */
+    void EnsureSyntheticSystemIcons(const std::set<SystemIconKind>* shellExposed,
+                                    std::set<uint32_t>* presentUids,
+                                    int* added, int* updated,
+                                    bool* bitmapChanged);
+
+    /* v2.61: rettangolo CORRENTE di un'icona, riportato dal frontend
+     * (W7T_SetIconRect) a ogni movimento reale: layout, DPI, monitor,
+     * apertura/chiusura dell'overflow. Serve ad ancorare i flyout alla
+     * posizione ATTUALE dell'icona, mai a quella dell'importazione. */
+    bool CurrentIconRect(const TrayIconKey& key, RECT& out);
+
     /* v2.60: la tray di Windows 11 si legge dall'albero di accessibilita'
      * (vedi Win11TrayReader.h). Questa passata fonde quel risultato nel
      * modello: aggiunge, aggiorna e rimuove SOLO le voci nate da li'. */
@@ -320,6 +338,12 @@ private:
     RECT m_clockFixedRect{};
     bool m_haveClockFixed = false;
     RECT                                 m_chevronRect = {};
+
+    /* v2.61: attesa corrente fra due tentativi di lettura della tray di
+     * Windows 11 quando la shell non risponde (1 s, 2 s, 4 s, 5 s). Torna a
+     * 1 s appena una lettura e' valida: nessun polling continuo, solo un
+     * ritentativo in backoff guidato dagli eventi. */
+    unsigned long                        m_uiaRetryDelayMs = 1000;
     std::vector<TrayIconKey>        m_order;
 
     /* Indice GUID -> chiave, per il riaggancio delle re-registrazioni:
@@ -351,6 +375,12 @@ private:
     static constexpr UINT kMsgUiaTray       = WM_APP + 107; // v2.60: snapshot tray Win11 pronto
     static constexpr UINT kTimerDebounce    = 0xB1;
     static constexpr UINT kTimerBackstop    = 0xB2;
+    /* v2.61: risveglio leggero (10 s) delle sole icone sintetiche mentre si
+     * e' su Windows 11. Non legge nulla di Explorer: ridisegna il glifo del
+     * volume (che non ha eventi), della rete e della batteria dallo stato
+     * corrente, cosi' il livello del volume si aggiorna anche senza eventi
+     * della tray. */
+    static constexpr UINT kTimerSynthetic   = 0xB3;
 
     std::atomic<uint32_t> m_pendingSources{ 0 };
     std::atomic<bool>     m_importDone{ false };

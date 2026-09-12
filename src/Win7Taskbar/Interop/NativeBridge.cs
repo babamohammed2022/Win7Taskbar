@@ -465,6 +465,9 @@ namespace Win7Taskbar.Interop
         /// rettangolo da escludere dall'hook dei clic esterni.</summary>
         public bool OverflowUsesShellFlyout() => NativeMethods.W7T_OverflowUsesShellFlyout() == 1;
 
+        /// <summary>v2.61: Windows 11 secondo il core (RtlGetVersion).</summary>
+        public bool IsWindows11() => NativeMethods.W7T_IsWindows11() == 1;
+
         // v3.0: ricerca app opzionale.
         public bool AppSearchInit(IntPtr taskbarHwnd, byte[]? argbPixels, int iconW, int iconH)
             => NativeMethods.W7T_AppSearchInit((ulong)taskbarHwnd, argbPixels, iconW, iconH) == 1;
