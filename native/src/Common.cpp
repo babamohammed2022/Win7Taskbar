@@ -299,6 +299,13 @@ constexpr int kResolveMaxPath = 520;
 } /* namespace */
 
 HICON ResolveAppIcon(const wchar_t* lnk, const wchar_t* target, bool large) {
+    /* 1.0.0-alpha: 'small' NON e' un nome sicuro per una variabile locale.
+     * Il Windows SDK (rpcndr.h) definisce, quando si compila con MSVC,
+     *     #define small char
+     * per compatibilita' con il vecchio MIDL: il compilatore vede quindi
+     * "char = nullptr" e si ferma. MinGW-w64 non definisce quella macro,
+     * per questo la build di riferimento (le DLL in dist/) compilava e
+     * quella con MSVC no. Da qui in avanti: smallIcon / bigIcon. */
     /* v2.26: MAI SHGetFileInfo sul .lnk: la shell ci compone sopra la
      * freccia "collegamento". L'icona dell'applicazione si estrae dal
      * percorso dichiarato dal lnk (GetIconLocation + ExtractIconEx) e,
@@ -333,19 +340,19 @@ HICON ResolveAppIcon(const wchar_t* lnk, const wchar_t* target, bool large) {
                                 MAX_PATH, &index)) && iconPath[0] != 0) {
                             wchar_t exp[MAX_PATH]{};
                             ExpandEnvironmentStringsW(iconPath, exp, MAX_PATH);
-                            HICON big = nullptr, small = nullptr;
-                            if (ExtractIconExW(exp, index, &big, &small,
+                            HICON bigIcon = nullptr, smallIcon = nullptr;
+                            if (ExtractIconExW(exp, index, &bigIcon, &smallIcon,
                                                1) > 0) {
-                                HICON pick = large ? big : small;
-                                HICON other = large ? small : big;
+                                HICON pick = large ? bigIcon : smallIcon;
+                                HICON other = large ? smallIcon : bigIcon;
                                 if (pick) {
                                     if (other) DestroyIcon(other);
                                     pf->Release();
                                     link->Release();
                                     return pick;
                                 }
-                                if (big) DestroyIcon(big);
-                                if (small) DestroyIcon(small);
+                                if (bigIcon) DestroyIcon(bigIcon);
+                                if (smallIcon) DestroyIcon(smallIcon);
                             }
                         }
                     }
@@ -358,16 +365,16 @@ HICON ResolveAppIcon(const wchar_t* lnk, const wchar_t* target, bool large) {
 
     if (target != nullptr && target[0] != 0) {
         W7T_SEH_TRY {
-            HICON big = nullptr, small = nullptr;
-            if (ExtractIconExW(target, 0, &big, &small, 1) > 0) {
-                HICON pick = large ? big : small;
-                HICON other = large ? small : big;
+            HICON bigIcon = nullptr, smallIcon = nullptr;
+            if (ExtractIconExW(target, 0, &bigIcon, &smallIcon, 1) > 0) {
+                HICON pick = large ? bigIcon : smallIcon;
+                HICON other = large ? smallIcon : bigIcon;
                 if (pick) {
                     if (other) DestroyIcon(other);
                     return pick;
                 }
-                if (big) DestroyIcon(big);
-                if (small) DestroyIcon(small);
+                if (bigIcon) DestroyIcon(bigIcon);
+                if (smallIcon) DestroyIcon(smallIcon);
             }
         } W7T_SEH_CATCH {} W7T_SEH_END
 
