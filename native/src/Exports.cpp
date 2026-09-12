@@ -423,17 +423,13 @@ extern "C" W7T_API int32_t W7T_CALL W7T_OpenStartFallback(void) {
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_ShowStartMenu(void) {
-    /* Il menu Start si apre simulando il tasto Windows: non esiste un'API
-     * pubblica per aprirlo.
+    /* Simula una singola pressione del tasto Windows.
+     * In questo modo Open-Shell puo' intercettarla normalmente;
+     * se Open-Shell non e' configurato, Windows apre il proprio Start.
      *
-     * PROBLEMA: quando Explorer riceve questo tasto rimette in mostra la
-     * propria taskbar, che avevamo nascosto. Il risultato e' che si vedono
-     * due barre sovrapposte.
-     *
-     * Windows 7 non aveva il problema perche' la barra ERA quella di
-     * Explorer. Qui dobbiamo rinascondere la sua subito dopo: il menu Start
-     * resta aperto e visibile, perche' e' una finestra separata dalla
-     * taskbar (Windows.UI.Core.CoreWindow / Start su Win10-11). */
+     * NON usare SC_TASKLIST come secondo percorso: puo' produrre una
+     * seconda attivazione dello Start dopo che Open-Shell ha gia'
+     * intercettato il tasto Windows. */
     const bool wasHidden = AppBarService::Instance().IsNativeTaskbarHidden();
 
     INPUT inputs[2] = {};
@@ -442,59 +438,14 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ShowStartMenu(void) {
     inputs[1].type = INPUT_KEYBOARD;
     inputs[1].ki.wVk = VK_LWIN;
     inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-    const UINT injected = SendInput(2, inputs, sizeof(INPUT));
 
-    /* v2.30: con un'app in primo piano a integrita' maggiore (UIPI) o con
-     * hook che filtrano i tasti iniettati (es. Windhawk aperto), il tap
-     * del tasto Windows puo' non arrivare. Ripiego documentato della
-     * shell: WM_SYSCOMMAND/SC_TASKLIST in broadcast apre il menu Start
-     * senza iniezione di input. */
-    if (injected == 0) {
-        SendMessageTimeoutW(HWND_BROADCAST, WM_SYSCOMMAND, SC_TASKLIST, 0,
-                            SMTO_ABORTIFHUNG, 300, nullptr);
-    }
+    SendInput(2, inputs, sizeof(INPUT));
 
     if (wasHidden) {
-        /* Explorer rimostra la barra in modo asincrono, mentre elabora il
-         * tasto: un solo tentativo immediato arriverebbe troppo presto.
-         * Ripetiamo per un breve periodo su un thread separato, cosi' da
-         * non bloccare il chiamante (che e' il thread della UI). */
+        /* Explorer puo' mostrare nuovamente la taskbar nativa mentre
+         * elabora il tasto Windows. La rinascondiamo senza generare
+         * una seconda apertura di Start. */
         std::thread([]() {
-            /* v2.30: se il tap non ha aperto il menu (hook/UX che lo
-             * filtrano), dopo ~600 ms si tenta il broadcast SC_TASKLIST. */
-            Sleep(600);
-            {
-                bool startVisible = false;
-                for (const wchar_t* clsName :
-                     { L"DV2ControlHost", L"StartMenuExperienceHost" }) {
-                    HWND h = FindWindowW(clsName, nullptr);
-                    if (h != nullptr && IsWindowVisible(h)) {
-                        startVisible = true;
-                        break;
-                    }
-                }
-                if (!startVisible) {
-                    HWND x = FindWindowW(L"XamlExplorerHostIslandWindow",
-                                         nullptr);
-                    while (x != nullptr) {
-                        if (IsWindowVisible(x)) {
-                            wchar_t t[4]{};
-                            if (GetWindowTextW(x, t, 4) == 0) {
-                                startVisible = true;
-                                break;
-                            }
-                        }
-                        x = FindWindowExW(nullptr, x,
-                                          L"XamlExplorerHostIslandWindow",
-                                          nullptr);
-                    }
-                }
-                if (!startVisible) {
-                    SendMessageTimeoutW(HWND_BROADCAST, WM_SYSCOMMAND,
-                                        SC_TASKLIST, 0, SMTO_ABORTIFHUNG,
-                                        300, nullptr);
-                }
-            }
             for (int i = 0; i < 20; ++i) {
                 Sleep(25);
                 AppBarService::Instance().ReassertNativeTaskbarHidden();
@@ -838,8 +789,8 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t toolbarAddress, int32_t toolbarLinks) {
     try {
         g_properties.Show(reinterpret_cast<HWND>(ownerTaskbar), lang,
-                          seconds, nativeFlyout, enableSearch, netFlyout,
-                          classicVolume, batteryFlyout, aeroPeek,
+                          seconds, nativeFlyout, netFlyout,
+                          enableSearch, classicVolume, batteryFlyout, aeroPeek,
                           toolbarDesktop, toolbarAddress, toolbarLinks);
     } catch (...) { /* mai propagare */ }
 }
@@ -1101,8 +1052,8 @@ void RepositionSndVolAbove(int x, int y) {
      *
      * La v2.54 aveva provato a intercettare il riquadro prima che fosse
      * visibile (polling ogni 5 ms, nessuna attesa iniziale, nascondi ->
-     * sposta -> mostra). Su Windows vero il risultato e' stato PEGGIORE: il
-     * riquadro finiva in alto a sinistra, perche' SndVol completa la
+     * sposta -> mostra). Su Windows vero il risultato e' stato PEGGIORE:
+     * il riquadro finiva in alto a sinistra, perche' SndVol completa la
      * propria inizializzazione DOPO di noi e riporta la finestra nella sua
      * posizione di default. Intercettarlo troppo presto, e soprattutto
      * nascondere/rimostrare la finestra, interferisce con quella sequenza.
