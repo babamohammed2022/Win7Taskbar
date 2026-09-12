@@ -1,0 +1,56 @@
+name: temp-arabic-properties
+on:
+  push:
+    branches:
+      - arena/01a0966f-win7taskbar
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: arena/01a0966f-win7taskbar
+      - name: Patch Arabic language option
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('native/src/PropertiesDialog.cpp')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('self->m_lang = (lang >= 0 && lang <= 9) ? lang : 0;',
+                        'self->m_lang = (lang >= 0 && lang <= 10) ? lang : 0;')
+          s = s.replace('case 9: return kZh;\n        default: return kIt;',
+                        'case 9: return kZh;\n        case 10: return kEn; /* Arabic uses the WPF dictionary for the managed UI. */\n        default: return kIt;')
+          s = s.replace('ComboBox_AddString(hCL, L"中文 (简体)");\n        ComboBox_SetCurSel(hCL, self->m_lang);',
+                        'ComboBox_AddString(hCL, L"中文 (简体)");\n        ComboBox_AddString(hCL, L"العربية");\n        ComboBox_SetCurSel(hCL, self->m_lang);')
+          s = s.replace('msg.lang = (langSel >= 0 && langSel <= 9) ? langSel : 0;',
+                        'msg.lang = (langSel >= 0 && langSel <= 10) ? langSel : 0;')
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('src/RetroBar.Shim/Utilities/Settings.cs')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('{ "it", "en", "es", "fr", "de", "pt", "pl", "ru", "ja", "zh" }',
+                        '{ "it", "en", "es", "fr", "de", "pt", "pl", "ru", "ja", "zh", "ar" }')
+          s = s.replace('Array.IndexOf(SupportedLanguages, sysLang) >= 0 ? sysLang : "it";',
+                        'Array.IndexOf(SupportedLanguages, sysLang) >= 0 ? sysLang : "en";')
+          p.write_text(s, encoding='utf-8')
+
+          # Map the native language index 10 to Arabic wherever the existing
+          # language-index mapping is expressed as a simple code array.
+          for path in Path('src/Win7Taskbar').rglob('*.cs'):
+              text = path.read_text(encoding='utf-8')
+              new = text.replace('new[] { "it", "en", "es", "fr", "de", "pt", "pl", "ru", "ja", "zh" }',
+                                 'new[] { "it", "en", "es", "fr", "de", "pt", "pl", "ru", "ja", "zh", "ar" }')
+              if new != text:
+                  path.write_text(new, encoding='utf-8')
+
+      - name: Commit changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add native/src/PropertiesDialog.cpp src/RetroBar.Shim/Utilities/Settings.cs src/Win7Taskbar
+          git diff --cached --quiet || git commit -m "fix: expose Arabic in properties language selector"
+          git push origin HEAD:arena/01a0966f-win7taskbar
