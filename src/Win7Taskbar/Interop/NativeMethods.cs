@@ -374,9 +374,10 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_OverflowGetRect(out int left, out int top, out int right, out int bottom);
 
-        // v2.60: su Windows 11 la freccetta apre il flyout vero della shell
-        // (le icone nascoste della tray XAML non sono enumerabili come
-        // pulsanti di una toolbar Win32).
+        // v2.61: sempre 0 - la freccetta apre il pannello nostro su ogni
+        // sistema. Sulle build di Windows 11 24H2 la freccetta della shell
+        // non risponde all'invoke UI Automation, quindi il flyout di sistema
+        // non si apriva e il clic non faceva nulla.
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_OverflowUsesShellFlyout();
 
@@ -385,7 +386,7 @@ namespace Win7Taskbar.Interop
         /// dal core con RtlGetVersion: la versione gestita non e'
         /// affidabile, perche' il manifest dell'app non dichiara Windows 10.
         /// </summary>
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_IsWindows11();
 
         // v3.0: optional app search panel.
