@@ -255,13 +255,17 @@ SystemIconKind ClassifySystemIcon(const std::wstring& name) {
 /* Icon of an executable: the image the tray shows for applications that do
  * not hand the shell their own HICON. */
 bool LoadImageIcon(const std::wstring& exePath, ArgbBitmap& out) {
-    HICON small = nullptr;
+    /* NB: la variabile NON si puo' chiamare "small": rpcndr.h definisce
+     * small/far/near/hyper/pascal come macro, e con MSVC la dichiarazione
+     * diventa "HICON char" (dieci errori di sintassi a catena). Con MinGW
+     * compila lo stesso e il bug si vede solo in CI. */
+    HICON iconSmall = nullptr;
     if (!exePath.empty()) {
         W7T_SEH_TRY {
-            if (ExtractIconExW(exePath.c_str(), 0, nullptr, &small, 1) > 0 &&
-                small != nullptr) {
+            if (ExtractIconExW(exePath.c_str(), 0, nullptr, &iconSmall, 1) > 0 &&
+                iconSmall != nullptr) {
                 ArgbBitmap bmp;
-                if (IconToArgb(small, bmp) && BitmapSane(bmp)) {
+                if (IconToArgb(iconSmall, bmp) && BitmapSane(bmp)) {
                     out = std::move(bmp);
                 }
             }
@@ -269,8 +273,8 @@ bool LoadImageIcon(const std::wstring& exePath, ArgbBitmap& out) {
             out.clear();
         } W7T_SEH_END
     }
-    if (small != nullptr) {
-        DestroyIcon(small);
+    if (iconSmall != nullptr) {
+        DestroyIcon(iconSmall);
     }
     if (!out.empty()) {
         return true;
