@@ -46,7 +46,7 @@ the package is **self-contained**, so the .NET runtime travels inside it and the
 .NET version installed on the machine is irrelevant (a machine with no .NET at
 all works just the same).
 
-Every setting lives in **Properties** (right-click the clock), in ten languages:
+Every setting lives in **Properties** (right-click the clock), in eleven languages:
 clock, flyout style per component (clock, network, volume, battery), app search,
 language, notification area, toolbars and exit.
 
@@ -214,3 +214,8 @@ Win7Taskbar builds on the work of others, in particular **RetroBar** (dremin),
 **Windows7RetrobarTheme** (babamohammed2022). See
 [`CREDITS.txt`](./CREDITS.txt) and [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)
 for the full, file-by-file attribution.
+
+Additional contributions:
+
+- **MAHMOGAMER** — Arabic translation
+- **WinBoeing777** — Testing on Windows 10 22H2 and graphical resources
