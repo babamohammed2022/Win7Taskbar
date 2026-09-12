@@ -427,17 +427,13 @@ extern "C" W7T_API int32_t W7T_CALL W7T_OpenStartFallback(void) {
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_ShowStartMenu(void) {
-    /* Il menu Start si apre simulando il tasto Windows: non esiste un'API
-     * pubblica per aprirlo.
+    /* Simula una singola pressione del tasto Windows.
+     * In questo modo Open-Shell puo' intercettarla normalmente;
+     * se Open-Shell non e' configurato, Windows apre il proprio Start.
      *
-     * PROBLEMA: quando Explorer riceve questo tasto rimette in mostra la
-     * propria taskbar, che avevamo nascosto. Il risultato e' che si vedono
-     * due barre sovrapposte.
-     *
-     * Windows 7 non aveva il problema perche' la barra ERA quella di
-     * Explorer. Qui dobbiamo rinascondere la sua subito dopo: il menu Start
-     * resta aperto e visibile, perche' e' una finestra separata dalla
-     * taskbar (Windows.UI.Core.CoreWindow / Start su Win10-11). */
+     * NON usare SC_TASKLIST come secondo percorso: puo' produrre una
+     * seconda attivazione dello Start dopo che Open-Shell ha gia'
+     * intercettato il tasto Windows. */
     const bool wasHidden = AppBarService::Instance().IsNativeTaskbarHidden();
 
     INPUT inputs[2] = {};
@@ -446,24 +442,20 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ShowStartMenu(void) {
     inputs[1].type = INPUT_KEYBOARD;
     inputs[1].ki.wVk = VK_LWIN;
     inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-    const UINT injected = SendInput(2, inputs, sizeof(INPUT));
 
-    /* v2.30: con un'app in primo piano a integrita' maggiore (UIPI) o con
-     * hook che filtrano i tasti iniettati (es. Windhawk aperto), il tap
-     * del tasto Windows puo' non arrivare. Ripiego documentato della
-     * shell: WM_SYSCOMMAND/SC_TASKLIST in broadcast apre il menu Start
-     * senza iniezione di input. */
-    if (injected == 0) {
-        SendMessageTimeoutW(HWND_BROADCAST, WM_SYSCOMMAND, SC_TASKLIST, 0,
-                            SMTO_ABORTIFHUNG, 300, nullptr);
-    }
+    SendInput(2, inputs, sizeof(INPUT));
 
     if (wasHidden) {
         /* v2.60: un solo ri-nascondi, subito. Il caso "Explorer rimostra
          * la barra mentre apre Start" lo prende l'hook di sistema di
          * AppBarService (evento SHOW), quindi non serve piu' il ciclo di
          * 20 ri-tentativi a 25 ms: era quello a far lampeggiare la barra
-         * nativa sotto la nostra a ogni pressione di Start. */
+         * nativa sotto la nostra a ogni pressione di Start.
+         *
+         * (unione con il ramo main: la richiesta "Start = solo il tasto
+         * Windows, nessun secondo percorso SC_TASKLIST" e' rispettata -
+         * vedi il commento sopra - mentre il ri-nascondi resta quello
+         * event-driven, non il ciclo a 25 ms.) */
         AppBarService::Instance().ReassertNativeTaskbarHidden();
     }
 
@@ -822,8 +814,8 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t toolbarAddress, int32_t toolbarLinks) {
     try {
         g_properties.Show(reinterpret_cast<HWND>(ownerTaskbar), lang,
-                          seconds, nativeFlyout, enableSearch, netFlyout,
-                          classicVolume, batteryFlyout, aeroPeek,
+                          seconds, nativeFlyout, netFlyout,
+                          enableSearch, classicVolume, batteryFlyout, aeroPeek,
                           toolbarDesktop, toolbarAddress, toolbarLinks);
     } catch (...) { /* mai propagare */ }
 }
@@ -1085,8 +1077,8 @@ void RepositionSndVolAbove(int x, int y) {
      *
      * La v2.54 aveva provato a intercettare il riquadro prima che fosse
      * visibile (polling ogni 5 ms, nessuna attesa iniziale, nascondi ->
-     * sposta -> mostra). Su Windows vero il risultato e' stato PEGGIORE: il
-     * riquadro finiva in alto a sinistra, perche' SndVol completa la
+     * sposta -> mostra). Su Windows vero il risultato e' stato PEGGIORE:
+     * il riquadro finiva in alto a sinistra, perche' SndVol completa la
      * propria inizializzazione DOPO di noi e riporta la finestra nella sua
      * posizione di default. Intercettarlo troppo presto, e soprattutto
      * nascondere/rimostrare la finestra, interferisce con quella sequenza.
