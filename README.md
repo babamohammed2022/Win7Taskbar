@@ -31,34 +31,11 @@ Other known limitations include unsupported decorative taskbar rotation and syst
 
 ## Build
 
-For the normal one-click build on Windows, double-click **`COMPILA.bat`**.
+For the normal one-click build on Windows, double-click the compilation script that can be found in the docs folder.
 
 For complete build, packaging, architecture, and development instructions, see [`docs/PROJECT-INSTRUCTIONS.md`](./docs/PROJECT-INSTRUCTIONS.md).
 
 For a concise user and build guide, see [`docs/QUICK-START.md`](./docs/QUICK-START.md).
-
-## Repository layout
-
-```text
-Win7Taskbar/
-├── README.md
-├── LICENSE
-├── AGENTS.md
-├── THIRD-PARTY-NOTICES.md
-├── CREDITS.txt
-├── COMPILA.bat
-├── Win7Taskbar.sln
-│
-├── src/                 application and native source code
-├── native/              native C++/Win32 backend
-├── build/               build and publishing scripts
-├── ci/                  CI configuration
-├── docs/                project documentation
-├── Themes/              runtime themes
-├── Resources/           runtime resources
-├── Languages/           localization files
-└── dist/                native binaries used by the build/package
-```
 
 ## Contributing
 
