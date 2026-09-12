@@ -45,8 +45,15 @@ Bug reports, reproductions, and pull requests are welcome. New documentation and
 
 Please read [`AGENTS.md`](./AGENTS.md) before making changes.
 
-## Credits and licensing
+## Credits
 
-Win7Taskbar builds on work from projects including RetroBar, ExplorerPatcher, ManagedShell, and Windows7RetrobarTheme.
+- MAHMOGAMER - Arabic translation
+- WinBoeing777 - Testing on Windows 10 22H2 and providing resouces
 
+Win7Taskbar was created using work from projects including RetroBar, ExplorerPatcher and ManagedShell.
+For additional information, please refer to the docs folder.
+
+
+
+## License 
 The project is licensed under **GNU GPL v3.0 or later**. See [`LICENSE`](./LICENSE), [`CREDITS.txt`](./CREDITS.txt), and [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md) for licensing and attribution details.
