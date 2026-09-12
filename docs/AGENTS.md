@@ -19,3 +19,15 @@ These rules apply for human and AI contributors.
 5. **Humbleness and Tone**
    - Describe every change or fix plainly as a proposed solution to a problem.
    - Avoid sensational, dramatic, or self-congratulatory language in commit messages, pull requests, logs, and documentation.
+
+6. **Repository Layout**
+   - `compilation files/` holds every manual build/packaging script (`build.bat`,
+     `build-release.ps1`, `publish.ps1`) and the asset converter `icons_to_base64.py`.
+     Do not scatter new scripts elsewhere: reference them from there.
+   - `src/`, `native/`, `Themes/`, `Resources/`, `Languages/` and `docs/` keep their
+     position: move files inside them only when a task says so.
+   - `build/publish.ps1` is a compatibility shim for the release workflow copy that is
+     already published on GitHub and that the automation cannot modify; keep it working.
+   - Generated assets (`native/src/TrayIconAssets.inc`, `native/src/BatteryAssets.inc`)
+     are produced from the sources in `assets/icon-sources/` by
+     `compilation files/icons_to_base64.py`. Never hand-edit the `.inc` files.

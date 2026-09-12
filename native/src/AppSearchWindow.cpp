@@ -1216,7 +1216,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
     int yCur = kListTop;
 
     if (best) {
-        drawHeader(L"Corrispondenza migliore", yCur);
+        drawHeader(S(StrId::BestMatch), yCur);
         yCur += 22;
         const AppEntry& app = m_allApps[m_filtered[0]];
         RECT selR{ 10, yCur, kLeftWidth - 10, yCur + 46 };
@@ -1251,19 +1251,19 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         SelectObject(hdc, ob);
         RECT sr{ 56, yCur + 25, kLeftWidth - 12, yCur + 43 };
         SetTextColor(hdc, col(kTextDim));
-        DrawTextW(hdc, L"App", -1, &sr, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+        DrawTextW(hdc, S(StrId::AppItem), -1, &sr, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
         yCur += 46;
     }
 
     if (!m_scanDone && m_allApps.empty() && m_query.empty()) {
         SetTextColor(hdc, col(kTextDim));
         RECT lr{ 10, kListTop + 60, kLeftWidth - 10, kListTop + 140 };
-        DrawTextW(hdc, L"Scansione applicazioni...", -1, &lr,
+        DrawTextW(hdc, S(StrId::ScanningApplications), -1, &lr,
                   DT_SINGLELINE | DT_VCENTER | DT_CENTER);
         yCur += 26;
     }
     if (!m_filtered.empty() || m_query.empty()) {
-        drawHeader(L"Programmi", yCur);
+        drawHeader(S(StrId::Programs), yCur);
     }
     yCur += 22;
     const int rowsTop = yCur;
@@ -1292,7 +1292,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
     if (m_filtered.empty() && !m_query.empty()) {
         SetTextColor(hdc, col(kTextDim));
         RECT nr{ 14, rowsTop + 6, kLeftWidth - 14, rowsTop + 66 };
-        DrawTextW(hdc, L"Nessun elemento corrisponde alla ricerca.", -1,
+        DrawTextW(hdc, S(StrId::NoSearchResults), -1,
                   &nr, DT_WORDBREAK | DT_LEFT);
     }
 
@@ -1356,14 +1356,16 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         SelectObject(hdc, ob);
         RECT ar{ kLeftWidth + 10, 88, W - 10, 102 };
         SetTextColor(hdc, col(kTextDim));
-        DrawTextW(hdc, L"App", -1, &ar, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
+        DrawTextW(hdc, S(StrId::AppItem), -1, &ar, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
 
         hline(kHeaderH + 2, kLeftWidth + 14, W - 14);
 
+        /* v2.59: tre stringhe generate dall'app: lingua scelta, non
+         * letterali italiani (vedi Strings.cpp). */
         const wchar_t* labels[3] = {
-            L"Apri",
-            L"Esegui come amministratore",
-            L"Apri percorso file"
+            S(StrId::Open),
+            S(StrId::RunAsAdministrator),
+            S(StrId::OpenFileLocation)
         };
         int oy = kHeaderH + 8;
         for (int i = 0; i < 3; ++i) {
@@ -1424,7 +1426,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
             RECT fr{ kLeftWidth + 10, oy + 12, W - 10, oy + 30 };
             HFONT ob2 = static_cast<HFONT>(SelectObject(hdc, fontBold));
             SetTextColor(hdc, col(kTextDim));
-            DrawTextW(hdc, L"File recenti", -1, &fr, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+            DrawTextW(hdc, S(StrId::RecentFiles), -1, &fr, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
             SelectObject(hdc, ob2);
             int ry = oy + 32;
             for (int idxApp : m_recentFiles) {

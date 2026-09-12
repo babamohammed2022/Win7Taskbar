@@ -7,6 +7,7 @@
 
 #include "PropertiesDialog.h"
 #include "SehGuard.h"
+#include "Strings.h"
 /* v2.48: il pulsante "Personalizza..." dell'area di notifica usa LO STESSO
  * comando del menu di overflow della barra (W7T_OpenNotificationIconsSettings,
  * definito nel core nativo): nessuna pagina sostitutiva, nessun percorso
@@ -91,523 +92,19 @@ enum CtrlId {
     IDC_BTN_APPLY = 3000,
 };
 
-struct Strings {
-    const wchar_t* title;
-    const wchar_t* tab1; const wchar_t* tab2;
-    const wchar_t* grpClock; const wchar_t* chkSeconds;
-    const wchar_t* txtFlyout; const wchar_t* flyRecreated; const wchar_t* flyNative;
-    const wchar_t* grpSearch; const wchar_t* chkSearch; const wchar_t* btnOpen;
-    const wchar_t* grpLang;
-    const wchar_t* grpExit; const wchar_t* btnExit;
-    const wchar_t* about; const wchar_t* credits;
-    const wchar_t* ok; const wchar_t* cancel; const wchar_t* apply;
-    const wchar_t* grpNetFlyout; const wchar_t* txtNetFlyout;
-    const wchar_t* netWin7; const wchar_t* netModern;
-    const wchar_t* grpSysFly; const wchar_t* chkClassicVol;
-    const wchar_t* chkBattFlyout;
-    /* v2.47: campi aggiunti in coda (la finestra segue la foto della mod di
-     * riferimento: gruppi Flyout, Area di notifica, Aero Peek, note in basso
-     * e terza scheda per le NOSTRE barre degli strumenti). */
-    const wchar_t* tab3;
-    const wchar_t* grpFlyouts;
-    const wchar_t* lblClock; const wchar_t* lblNetwork;
-    const wchar_t* lblVolume; const wchar_t* lblBattery;
-    const wchar_t* grpTaskbar; const wchar_t* lblLang;
-    const wchar_t* grpNotif; const wchar_t* txtNotif; const wchar_t* btnCustomize;
-    const wchar_t* grpAero; const wchar_t* txtAero; const wchar_t* chkAeroPeek;
-    const wchar_t* linkHelp;
-    const wchar_t* txtToolbars;
-    const wchar_t* tbDesktop; const wchar_t* tbAddress; const wchar_t* tbLinks;
-};
-
-constexpr Strings kIt = {
-    L"Proprietà",
-    L"Barra delle applicazioni", L"Informazioni",
-    L"Orologio", L"Mostra i secondi nell'orologio",
-    L"Riquadro:", L"Tema classico (ricreato)", L"Windows 7",
-    L"Ricerca applicazioni",
-    L"Attiva ricerca applicazioni (reimplementazione opzionale)",
-    L"Apri ricerca",
-    L"Lingua",
-    L"Uscita", L"Chiudi Win7Taskbar",
-            L"Win7Taskbar è un progetto in costante sviluppo: ricrea la barra delle "
-    L"applicazioni di Windows 7 sopra quella moderna. Non tutte le parti sono "
-    L"complete e la precisione al 100% non è ancora garantita: alcune funzioni "
-    L"sono ricostruite da zero, altre vengono agganciate e riposizionate. Se "
-    L"trovi un difetto o hai un suggerimento, segnalalo: è utile e aiuta a "
-    L"rendere le versioni successive più fedeli e più stabili. Limitazioni note: "
-    L"la rotazione della barra non è supportata (opzione decorativa) e le "
-    L"finestre di sistema (flyout, menu Start) vengono agganciate e "
-    L"riposizionate, non ricreate.",
-    L"Ringraziamenti: 3ds per alcune risorse grafiche e per l'ispirazione del "
-    L"tema XAML.",
-    L"OK", L"Annulla", L"Applica",
-    L"Flyout di rete", L"Riquadro:",
-    L"Windows 7 (ricreato)", L"Windows 10/11",
-    L"Flyout di sistema",
-    L"Mixer volume classico (SndVol)",
-    L"Flyout batteria (stile Windows 7)",
-    /* v2.47 */
-    L"Barra degli strumenti",
-    L"Flyout",
-    L"Orologio:",
-    L"Rete:",
-    L"Volume:",
-    L"Batteria:",
-    L"Barra delle applicazioni",
-    L"Lingua:",
-    L"Area di notifica",
-    L"Personalizza quali icone e notifiche appaiono nell'area di notifica.",
-    L"Personalizza...",
-    L"Anteprima del desktop con Aero Peek",
-    L"Visualizza temporaneamente il desktop quando si passa il mouse sul pulsante Mostra desktop, alla fine della barra delle applicazioni.",
-    L"Usa Aero Peek per visualizzare l'anteprima del desktop",
-    L"<a>Come si personalizza la barra delle applicazioni?</a>",
-    L"Aggiunge alla barra delle applicazioni le barre degli strumenti della mod. Le stesse voci sono disponibili nel menu contestuale della barra.",
-    L"Barra degli strumenti Desktop",
-    L"Indirizzi",
-    L"Collegamenti",
-};
-
-constexpr Strings kEn = {
-    L"Properties",
-    L"Taskbar", L"About",
-    L"Clock", L"Show seconds in the clock",
-    L"Flyout:", L"Classic theme (recreated)", L"Windows 7",
-    L"App search",
-    L"Enable app search (optional reimplementation)",
-    L"Open search",
-    L"Language",
-    L"Exit", L"Close Win7Taskbar",
-            L"Win7Taskbar is a project in constant development that recreates the "
-    L"Windows 7 taskbar on top of the modern one. Not every part is finished and "
-    L"100% precision is not guaranteed yet: some features are rebuilt from "
-    L"scratch, others are hooked and repositioned. If you find a bug or have a "
-    L"suggestion, reporting it is useful: it helps make the next versions more "
-    L"faithful and more stable. Known limitations: taskbar rotation is not "
-    L"supported (decorative option); system windows (flyouts, start menu) are "
-    L"hooked and repositioned, not recreated.",
-    L"Credits: 3ds for some of the graphic resources and for the inspiration "
-    L"behind the XAML idea.",
-    L"OK", L"Cancel", L"Apply",
-    L"Network flyout", L"Flyout:",
-    L"Windows 7 (recreated)", L"Windows 10/11",
-    L"System flyouts",
-    L"Classic volume mixer (SndVol)",
-    L"Battery flyout (Windows 7 style)",
-    /* v2.47 */
-    L"Toolbars",
-    L"Flyouts",
-    L"Clock:",
-    L"Network:",
-    L"Volume:",
-    L"Battery:",
-    L"Taskbar",
-    L"Language:",
-    L"Notification area",
-    L"Customize which icons and notifications appear in the notification area.",
-    L"Customize...",
-    L"Preview desktop with Aero Peek",
-    L"Temporarily view the desktop when you move your mouse to the Show desktop button at the end of the taskbar.",
-    L"Use Aero Peek to preview the desktop",
-    L"<a>How do I customize the taskbar?</a>",
-    L"Adds the mod's toolbars to the taskbar. The same items are available in the taskbar context menu.",
-    L"Desktop toolbar",
-    L"Address",
-    L"Links",
-};
-
-/* v2.42: dialogo Proprieta' tradotto in TUTTE le lingue della mod
- * (prima solo it/en). */
-constexpr Strings kEs = {
-    L"Propiedades",
-    L"Barra de tareas", L"Acerca de",
-    L"Reloj", L"Mostrar segundos en el reloj",
-    L"Panel:", L"Tema clásico (recreado)", L"Windows 7",
-    L"Búsqueda de aplicaciones",
-    L"Activar búsqueda de aplicaciones (reimplementación opcional)",
-    L"Abrir búsqueda",
-    L"Idioma",
-    L"Salida", L"Cerrar Win7Taskbar",
-            L"Win7Taskbar es un proyecto en constante desarrollo que recrea la barra de "
-    L"tareas de Windows 7 sobre la moderna. No todas las partes están terminadas "
-    L"y la precisión del 100% aún no está garantizada: algunas funciones se "
-    L"reconstruyen desde cero, otras se enganchan y se reposicionan. Si "
-    L"encuentras un fallo o tienes una sugerencia, comunicarlo es útil: ayuda a "
-    L"que las próximas versiones sean más fieles y más estables. Limitaciones "
-    L"conocidas: no se admite la rotación de la barra (opción decorativa); las "
-    L"ventanas del sistema (flyouts, menú Inicio) se enganchan y se "
-    L"reposicionan, no se recrean.",
-    L"Créditos: 3ds por algunos recursos gráficos y por la inspiración de la "
-    L"idea XAML.",
-    L"Aceptar", L"Cancelar", L"Aplicar",
-    L"Panel de red", L"Panel:",
-    L"Windows 7 (recreado)", L"Windows 10/11",
-    L"Paneles del sistema",
-    L"Mezclador de volumen clásico (SndVol)",
-    L"Panel de batería (estilo Windows 7)",
-    /* v2.47 */
-    L"Barras de herramientas",
-    L"Flyouts",
-    L"Reloj:",
-    L"Red:",
-    L"Volumen:",
-    L"Batería:",
-    L"Barra de tareas",
-    L"Idioma:",
-    L"Área de notificación",
-    L"Personaliza qué iconos y notificaciones aparecen en el área de notificación.",
-    L"Personalizar...",
-    L"Vista previa del escritorio con Aero Peek",
-    L"Muestra temporalmente el escritorio al pasar el mouse sobre el botón Mostrar escritorio, al final de la barra de tareas.",
-    L"Usar Aero Peek para obtener una vista previa del escritorio",
-    L"<a>¿Cómo personalizo la barra de tareas?</a>",
-    L"Añade las barras de herramientas de la mod a la barra de tareas. Las mismas opciones están en el menú contextual de la barra.",
-    L"Barra de herramientas Escritorio",
-    L"Direcciones",
-    L"Vínculos",
-};
-
-constexpr Strings kFr = {
-    L"Propriétés",
-    L"Barre des tâches", L"À propos",
-    L"Horloge", L"Afficher les secondes dans l'horloge",
-    L"Panneau :", L"Thème classique (recréé)", L"Windows 7",
-    L"Recherche d'applications",
-    L"Activer la recherche d'applications (réimplémentation optionnelle)",
-    L"Ouvrir la recherche",
-    L"Langue",
-    L"Quitter", L"Fermer Win7Taskbar",
-            L"Win7Taskbar est un projet en développement constant qui recrée la barre "
-    L"des tâches de Windows 7 par-dessus celle des versions modernes. Tout n'est "
-    L"pas terminé et la précision à 100 % n'est pas encore garantie : certaines "
-    L"fonctions sont reconstruites de zéro, d'autres sont accrochées et "
-    L"repositionnées. Si vous trouvez un défaut ou avez une suggestion, la "
-    L"signaler est utile : cela aide à rendre les prochaines versions plus "
-    L"fidèles et plus stables. Limites connues : la rotation de la barre n'est "
-    L"pas prise en charge (option décorative) ; les fenêtres système (flyouts, "
-    L"menu Démarrer) sont accrochées et repositionnées, pas recréées.",
-    L"Crédits : 3ds pour certaines ressources graphiques et l'inspiration de "
-    L"l'idée XAML.",
-    L"OK", L"Annuler", L"Appliquer",
-    L"Panneau réseau", L"Panneau :",
-    L"Windows 7 (recréé)", L"Windows 10/11",
-    L"Panneaux système",
-    L"Mixeur de volume classique (SndVol)",
-    L"Panneau batterie (style Windows 7)",
-    /* v2.47 */
-    L"Barres d'outils",
-    L"Volets",
-    L"Horloge :",
-    L"Réseau :",
-    L"Volume :",
-    L"Batterie :",
-    L"Barre des tâches",
-    L"Langue :",
-    L"Zone de notification",
-    L"Personnalisez les icônes et notifications qui apparaissent dans la zone de notification.",
-    L"Personnaliser...",
-    L"Aperçu du bureau avec Aero Peek",
-    L"Affiche temporairement le bureau lorsque vous passez la souris sur le bouton Afficher le bureau, à l'extrémité de la barre des tâches.",
-    L"Utiliser Aero Peek pour prévisualiser le bureau",
-    L"<a>Comment personnaliser la barre des tâches ?</a>",
-    L"Ajoute les barres d'outils de la mod à la barre des tâches. Les mêmes entrées sont dans le menu contextuel de la barre.",
-    L"Barre d'outils Bureau",
-    L"Adresses",
-    L"Liens",
-};
-
-constexpr Strings kDe = {
-    L"Eigenschaften",
-    L"Taskleiste", L"Info",
-    L"Uhr", L"Sekunden in der Uhr anzeigen",
-    L"Flyout:", L"Klassisches Thema (nachgebildet)", L"Windows 7",
-    L"App-Suche",
-    L"App-Suche aktivieren (optionale Nachbildung)",
-    L"Suche öffnen",
-    L"Sprache",
-    L"Beenden", L"Win7Taskbar schließen",
-            L"Win7Taskbar ist ein Projekt in ständiger Entwicklung, das die "
-    L"Windows-7-Taskleiste über der modernen nachbildet. Nicht alles ist fertig "
-    L"und 100 % Genauigkeit ist noch nicht garantiert: einige Funktionen sind "
-    L"neu gebaut, andere werden angedockt und verschoben. Wenn du einen Fehler "
-    L"findest oder einen Vorschlag hast, hilft eine Meldung: so werden die "
-    L"nächsten Versionen treuer und stabiler. Bekannte Grenzen: Drehung der "
-    L"Taskleiste wird nicht unterstützt (dekorative Option); Systemfenster "
-    L"(Flyouts, Startmenü) werden angedockt und verschoben, nicht nachgebaut.",
-    L"Dank: 3ds für einige Grafikressourcen und die XAML-Idee.",
-    L"OK", L"Abbrechen", L"Übernehmen",
-    L"Netzwerk-Flyout", L"Flyout:",
-    L"Windows 7 (nachgebildet)", L"Windows 10/11",
-    L"System-Flyouts",
-    L"Klassischer Lautstärkemixer (SndVol)",
-    L"Akku-Flyout (Windows-7-Stil)",
-    /* v2.47 */
-    L"Symbolleisten",
-    L"Flyouts",
-    L"Uhr:",
-    L"Netzwerk:",
-    L"Lautstärke:",
-    L"Akku:",
-    L"Taskleiste",
-    L"Sprache:",
-    L"Infobereich",
-    L"Legen Sie fest, welche Symbole und Benachrichtigungen im Infobereich angezeigt werden.",
-    L"Anpassen...",
-    L"Desktopvorschau mit Aero Peek",
-    L"Zeigt den Desktop kurz an, wenn Sie den Mauszeiger auf die Schaltfläche „Desktop anzeigen“ am Ende der Taskleiste bewegen.",
-    L"Aero Peek zum Anzeigen der Desktopvorschau verwenden",
-    L"<a>Wie passe ich die Taskleiste an?</a>",
-    L"Fügt die Symbolleisten der Mod zur Taskleiste hinzu. Dieselben Einträge gibt es im Kontextmenü der Taskleiste.",
-    L"Symbolleiste Desktop",
-    L"Adressen",
-    L"Links",
-};
-
-constexpr Strings kPt = {
-    L"Propriedades",
-    L"Barra de tarefas", L"Sobre",
-    L"Relógio", L"Mostrar segundos no relógio",
-    L"Painel:", L"Tema clássico (recriado)", L"Windows 7",
-    L"Pesquisa de aplicativos",
-    L"Ativar pesquisa de aplicativos (reimplementação opcional)",
-    L"Abrir pesquisa",
-    L"Idioma",
-    L"Sair", L"Fechar o Win7Taskbar",
-            L"O Win7Taskbar é um projeto em desenvolvimento constante que recria a barra "
-    L"de tarefas do Windows 7 sobre a moderna. Nem tudo está concluído e a "
-    L"precisão de 100% ainda não é garantida: algumas partes são reconstruídas "
-    L"de zero, outras são anexadas e reposicionadas. Se encontrar um defeito ou "
-    L"tiver uma sugestão, comunicá-la é útil: ajuda a tornar as próximas versões "
-    L"mais fiéis e mais estáveis. Limitações conhecidas: a rotação da barra não "
-    L"é suportada (opção decorativa); as janelas do sistema (flyouts, menu "
-    L"Iniciar) são anexadas e reposicionadas, não recriadas.",
-    L"Créditos: 3ds por alguns recursos gráficos e pela inspiração da ideia "
-    L"XAML.",
-    L"OK", L"Cancelar", L"Aplicar",
-    L"Painel de rede", L"Painel:",
-    L"Windows 7 (recriado)", L"Windows 10/11",
-    L"Painéis do sistema",
-    L"Mixador de volume clássico (SndVol)",
-    L"Painel de bateria (estilo Windows 7)",
-    /* v2.47 */
-    L"Barras de ferramentas",
-    L"Flyouts",
-    L"Relógio:",
-    L"Rede:",
-    L"Volume:",
-    L"Bateria:",
-    L"Barra de tarefas",
-    L"Idioma:",
-    L"Área de notação",
-    L"Personalize quais ícones e notações aparecem na área de notação.",
-    L"Personalizar...",
-    L"Visualizar a área de trabalho com Aero Peek",
-    L"Mostra temporariamente a área de trabalho quando você move o mouse para o botão Mostrar área de trabalho, no fim da barra de tarefas.",
-    L"Usar o Aero Peek para visualizar a área de trabalho",
-    L"<a>Como personalizo a barra de tarefas?</a>",
-    L"Adiciona as barras de ferramentas da mod à barra de tarefas. Os mesmos itens estão no menu de contexto da barra.",
-    L"Barra de ferramentas Área de trabalho",
-    L"Endereços",
-    L"Links",
-};
-
-constexpr Strings kPl = {
-    L"Właściwości",
-    L"Pasek zadań", L"O programie",
-    L"Zegar", L"Pokazuj sekundy w zegarze",
-    L"Panel:", L"Motyw klasyczny (odtworzony)", L"Windows 7",
-    L"Wyszukiwanie aplikacji",
-    L"Włącz wyszukiwanie aplikacji (opcjonalna reimplementacja)",
-    L"Otwórz wyszukiwanie",
-    L"Język",
-    L"Zamknij", L"Zamknij Win7Taskbar",
-            L"Win7Taskbar to projekt w ciągłym rozwoju, który odtwarza pasek zadań "
-    L"Windows 7 na nowoczesnym pasku. Nie wszystko jest gotowe, a 100% zgodności "
-    L"nie jest jeszcze gwarantowane: część funkcji jest budowana od zera, a "
-    L"część jest zaczepiana i przestawiana. Jeśli znajdziesz błąd lub masz "
-    L"sugestię, warto ją zgłosić: pomaga to uczynić kolejne wersje wierniejszymi "
-    L"i stabilniejszymi. Znane ograniczenia: obrót paska nie jest obsługiwany "
-    L"(opcja dekoracyjna); okna systemowe (flyouty, menu Start) są zaczepiane i "
-    L"przestawiane, a nie odtwarzane.",
-    L"Podziękowania: 3ds za część zasobów graficznych i inspirację pomysłu XAML.",
-    L"OK", L"Anuluj", L"Zastosuj",
-    L"Panel sieci", L"Panel:",
-    L"Windows 7 (odtworzony)", L"Windows 10/11",
-    L"Panele systemowe",
-    L"Klasyczny mikser głośności (SndVol)",
-    L"Panel baterii (styl Windows 7)",
-    /* v2.47 */
-    L"Paski narzędzi",
-    L"Wysuwane okna",
-    L"Zegar:",
-    L"Sieć:",
-    L"Głośność:",
-    L"Bateria:",
-    L"Pasek zadań",
-    L"Język:",
-    L"Obszar powiadomień",
-    L"Wybierz, które ikony i powiadomienia mają być wyświetlane w obszarze powiadomień.",
-    L"Dostosuj...",
-    L"Podgląd pulpitu z Aero Peek",
-    L"Tymczasowo pokazuje pulpit po przesunięciu wskaźnika na przycisk Pokaż pulpit na końcu paska zadań.",
-    L"Użyj Aero Peek, aby wyświetlić podgląd pulpitu",
-    L"<a>Jak dostosować pasek zadań?</a>",
-    L"Dodaje paski narzędzi moda do paska zadań. Te same pozycje są w menu kontekstowym paska.",
-    L"Pasek narzędzi Pulpit",
-    L"Adresy",
-    L"Łącza",
-};
-
-constexpr Strings kRu = {
-    L"Свойства",
-    L"Панель задач", L"О программе",
-    L"Часы", L"Показывать секунды в часах",
-    L"Панель:", L"Классическая тема (воссоздано)", L"Windows 7",
-    L"Поиск приложений",
-    L"Включить поиск приложений (необязательная реализация)",
-    L"Открыть поиск",
-    L"Язык",
-    L"Выход", L"Закрыть Win7Taskbar",
-            L"Проект Win7Taskbar находится в постоянной разработке и воссоздаёт панель "
-    L"задач Windows 7 поверх современной. Готово не всё, и точность 100% пока не "
-    L"гарантируется: часть функций создана заново, часть подключается и "
-    L"перемещается. Если вы нашли ошибку или у вас есть предложение, сообщите о "
-    L"них: это помогает делать следующие версии точнее и стабильнее. Известные "
-    L"ограничения: поворот панели не поддерживается (декоративная опция); "
-    L"системные окна (флайауты, меню «Пуск») подключаются и перемещаются, а не "
-    L"воссоздаются.",
-    L"Благодарности: 3ds за часть графики и идею XAML.",
-    L"OK", L"Отмена", L"Применить",
-    L"Панель сети", L"Панель:",
-    L"Windows 7 (воссоздано)", L"Windows 10/11",
-    L"Системные панели",
-    L"Классический микшер громкости (SndVol)",
-    L"Панель батареи (стиль Windows 7)",
-    /* v2.47 */
-    L"Панели инструментов",
-    L"Всплывающие панели",
-    L"Часы:",
-    L"Сеть:",
-    L"Громкость:",
-    L"Батарея:",
-    L"Панель задач",
-    L"Язык:",
-    L"Область уведомлений",
-    L"Настройте, какие значки и уведомления отображаются в области уведомлений.",
-    L"Настроить...",
-    L"Просмотр рабочего стола с Aero Peek",
-    L"Временно показывает рабочий стол при наведении указателя на кнопку «Свернуть все окна» в конце панели задач.",
-    L"Использовать Aero Peek для предварительного просмотра рабочего стола",
-    L"<a>Как настроить панель задач?</a>",
-    L"Добавляет панели инструментов мода на панель задач. Те же пункты есть в контекстном меню панели.",
-    L"Панель инструментов «Рабочий стол»",
-    L"Адрес",
-    L"Ссылки",
-};
-
-constexpr Strings kJa = {
-    L"プロパティ",
-    L"タスクバー", L"情報",
-    L"時計", L"時計に秒を表示する",
-    L"フライアウト:", L"クラシックテーマ（再現）", L"Windows 7",
-    L"アプリ検索",
-    L"アプリ検索を有効にする（オプションの実装）",
-    L"検索を開く",
-    L"言語",
-    L"終了", L"Win7Taskbar を閉じる",
-            L"Win7Taskbar は、モダンなタスクバーの上に Windows 7 "
-    L"のタスクバーを再現する開発中のプロジェクトです。すべての機能が完成しているわけではなく、100% "
-    L"の再現精度はまだ保証されていません。一部は新しく作り直し、一部は既存のウィンドウを位置調整して利用しています。不具合や提案があれば報告していただけると助かります。次のバージョンの精度と安定性の向上に役立ちます。既知の制限: "
-    L"タスクバーの回転には対応していません（装飾的なオプション）。システムのウィンドウ（フライアウト、スタート メニュー）は再現ではなく位置調整です。",
-    L"クレジット: 一部のグラフィックリソースと XAML の発想は 3ds による。",
-    L"OK", L"キャンセル", L"適用",
-    L"ネットワーク フライアウト", L"フライアウト:",
-    L"Windows 7（再現）", L"Windows 10/11",
-    L"システム フライアウト",
-    L"クラシック ミキサー (SndVol)",
-    L"バッテリー フライアウト（Windows 7 スタイル）",
-    /* v2.47 */
-    L"ツールバー",
-    L"ポップアップ",
-    L"時計:",
-    L"ネットワーク:",
-    L"音量:",
-    L"バッテリー:",
-    L"タスクバー",
-    L"言語:",
-    L"通知領域",
-    L"通知領域に表示するアイコンと通知をカスタマイズします。",
-    L"カスタマイズ...",
-    L"Aero Peek によるデスクトップのプレビュー",
-    L"タスクバーの端にある [デスクトップの表示] ボタンにマウスを合わせると、デスクトップを一時的に表示します。",
-    L"Aero Peek を使ってデスクトップをプレビューする",
-    L"<a>タスクバーをカスタマイズするには?</a>",
-    L"この MOD のツールバーをタスクバーに追加します。同じ項目はタスクバーのコンテキスト メニューにもあります。",
-    L"デスクトップ ツールバー",
-    L"アドレス",
-    L"リンク",
-};
-
-constexpr Strings kZh = {
-    L"属性",
-    L"任务栏", L"关于",
-    L"时钟", L"在时钟中显示秒",
-    L"面板:", L"经典主题（重制）", L"Windows 7",
-    L"应用搜索",
-    L"启用应用搜索（可选实现）",
-    L"打开搜索",
-    L"语言",
-    L"退出", L"关闭 Win7Taskbar",
-            L"Win7Taskbar 是一个持续开发中的项目，在现代任务栏之上重现 Windows 7 任务栏。并非所有部分都已完成，100% "
-    L"的精确度目前仍无法保证：一些功能是重新实现的，另一些则是挂钩并重新定位系统窗口。如果你发现缺陷或有建议，反馈会很有帮助：它能让后续版本更接近原版、也更稳定。已知限制：不支持任务栏旋转（装饰性选项）；系统窗口（浮出控件、开始菜单）为挂钩并重新定位，而非重新创建。",
-    L"致谢：3ds 提供部分图形资源及 XAML 灵感。",
-    L"确定", L"取消", L"应用",
-    L"网络面板", L"面板:",
-    L"Windows 7（重制）", L"Windows 10/11",
-    L"系统面板",
-    L"经典音量合成器 (SndVol)",
-    L"电池面板（Windows 7 风格）",
-    /* v2.47 */
-    L"工具栏",
-    L"浮出控件",
-    L"时钟:",
-    L"网络:",
-    L"音量:",
-    L"电池:",
-    L"任务栏",
-    L"语言:",
-    L"通知区域",
-    L"自定义在通知区域中显示的图标和通知。",
-    L"自定义...",
-    L"使用 Aero Peek 预览桌面",
-    L"将鼠标移到任务栏末端的“显示桌面”按钮时，暂时查看桌面。",
-    L"使用 Aero Peek 预览桌面",
-    L"<a>如何自定义任务栏?</a>",
-    L"将本 MOD 的工具栏添加到任务栏。相同项目也可在任务栏右键菜单中找到。",
-    L"桌面工具栏",
-    L"地址",
-    L"链接",
-};
-
-const Strings& StrForLang(int lang) {
-    switch (lang) {
-        case 1: return kEn;
-        case 2: return kEs;
-        case 3: return kFr;
-        case 4: return kDe;
-        case 5: return kPt;
-        case 6: return kPl;
-        case 7: return kRu;
-        case 8: return kJa;
-        case 9: return kZh;
-        default: return kIt;
-    }
-}
+/* v2.42 (v2.59: unificato) - LA TABELLA DELLE STRINGHE NON STA PIU' QUI.
+ *
+ * Tutte le lingue supportate e le traduzioni di questa finestra vivono in
+ * Strings.h / Strings.cpp: una sola sorgente per il nativo, con l'elenco
+ * delle lingue che il selettore qui sotto scorre senza elencare nulla a
+ * mano. Qui resta solo il disegno del dialogo.
+ */
 
 /* v2.41: etichette delle opzioni orologio in TUTTE le lingue della mod.
  * L'opzione nativa si chiama ora "Windows 7"; quella ricreata "Tema
- * classico (ricreato)" (tradotte). */
+ * classico (ricreato)" (tradotte).
+ * v2.59: l'indice e' quello dell'elenco unico (0=it ... 10=ar); fuori
+ * elenco si risponde in inglese, come ovunque nel core. */
 struct ClockFlyoutLabels { const wchar_t* recreated; const wchar_t* native; };
 static ClockFlyoutLabels ClockLabels(int lang) {
     switch (lang) {
@@ -620,7 +117,8 @@ static ClockFlyoutLabels ClockLabels(int lang) {
         case 7:  return { L"Классическая тема (воссоздано)", L"Windows 7" };
         case 8:  return { L"クラシックテーマ（再現）", L"Windows 7" };
         case 9:  return { L"经典主题（重制）", L"Windows 7" };
-        default: return { L"Tema classico (ricreato)", L"Windows 7" };
+        case 10: return { L"السمة الكلاسيكية (أُعيد إنشاؤها)", L"Windows 7" };
+        default: return { L"Classic theme (recreated)", L"Windows 7" };
     }
 }
 
@@ -640,7 +138,7 @@ HICON GetSystemIcon(int siid) {
 /* v2.50: elenco delle barre della pagina 3, costruito come quello della mod
  * (report senza intestazione, caselle di controllo, colonna lunga quanto il
  * controllo). L'ordine Item 0/1/2 e' quello letto in SendApply. */
-void InitToolbarsList(HWND hwnd, const Strings& S,
+void InitToolbarsList(HWND hwnd, const PropStrings& S,
                       bool address, bool desktop, bool links) {
     HWND hList = GetDlgItem(hwnd, IDC_LST_TOOLBARS);
     if (!hList) return;
@@ -727,7 +225,8 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
             return;
         }
         m_owner = owner;
-        m_lang = (lang >= 0 && lang <= 9) ? lang : 0;
+        /* Indice fuori elenco: inglese, mai italiano per omissione. */
+        m_lang = (lang >= 0 && lang < kLangCount) ? lang : LangIndex(Lang::En);
         m_seconds = seconds;
         m_nativeFlyout = nativeFlyout;
         m_enableSearch = enableSearch;
@@ -937,7 +436,7 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
     {
         const int32_t langSel = static_cast<int32_t>(
             SendDlgItemMessageW(m_hWnd, IDC_CMB_LANG, CB_GETCURSEL, 0, 0));
-        msg.lang = (langSel >= 0 && langSel <= 9) ? langSel : 0;
+        msg.lang = (langSel >= 0 && langSel <= 10) ? langSel : 0;
     }
     msg.openSearch = openSearch ? 1 : 0;
     msg.closeApp = closeApp ? 1 : 0;
@@ -968,7 +467,8 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
         }
 
-        const Strings& S = StrForLang(self->m_lang);   /* v2.42: tutte le lingue */
+        /* v2.59: accesso unico alla tabella delle stringhe. */
+        const PropStrings& S = PropStringsFor(LangFromIndex(self->m_lang));
 
         {
             /* RAII: l'HDC si rilascia uscendo dal blocco, anche se una delle
@@ -1061,17 +561,16 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SetDlgItemTextW(hwnd, IDCANCEL, S.cancel);
         SetDlgItemTextW(hwnd, IDC_BTN_APPLY, S.apply);
 
+        /* v2.59: IL SELETTORE SCORRE L'ELENCO UNICO DELLE LINGUE
+         * (w7t::Languages(), Strings.cpp). Nessuna voce scritta a mano qui:
+         * aggiungere una lingua in un posto solo la fa comparire anche in
+         * questa tendina, con lo stesso indice che il managed usa per
+         * parlare al nativo. Le etichette restano i nomi NATIVI
+         * ("Italiano", "العربية"): sono nomi propri, non testo tradotto. */
         HWND hCL = GetDlgItem(hwnd, IDC_CMB_LANG);
-        ComboBox_AddString(hCL, L"Italiano");
-        ComboBox_AddString(hCL, L"English");
-        ComboBox_AddString(hCL, L"Español");
-        ComboBox_AddString(hCL, L"Français");
-        ComboBox_AddString(hCL, L"Deutsch");
-        ComboBox_AddString(hCL, L"Português (Brasil)");
-        ComboBox_AddString(hCL, L"Polski");
-        ComboBox_AddString(hCL, L"Русский");
-        ComboBox_AddString(hCL, L"日本語");
-        ComboBox_AddString(hCL, L"中文 (简体)");
+        for (int i = 0; i < kLangCount; ++i) {
+            ComboBox_AddString(hCL, Languages()[i].nativeName);
+        }
         ComboBox_SetCurSel(hCL, self->m_lang);
 
         /* v2.49: LE QUATTRO TENDINE DEI FLYOUT ERANO VUOTE. Una combo senza

@@ -23,6 +23,7 @@
 #include "../include/RaiiWrappers.h"
 #include "ExplorerTrayReader.h"
 #include "TrayToolbar.h"
+#include "TrayFallbackIcons.h"
 #include "SystemEventsWatch.h"
 #include <powrprof.h>
 #include <windows.h>
@@ -688,6 +689,22 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
                 entry.netChecked = true;
             }
 
+            /* v2.59: che tipo di icona di sistema e' questa? (rete, volume,
+             * batteria, oppure nessuna). Un solo giro di identificazione per
+             * voce: GUID della shell, poi modulo proprietario. Serve sia per
+             * il ripiego dei pixel sia per le decisioni del managed. */
+            if (!entry.sysChecked) {
+                entry.systemKind = TrayFallbackIcons::Identify(key.ownerHwnd,
+                                                               item.guidItem);
+                entry.sysChecked = true;
+                if (entry.systemKind == SystemIconKind::Network) {
+                    /* Il riconoscimento per GUID rende superfluo quello per
+                     * modulo: non si riapre il processo una seconda volta. */
+                    entry.isNetwork  = true;
+                    entry.netChecked = true;
+                }
+            }
+
             /* Quale fonte vincerebbe in questa passata (stessa priorita' di
              * sempre: hIcon vivo dichiarato dall'app, poi disegno della
              * toolbar di Explorer). */
@@ -724,6 +741,7 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
                         entry.iconRevision++;
                         entry.netPendingHash  = 0;
                         entry.netPendingCount = 0;
+                        entry.usingFallback   = false;
                         changed = true;
                         anyPixelChanged = true;
                     } else if (!needNetConfirm) {
@@ -733,6 +751,7 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
                     entry.bitmap       = *newBmp;
                     entry.pixelHash    = newHash;
                     entry.iconRevision++;
+                    entry.usingFallback = false;
                     changed = true;
                     anyPixelChanged = true;
                 }
@@ -741,6 +760,41 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
                  * il candidato transitorio non si e' confermato, si scorda. */
                 entry.netPendingHash  = 0;
                 entry.netPendingCount = 0;
+            }
+
+            /* v2.59 - RIPIEGO per le icone di sistema senza pixel.
+             *
+             * Se questa passata non ha portato NESSUNA bitmap reale e la voce
+             * e' una di rete/volume/batteria (identificata per proprietario),
+             * il posto resterebbe vuoto: si disegna la nostra icona dello
+             * stato corrente. Tre regole, in quest'ordine:
+             *
+             *  1. se la voce ha gia' pixel veri, non si tocca nulla;
+             *  2. il ripiego si aggiorna quando lo STATO cambia (batteria che
+             *     scende, rete che cade): `usingFallback` dice che i pixel in
+             *     `bitmap` sono nostri, non di Explorer;
+             *  3. appena Explorer torna a fornire pixel, l'adozione qui sopra
+             *     azzera `usingFallback` e l'icona vera riprende il posto.
+             */
+            if (newBmp == nullptr && entry.systemKind != SystemIconKind::None &&
+                (entry.bitmap.empty() || entry.usingFallback)) {
+                ArgbBitmap fallback;
+                if (TrayFallbackIcons::Render(entry.systemKind, fallback)) {
+                    const uint64_t hashFallback = ArgbHash(fallback);
+                    if (entry.bitmap.empty() || hashFallback != entry.pixelHash) {
+                        entry.bitmap        = fallback;
+                        entry.pixelHash     = hashFallback;
+                        entry.usingFallback = true;
+                        entry.iconRevision++;
+                        changed = true;
+                        anyPixelChanged = true;
+                        TrayFallbackIcons::LogFirstUse(
+                            entry.systemKind,
+                            (!item.hasIconBitmap && !item.capturedPixels)
+                                ? L"Explorer non ha fornito ne' icona ne' pixel"
+                                : L"la bitmap fornita non e' utilizzabile");
+                    }
+                }
             }
 
             if (changed) {

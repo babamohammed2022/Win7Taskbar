@@ -781,10 +781,14 @@ namespace Win7Taskbar
             public IntPtr lpData;
         }
 
-        /// <summary>Ordini della combo lingua in Proprietà: devono
-        /// coincidere con PropertiesDialog.cpp (0=it, 1=en, poi le altre).</summary>
-        private static readonly string[] kLangCodes =
-            { "it", "en", "es", "fr", "de", "pt", "pl", "ru", "ja", "zh" };
+        /// <summary>
+        /// Ordine della combo lingua in Proprietà: e' l'elenco del CORE
+        /// NATIVO (Strings.cpp: 0=it, 1=en, ... 10=ar), letto una volta
+        /// all'avvio. Non e' piu' una copia scritta a mano: prima l'arabo
+        /// mancava, "IndexOf" rispondeva -1 e il nativo apriva le Proprieta'
+        /// in italiano su un sistema arabo (vedi NativeLanguageRegistry).
+        /// </summary>
+        private static readonly string[] kLangCodes = NativeLanguageRegistry.Codes;
 
         private bool HandlePropsCopyData(IntPtr lParam)
         {
@@ -834,8 +838,9 @@ namespace Win7Taskbar
                 st.ShowClockSeconds   = seconds == 1;
                 st.UseNativeClockFlyout = nativeFlyout == 1;
                 st.EnableAppSearch    = enableSearch == 1;
+                /* Indice fuori elenco: inglese, mai italiano per omissione. */
                 string newLang = (lang >= 0 && lang < kLangCodes.Length)
-                    ? kLangCodes[lang] : "it";
+                    ? kLangCodes[lang] : RetroBar.Utilities.Settings.DefaultLanguageCode;
                 if (newLang != st.Language)
                 {
                     st.Language = newLang;
@@ -2225,7 +2230,7 @@ namespace Win7Taskbar
                 uint[]? icon = ExtractBgra32(group.Icon, out int iconW, out int iconH);
 
                 int lang = Math.Max(0, Array.IndexOf(kLangCodes,
-                    RetroBar.Utilities.Settings.Instance.Language ?? "it"));
+                    RetroBar.Utilities.Settings.Instance.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode));
 
                 _bridge.JumpListShow(left, top, right, bottom, title,
                     launchPath, pinnedLnk, group.IsPinned, icon, iconW, iconH, lang);
@@ -3016,7 +3021,7 @@ namespace Win7Taskbar
                     {
                         var stLang = RetroBar.Utilities.Settings.Instance;
                         int langIdx = Math.Max(0,
-                            Array.IndexOf(kLangCodes, stLang.Language ?? "it"));
+                            Array.IndexOf(kLangCodes, stLang.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode));
                         _bridge.NetFlyoutSetLanguage(langIdx);
                     }
                     catch { }
@@ -4226,7 +4231,8 @@ namespace Win7Taskbar
                 var st = RetroBar.Utilities.Settings.Instance;
                 GetToolbarStates(out bool tbDesktop, out bool tbLinks, out bool tbAddress);
                 _bridge.PropertiesShow(hwnd,
-                    Math.Max(0, Array.IndexOf(kLangCodes, st.Language ?? "it")),
+                    Math.Max(0, Array.IndexOf(kLangCodes,
+                        st.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode)),
                     st.ShowClockSeconds ? 1 : 0,
                     st.UseNativeClockFlyout ? 1 : 0,
                     st.EnableAppSearch ? 1 : 0,

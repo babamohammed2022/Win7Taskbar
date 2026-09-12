@@ -39,7 +39,9 @@ namespace RetroBar.Utilities
         // v2.47: anteprima del desktop (Aero Peek) attiva. E' la casella
         // "Anteprima del desktop con Aero Peek" della finestra Proprieta'.
         private bool _aeroPeek = true;
-        private string _language = "it"; // "it" = Italian, "en" = English / "it" = Italiano, "en" = Inglese
+        // Never Italian by omission: until the language is detected (or chosen)
+        // the safe value is English, the declared fallback of the project.
+        private string _language = DefaultLanguageCode;
         // v3.0: optional app search / ricerca app opzionale.
         // v3.3: ON by default (lente a sinistra dello Start durante
         // l'esecuzione); si disattiva dalle Proprieta'.
@@ -110,11 +112,46 @@ namespace RetroBar.Utilities
         }
 
         /// <summary>
-        /// Language codes supported by the Languages/*.xaml dictionaries.
-        /// Codici lingua supportati dai dizionari Languages/*.xaml.
+        /// Language used when the system does not speak one of the supported
+        /// languages and the user has not chosen yet: English, never Italian.
+        /// Italiano: lingua usata quando il sistema non parla una delle lingue
+        /// supportate e l'utente non ha ancora scelto: l'inglese, mai l'italiano.
         /// </summary>
-        internal static readonly string[] SupportedLanguages =
-            { "it", "en", "es", "fr", "de", "pt", "pl", "ru", "ja", "zh" };
+        public const string DefaultLanguageCode = "en";
+
+        /// <summary>
+        /// The eleven supported language codes, in the order the native core
+        /// indexes them (Strings.h: 0=it ... 10=ar). Public because the language
+        /// dictionary loader normalizes against this single list.
+        /// Codici delle undici lingue supportate, nell'ordine con cui il core
+        /// nativo le indicizza (Strings.h: 0=it ... 10=ar).
+        /// </summary>
+        public static readonly string[] SupportedLanguages =
+            { "it", "en", "es", "fr", "de", "pt", "pl", "ru", "ja", "zh", "ar" };
+
+        /// <summary>
+        /// Language of the Windows interface, filtered against the supported
+        /// ones: a two-letter code, or <see cref="DefaultLanguageCode"/> when
+        /// Windows speaks a language this project does not translate. This is
+        /// the value of the first run: Italian is NOT the fallback.
+        /// Italiano: lingua dell'interfaccia di Windows filtrata sulle lingue
+        /// supportate; ripiego l'inglese. L'italiano non e' il ripiego.
+        /// </summary>
+        public static string DetectSystemLanguage()
+        {
+            try
+            {
+                string systemLanguage = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName
+                    .ToLowerInvariant();
+                return Array.IndexOf(SupportedLanguages, systemLanguage) >= 0
+                    ? systemLanguage
+                    : DefaultLanguageCode;
+            }
+            catch
+            {
+                return DefaultLanguageCode;
+            }
+        }
 
         /// <summary>
         /// Language selection (two-letter code) / Selezione lingua (codice a due lettere)
@@ -125,7 +162,7 @@ namespace RetroBar.Utilities
             set
             {
                 string normalized = (value != null &&
-                    Array.IndexOf(SupportedLanguages, value) >= 0) ? value : "it";
+                    Array.IndexOf(SupportedLanguages, value) >= 0) ? value : DefaultLanguageCode;
                 SetField(ref _language, normalized);
             }
         }
@@ -199,6 +236,16 @@ namespace RetroBar.Utilities
             }
         }
 
+        /// <summary>
+        /// True when a configuration file already exists: it is what tells the
+        /// first run (system language) from a run where the user already chose,
+        /// or already accepted the detected language.
+        /// Italiano: true se esiste gia' una configurazione salvata: distingue
+        /// il primo avvio da un avvio in cui la scelta c'e' gia'.
+        /// </summary>
+        [JsonIgnore]
+        public static bool HasPersistedConfig => File.Exists(ConfigPath);
+
         private static readonly JsonSerializerOptions SerializerOptions = new()
         {
             WriteIndented = true
@@ -252,14 +299,13 @@ namespace RetroBar.Utilities
 
             if (!settings.LanguageMigrated)
             {
-                // Detect system language / Rileva lingua sistema
-                try
-                {
-                    string sysLang = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
-                    settings._language =
-                        Array.IndexOf(SupportedLanguages, sysLang) >= 0 ? sysLang : "it";
-                }
-                catch { settings._language = "it"; }
+                // First run (or a configuration that never stored a choice):
+                // the language of Windows when it is one of the eleven, English
+                // otherwise. An explicit choice in Properties always wins and
+                // does not pass through here.
+                // Italiano: primo avvio (o configurazione che non diceva nulla):
+                // lingua di Windows se e' una delle undici, altrimenti inglese.
+                settings._language = DetectSystemLanguage();
                 settings.LanguageMigrated = true;
                 changed = true;
             }

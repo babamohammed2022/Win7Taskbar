@@ -289,6 +289,24 @@ not copied.
     APIs. No source copied.
 
 --------------------------------------------------------------------------------
+5ter. Language contributions
+--------------------------------------------------------------------------------
+
+The interface of Win7Taskbar is translated by hand, language by language.
+People who contributed a translation:
+
+  * Arabic (Languages/Arabic.xaml, src/Win7Taskbar/Languages/Arabic.xaml and the
+    Arabic tables in native/src/Strings.cpp)
+      - MAHMOGAMER (github.com/mahmogamer)
+        The first complete Arabic translation of the interface, including the
+        strings the native core draws itself (Properties window, application
+        search, context menus, battery flyout).
+
+Translations are plain source files under the same GPL-3.0-or-later licence as
+the rest of the project. Corrections are welcome: open an issue, or a pull
+request with the single file you want to change.
+
+--------------------------------------------------------------------------------
 6. Third-party components
 --------------------------------------------------------------------------------
 

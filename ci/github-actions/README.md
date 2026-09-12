@@ -52,5 +52,5 @@ Il workflow compila e allega lo zip alla release `v1.0.0-alpha`.
 ## Alternativa senza Actions
 
 In alternativa il pacchetto si crea sul proprio PC con il doppio clic su
-`COMPILA.bat` (vedi `docs/GUIDA-RAPIDA-IT.md`) e si carica a mano nella release
+`compilation files/build.bat` (vedi `docs/GUIDA-RAPIDA-IT.md`) e si carica a mano nella release
 con il pulsante **Attach binaries**.

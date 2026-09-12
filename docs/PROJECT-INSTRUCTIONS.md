@@ -87,7 +87,7 @@ a Windows 10/11 x64 machine with no .NET installed. The script does the native
 step, the publish, the copy of the remaining native DLLs and the verification:
 
 ```powershell
-pwsh -File build/publish.ps1
+pwsh -File "compilation files/publish.ps1"
 # add -Zip to also create the archive
 ```
 
@@ -179,7 +179,9 @@ currently disabled, and so on) are in [`docs/architecture-decisions.md`](./archi
   rejected approach, a reported bug). Nothing of that goes into the repository as a
   separate file.
 * **Distribution:** releases are self-contained win-x64 packages built by
-  `build/publish.ps1` (called by the release workflow). Any change that adds a file the
+  `compilation files/publish.ps1` (called by the release workflow; `build/publish.ps1`
+  stays as a compatibility shim because the workflow copy already published on GitHub
+  calls the old path). Any change that adds a file the
   application needs at runtime must keep that file inside the package (or next to the
   executable): the target machine has no .NET and downloads nothing else.
 * **Code comments:** English for anything new. Historical Italian comments may be

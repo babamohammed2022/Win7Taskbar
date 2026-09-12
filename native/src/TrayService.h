@@ -46,6 +46,7 @@
 #define W7T_TRAY_SERVICE_H
 
 #include "Common.h"
+#include "TrayFallbackIcons.h"
 #include "../include/RaiiWrappers.h"
 #include <thread>
 #include <atomic>
@@ -106,6 +107,17 @@ struct TrayIconEntry {
     bool    isNetwork        = false;  /* proprietario = pnidui.dll         */
     uint64_t netPendingHash  = 0;      /* hash candidato non ancora accolto */
     int     netPendingCount  = 0;      /* letture concordi del candidato    */
+
+    /* v2.59: ICONA DI RIPIEGO. Alcune macchine non lasciano leggere la
+     * bitmap delle icone di sistema (CopyIcon rifiutata, cattura fallita) e
+     * il posto restava vuoto. Per rete/volume/batteria, riconosciute dal
+     * proprietario (GUID della shell o modulo), si usa un'icona nostra che
+     * segue lo stato corrente. Il ripiego entra SOLO quando manca la
+     * bitmap vera e viene abbandonato appena ne arriva una leggibile:
+     * `usingFallback` dice quale delle due sta disegnando il modello. */
+    bool           sysChecked    = false;
+    SystemIconKind systemKind    = SystemIconKind::None;
+    bool           usingFallback = false;
 };
 
 /* v2.7: istantanea delle icone non fissate per il pannello overflow nativo. */

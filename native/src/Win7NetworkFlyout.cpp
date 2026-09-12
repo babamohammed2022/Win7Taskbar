@@ -3161,6 +3161,12 @@ void W7TNetFlyout_SetLanguage(int appLanguageIndex) {
         case 7: internal = 5; break;   /* ru */
         case 8: internal = 1; break;   /* ja -> inglese */
         case 9: internal = 1; break;   /* zh -> inglese */
+        /* v2.59: l'elenco dell'app ha una lingua in piu' (ar). La tabella
+         * della mod non ha un arabo: il flyout di rete ripiega
+         * sull'inglese, come per ja e zh. Proprieta', ricerca e menu di
+         * gruppo, che sono testo di questo progetto, sono tradotti in
+         * tutte e 11 le lingue. */
+        case 10: internal = 1; break;  /* ar -> inglese */
         default: internal = 0; break;
     }
     g_Settings.language = internal;

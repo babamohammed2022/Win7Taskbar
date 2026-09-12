@@ -37,7 +37,7 @@ Other known limitations include unsupported decorative taskbar rotation and syst
 
 ## Build
 
-For the normal one-click build on Windows, double-click the compilation script that can be found in the docs folder.
+For the normal one-click build on Windows, double-click **`build.bat`** inside the `compilation files` folder.
 
 For complete build, packaging, architecture, and development instructions, see [`docs/PROJECT-INSTRUCTIONS.md`](./docs/PROJECT-INSTRUCTIONS.md).
 
@@ -47,7 +47,7 @@ For a concise user and build guide, see [`docs/QUICK-START.md`](./docs/QUICK-STA
 
 Bug reports, reproductions, and pull requests are welcome. New documentation and code comments should be written in English.
 
-Please read [`AGENTS.md`](./AGENTS.md) before making changes.
+Please read [`AGENTS.md`](./docs/AGENTS.md) before making changes.
 
 ## Credits
 
@@ -60,4 +60,4 @@ For additional information, please refer to the docs folder.
 
 
 ## License 
-The project is licensed under **GNU GPL v3.0 or later**. See [`LICENSE`](./LICENSE), [`CREDITS.txt`](./CREDITS.txt), and [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md) for licensing and attribution details.
+The project is licensed under **GNU GPL v3.0 or later**. See [`LICENSE`](./docs/LICENSE), [`CREDITS.txt`](./docs/CREDITS.txt), and [`THIRD-PARTY-NOTICES.md`](./docs/THIRD-PARTY-NOTICES.md) for licensing and attribution details.

@@ -145,6 +145,16 @@ byte-identical (theme MD5 `1bf56a8e4d67107acdbbd9440e0a320a`). Credits
 declared by the theme author: WinBoeing 777 (show-desktop button icon),
 Traindere (supervision), 3Ds (inspiration).
 
+### Language contributions
+
+The translations of the interface are not third-party code: they are
+contributions to this project, released under the same GPL-3.0-or-later
+licence. The Arabic translation (`Languages/Arabic.xaml`,
+`src/Win7Taskbar/Languages/Arabic.xaml` and the Arabic tables in
+`native/src/Strings.cpp`) was contributed by MAHMOGAMER
+(github.com/mahmogamer). `CREDITS.txt` lists the contributors; corrections to a
+translation are welcome as a pull request on the single file involved.
+
 ### Other third-party components
 
 | Component | Copyright | License |

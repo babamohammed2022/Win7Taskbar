@@ -74,7 +74,7 @@ Right-click the clock → **Properties**. Settings include the clock, flyout sty
 ### One-click build
 
 1. Download or clone the repository.
-2. Double-click **`COMPILA.bat`**.
+2. Double-click **`build.bat`** inside the `compilation files` folder.
 
 The script:
 
@@ -86,8 +86,8 @@ The script:
 ### Official PowerShell script
 
 ```powershell
-pwsh -File build/publish.ps1 -Zip
-pwsh -File build/publish.ps1 -Zip -SkipNative
+pwsh -File "compilation files/publish.ps1" -Zip
+pwsh -File "compilation files/publish.ps1" -Zip -SkipNative
 ```
 
 For the complete build and architecture instructions, see [`PROJECT-INSTRUCTIONS.md`](./PROJECT-INSTRUCTIONS.md).

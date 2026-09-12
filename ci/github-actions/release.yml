@@ -44,7 +44,7 @@ jobs:
 
       - name: Publish self-contained package
         shell: pwsh
-        run: pwsh -File build/publish.ps1 -SkipNative -OutputDir dist-package
+        run: pwsh -File "compilation files/publish.ps1" -SkipNative -OutputDir dist-package
 
       - name: Verify the package is really self-contained
         shell: pwsh
