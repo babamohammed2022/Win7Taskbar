@@ -10,13 +10,17 @@ This software has been tested on Windows 10 21H2 and Windows 10 22H2.
 
 **Current state: `Alpha`**
 
-> **Self-contained:** official releases include the .NET runtime and do not require a separate .NET installation.
+## Screenshot
+
+<img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
+
 
 ## Requirements
 
 - Windows 10/11
 - x64
 - No separate .NET installation required for official releases
+> **Self-contained:** official releases include the .NET runtime and do not require a separate .NET installation.
 
 ## Run
 
