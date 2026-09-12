@@ -460,6 +460,11 @@ namespace Win7Taskbar.Interop
         public bool OverflowGetRect(out int l, out int t, out int r, out int b)
             => NativeMethods.W7T_OverflowGetRect(out l, out t, out r, out b) == 1;
 
+        /// <summary>v2.60: su Windows 11 il clic sulla freccetta apre il flyout
+        /// di sistema. Non c'e' nessun pannello nostro da nascondere e nessun
+        /// rettangolo da escludere dall'hook dei clic esterni.</summary>
+        public bool OverflowUsesShellFlyout() => NativeMethods.W7T_OverflowUsesShellFlyout() == 1;
+
         // v3.0: ricerca app opzionale.
         public bool AppSearchInit(IntPtr taskbarHwnd, byte[]? argbPixels, int iconW, int iconH)
             => NativeMethods.W7T_AppSearchInit((ulong)taskbarHwnd, argbPixels, iconW, iconH) == 1;

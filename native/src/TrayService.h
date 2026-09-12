@@ -87,6 +87,10 @@ struct TrayIconEntry {
 
     /* --- sincronizzazione 1:1 con la shell (modello a riconciliazione) --- */
     bool     fromExplorer    = false;  /* nata dalla lettura della toolbar  */
+    bool     fromWin11Uia    = false;  /* v2.60: nata dalla lettura UI
+                                        * Automation della tray di Windows 11
+                                        * (nessun HWND proprietario: la chiave
+                                        * e' (0, uid sintetico))              */
     bool     ownerIsExplorer = false;  /* il proprietario e' explorer.exe:
                                         * le sue uniche fonti di aggiornamento
                                         * sono la toolbar e gli eventi di
@@ -138,6 +142,9 @@ enum TrayReconcileSource : uint32_t {
     kReconcilePixels    = 1u << 6,   /* v2.1: ricattura i pixel delle icone
                                       * rimaste senza bitmap (CopyIcon
                                       * negata all'import iniziale)        */
+    kReconcileUiaTray   = 1u << 7,   /* v2.60: tray XAML di Windows 11 (la
+                                      * lettura arriva dal lettore UI
+                                      * Automation, non da una toolbar)     */
 };
 
 class TrayService {
@@ -209,6 +216,23 @@ public:
      * thread dei messaggi del servizio, mai dal callback directly). */
     void NotifyOwnerDiedAsync(HWND owner);
 
+    /* v2.60: attiva il percorso Windows 11 (lettore UIA + hook sulle
+     * finestre che ospitano la tray XAML). Idempotente. */
+    void EnableWin11Tray();
+
+    /* v2.60: la tray di Windows 11 si legge dall'albero di accessibilita'
+     * (vedi Win11TrayReader.h). Questa passata fonde quel risultato nel
+     * modello: aggiunge, aggiorna e rimuove SOLO le voci nate da li'. */
+    void ApplyWin11TraySnapshot();
+
+    /* Tipo di icona di sistema di una voce: per le voci normali e' quello
+     * riconosciuto dal proprietario/GUID, per quelle della tray di Windows
+     * 11 e' quello classificato dal nome accessibile. */
+    SystemIconKind KindOf(uint64_t ownerHwnd, uint32_t uid) const;
+
+    /* true quando questa sessione usa la tray XAML di Windows 11. */
+    bool IsWin11Tray() const { return m_win11Tray; }
+
     /* true dopo la prima richiesta di importazione. */
     bool m_importStarted = false;
 
@@ -223,6 +247,14 @@ private:
 
     static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+    /* v2.60: la tray di Windows 11 cambia quando la sua isola XAML crea,
+     * mostra o nasconde qualcosa. L'hook e' filtrato per classe e processo,
+     * quindi costa una GetClassNameW per evento e nient'altro. */
+    static void CALLBACK TrayHostChangedProc(HWINEVENTHOOK hook, DWORD event,
+                                             HWND hwnd, LONG idObject,
+                                             LONG idChild, DWORD thread,
+                                             DWORD time);
     LRESULT HandleCopyData(HWND hwnd, const COPYDATASTRUCT* cds);
 
     /* Vista normalizzata di NOTIFYICONDATAW, indipendente dal bitness
@@ -273,7 +305,7 @@ private:
     void RebindByGuid(const TrayIconKey& oldKey, const TrayIconKey& newKey);
     bool HasSavedPreference(const TrayIconKey& key) const;
 
-    std::recursive_mutex            m_mutex;
+    mutable std::recursive_mutex    m_mutex;   /* mutabile: anche i getter const leggono il modello */
     std::map<TrayIconKey, TrayIconEntry> m_icons;
     std::map<TrayIconKey, RECT>          m_iconRects;
     /* v2.7: flyout orologio a dimensione fissa (bordi Aero conservati):
@@ -309,6 +341,7 @@ private:
     static constexpr UINT kMsgOwnerDied     = WM_APP + 104; // WinEventHook
     static constexpr UINT kMsgRetryImport   = WM_APP + 105; // secondo giro import
     static constexpr UINT kMsgToolbarSync   = WM_APP + 106; // sync rinviato al thread dei messaggi
+    static constexpr UINT kMsgUiaTray       = WM_APP + 107; // v2.60: snapshot tray Win11 pronto
     static constexpr UINT kTimerDebounce    = 0xB1;
     static constexpr UINT kTimerBackstop    = 0xB2;
 
@@ -320,6 +353,8 @@ private:
     std::set<HWND> m_dyingOwners;
 
     HWINEVENTHOOK m_ownerHook = nullptr;
+    HWINEVENTHOOK m_trayHostHook = nullptr;   /* v2.60: isole della tray Win11 */
+    bool          m_win11Tray = false;
 
     /* Flyout di sistema attualmente agganciato a un'icona. */
     struct FlyoutAnchor {

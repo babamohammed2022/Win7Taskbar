@@ -27,6 +27,7 @@
 #include "AppBarService.h"
 #include "ShellMenu.h"
 #include "TrayOverflowWindow.h"
+#include "Win11TrayReader.h"   /* v2.60: flyout vero della tray di Windows 11 */
 #include "AppSearchWindow.h"
 #include "PropertiesDialog.h"
 #include "FlyoutLauncher.h"
@@ -400,25 +401,28 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ToggleShowDesktop(void) {
  * iniettati, UIPI con foreground elevato). Ispirato al meccanismo
  * storico di Open-Shell/StartIsBack: WM_SYSCOMMAND con SC_TASKLIST
  * mandato DIRETTAMENTE alla Shell_TrayWnd di Explorer (stessa
- * integrita', niente iniezione di input) + broadcast di sicurezza. */
+ * integrita', niente iniezione di input).
+ *
+ * v2.60: via il broadcast HWND_BROADCAST (lo ricevevano anche altre
+ * finestre della shell e su Windows 11 poteva aprire il menu una seconda
+ * volta: era una delle "intermittenze" segnalate) e via il ciclo di
+ * ri-nascondi a 25 ms. Il ri-nascondi della barra nativa e' ora un evento
+ * (vedi AppBarService::HideWatcherProc). */
 extern "C" W7T_API int32_t W7T_CALL W7T_OpenStartFallback(void) {
-    const bool wasHidden = AppBarService::Instance().IsNativeTaskbarHidden();
-
-    HWND tray = FindWindowW(L"Shell_TrayWnd", nullptr);
-    if (tray != nullptr) {
-        PostMessageW(tray, WM_SYSCOMMAND, SC_TASKLIST, 0);
+    const DWORD ourPid = GetCurrentProcessId();
+    HWND tray = nullptr;
+    while ((tray = FindWindowExW(nullptr, tray, L"Shell_TrayWnd", nullptr)) != nullptr) {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(tray, &pid);
+        if (pid != ourPid) {
+            break;
+        }
     }
-    SendMessageTimeoutW(HWND_BROADCAST, WM_SYSCOMMAND, SC_TASKLIST, 0,
-                        SMTO_ABORTIFHUNG, 300, nullptr);
-
-    if (wasHidden) {
-        std::thread([]() {
-            for (int i = 0; i < 20; ++i) {
-                Sleep(25);
-                AppBarService::Instance().ReassertNativeTaskbarHidden();
-            }
-        }).detach();
+    if (tray == nullptr) {
+        return W7T_ERR_NOT_FOUND;
     }
+    PostMessageW(tray, WM_SYSCOMMAND, SC_TASKLIST, 0);
+    AppBarService::Instance().ReassertNativeTaskbarHidden();
     return W7T_OK;
 }
 
@@ -455,51 +459,12 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ShowStartMenu(void) {
     }
 
     if (wasHidden) {
-        /* Explorer rimostra la barra in modo asincrono, mentre elabora il
-         * tasto: un solo tentativo immediato arriverebbe troppo presto.
-         * Ripetiamo per un breve periodo su un thread separato, cosi' da
-         * non bloccare il chiamante (che e' il thread della UI). */
-        std::thread([]() {
-            /* v2.30: se il tap non ha aperto il menu (hook/UX che lo
-             * filtrano), dopo ~600 ms si tenta il broadcast SC_TASKLIST. */
-            Sleep(600);
-            {
-                bool startVisible = false;
-                for (const wchar_t* clsName :
-                     { L"DV2ControlHost", L"StartMenuExperienceHost" }) {
-                    HWND h = FindWindowW(clsName, nullptr);
-                    if (h != nullptr && IsWindowVisible(h)) {
-                        startVisible = true;
-                        break;
-                    }
-                }
-                if (!startVisible) {
-                    HWND x = FindWindowW(L"XamlExplorerHostIslandWindow",
-                                         nullptr);
-                    while (x != nullptr) {
-                        if (IsWindowVisible(x)) {
-                            wchar_t t[4]{};
-                            if (GetWindowTextW(x, t, 4) == 0) {
-                                startVisible = true;
-                                break;
-                            }
-                        }
-                        x = FindWindowExW(nullptr, x,
-                                          L"XamlExplorerHostIslandWindow",
-                                          nullptr);
-                    }
-                }
-                if (!startVisible) {
-                    SendMessageTimeoutW(HWND_BROADCAST, WM_SYSCOMMAND,
-                                        SC_TASKLIST, 0, SMTO_ABORTIFHUNG,
-                                        300, nullptr);
-                }
-            }
-            for (int i = 0; i < 20; ++i) {
-                Sleep(25);
-                AppBarService::Instance().ReassertNativeTaskbarHidden();
-            }
-        }).detach();
+        /* v2.60: un solo ri-nascondi, subito. Il caso "Explorer rimostra
+         * la barra mentre apre Start" lo prende l'hook di sistema di
+         * AppBarService (evento SHOW), quindi non serve piu' il ciclo di
+         * 20 ri-tentativi a 25 ms: era quello a far lampeggiare la barra
+         * nativa sotto la nostra a ogni pressione di Start. */
+        AppBarService::Instance().ReassertNativeTaskbarHidden();
     }
 
     return W7T_OK;
@@ -796,7 +761,26 @@ extern "C" W7T_API int32_t W7T_CALL W7T_OverflowInit(uint64_t ownerTaskbar) {
 extern "C" W7T_API void W7T_CALL W7T_OverflowShow(int32_t left, int32_t top,
                                                   int32_t right, int32_t bottom) {
     RECT rc{ left, top, right, bottom };
+
+    /* v2.60: su Windows 11 non esiste nessuna toolbar della tray da
+     * enumerare, quindi il pannello nostrano resterebbe vuoto. Si apre il
+     * flyout vero della shell: contiene per definizione tutte le icone
+     * nascoste e lo si riposiziona sopra la freccetta (vedi
+     * Win11TrayReader::RequestOverflowFlyout). */
+    if (TrayService::Instance().IsWin11Tray()) {
+        if (Win11TrayReader::Instance().RequestOverflowFlyout(rc)) {
+            return;
+        }
+    }
+
     g_overflowWindow.ShowNear(rc);
+}
+
+/* v2.60: il frontend deve sapere che il clic sulla freccetta apre il flyout
+ * di sistema (nessun pannello nostro da chiudere, nessun rettangolo da
+ * escludere dall'hook dei clic esterni). */
+extern "C" W7T_API int32_t W7T_CALL W7T_OverflowUsesShellFlyout(void) {
+    return TrayService::Instance().IsWin11Tray() ? 1 : 0;
 }
 
 extern "C" W7T_API void W7T_CALL W7T_OverflowHide(void) {

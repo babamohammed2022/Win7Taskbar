@@ -63,14 +63,27 @@ private:
     static HWND FindSecondaryTaskbar(HWND after);
 
     /* Meccanismo di nascondimento copiato da ManagedShell/ExplorerHelper
-     * (il motore di RetroBar): stato iniziale salvato, SetWindowPos con
-     * HWND_BOTTOM, e un monitor che rinasconde la barra di Explorer ogni
-     * volta che ricompare. */
+     * (il motore di RetroBar): stato iniziale salvato e SetWindowPos con
+     * HWND_BOTTOM.
+     *
+     * v2.60: la barra di Explorer che ricompare non si scopre piu' con un
+     * ciclo di controllo a 100 ms (era lui a produrre il lampeggio: tre
+     * secondi di ri-nascondi mentre Explorer, premendo Start, rimostra la
+     * sua barra). Ora il ritorno della barra e' un EVENTO di sistema:
+     * SetWinEventHook su EVENT_OBJECT_SHOW / EVENT_SYSTEM_FOREGROUND,
+     * filtrato sulle classi della barra, sveglia un thread addormentato
+     * che rinasconde. Nessun polling, e il lampo dura quanto un evento. */
     static UINT GetNativeTaskbarState();
     static void SetNativeTaskbarState(UINT state);
     void SetNativeTaskbarVisibility(bool hide);
     void DoHideNativeTaskbar();
-    void MonitorLoop();
+
+    static void CALLBACK HideWatcherProc(HWINEVENTHOOK hook, DWORD event,
+                                         HWND hwnd, LONG idObject, LONG idChild,
+                                         DWORD thread, DWORD time);
+    void StartHideWatcher();
+    void StopHideWatcher();
+    void HideWatcherLoop();
 
     /* Ripristina la barra nativa se un fault uccide il processo: gestore
      * vettoriale SENZA longjmp e senza unwind, che rimostra la barra di
@@ -86,8 +99,11 @@ private:
     std::mutex m_hideMutex;
     bool m_stateSaved       = false;
     UINT m_startupState     = ABS_ALWAYSONTOP;
-    std::atomic<bool> m_monitorRun{false};
-    std::thread m_monitor;
+    std::atomic<bool> m_watchRun{false};
+    std::thread       m_watchThread;
+    HANDLE            m_watchEvent = nullptr;
+    HWINEVENTHOOK     m_hideHook   = nullptr;
+    HWINEVENTHOOK     m_fgHook     = nullptr;
     int32_t m_edge          = W7T_EDGE_BOTTOM;
     int32_t m_size          = 40;
 };

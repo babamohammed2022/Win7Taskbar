@@ -374,6 +374,12 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_OverflowGetRect(out int left, out int top, out int right, out int bottom);
 
+        // v2.60: su Windows 11 la freccetta apre il flyout vero della shell
+        // (le icone nascoste della tray XAML non sono enumerabili come
+        // pulsanti di una toolbar Win32).
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_OverflowUsesShellFlyout();
+
         // v3.0: optional app search panel.
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppSearchInit(ulong ownerTaskbar, byte[]? argbPixels, int iconW, int iconH);

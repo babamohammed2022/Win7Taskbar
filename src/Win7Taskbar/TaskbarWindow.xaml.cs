@@ -4,6 +4,7 @@
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 
 using RetroBar.Utilities;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows.Data;
 using System.Globalization;
@@ -207,6 +208,11 @@ namespace Win7Taskbar
             RunStage("overflow-nativo", () =>
             {
                 _useNativeOverflow = _bridge.OverflowInit(helper.Handle);
+                _overflowShellFlyout = _useNativeOverflow && _bridge.OverflowUsesShellFlyout();
+                if (_overflowShellFlyout)
+                {
+                    _bridge.Log("overflow: Windows 11, la freccetta apre il flyout di sistema");
+                }
                 if (_useNativeOverflow)
                 {
                     System.Windows.Data.BindingOperations.ClearBinding(
@@ -304,6 +310,13 @@ namespace Win7Taskbar
                 _startMenuMonitor.StartMenuVisibilityChanged += OnStartMenuVisibilityChanged;
             });
 
+            RunStage("pulsanti-superbar", () =>
+            {
+                // v2.60: larghezza adattiva dei pulsanti quando i programmi
+                // aperti sono tanti (vedi UpdateTaskButtonLayout).
+                InitTaskButtonLayout();
+            });
+
             RunStage("pulsante-start-idle", ArmStartOrb);
 
             // v2.3: bande Desktop/Collegamenti/Indirizzo (ispirate a ExplorerEx)
@@ -332,6 +345,313 @@ namespace Win7Taskbar
             });
 
             StartupGuard.Complete();
+        }
+
+        // ===============================================================
+        //  v2.60 - Larghezza dei pulsanti della Superbar con molti
+        //  programmi aperti.
+        //
+        //  Il difetto: il pulsante non aveva nessun vincolo di larghezza
+        //  (minimo del tema, poi "quanto chiede il contenuto"). Con molti
+        //  programmi la somma delle larghezze superava lo spazio della
+        //  barra e lo StackPanel continuava a disporli: gli ultimi
+        //  finivano SOPRA l'orologio e la tray, con la cornice Aero tagliata
+        //  dal bordo della finestra (i "bordi disegnati male").
+        //
+        //  Come nella Superbar vera: quando non c'e' spazio i pulsanti si
+        //  stringono TUTTI della stessa misura (i "titoli" qui non esistono,
+        //  il contenuto e' icona + schede delle finestre impilate), restando
+        //  dentro i propri limiti; esaurito anche il minimo, la striscia si
+        //  scorre (Shift + rotellina) invece di sovrapporsi alla tray.
+        //  I due minimi sono quelli del mod di riferimento
+        //  (windows-11-taskbar-styling-guide -> "Taskbar Labels for Windows
+        //  11": minimumTaskbarItemWidth = 40) piu' lo spazio che qui serve
+        //  davvero alle schede delle finestre impilate.
+        // ===============================================================
+
+        private const double TaskButtonMinWidthCompact = 44;   /* icona, senza schede */
+        private const double TaskButtonMinWidthStacked = 52;   /* icona + schede      */
+        private const double TaskButtonSideMargin    = 2;      /* TaskButtonMargin 1+1 */
+
+        private bool   _taskButtonLayoutHooked;
+        private bool   _taskButtonLayoutPending;
+        private double _taskButtonThemeMinWidth = 52;
+        private double _taskButtonAppliedWidth  = double.NaN;
+        private bool   _taskButtonCompactLogged;
+
+        private void InitTaskButtonLayout()
+        {
+            if (_taskButtonLayoutHooked)
+            {
+                return;
+            }
+            _taskButtonLayoutHooked = true;
+
+            _taskButtonThemeMinWidth = TryFindResource("TaskButtonMinWidthOverride") is double d && d > 0
+                                     ? d : 52;
+
+            _viewModel.Groups.CollectionChanged += OnTaskGroupsChanged;
+            foreach (TaskGroup g in _viewModel.Groups)
+            {
+                g.PropertyChanged += OnTaskGroupPropertyChanged;
+            }
+
+            SizeChanged += (_, _) => ScheduleTaskButtonLayout();
+            if (TaskListScroller != null)
+            {
+                TaskListScroller.SizeChanged += (_, _) => ScheduleTaskButtonLayout();
+                TaskListScroller.ScrollChanged += (_, _) => SyncTaskListScrollButtons();
+            }
+
+            ScheduleTaskButtonLayout();
+        }
+
+        private void OnTaskGroupsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (e.OldItems != null)
+            {
+                foreach (TaskGroup g in e.OldItems.OfType<TaskGroup>())
+                {
+                    g.PropertyChanged -= OnTaskGroupPropertyChanged;
+                }
+            }
+            if (e.NewItems != null)
+            {
+                foreach (TaskGroup g in e.NewItems.OfType<TaskGroup>())
+                {
+                    g.PropertyChanged += OnTaskGroupPropertyChanged;
+                }
+            }
+            ScheduleTaskButtonLayout();
+        }
+
+        private void OnTaskGroupPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            // Solo cio' che cambia la larghezza richiesta: il numero di
+            // finestre (schede) e lo stato (l'imbottitura della cornice
+            // cambia fra riposo ed evidenziato).
+            if (e.PropertyName is nameof(TaskGroup.WindowCount)
+                or nameof(TaskGroup.IsRunning)
+                or nameof(TaskGroup.IsActive))
+            {
+                ScheduleTaskButtonLayout();
+            }
+        }
+
+        /* Il calcolo tocca la larghezza dei pulsanti, cioe' fa ripartire il
+         * layout: lo si rimanda alla coda per non rientrare nel layout in
+         * corso (SizeChanged viene consegnato dentro la passata). */
+        private void ScheduleTaskButtonLayout()
+        {
+            if (_taskButtonLayoutPending)
+            {
+                return;
+            }
+            _taskButtonLayoutPending = true;
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                _taskButtonLayoutPending = false;
+                UpdateTaskButtonLayout();
+            }));
+        }
+
+        private double DevicePixelScale()
+        {
+            PresentationSource? source = PresentationSource.FromVisual(this);
+            double scale = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+            return scale > 0 ? scale : 1.0;
+        }
+
+        private void UpdateTaskButtonLayout()
+        {
+            if (TaskListScroller == null || TaskList == null || _viewModel == null)
+            {
+                return;
+            }
+
+            IList<TaskGroup> groups = _viewModel.Groups;
+            int count = groups.Count;
+            if (count == 0)
+            {
+                _taskButtonAppliedWidth = double.NaN;
+                return;
+            }
+
+            // Spazio che la barra lascia ai pulsanti: il ScrollViewer riempie
+            // sempre la sua colonna, anche quando il contenuto e' piu' largo.
+            double available = TaskListScroller.ActualWidth - TaskButtonSideMargin;
+            if (available <= 0)
+            {
+                return;
+            }
+
+            // 1) Nessun vincolo e si misura quanto chiederebbero davvero.
+            foreach (TaskGroup g in groups)
+            {
+                g.ButtonMinWidth = _taskButtonThemeMinWidth;
+                g.ButtonWidth = double.NaN;
+            }
+            TaskListScroller.UpdateLayout();
+
+            double natural = 0;
+            int measured = 0;
+            for (int i = 0; i < count; i++)
+            {
+                if (TaskList.ItemContainerGenerator.ContainerFromIndex(i) is FrameworkElement container)
+                {
+                    natural += container.DesiredSize.Width;
+                    measured++;
+                }
+            }
+
+            if (measured == count && natural <= available)
+            {
+                // C'e' posto: nessun vincolo, esattamente come prima della
+                // v2.60 (larghezza decisa dal contenuto fra minimo e
+                // imbottitura della cornice).
+                if (!double.IsNaN(_taskButtonAppliedWidth))
+                {
+                    _taskButtonAppliedWidth = double.NaN;
+                    _taskButtonCompactLogged = false;
+                    _bridge.Log("superbar: pulsanti a larghezza naturale");
+                }
+                return;
+            }
+
+            // 2) Non ci stanno: larghezza uniforme che li fa entrare tutti,
+            //    mai sotto il minimo per tipo di contenuto.
+            double scale = DevicePixelScale();
+            double SnapDown(double value) => Math.Floor(value * scale) / scale;
+
+            int stacked = 0;
+            foreach (TaskGroup g in groups)
+            {
+                if (g.WindowCount > 1)
+                {
+                    stacked++;
+                }
+            }
+            int single = count - stacked;
+
+            double uniform = SnapDown(available / count) - TaskButtonSideMargin;
+            double applied;
+            if (uniform > TaskButtonMinWidthStacked || stacked == 0)
+            {
+                uniform = Math.Max(TaskButtonMinWidthCompact, uniform);
+                foreach (TaskGroup g in groups)
+                {
+                    g.ButtonWidth = uniform;
+                    g.ButtonMinWidth = uniform;
+                }
+                applied = uniform;
+            }
+            else
+            {
+                /* I gruppi con finestre impilate hanno bisogno di piu'
+                 * spazio (icona + tre schede): si stringono solo quelli con
+                 * una finestra sola, finche' basta. */
+                double stackedWidth = TaskButtonMinWidthStacked;
+                double leftover = available - stacked * (stackedWidth + TaskButtonSideMargin);
+                double singleWidth = single > 0
+                                   ? Math.Max(TaskButtonMinWidthCompact,
+                                              SnapDown(leftover / single) - TaskButtonSideMargin)
+                                   : 0;
+                foreach (TaskGroup g in groups)
+                {
+                    double w = g.WindowCount > 1 ? stackedWidth : singleWidth;
+                    g.ButtonWidth = w;
+                    g.ButtonMinWidth = w;
+                }
+                applied = singleWidth;
+            }
+
+            if (!_taskButtonCompactLogged ||
+                Math.Abs(_taskButtonAppliedWidth - applied) > 0.5)
+            {
+                _taskButtonCompactLogged = true;
+                _bridge.Log($"superbar: pulsanti stretti a {applied:0.#} px ({count} gruppi)");
+            }
+            _taskButtonAppliedWidth = applied;
+
+            TaskListScroller.UpdateLayout();
+            SyncTaskListScrollButtons();
+        }
+
+        /* Le frecce compaiono solo quando c'e' davvero qualcosa da scorrere
+         * (stessa regola della barra vera) e si spengono ai due estremi. */
+        private void SyncTaskListScrollButtons()
+        {
+            if (TaskListScroller == null)
+            {
+                return;
+            }
+
+            double scrollable = TaskListScroller.ExtentWidth - TaskListScroller.ViewportWidth;
+            bool overflow = scrollable > 0.5;
+
+            if (TaskListScrollLeft != null)
+            {
+                TaskListScrollLeft.Visibility = overflow ? Visibility.Visible : Visibility.Collapsed;
+                TaskListScrollLeft.IsEnabled = overflow && TaskListScroller.HorizontalOffset > 0.5;
+            }
+            if (TaskListScrollRight != null)
+            {
+                TaskListScrollRight.Visibility = overflow ? Visibility.Visible : Visibility.Collapsed;
+                TaskListScrollRight.IsEnabled = overflow &&
+                    TaskListScroller.HorizontalOffset < scrollable - 0.5;
+            }
+        }
+
+        private void ScrollTaskList(int direction)
+        {
+            if (TaskListScroller == null)
+            {
+                return;
+            }
+
+            double extent = TaskListScroller.ExtentWidth - TaskListScroller.ViewportWidth;
+            if (extent <= 0)
+            {
+                return;
+            }
+
+            /* Un quarto di barra per scatto: e' il passo che usa anche la
+             * barra vera quando si tiene premuta la freccia. */
+            double step = Math.Max(40, TaskListScroller.ViewportWidth / 4);
+            double target = TaskListScroller.HorizontalOffset + direction * step;
+            TaskListScroller.ScrollToHorizontalOffset(Math.Max(0, Math.Min(extent, target)));
+            SyncTaskListScrollButtons();
+        }
+
+        private void TaskListScrollLeft_Click(object sender, RoutedEventArgs e)
+            => ScrollTaskList(-1);
+
+        private void TaskListScrollRight_Click(object sender, RoutedEventArgs e)
+            => ScrollTaskList(1);
+
+        /* Shift + rotellina: scorre la striscia quando nemmeno la larghezza
+         * minima basta (la rotellina da sola resta il comando di Windows 7
+         * per passare fra le finestre del gruppo). */
+        private void TaskListScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (TaskListScroller == null ||
+                (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
+            {
+                return;
+            }
+
+            double extent = TaskListScroller.ExtentWidth - TaskListScroller.ViewportWidth;
+            if (extent <= 0)
+            {
+                return;
+            }
+
+            double step = Math.Max(40, TaskListScroller.ViewportWidth / 4);
+            double target = TaskListScroller.HorizontalOffset - Math.Sign(e.Delta) * step;
+            TaskListScroller.ScrollToHorizontalOffset(
+                Math.Max(0, Math.Min(extent, target)));
+            SyncTaskListScrollButtons();
+            e.Handled = true;
         }
 
         private void OnProcessExitRestoreTaskbar(object? sender, EventArgs e)
@@ -635,8 +955,6 @@ namespace Win7Taskbar
             try
             {
                 CancelStartWatchdog();
-                _taskbarGuardTimer?.Stop();
-                _taskbarGuardTimer = null;
                 CloseTaskPreview();
                 _previewShowTimer?.Dispose();
                 _previewShowTimer = null;
@@ -1138,8 +1456,13 @@ namespace Win7Taskbar
         /// <summary>Finestra di tolleranza fra due click sull'orb.</summary>
         private const int StartToggleDebounceMs = 300;
 
-        /// <summary>Ritardo del controllo di apertura del menu Start.</summary>
-        private const int StartWatchdogMs = 700;
+        /// <summary>
+        /// Ritardo del controllo di apertura del menu Start.
+        /// v2.60: 700 -> 1200 ms. A 700 ms un menu Start di Windows 11 che
+        /// sta ancora comparendo veniva giudicato "non aperto" e il ripiego
+        /// lo apriva una seconda volta: era l'altra intermittenza segnalata.
+        /// </summary>
+        private const int StartWatchdogMs = 1200;
 
         private DateTime _lastStartToggleUtc;
         private TimerLease? _startWatchdog;
@@ -1211,8 +1534,6 @@ namespace Win7Taskbar
         }
 
         // Guard against Explorer taskbar reappearing
-        private DispatcherTimer? _taskbarGuardTimer;
-        private int _taskbarGuardTicks;
 
         private int _importFailures;
 
@@ -1237,6 +1558,15 @@ namespace Win7Taskbar
             }
         }
 
+        /// <summary>
+        /// v2.60: il ritorno della barra nativa non si insegue piu' con un
+        /// DispatcherTimer a 100 ms per tre secondi. Quella raffica di
+        /// ri-nascondi era una delle cause del lampeggio visto premendo
+        /// Start: Explorer rimostra la sua barra e il ciclo la rinascondeva
+        /// a ripetizione. Adesso il ri-nascondi vive nel core come EVENTO
+        /// (AppBarService::HideWatcherProc), quindi qui basta una richiesta
+        /// singola, subito dopo l'apertura del menu.
+        /// </summary>
         private void StartTaskbarGuard()
         {
             if (!_bridge.IsNativeTaskbarHidden())
@@ -1244,27 +1574,7 @@ namespace Win7Taskbar
                 return;
             }
 
-            _taskbarGuardTicks = 0;
-
-            if (_taskbarGuardTimer == null)
-            {
-                _taskbarGuardTimer = new DispatcherTimer(DispatcherPriority.Background)
-                {
-                    Interval = TimeSpan.FromMilliseconds(100)
-                };
-
-                _taskbarGuardTimer.Tick += (_, _) =>
-                {
-                    _bridge.ReassertNativeTaskbarHidden();
-
-                    if (++_taskbarGuardTicks >= 30)
-                    {
-                        _taskbarGuardTimer!.Stop();
-                    }
-                };
-            }
-
-            _taskbarGuardTimer.Start();
+            _bridge.ReassertNativeTaskbarHidden();
         }
 
         private void ShowDesktopButton_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
@@ -2629,6 +2939,17 @@ namespace Win7Taskbar
 
         private bool _useNativeOverflow;
 
+        /// <summary>Il ripristino della freccetta dopo l'apertura del flyout
+        /// di sistema non deve essere interpretato come "l'utente ha chiuso
+        /// il pannello".</summary>
+        private bool _overflowToggleResetting;
+
+        /// <summary>v2.60: la freccetta non apre il nostro pannello ma il
+        /// flyout vero della shell (Windows 11, dove le icone nascoste non
+        /// sono pulsanti di una toolbar e quindi non si possono disegnare
+        /// nel pannello nostrano).</summary>
+        private bool _overflowShellFlyout;
+
         /// <summary>v2.7: punto unico di instradamento dell'apertura del
         /// pannello: finestra nativa con vetro Aero se disponibile,
         /// altrimenti il Popup WPF (fallback raro).</summary>
@@ -2655,6 +2976,11 @@ namespace Win7Taskbar
                 return;
             }
 
+            // v2.60: rivalutato a ogni clic, non una volta sola all'avvio:
+            // il servizio della tray puo' aver riconosciuto Windows 11 piu'
+            // tardi (isola XAML creata dopo di noi).
+            _overflowShellFlyout = _bridge.OverflowUsesShellFlyout();
+
             if (OverflowToggle != null)
             {
                 Point tl = OverflowToggle.PointToScreen(new Point(0, 0));
@@ -2662,6 +2988,25 @@ namespace Win7Taskbar
                     new Point(OverflowToggle.ActualWidth, OverflowToggle.ActualHeight));
                 _bridge.OverflowShow((int)tl.X, (int)tl.Y, (int)br.X, (int)br.Y);
             }
+
+            if (_overflowShellFlyout)
+            {
+                // Il flyout e' quello di Windows: si chiude da solo al primo
+                // clic fuori o con Esc, e non manda nessun evento a noi.
+                // La freccetta quindi non resta "premuta": torna subito su,
+                // senza far passare nulla dal ramo Unchecked.
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (OverflowToggle != null)
+                    {
+                        _overflowToggleResetting = true;
+                        OverflowToggle.IsChecked = false;
+                        _overflowToggleResetting = false;
+                    }
+                }));
+                return;
+            }
+
             StartNativeOverflowOutsideClose();
         }
 
@@ -2670,6 +3015,17 @@ namespace Win7Taskbar
             if (!_useNativeOverflow)
             {
                 OverflowPopup.IsOpen = false;
+                return;
+            }
+
+            if (_overflowShellFlyout)
+            {
+                // Nessun pannello nostro da chiudere: il flyout di sistema
+                // non e' nostro e non si comanda da qui.
+                if (!_overflowToggleResetting)
+                {
+                    StopOverflowOutsideClose();
+                }
                 return;
             }
 

@@ -22,6 +22,7 @@
 #include "TrayOverflowWindow.h"   /* v3.1: refresh conservativo del pannello */
 #include "../include/RaiiWrappers.h"
 #include "ExplorerTrayReader.h"
+#include "Win11TrayReader.h"
 #include "TrayToolbar.h"
 #include "TrayFallbackIcons.h"
 #include "SystemEventsWatch.h"
@@ -499,6 +500,15 @@ bool IsOwnerExplorerCached(HWND owner, std::map<DWORD, bool>& cache) {
 } /* namespace */
 
 void TrayService::ReconcileWithExplorer(uint32_t sources) {
+    /* Windows 11 non ha nessuna toolbar della tray da leggere: la passata
+     * classica finirebbe in "lettura non valida" a ogni giro. Il modello lo
+     * riempie il lettore UI Automation, che risponde in modo asincrono su
+     * kMsgUiaTray (vedi ApplyWin11TraySnapshot). */
+    if (m_win11Tray) {
+        Win11TrayReader::Instance().RequestRead();
+        return;
+    }
+
     /* Cosa catturare (PrintWindow sulla toolbar di Explorer):
      * - alla prima passata e dopo un riavvio di Explorer: tutto;
      * - dopo un evento di sistema (alimentazione, rete): solo le icone di
@@ -520,6 +530,16 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
          * lettura fallita non deve mai cancellare icone (era questa la
          * causa delle "icone che spariscono a cambio AC/DC"). */
         AppendCoreLog(L"reconcile: lettura toolbar non valida, nessuna rimozione");
+
+        /* Se pero' la toolbar della tray non esiste proprio, questo e' un
+         * Windows 11: si passa al lettore di accessibilita' e si lascia che
+         * sia lui a rispondere. Prima di questa deviazione l'avvio su
+         * Windows 11 restava senza nessuna icona preesistente. */
+        EnableWin11Tray();
+        if (m_win11Tray) {
+            Win11TrayReader::Instance().RequestRead();
+            return;
+        }
     }
 
     std::map<DWORD, bool> pidCache;
@@ -1470,6 +1490,10 @@ bool TrayService::CreateWindows() {
                                   0, 0,
                                   WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
 
+    /* v2.60: su Windows 11 la tray non e' una toolbar Win32. Se il sistema
+     * e' quello, il modello si legge dall'albero di accessibilita'. */
+    EnableWin11Tray();
+
     /* Passata di sicurezza rara: diff leggero senza cattura pixel e
      * verifica dei proprietari morti. Non sostituisce gli eventi: li
      * copre se il sistema non li consegna (sessioni remote, shell pazze). */
@@ -1509,6 +1533,13 @@ void TrayService::DestroyWindows() {
     if (m_ownerHook != nullptr) {
         UnhookWinEvent(m_ownerHook);
         m_ownerHook = nullptr;
+    }
+    if (m_trayHostHook != nullptr) {
+        UnhookWinEvent(m_trayHostHook);
+        m_trayHostHook = nullptr;
+    }
+    if (m_win11Tray) {
+        Win11TrayReader::Instance().Stop();
     }
     SystemEventsWatch::StopRegistryWatch();
     SystemEventsWatch::StopNetworkWatch();
@@ -1599,6 +1630,12 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
     if (msg >= WM_APP + 100 && msg <= WM_APP + 120) {
         if (msg == kMsgToolbarSync) {
             self.SyncToolbarModel();   /* ora siamo sul thread giusto */
+            return 0;
+        }
+        if (msg == kMsgUiaTray) {
+            /* v2.60: il lettore UIA ha finito una lettura: lo snapshot si
+             * fonde nel modello qui, sul thread che lo possiede. */
+            self.ApplyWin11TraySnapshot();
             return 0;
         }
         self.OnWatcherMessage(msg, wParam, lParam);
@@ -2244,8 +2281,12 @@ std::vector<OverflowSnapshot> TrayService::GetUnpinnedSnapshot() {
         }
         /* v2.29: icone il cui proprietario e' morto non devono restare
          * nell'overflow (taskmgr.exe e simili che chiudono senza che il
-         * NIM_DELETE arrivi in tempo): la shell fa lo stesso cleanup. */
-        if (!IsWindow(reinterpret_cast<HWND>(
+         * NIM_DELETE arrivi in tempo): la shell fa lo stesso cleanup.
+         * v2.60: le voci della tray di Windows 11 non hanno un HWND
+         * proprietario (ownerHwnd = 0): la loro esistenza la decide la
+         * lettura UI Automation, non IsWindow. */
+        if (!it->second.fromWin11Uia &&
+            !IsWindow(reinterpret_cast<HWND>(
                 static_cast<uintptr_t>(key.ownerHwnd)))) {
             dead.push_back(key);
             continue;
@@ -2272,6 +2313,219 @@ std::vector<OverflowSnapshot> TrayService::GetUnpinnedSnapshot() {
 int32_t TrayService::GetCount() {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     return static_cast<int32_t>(m_icons.size());
+}
+
+/* ------------------------------------------------------------------ */
+/*  v2.60 - Tray XAML di Windows 11: attivazione del percorso UIA      */
+/* ------------------------------------------------------------------ */
+
+void TrayService::EnableWin11Tray() {
+    if (m_win11Tray || m_trayWnd == nullptr) {
+        return;
+    }
+    if (!Win11TrayReader::Detect()) {
+        return;
+    }
+
+    m_win11Tray = true;
+    Win11TrayReader::Instance().SetNotify(m_trayWnd, kMsgUiaTray);
+    if (Win11TrayReader::Instance().Start()) {
+        AppendCoreLog(L"tray: Windows 11, lettura UI Automation attiva");
+    } else {
+        AppendCoreLog(L"tray: Windows 11, lettura UI Automation non partita");
+    }
+
+    /* Le isole XAML non sono finestre della tray: quando il flyout delle
+     * icone nascoste si apre, o quando una qualunque finestra della shell
+     * con quella classe compare/scompare, si rilegge. Filtro per classe:
+     * l'hook e' globale ma costa una GetClassNameW per evento. */
+    if (m_trayHostHook == nullptr) {
+        m_trayHostHook = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW,
+                                         nullptr, TrayHostChangedProc,
+                                         0, 0,
+                                         WINEVENT_OUTOFCONTEXT |
+                                         WINEVENT_SKIPOWNPROCESS);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  v2.60 - Tray XAML di Windows 11 (UI Automation)                    */
+/*                                                                     */
+/*  Il lettore non parla mai col modello: consegna uno snapshot e      */
+/*  posta kMsgUiaTray alla finestra del servizio. Questa passata gira  */
+/*  quindi sul thread dei messaggi, dove vive il resto del modello.    */
+/* ------------------------------------------------------------------ */
+
+void TrayService::ApplyWin11TraySnapshot() {
+    if (!m_win11Tray) {
+        return;
+    }
+
+    const std::vector<Win11TrayItem> items =
+        Win11TrayReader::Instance().TakeSnapshot();
+    if (items.empty()) {
+        /* Nessuna lettura valida: non si tocca niente. Un desktop senza
+         * icone di sistema e' possibile solo se l'utente le ha nascoste
+         * tutte dalle impostazioni, e in quel caso la passata precedente
+         * ha gia' scritto lo stato giusto. */
+        return;
+    }
+
+    std::set<uint32_t> present;
+    for (const Win11TrayItem& item : items) {
+        present.insert(item.uid);
+    }
+
+    int added = 0;
+    int updated = 0;
+    int removed = 0;
+    bool anyBitmapChange = false;
+
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+        for (const Win11TrayItem& item : items) {
+            const TrayIconKey key{ 0, item.uid };
+            auto it = m_icons.find(key);
+            if (it == m_icons.end()) {
+                TrayIconEntry entry;
+                entry.key          = key;
+                entry.fromWin11Uia = true;
+                entry.fromExplorer = false;
+                entry.tooltip      = item.name;
+                entry.ownerPath    = item.exePath;
+                entry.bitmap       = item.bitmap;
+                entry.pixelHash    = ArgbHash(entry.bitmap);
+                entry.iconRevision = entry.bitmap.empty() ? 0 : 1;
+                entry.isPinned     = !item.hidden;
+                entry.hiddenDesired = item.hidden;
+                /* Lo stato viaggia nello stesso campo di NIM_SETVERSION:
+                 * il frontend legge isHidden da qui. */
+                entry.state        = item.hidden ? NIS_HIDDEN : 0;
+                entry.sysChecked   = true;
+                entry.systemKind   = item.kind;
+                /* Il tipo viaggia anche nel campo guidKey: e' l'unico
+                 * campo di W7T_TrayIconInfo che il livello gestito puo'
+                 * leggere per sapere che si tratta del volume, della rete
+                 * o della batteria ricreati. */
+                if (item.kind == SystemIconKind::Network) {
+                    entry.guidKey = L"uia:network";
+                } else if (item.kind == SystemIconKind::Volume) {
+                    entry.guidKey = L"uia:volume";
+                } else if (item.kind == SystemIconKind::Battery) {
+                    entry.guidKey = L"uia:battery";
+                }
+                entry.toolbarId = EnsureToolbarId(key);
+                m_icons[key] = std::move(entry);
+                m_order.push_back(key);
+                ++added;
+                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_ADD, 0, key.uid);
+            } else {
+                TrayIconEntry& entry = it->second;
+                entry.missCount = 0;
+                entry.lastReadFailed = false;
+
+                bool changed = false;
+                if (entry.tooltip != item.name) {
+                    entry.tooltip = item.name;
+                    changed = true;
+                }
+                if (entry.isPinned != !item.hidden) {
+                    /* La barra di Windows 11 ha l'ultima parola su dove sta
+                     * l'icona: il pin locale non la sposta. */
+                    entry.isPinned = !item.hidden;
+                    changed = true;
+                }
+                if (entry.bitmap.empty() && !item.bitmap.empty()) {
+                    entry.bitmap = item.bitmap;
+                    entry.pixelHash = ArgbHash(entry.bitmap);
+                    ++entry.iconRevision;
+                    anyBitmapChange = true;
+                    changed = true;
+                }
+                if (changed) {
+                    ++updated;
+                    CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY, 0,
+                                                     key.uid);
+                }
+            }
+        }
+
+        /* Rimozione delle voci della tray di Windows 11 sparite. Due
+         * assenze consecutive, come per le icone di Explorer: una lettura
+         * transitoria non fa sparire nulla. */
+        std::vector<TrayIconKey> toRemove;
+        for (auto& pair : m_icons) {
+            TrayIconEntry& entry = pair.second;
+            if (!entry.fromWin11Uia) {
+                continue;
+            }
+            if (present.count(pair.first.uid) != 0) {
+                continue;
+            }
+            if (++entry.missCount >= 2) {
+                toRemove.push_back(pair.first);
+            }
+        }
+        for (const TrayIconKey& key : toRemove) {
+            RemoveEntryLocked(key);
+            ++removed;
+        }
+    }
+
+    if (added != 0 || updated != 0 || removed != 0 || anyBitmapChange) {
+        size_t total = 0;
+        {
+            std::lock_guard<std::recursive_mutex> lock(m_mutex);
+            total = m_icons.size();
+        }
+        wchar_t line[160] = {};
+        swprintf(line, 160,
+                 L"tray Win11: +%d ~%d -%d voci (modello a %u)",
+                 added, updated, removed, static_cast<unsigned>(total));
+        AppendCoreLog(line);
+        SyncToolbarModel();
+        TrayOverflowWindow::NotifyTrayChanged();
+    }
+}
+
+SystemIconKind TrayService::KindOf(uint64_t ownerHwnd, uint32_t uid) const {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    auto it = m_icons.find(TrayIconKey{ ownerHwnd, uid });
+    if (it == m_icons.end()) {
+        return SystemIconKind::None;
+    }
+    return it->second.systemKind;
+}
+
+void CALLBACK TrayService::TrayHostChangedProc(HWINEVENTHOOK, DWORD,
+                                               HWND hwnd, LONG idObject,
+                                               LONG idChild, DWORD, DWORD) {
+    if (hwnd == nullptr || idObject != OBJID_WINDOW || idChild != 0) {
+        return;
+    }
+
+    TrayService& self = Instance();
+    if (!self.m_win11Tray || !self.m_running.load()) {
+        return;
+    }
+
+    wchar_t cls[128] = {};
+    if (GetClassNameW(hwnd, cls, 128) == 0) {
+        return;
+    }
+    const bool isTrayHost =
+        wcsstr(cls, L"TopLevelWindowForOverflowXamlIsland") != nullptr ||
+        wcsstr(cls, L"DesktopWindowContentBridge") != nullptr ||
+        _wcsicmp(cls, L"Shell_TrayWnd") == 0 ||
+        _wcsicmp(cls, L"Shell_SecondaryTrayWnd") == 0;
+    if (!isTrayHost) {
+        return;
+    }
+
+    /* Il debounce e' gia' quello delle riconciliazioni: piu' eventi vicini
+     * diventano una sola lettura. */
+    self.ScheduleReconcile(kReconcileUiaTray, 250);
 }
 
 int32_t TrayService::CopyTo(W7T_TrayIconInfo* buffer, int32_t capacity) {
@@ -2960,6 +3214,7 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                                int32_t x, int32_t y) {
     uint32_t callbackMessage = 0;
     uint32_t version = 0;
+    bool uiaEntry = false;
     {
         std::lock_guard<std::recursive_mutex> lock(m_mutex);
         auto it = m_icons.find(TrayIconKey{ ownerHwnd, uid });
@@ -2968,6 +3223,24 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
         }
         callbackMessage = it->second.callbackMessage;
         version = it->second.version;
+        uiaEntry = it->second.fromWin11Uia;
+    }
+
+    /* v2.60 - Voci della tray di Windows 11: non esiste nessun proprietario
+     * a cui mandare il messaggio di callback (l'icona e' disegnata da
+     * explorer.exe dentro un'isola XAML). Il clic va al pattern di
+     * accessibilita' dell'elemento: e' il meccanismo con cui lo apre anche
+     * la tastiera di sistema. */
+    if (uiaEntry) {
+        const bool right = clickType == W7T_TRAY_CLICK_RIGHT;
+        const bool middle = clickType == W7T_TRAY_CLICK_MIDDLE;
+        if (middle) {
+            /* Il tasto centrale non ha un pattern equivalente: si lascia
+             * stare, meglio di un'azione sbagliata. */
+            return W7T_ERR_INVALID_ARG;
+        }
+        return Win11TrayReader::Instance().RequestClick(uid, right)
+             ? W7T_OK : W7T_ERR_NOT_FOUND;
     }
 
     HWND owner = reinterpret_cast<HWND>(static_cast<uintptr_t>(ownerHwnd));

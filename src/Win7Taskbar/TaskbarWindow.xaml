@@ -242,12 +242,54 @@
                  naturale del contenuto (l'icona da 32px), e la cornice del
                  pulsante risultava piu' bassa della barra invece di
                  riempirla come nella Superbar originale. -->
+            <!-- v2.60: l'elenco dei pulsanti vive dentro uno ScrollViewer.
+                 Serve a due cose: dare SEMPRE la misura dello spazio
+                 disponibile (il ScrollViewer riempie la colonna anche quando
+                 il contenuto e' piu' largo) e, quando i pulsanti non ci
+                 stanno nemmeno alla larghezza minima, scorrerli invece di
+                 lasciarli disegnare sopra l'orologio e la tray con le
+                 cornici tagliate. La barra di scorrimento non si vede
+                 (HorizontalScrollBarVisibility=Hidden): si scorre con
+                 Shift + rotellina sopra la barra. -->
+            <Grid Grid.Column="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- v2.60: le frecce di scorrimento della Superbar. Sono gli
+                     stili del tema (TaskListScrollLeftButton/RightButton:
+                     esistevano in Windows7.xaml dalla prima versione e non
+                     erano mai stati usati) e compaiono soltanto quando i
+                     pulsanti non entrano nemmeno alla larghezza minima,
+                     esattamente come nella barra vera: clic o clic tenuto =
+                     la striscia scorre di un quarto di barra. -->
+                <RepeatButton x:Name="TaskListScrollLeft"
+                              Grid.Column="0"
+                              Width="16"
+                              VerticalAlignment="Stretch"
+                              Style="{DynamicResource TaskListScrollLeftButtonOverride}"
+                              Delay="250"
+                              Interval="60"
+                              Visibility="Collapsed"
+                              Click="TaskListScrollLeft_Click">
+                    <Path Data="M6,0 L0,4 L6,8 Z"
+                          Fill="{DynamicResource TaskListScrollArrow}"
+                          SnapsToDevicePixels="True" />
+                </RepeatButton>
+
+            <ScrollViewer x:Name="TaskListScroller"
+                          Grid.Column="1"
+                          Margin="2,0,0,0"
+                          HorizontalScrollBarVisibility="Hidden"
+                          VerticalScrollBarVisibility="Disabled"
+                          VerticalAlignment="Stretch"
+                          PreviewMouseWheel="TaskListScroller_PreviewMouseWheel">
             <ItemsControl x:Name="TaskList"
-                          Grid.Column="2"
                           ItemsSource="{Binding Groups}"
                           VerticalAlignment="Stretch"
-                          HorizontalAlignment="Left"
-                          Margin="2,0,0,0">
+                          HorizontalAlignment="Left">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <!-- StackPanel orizzontale, non WrapPanel: lo
@@ -287,7 +329,8 @@
                              riferimento ne mostra 57 con la stessa icona da 32. -->
                         <Button Style="{DynamicResource SuperbarButton}"
                                 w7controls:TaskButtonFlasher.IsFlashing="{Binding IsFlashing}"
-                                MinWidth="{DynamicResource TaskButtonMinWidthOverride}"
+                                Width="{Binding ButtonWidth}"
+                                MinWidth="{Binding ButtonMinWidth}"
                                 VerticalAlignment="Stretch"
                                 HorizontalContentAlignment="Stretch"
                                 VerticalContentAlignment="Stretch"
@@ -324,6 +367,22 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+            </ScrollViewer>
+
+                <RepeatButton x:Name="TaskListScrollRight"
+                              Grid.Column="2"
+                              Width="16"
+                              VerticalAlignment="Stretch"
+                              Style="{DynamicResource TaskListScrollRightButtonOverride}"
+                              Delay="250"
+                              Interval="60"
+                              Visibility="Collapsed"
+                              Click="TaskListScrollRight_Click">
+                    <Path Data="M0,0 L6,4 L0,8 Z"
+                          Fill="{DynamicResource TaskListScrollArrow}"
+                          SnapsToDevicePixels="True" />
+                </RepeatButton>
+            </Grid>
 
             <!-- ============ v2.4: Barre degli strumenti (Desktop,
                  Collegamenti, Indirizzo) ispirate a ExplorerEx

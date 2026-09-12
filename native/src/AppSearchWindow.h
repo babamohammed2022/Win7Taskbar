@@ -53,6 +53,23 @@ private:
     void ClampScroll();
     void ScrollTo(int pos);
     void AddRecentFile(int appIndex);
+
+    /* v2.60: DPI. Il layout della finestra resta scritto in pixel logici
+     * (96 dpi) esattamente come prima: la scala entra in gioco solo dove
+     * qualcosa tocca lo schermo, cioe' dimensione della finestra,
+     * coordinate del mouse e chiamate GDI. I testi usano font creati
+     * direttamente alla taglia reale, quindi restano nitidi. */
+    int  Px(int logical) const { return MulDiv(logical, static_cast<int>(m_dpi), 96); }
+    int  Dip(int device) const { return MulDiv(device, 96, static_cast<int>(m_dpi)); }
+    RECT PxRect(int l, int t, int r, int b) const {
+        return RECT{ Px(l), Px(t), Px(r), Px(b) };
+    }
+    RECT PxRect(const RECT& r) const { return PxRect(r.left, r.top, r.right, r.bottom); }
+    POINT ToLogical(POINT device) const {
+        return POINT{ Dip(device.x), Dip(device.y) };
+    }
+    UINT m_dpi = 96;
+
     HWND m_hWnd = nullptr;
     HICON m_searchIcon = nullptr;
     std::thread m_scanThread;
