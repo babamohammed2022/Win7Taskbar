@@ -601,6 +601,7 @@ const Strings& StrForLang(int lang) {
         case 7: return kRu;
         case 8: return kJa;
         case 9: return kZh;
+        case 10: return kEn; /* Arabic uses the WPF dictionary for the managed UI. */
         default: return kIt;
     }
 }
@@ -937,7 +938,7 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
     {
         const int32_t langSel = static_cast<int32_t>(
             SendDlgItemMessageW(m_hWnd, IDC_CMB_LANG, CB_GETCURSEL, 0, 0));
-        msg.lang = (langSel >= 0 && langSel <= 9) ? langSel : 0;
+        msg.lang = (langSel >= 0 && langSel <= 10) ? langSel : 0;
     }
     msg.openSearch = openSearch ? 1 : 0;
     msg.closeApp = closeApp ? 1 : 0;
@@ -1072,6 +1073,7 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         ComboBox_AddString(hCL, L"Русский");
         ComboBox_AddString(hCL, L"日本語");
         ComboBox_AddString(hCL, L"中文 (简体)");
+        ComboBox_AddString(hCL, L"العربية");
         ComboBox_SetCurSel(hCL, self->m_lang);
 
         /* v2.49: LE QUATTRO TENDINE DEI FLYOUT ERANO VUOTE. Una combo senza
