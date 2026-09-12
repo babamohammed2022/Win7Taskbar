@@ -122,6 +122,13 @@ struct TrayIconEntry {
     bool           sysChecked    = false;
     SystemIconKind systemKind    = SystemIconKind::None;
     bool           usingFallback = false;
+
+    /* v2.61: la voce NON viene dalla shell ma e' stata ricreata da noi
+     * perche' la tray di Windows 11 non espone quel tipo (volume, rete,
+     * o batteria dove la shell non la mostra). Il clic non ha nessun
+     * elemento UI Automation da invocare: apre direttamente il riquadro
+     * nativo del tipo. */
+    SystemIconKind syntheticKind = SystemIconKind::None;
 };
 
 /* v2.7: istantanea delle icone non fissate per il pannello overflow nativo. */

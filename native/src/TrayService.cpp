@@ -32,6 +32,7 @@
 #include "WindowManager.h"  /* per segnalare il lampeggio delle finestre */
 #include "AppBarService.h"  /* per ri-nascondere la barra dopo un riavvio di Explorer */
 #include "FlyoutLauncher.h"  /* ApplyAeroFlyoutStyle: bordi Aero dei flyout */
+#include "Strings.h"         /* PropStringsFor: etichette dei tipi di sistema */
 #include <algorithm>
 #include <cstdio>
 #include <cwctype>
@@ -2372,9 +2373,18 @@ void TrayService::ApplyWin11TraySnapshot() {
     }
 
     std::set<uint32_t> present;
+    std::set<SystemIconKind> presentKinds;
     for (const Win11TrayItem& item : items) {
         present.insert(item.uid);
+        if (item.kind != SystemIconKind::None) {
+            presentKinds.insert(item.kind);
+        }
     }
+
+    /* uid riservati alle icone sintetiche: in cima allo spazio dei 32 bit,
+     * lontano dagli hash FNV-1a delle voci UI Automation (0x77000000|hash)
+     * e da qualunque ownerHwnd reale. */
+    constexpr uint32_t kSyntheticSystemUidBase = 0x7F000000u;
 
     int added = 0;
     int updated = 0;
@@ -2449,6 +2459,125 @@ void TrayService::ApplyWin11TraySnapshot() {
                                                      key.uid);
                 }
             }
+        }
+
+        /* ------------------------------------------------------------------ */
+        /*  v2.61 - LE TRE ICONE DI SISTEMA CHE LA SHELL NON ESPONE            */
+        /*                                                                    */
+        /*  Da Windows 11 22H2 (e ancora su 24H2) volume e rete non sono piu'  */
+        /*  pulsanti separati della tray: la shell ne disegna UNO solo, il     */
+        /*  centro delle notifiche rapide, e i tre stati vivono dentro il suo  */
+        /*  riquadro. La lettura UI Automation riporta quindi solo cio' che    */
+        /*  esiste davvero - per esempio la batteria - e la tray restava con   */
+        /*  una sola icona.                                                    */
+        /*                                                                    */
+        /*  Qui i tipi che la shell non espone vengono DISEGNATI da noi con    */
+        /*  gli stessi glifi del ripiego di Windows 10 (TrayFallbackIcons      */
+        /*  segue lo stato corrente: volume, connessione, batteria) e il clic  */
+        /*  apre il riquadro nativo corrispondente (vedi SendClick).           */
+        /*                                                                    */
+        /*  Regola di precedenza: appena la shell espone QUEL tipo, la voce    */
+        /*  sintetica non viene piu' rinnovata e sparisce da sola dopo due     */
+        /*  letture (la shell ha sempre l'ultima parola). Limite dichiarato    */
+        /*  nella documentazione (docs/Windows11.md): su Windows 11 la tray    */
+        /*  mostra le icone che la shell fornisce PIU' le nostre tre.          */
+        /* ------------------------------------------------------------------ */
+        static const SystemIconKind kSyntheticKinds[] = {
+            SystemIconKind::Volume,
+            SystemIconKind::Network,
+            SystemIconKind::Battery,
+        };
+        const PropStrings& sysNames = PropStringsFor(CurrentLanguage());
+        auto syntheticLabel = [&sysNames](SystemIconKind kind) {
+            const wchar_t* raw = (kind == SystemIconKind::Volume) ? sysNames.lblVolume
+                               : (kind == SystemIconKind::Network) ? sysNames.lblNetwork
+                                                                   : sysNames.lblBattery;
+            std::wstring word(raw != nullptr ? raw : L"");
+            /* Le etichette delle Proprieta' finiscono con ':' ("Volume:\"). */
+            while (!word.empty() && (word.back() == L':' || word.back() == L' ')) {
+                word.pop_back();
+            }
+            return word;
+        };
+        auto syntheticGuidKey = [](SystemIconKind kind) -> const wchar_t* {
+            switch (kind) {
+                case SystemIconKind::Volume:  return L"uia:volume";
+                case SystemIconKind::Network: return L"uia:network";
+                default:                      return L"uia:battery";
+            }
+        };
+
+        for (SystemIconKind kind : kSyntheticKinds) {
+            if (presentKinds.count(kind) != 0) {
+                continue;   /* la shell la espone: vince la sua */
+            }
+
+            const uint32_t uid = kSyntheticSystemUidBase |
+                                 static_cast<uint32_t>(kind);
+            const TrayIconKey key{ 0, uid };
+            /* Inserita tra le "presenti": la passata di rimozione qui sotto
+             * non deve portarla via. */
+            present.insert(uid);
+
+            ArgbBitmap glyph;
+            const bool drawn = TrayFallbackIcons::Render(kind, glyph);
+
+            auto it = m_icons.find(key);
+            if (it == m_icons.end()) {
+                if (!drawn) {
+                    continue;   /* niente stato da disegnare: meglio il vuoto */
+                }
+                TrayIconEntry entry;
+                entry.key           = key;
+                entry.fromWin11Uia  = true;    /* nessun HWND proprietario   */
+                entry.syntheticKind = kind;    /* il clic apre il riquadro   */
+                entry.tooltip       = syntheticLabel(kind);
+                entry.bitmap        = std::move(glyph);
+                entry.pixelHash     = ArgbHash(entry.bitmap);
+                entry.iconRevision  = 1;
+                entry.usingFallback = true;
+                entry.isPinned      = true;
+                entry.hiddenDesired = false;
+                entry.state         = 0;
+                entry.sysChecked    = true;
+                entry.systemKind    = kind;
+                entry.guidKey       = syntheticGuidKey(kind);
+                entry.toolbarId     = EnsureToolbarId(key);
+                m_icons[key] = std::move(entry);
+                m_order.push_back(key);
+                ++added;
+                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_ADD, 0, uid);
+                continue;
+            }
+
+            TrayIconEntry& entry = it->second;
+            entry.missCount = 0;
+            entry.lastReadFailed = false;
+
+            /* Cambio di lingua: l'etichetta della voce sintetica e' nostra,
+             * quindi si riallinea qui (le voci della shell portano il nome
+             * che da' lei). */
+            const std::wstring label = syntheticLabel(kind);
+            if (entry.tooltip != label) {
+                entry.tooltip = label;
+                ++updated;
+                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY, 0, uid);
+            }
+
+            if (!drawn) {
+                continue;
+            }
+            const uint64_t hash = ArgbHash(glyph);
+            if (hash == entry.pixelHash) {
+                continue;
+            }
+            entry.bitmap        = std::move(glyph);
+            entry.pixelHash     = hash;
+            entry.usingFallback = true;
+            ++entry.iconRevision;
+            anyBitmapChange = true;
+            ++updated;
+            CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY, 0, uid);
         }
 
         /* Rimozione delle voci della tray di Windows 11 sparite. Due
@@ -3215,6 +3344,7 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
     uint32_t callbackMessage = 0;
     uint32_t version = 0;
     bool uiaEntry = false;
+    SystemIconKind syntheticKind = SystemIconKind::None;
     {
         std::lock_guard<std::recursive_mutex> lock(m_mutex);
         auto it = m_icons.find(TrayIconKey{ ownerHwnd, uid });
@@ -3224,6 +3354,24 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
         callbackMessage = it->second.callbackMessage;
         version = it->second.version;
         uiaEntry = it->second.fromWin11Uia;
+        syntheticKind = it->second.syntheticKind;
+    }
+
+    /* v2.61 - Icone di sistema ricreate da noi (la tray di Windows 11 non
+     * le espone: vedi ApplyWin11TraySnapshot). Non c'e' nessun elemento UI
+     * Automation da invocare: il clic apre il riquadro nativo del tipo,
+     * esattamente come se l'icona fosse quella di Explorer. Il tasto
+     * centrale resta senza azione, come per le altre voci della tray. */
+    if (syntheticKind != SystemIconKind::None) {
+        if (clickType == W7T_TRAY_CLICK_MIDDLE) {
+            return W7T_ERR_INVALID_ARG;
+        }
+        if (syntheticKind == SystemIconKind::Volume) {
+            return FlyoutLauncher::ShowVolumeFlyout(m_trayWnd);
+        }
+        const FlyoutKind flyout = (syntheticKind == SystemIconKind::Network)
+            ? FlyoutKind::Network : FlyoutKind::Battery;
+        return FlyoutLauncher::InvokeFlyout(flyout, FlyoutAction::Show, m_trayWnd);
     }
 
     /* v2.60 - Voci della tray di Windows 11: non esiste nessun proprietario

@@ -457,6 +457,11 @@ HICON SafeGetIcon(const wchar_t* path, DWORD flags) {
 #define ILD_IMAGE 0x0020
 #endif
 
+/* px = taglia NOMINALE (96 DPI): 16, 32 o 48. Serve a scegliere la lista
+ * della shell, non a scalare: la shell restituisce l'icona gia' alla taglia
+ * del monitor (per un processo DPI-aware SHIL_LARGE e' 40 px a 125%). Passare
+ * qui una taglia gia' scalata col DPI fa scegliere la lista sbagliata e
+ * l'icona esce troppo grande per il suo riquadro. */
 HICON ShellItemIcon(const std::wstring& path, int px) {
     HICON out = nullptr;
     W7T_SEH_TRY {
@@ -826,17 +831,26 @@ void AppSearchWindow::ScanInstalledApps() {
                  * fallita); blocco SEH perche' tocchiamo risorse esterne
                  * (shell/COM). */
                 W7T_SEH_TRY {
-                    IconGuard gLarge(ShellItemIcon(lnkPath, Px(32)));
+                    /* v2.60: qui si chiede la taglia NOMINALE (32/16/48),
+                     * mai quella scalata col DPI. ShellItemIcon sceglie la
+                     * lista di immagini in base a quella taglia (16 ->
+                     * SHIL_SMALL, 32 -> SHIL_LARGE, 48 -> SHIL_EXTRALARGE),
+                     * e per un processo DPI-aware la shell restituisce gia'
+                     * l'icona della taglia giusta per il monitor. Chiedere
+                     * Px(32)=40 faceva scegliere la lista EXTRALARGE (48)
+                     * e l'icona arrivava nel riquadro da 40 px: era questo
+                     * a farle sembrare giganti. */
+                    IconGuard gLarge(ShellItemIcon(lnkPath, 32));
                     if (!gLarge.h) {
                         gLarge.h = ResolveAppIcon(lnkPath.c_str(),
                                                   target.c_str(), true);
                     }
-                    IconGuard gSmall(ShellItemIcon(lnkPath, Px(16)));
+                    IconGuard gSmall(ShellItemIcon(lnkPath, 16));
                     if (!gSmall.h) {
                         gSmall.h = ResolveAppIcon(lnkPath.c_str(),
                                                   target.c_str(), false);
                     }
-                    IconGuard gPreview(ShellItemIcon(lnkPath, Px(48)));
+                    IconGuard gPreview(ShellItemIcon(lnkPath, 48));
                     if (!gPreview.h) {
                         gPreview.h = ResolveAppIcon(lnkPath.c_str(),
                                                     target.c_str(), true);

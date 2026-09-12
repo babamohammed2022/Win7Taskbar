@@ -380,6 +380,19 @@ int32_t FlyoutLauncher::ShowClockFlyout(HWND taskbarHwnd) {
         nativeClockMissing = true;
     }
 
+    /* v2.61 - UN SOLO RIQUADRO.
+     *
+     * La shell puo' materializzare il SUO calendario anche quando la nostra
+     * sonda non l'ha visto in tempo (su Windows 11 l'isola XAML compare
+     * quando vuole). Prima di aprire il calendario nostro si chiude quello
+     * di sistema: senza questa riga l'utente vedeva aprirsi il nativo e
+     * subito dopo il nostro. Se il nativo non c'e' mai stato, HideFlyout e'
+     * un no-op senza effetti. */
+    if (nativeClockMissing) {
+        ImmersiveFlyouts::Invoke(FlyoutKind::Clock, FlyoutAction::Hide,
+                                 MakeWinRtRect(barRect));
+    }
+
     /* Ripiego per Vista/7/8, e per le build in cui l'esperienza moderna
      * non e' disponibile. */
     if (ShowAeroClock(taskbarHwnd, barRect)) {

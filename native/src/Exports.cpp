@@ -754,25 +754,32 @@ extern "C" W7T_API void W7T_CALL W7T_OverflowShow(int32_t left, int32_t top,
                                                   int32_t right, int32_t bottom) {
     RECT rc{ left, top, right, bottom };
 
-    /* v2.60: su Windows 11 non esiste nessuna toolbar della tray da
-     * enumerare, quindi il pannello nostrano resterebbe vuoto. Si apre il
-     * flyout vero della shell: contiene per definizione tutte le icone
-     * nascoste e lo si riposiziona sopra la freccetta (vedi
-     * Win11TrayReader::RequestOverflowFlyout). */
-    if (TrayService::Instance().IsWin11Tray()) {
-        if (Win11TrayReader::Instance().RequestOverflowFlyout(rc)) {
-            return;
-        }
-    }
-
+    /* v2.61 - Anche su Windows 11 si apre il pannello nostro, e non piu' il
+     * flyout delle icone nascoste della shell.
+     *
+     * La via "shell" (invocare la freccetta vera e riposizionare la sua
+     * isola XAML) si e' rivelata inaffidabile su 24H2: la freccetta non
+     * risponde all'invoke e il clic restava senza effetto. Il pannello
+     * nostro invece non dipende da nessuna isola: si riempie del modello
+     * della tray, che su Windows 11 contiene le icone lette via UI
+     * Automation (comprese quelle che la shell tiene nascoste) piu' le tre
+     * ricreate da noi. Limite dichiarato in docs/Windows11.md: si vedono le
+     * icone che la shell espone, non per forza tutte quelle di Explorer. */
+    (void)rc;
     g_overflowWindow.ShowNear(rc);
 }
 
-/* v2.60: il frontend deve sapere che il clic sulla freccetta apre il flyout
+/* v2.60: il frontend deve sapere se il clic sulla freccetta apre il flyout
  * di sistema (nessun pannello nostro da chiudere, nessun rettangolo da
- * escludere dall'hook dei clic esterni). */
+ * escludere dall'hook dei clic esterni).
+ *
+ * v2.61: sempre 0 - si apre SEMPRE il pannello nostro. Sulle build di
+ * Windows 11 24H2 la freccetta della shell non risponde all'invoke UI
+ * Automation: il flyout di sistema non si apriva e il clic non faceva
+ * nulla. Il pannello nostro e' lo stesso su ogni sistema, si chiude al
+ * clic fuori e mostra tutte le icone che il modello conosce. */
 extern "C" W7T_API int32_t W7T_CALL W7T_OverflowUsesShellFlyout(void) {
-    return TrayService::Instance().IsWin11Tray() ? 1 : 0;
+    return 0;
 }
 
 extern "C" W7T_API void W7T_CALL W7T_OverflowHide(void) {

@@ -251,7 +251,14 @@
                  cornici tagliate. La barra di scorrimento non si vede
                  (HorizontalScrollBarVisibility=Hidden): si scorre con
                  Shift + rotellina sopra la barra. -->
-            <Grid Grid.Column="2">
+            <!-- v2.61: il margine destro negativo sposta di 4 px a destra il
+                 gruppo delle frecce (e la striscia che scorrono) dentro il
+                 margine trasparente che il riquadro della tray ha a sinistra
+                 ("Tray", Padding 8,0,0,0 - nessuno sfondo li'), cosi' le
+                 frecce stanno un po' piu' a destra come nella barra di
+                 Windows 7 di riferimento. E' solo geometria: nessun colore,
+                 nessun bordo, nessun'altra parte della barra si muove. -->
+            <Grid Grid.Column="2" Margin="0,0,-4,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
