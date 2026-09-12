@@ -1,59 +1,44 @@
 // Win7Taskbar - Localization manager
-// English: Manages language switching between Italian and English
-// Italiano: Gestisce il cambio lingua tra Italiano e Inglese
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Markup;
-using System.Xml.Linq;
 using RetroBar.Utilities;
 
 namespace Win7Taskbar.Utilities
 {
-    /// <summary>
-    /// Loads language ResourceDictionary from Languages folder and injects into Application resources.
-    /// English: Supports Italian (it) and English (en). Falls back to Italian if file missing.
-    /// Italiano: Supporta Italiano (it) e Inglese (en). Ripiega su Italiano se file mancante.
-    /// </summary>
+    /// <summary>Loads the selected WPF language dictionary and applies it to the application.</summary>
     public static class LocalizationManager
     {
         private const string LanguageDictKey = "Win7TaskbarLanguage";
 
-        /// <summary>
-        /// Get current language code: "it" or "en"
-        /// </summary>
         public static string CurrentLanguage => Settings.Instance.Language;
 
-        /// <summary>
-        /// Load language dictionary and merge into Application.Resources
-        /// Call on startup and when language changes.
-        /// </summary>
         public static void ApplyLanguage(string langCode)
         {
             if (Application.Current == null) return;
             try
             {
-                if (string.IsNullOrEmpty(langCode)) langCode = "it";
+                langCode = NormalizeLanguageCode(langCode);
 
-                // Remove previous language dictionary if present
-                var toRemove = new System.Collections.Generic.List<ResourceDictionary>();
+                var toRemove = new List<ResourceDictionary>();
                 foreach (var dict in Application.Current.Resources.MergedDictionaries)
                 {
-                    if (dict.Contains(LanguageDictKey) || dict.Source != null && dict.Source.OriginalString.Contains("Languages/"))
+                    if (dict.Contains(LanguageDictKey) ||
+                        (dict.Source != null && dict.Source.OriginalString.Contains("Languages/")))
                     {
                         toRemove.Add(dict);
                     }
                 }
-                foreach (var d in toRemove)
-                    Application.Current.Resources.MergedDictionaries.Remove(d);
+                foreach (var dict in toRemove)
+                    Application.Current.Resources.MergedDictionaries.Remove(dict);
 
-                // Load new dictionary
-                ResourceDictionary langDict = LoadLanguageDictionary(langCode);
-                // Mark it
-                langDict[LanguageDictKey] = true;
-                Application.Current.Resources.MergedDictionaries.Add(langDict);
+                ResourceDictionary language = LoadLanguageDictionary(langCode);
+                language[LanguageDictKey] = true;
+                Application.Current.Resources.MergedDictionaries.Add(language);
             }
             catch (Exception ex)
             {
@@ -61,8 +46,22 @@ namespace Win7Taskbar.Utilities
             }
         }
 
-        /// <summary>Code -> dictionary file (Italian is the fallback).
-        /// Codice -> file dizionario (ripiego: Italiano).</summary>
+        /// <summary>
+        /// Returns a supported two-letter language code. Unsupported values use English.
+        /// </summary>
+        private static string NormalizeLanguageCode(string? langCode)
+        {
+            if (string.IsNullOrWhiteSpace(langCode))
+                return "en";
+
+            string code = langCode.Trim().ToLowerInvariant();
+            return code switch
+            {
+                "it" or "en" or "es" or "fr" or "de" or "pt" or "pl" or "ru" or "ja" or "zh" or "ar" => code,
+                _ => "en",
+            };
+        }
+
         private static string LanguageFileFor(string langCode) => langCode switch
         {
             "en" => "English.xaml",
@@ -74,6 +73,7 @@ namespace Win7Taskbar.Utilities
             "ru" => "Russian.xaml",
             "ja" => "Japanese.xaml",
             "zh" => "Chinese.xaml",
+            "ar" => "Arabic.xaml",
             _ => "Italian.xaml",
         };
 
@@ -85,18 +85,15 @@ namespace Win7Taskbar.Utilities
             {
                 try
                 {
-                    // Load XAML from file to allow hot-swap without rebuild
                     using var stream = File.OpenRead(path);
-                    var dict = (ResourceDictionary)XamlReader.Load(stream);
-                    return dict;
+                    return (ResourceDictionary)XamlReader.Load(stream);
                 }
                 catch
                 {
-                    // fallback to pack URI
+                    // Fall through to the embedded resource.
                 }
             }
 
-            // Fallback to pack URI from assembly resources
             string packUri = $"pack://application:,,,/Win7Taskbar;component/Languages/{fileName}";
             try
             {
@@ -104,31 +101,27 @@ namespace Win7Taskbar.Utilities
             }
             catch
             {
-                // Ultimate fallback: Italian embedded
-                string fallback = "pack://application:,,,/Win7Taskbar;component/Languages/Italian.xaml";
+                string fallback = "pack://application:,,,/Win7Taskbar;component/Languages/English.xaml";
                 return new ResourceDictionary { Source = new Uri(fallback, UriKind.Absolute) };
             }
         }
 
-        /// <summary>
-        /// Helper to get localized string by key, with fallback to key itself.
-        /// </summary>
         public static string GetString(string key)
         {
             try
             {
-                if (Application.Current != null && Application.Current.Resources.Contains(key))
+                if (Application.Current != null && Application.Current.Resources.Contains(key) &&
+                    Application.Current.Resources[key] is string value)
                 {
-                    if (Application.Current.Resources[key] is string s)
-                        return s;
+                    return value;
                 }
-                // Search merged dictionaries
+
                 if (Application.Current != null)
                 {
                     foreach (var dict in Application.Current.Resources.MergedDictionaries)
                     {
-                        if (dict.Contains(key) && dict[key] is string str)
-                            return str;
+                        if (dict.Contains(key) && dict[key] is string value)
+                            return value;
                     }
                 }
             }
@@ -136,9 +129,6 @@ namespace Win7Taskbar.Utilities
             return key;
         }
 
-        /// <summary>
-        /// Apply language from settings
-        /// </summary>
         public static void ApplyCurrentLanguage()
         {
             ApplyLanguage(Settings.Instance.Language);
