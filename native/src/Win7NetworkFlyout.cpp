@@ -39,6 +39,9 @@
 #include "WinhawkShim.h"
 #include <netlistmgr.h>
 #include <process.h>
+// 1.0.0-alpha: NTSTATUS (usato da RtlGetVersion) arriva da <winternl.h>.
+// MinGW-w64 lo espone anche via windows.h, l'SDK Microsoft no.
+#include <winternl.h>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -7034,6 +7037,25 @@ void UpdateLayoutGeometry(int scrollbarOffset) {
     }
 }
 
+/* 1.0.0-alpha: la lambda con WINAPI fra i parametri e la freccia di ritorno
+ * e' sintassi accettata da GCC ma non da MSVC ("syntax error: '__cdecl' was
+ * unexpected here; expected '{'"). La callback e' ora una funzione statica
+ * con CALLBACK: valida su entrambe le toolchain e identica a runtime (su x64
+ * la convenzione di chiamata e' una sola). */
+struct BringProfileDialogEnumData {
+    HWND hwnd;
+};
+
+static BOOL CALLBACK BringProfileDialogEnumProc(HWND h, LPARAM lp) {
+    BringProfileDialogEnumData* data =
+        reinterpret_cast<BringProfileDialogEnumData*>(lp);
+    if (!IsWindowVisible(h))
+        return TRUE;
+
+    data->hwnd = h;
+    return FALSE;
+}
+
 static BOOL BringProfileDialogToForeground() {
     if (!g_hProfileDialogThread)
         return FALSE;
@@ -7042,18 +7064,10 @@ static BOOL BringProfileDialogToForeground() {
     if (!tid)
         return FALSE;
 
-    struct EnumData {
-        HWND hwnd;
-    } data = {};
+    BringProfileDialogEnumData data = {};
 
-    EnumThreadWindows(tid, [](HWND h, LPARAM lp) WINAPI -> BOOL {
-        EnumData* data = reinterpret_cast<EnumData*>(lp);
-        if (!IsWindowVisible(h))
-            return TRUE;
-
-        data->hwnd = h;
-        return FALSE;
-    }, reinterpret_cast<LPARAM>(&data));
+    EnumThreadWindows(tid, BringProfileDialogEnumProc,
+                      reinterpret_cast<LPARAM>(&data));
 
     if (!data.hwnd)
         return FALSE;
@@ -9458,6 +9472,13 @@ DWORD WINAPI HotkeyThreadProc(LPVOID lpParam) {
     return 0;
 }
 
+/* 1.0.0-alpha: callback statica al posto della lambda con WINAPI (MSVC non
+ * accetta la convenzione di chiamata scritta dopo i parametri). */
+static BOOL CALLBACK SafeCleanupCloseThreadWindowsProc(HWND h, LPARAM) {
+    PostMessageW(h, WM_CLOSE, 0, 0);
+    return TRUE;
+}
+
 void SafeCleanup() {
     // g_Ctx.isUninitializing is set by Wh_ModUninit before this is called
     // (guarded there against re-entry); nothing else calls SafeCleanup, so
@@ -9519,10 +9540,7 @@ void SafeCleanup() {
         // while the thread can still be executing code in this mod image.
         while (WaitForSingleObject(g_hProfileDialogThread, 250) == WAIT_TIMEOUT) {
             if (tid) {
-                EnumThreadWindows(tid, [](HWND h, LPARAM) WINAPI -> BOOL {
-                    PostMessageW(h, WM_CLOSE, 0, 0);
-                    return TRUE;
-                }, 0);
+                EnumThreadWindows(tid, SafeCleanupCloseThreadWindowsProc, 0);
             }
         }
         CloseHandle(g_hProfileDialogThread);

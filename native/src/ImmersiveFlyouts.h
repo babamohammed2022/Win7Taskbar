@@ -64,6 +64,14 @@
 
 #include "Common.h"
 
+/* 1.0.0-alpha: Common.h definisce WIN32_LEAN_AND_MEAN, e con quel simbolo
+ * windows.h NON include piu' i header COM. MinGW-w64 li tira comunque
+ * dentro, l'SDK Microsoft no: senza questo include la compilazione con MSVC
+ * si ferma su "'IUnknown': base class undefined" (le interfacce qui sotto
+ * derivano da IUnknown) e su STDMETHODCALLTYPE. <objbase.h> e' il header COM
+ * canonico ed esiste su entrambe le toolchain. */
+#include <objbase.h>
+
 /* HSTRING e' l'handle di stringa del Windows Runtime. MinGW-w64 e l'SDK di
  * Microsoft lo forniscono entrambi in <winstring.h>/<hstring.h>; se una
  * toolchain non li avesse, essendo handle opachi basta dichiararli. */
