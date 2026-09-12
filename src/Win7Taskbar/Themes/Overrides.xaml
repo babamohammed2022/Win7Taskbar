@@ -4,9 +4,6 @@
     Licensed under the GNU General Public License
     version 3 or later (see the LICENSE file).
 
-    Questo dizionario viene mergiato DOPO Themes/Windows7.xaml e contiene solo
-    cio' che il tema non puo' fornire perche' dipende dai tipi dell'app.
-    Windows7.xaml resta byte-identico all'originale del repository.
 
     Il tema e' derivato da RetroBar (https://github.com/dremin/RetroBar),
     Copyright (c) dremin, Apache License 2.0. Vedere CREDITS.txt.
@@ -238,36 +235,36 @@
                   Visibility="{Binding WindowCount,
                                Converter={StaticResource WindowStackVisibility},
                                ConverterParameter=1}">
-                <Border Width="3.12"
+                <Border Width="3"
                         Height="40"
                         HorizontalAlignment="Left"
                         CornerRadius="1"
-                        Background="#99E4F2FF"
-                        BorderBrush="#A6477FA6"
+                        Background="#CCE4F2FF"
+                        BorderBrush="#FF15334D"
                         BorderThickness="1"
                         SnapsToDevicePixels="True"
                         Visibility="{Binding WindowCount,
                                      Converter={StaticResource WindowStackVisibility},
                                      ConverterParameter=1}" />
-                <Border Width="3.12"
+                <Border Width="3"
                         Height="40"
-                        Margin="3.5,0,0,0"
+                        Margin="4,0,0,0"
                         HorizontalAlignment="Left"
                         CornerRadius="1"
-                        Background="#99E9F5FF"
-                        BorderBrush="#A6477FA6"
+                        Background="#CCE9F5FF"
+                        BorderBrush="#FF15334D"
                         BorderThickness="1"
                         SnapsToDevicePixels="True"
                         Visibility="{Binding WindowCount,
                                      Converter={StaticResource WindowStackVisibility},
                                      ConverterParameter=2}" />
-                <Border Width="3.12"
+                <Border Width="3"
                         Height="40"
-                        Margin="7,0,0,0"
+                        Margin="8,0,0,0"
                         HorizontalAlignment="Left"
                         CornerRadius="1"
-                        Background="#99EFF8FF"
-                        BorderBrush="#A6477FA6"
+                        Background="#CCEFF8FF"
+                        BorderBrush="#FF15334D"
                         BorderThickness="1"
                         SnapsToDevicePixels="True"
                         Visibility="{Binding WindowCount,
