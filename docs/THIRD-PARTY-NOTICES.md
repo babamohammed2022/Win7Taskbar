@@ -49,10 +49,6 @@ sources under different licenses:
   mod was taken. MIT is compatible with GPL-3.0. Copyright (c)
   babamohammed.
 
-> Note: no ReactOS code is currently incorporated. If ReactOS code is ever
-> consulted or adapted for any component, a dedicated entry with its license
-> and details must be added here, following the structure of this document.
-
 **The Apache License 2.0 (RetroBar, ManagedShell) is not considered
 compatible by the FSF with GPL-2.0**, because of the patent-termination and
 indemnification clauses present in Apache 2.0 and absent from GPL-2.0. It is
