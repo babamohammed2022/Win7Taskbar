@@ -1,0 +1,10 @@
+/* Win7Taskbar - Windows resources for the native core.
+ *
+ * The application icon: the classic Windows 7 flag, drawn in a single azure
+ * blue (the same blue used by the project's own artwork). No text, one glyph.
+ * It is embedded in Win7TaskbarCore.dll so that the native windows we create -
+ * the Properties dialog above all - can carry the same icon as the executable.
+ */
+#define IDI_APPICON 101
+
+IDI_APPICON ICON "app.ico"
