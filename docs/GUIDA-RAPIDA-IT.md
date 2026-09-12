@@ -28,12 +28,28 @@ liberata correttamente quando chiudi il programma.
 
 ## 3. Installazione (utente finale)
 
-1. Vai su **https://github.com/babamohammed2022/Win7Taskbar/releases**
-2. Scarica `Win7Taskbar-1.0.0-alpha-win-x64.zip`.
+1. Vai alla pagina della release:
+   **https://github.com/babamohammed2022/Win7Taskbar/releases/tag/v1.0.0-alpha**
+   (oppure **https://github.com/babamohammed2022/Win7Taskbar/releases** per
+   vedere tutte le versioni)
+2. Scarica `Win7Taskbar-1.0.0-alpha-win-x64.zip` (circa 64 MB: dentro c'è anche
+   il runtime .NET, per questo non devi installare nulla).
 3. **Scompatta tutto lo zip** in una cartella qualsiasi (es. `C:\Win7Taskbar`).
    Mantieni le sottocartelle `Themes`, `Resources` e `Languages` accanto a
    `Win7Taskbar.exe`: il tema viene letto da disco all'avvio.
 4. Avvia **`Win7Taskbar.exe`**.
+
+### Verifica del file scaricato (facoltativa)
+
+Nella pagina della release trovi l'impronta **SHA-256** del pacchetto. Per
+controllarla, apri PowerShell nella cartella del download e digita:
+
+```powershell
+Get-FileHash .\Win7Taskbar-1.0.0-alpha-win-x64.zip -Algorithm SHA256
+```
+
+Il valore `Hash` che compare deve essere identico a quello pubblicato: se
+coincide, il file è integro e non è stato manomesso.
 
 > **Prima di tutto**, consiglio di creare un punto di ripristino di Windows, così
 > puoi tornare indietro in un istante se qualcosa non ti piace.

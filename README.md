@@ -32,8 +32,10 @@ download and the notes of each version.
 
 ## Download and run (no .NET needed)
 
-1. Open the [Releases](https://github.com/babamohammed2022/Win7Taskbar/releases) page
-   and download `Win7Taskbar-1.0.0-alpha-win-x64.zip`.
+1. Open the release page:
+   [**Win7Taskbar v1.0.0-alpha**](https://github.com/babamohammed2022/Win7Taskbar/releases/tag/v1.0.0-alpha)
+   (all versions: [Releases](https://github.com/babamohammed2022/Win7Taskbar/releases))
+   and download `Win7Taskbar-1.0.0-alpha-win-x64.zip` (~64 MB).
 2. **Extract the whole folder** — keep `Themes\`, `Resources\` and `Languages\`
    next to `Win7Taskbar.exe`: the theme is read from disk at runtime.
 3. Run `Win7Taskbar.exe`.
