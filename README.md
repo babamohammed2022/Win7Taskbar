@@ -10,6 +10,14 @@ This software has been tested on Windows 10 21H2 and Windows 10 22H2.
 
 **Current state: `Alpha`**
 
+## Accuracy and limitations
+
+Win7Taskbar is a **best-effort reimplementation of the Windows 7 taskbar experience** for modern versions of Windows.
+
+The project aims for high visual and behavioral accuracy, but **100% accuracy is not possible** because modern versions of Windows differ substantially from Windows 7 and impose technical limitations on how applications can interact with the Windows shell, taskbar, window management, system tray, previews, animations, and other system components.
+
+For this reason, some behaviors may differ from the original Windows 7 implementation even when Win7Taskbar is specifically designed to reproduce them. The goal is **high-fidelity reproduction within the technical limitations of modern Windows**, rather than claiming to be an exact replacement for the original Windows 7 taskbar.
+
 ## Screenshot
 
 <img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
