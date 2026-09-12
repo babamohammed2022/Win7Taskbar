@@ -1,7 +1,7 @@
-# Win7Taskbar - project instructions
+# Win7Taskbar - Project Instructions
 
 Everything needed to build, run and understand the project.
-For the user-facing overview see [`README.md`](./README.md).
+For the user-facing overview, see [`README.md`](../README.md).
 
 ---
 
@@ -26,7 +26,7 @@ export PATH=$DOTNET_ROOT:$PATH
 
 ## 2. Build
 
-### Step 1 - native C++ DLL (must come first)
+### Step 1 - Native C++ DLL (must come first)
 
 The managed project copies `dist/Win7TaskbarCore.dll` into its output and **stops the
 build with an explicit error** if the file is missing.
@@ -63,12 +63,13 @@ The build also prints a summary of the COM interfaces it found in the binary
 Libraries linked: `user32 gdi32 shell32 ole32 oleaut32 dwmapi propsys shlwapi advapi32`,
 with `-static-libgcc -static-libstdc++ -static`.
 
-### Step 2 - managed application
+### Step 2 - Managed application
 
 From the repository root:
 
 ```bash
-dotnet build Win7Taskbar.sln -c Release          # or:
+dotnet build Win7Taskbar.sln -c Release
+# or:
 dotnet publish src/Win7Taskbar/Win7Taskbar.csproj -c Release -r win-x64
 ```
 
@@ -79,14 +80,15 @@ The solution contains two projects, in dependency order:
    public surfaces needed to resolve the theme bindings are replicated.
 2. `src/Win7Taskbar` -> the WPF application.
 
-### Step 3 - distributable package (self-contained)
+### Step 3 - Distributable package (self-contained)
 
 The release is **self-contained**: it carries its own .NET runtime, so it runs on
 a Windows 10/11 x64 machine with no .NET installed. The script does the native
 step, the publish, the copy of the remaining native DLLs and the verification:
 
 ```powershell
-pwsh -File build/publish.ps1            # -> dist-package/ ; -Zip also creates the archive
+pwsh -File build/publish.ps1
+# add -Zip to also create the archive
 ```
 
 Or by hand:
@@ -106,7 +108,7 @@ default: the theme, `Resources/` and `Languages/` are read from the folder next
 to the executable and the native core is loaded with a plain `DllImport`, so the
 folder-shaped package is the predictable, debuggable one.
 
-The same steps run in CI ([`.github/workflows/release.yml`](./.github/workflows/release.yml)): package as an
+The same steps run in CI ([`.github/workflows/release.yml`](../.github/workflows/release.yml)): package as an
 artifact on every push, release asset on a `v*` tag, with the self-contained check
 in between.
 
@@ -130,12 +132,11 @@ from. `ThemeLoader.cs` therefore:
 2. inserts **in memory**, as the first child of the root, a
    `<ResourceDictionary.MergedDictionaries>` containing `Base.xaml` (from the shim, via
    pack URI);
-3. serializes to a `MemoryStream` and calls
-   `XamlReader.Load(stream, new ParserContext { BaseUri = <file path> })`.
+3. serializes to a `MemoryStream` and calls `XamlReader.Load(stream, new ParserContext { BaseUri = <file path> })`.
 
 `BaseUri` is what resolves the relative PNG `UriSource`s (`../Resources/...`). The file on
 disk is never rewritten, which is why the theme ships as `Content` (copied next to the
-executable) and is **not** compiled into BAML - it is excluded from `Page`/`Resource` in
+executable) and is **not compiled into BAML** - it is excluded from `Page`/`Resource` in
 the `.csproj`.
 
 ---
@@ -155,7 +156,7 @@ the `.csproj`.
 
 Design notes and the reasoning behind the main decisions (why the taskbar is a WPF window
 over a hidden native one, why the theme is loaded rather than compiled, why previews are
-currently disabled, and so on) are in [`docs/architecture-decisions.md`](./docs/architecture-decisions.md).
+currently disabled, and so on) are in [`docs/architecture-decisions.md`](./architecture-decisions.md).
 
 ---
 
@@ -181,9 +182,9 @@ currently disabled, and so on) are in [`docs/architecture-decisions.md`](./docs/
   `build/publish.ps1` (called by the release workflow). Any change that adds a file the
   application needs at runtime must keep that file inside the package (or next to the
   executable): the target machine has no .NET and downloads nothing else.
-* **Code comments:** English for anything new. The historical Italian comments are being
-  translated file by file; the notes they carry (measured values, rejected approaches) are
-  worth keeping.
+* **Code comments:** English for anything new. Historical Italian comments may be
+  translated file by file; the technical notes they carry are worth preserving when
+  still relevant.
 * **One change at a time:** layout and behaviour changes are made so that each one can be
   tested on its own, because most of the visible behaviour can only be verified on a real
   Windows desktop.
