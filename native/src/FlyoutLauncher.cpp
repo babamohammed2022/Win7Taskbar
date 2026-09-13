@@ -26,6 +26,7 @@
  * C o di C# e' stata copiata. Vedi CREDITS.txt e THIRD-PARTY-NOTICES.md.
  */
 
+#include "DiagnosticLogger.h"
 #include "FlyoutLauncher.h"
 #include <commctrl.h>
 
@@ -371,21 +372,26 @@ int32_t FlyoutLauncher::ShowClockFlyout(HWND taskbarHwnd) {
      * questa build il host dei flyout non esiste, non si ripaga mezza
      * attesa a ogni clic: si va dritti al ripiego del chiamante. */
     static bool nativeClockMissing = false;
+    W7T_LOG_GATE("native-clock-host-available", !nativeClockMissing);
     if (!nativeClockMissing) {
         const int32_t outcome = ToCoreResult(ImmersiveFlyouts::Invoke(
             FlyoutKind::Clock, FlyoutAction::Show, MakeWinRtRect(barRect)));
         if (outcome == W7T_OK) {
+            W7T_LOG_FLYOUT("clock", "native-host", "accepted", "immersive-clock");
             return W7T_OK;
         }
         nativeClockMissing = true;
+        W7T_LOG_FLYOUT("clock", "native-host", "rejected", "none");
     }
 
     /* Ripiego per Vista/7/8, e per le build in cui l'esperienza moderna
      * non e' disponibile. */
     if (ShowAeroClock(taskbarHwnd, barRect)) {
+        W7T_LOG_FLYOUT("clock", "legacy-aero-fallback", "accepted", "aero-clock");
         return W7T_OK;
     }
 
+    W7T_LOG_FLYOUT("clock", "legacy-aero-fallback", "rejected", "none");
     return W7T_ERR_NOT_FOUND;
 }
 

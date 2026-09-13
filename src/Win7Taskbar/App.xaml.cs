@@ -40,6 +40,8 @@ namespace Win7Taskbar
         {
             // PRIMA di tutto: i gestori globali e il marcatore di fase. Se
             // qualcosa qui sotto muore, deve lasciare una traccia.
+            DiagnosticLogger.WriteWindowsVersion("startup");
+            DiagnosticLogger.Snapshot("startup");
             StartupGuard.Install(Dispatcher);
             StartupGuard.DetectPreviousCrash(e.Args);
             StartupGuard.Enter("avvio");

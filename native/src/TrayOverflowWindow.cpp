@@ -1,6 +1,7 @@
 // Win7Taskbar - pannello overflow nativo con vetro Aero
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 
+#include "DiagnosticLogger.h"
 #include "TrayOverflowWindow.h"
 #include "TrayService.h"
 #include "FlyoutLauncher.h"   /* ApplyAeroFlyoutStyle: bordi Aero */
@@ -196,8 +197,9 @@ void TrayOverflowWindow::RepositionAtAnchor() {
 }
 
 void TrayOverflowWindow::ShowNear(RECT btnScreen) {
-    if (!m_hWnd) return;
+    if (!m_hWnd) { W7T_LOG("OVERFLOW", "stage=chevron-click;model=window-missing;result=event-lost-before-instantiation"); return; }
     RefreshIcons();
+    W7T_LOG("OVERFLOW", std::string("stage=chevron-click;model-count=") + std::to_string(m_icons.size()) + ";result=instantiated-and-refreshed");
     Layout();
 
     m_anchor = btnScreen;   /* v2.27: ricorda l'ancora per i resize */
@@ -408,6 +410,7 @@ LRESULT CALLBACK TrayOverflowWindow::WndProc(HWND hWnd, UINT msg,
     case kMsgOverflowRefresh:
         // v3.1: la tray e' cambiata (pin/unpin/aggiunta/rimozione): ricarica
         // conservativamente l'elenco sul thread della finestra.
+        W7T_LOG("OVERFLOW", "stage=refresh-event;result=received");
         self->RefreshIcons();
         return 0;
     case WM_LBUTTONDOWN: {
@@ -545,6 +548,7 @@ LRESULT CALLBACK TrayOverflowWindow::WndProc(HWND hWnd, UINT msg,
 /* v3.0 drag&drop: icona fantasma semitrasparente che segue il cursore.
  * Finestra layered disegnata a mano (niente dipendenze extra). */
 void TrayOverflowWindow::ShowDragImage(POINT pt) {
+    W7T_LOG("DRAG", "stage=overflow-drag;owned=false;uiAutomation=false;technicallyPossible=no;result=ui-owned-model-drag");
     try {
     if (m_dragIdx < 0 || m_dragIdx >= static_cast<int>(m_icons.size())) return;
     HICON icon = m_icons[m_dragIdx].icon;
