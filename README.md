@@ -6,7 +6,7 @@ A Windows 7-inspired taskbar recreation for Windows 10 and 11.
 
 Win7Taskbar is a software that recreates the Windows 7 taskbar on Windows 10 and Windows 11. It combines a XAML frontend with a native C++/Win32 backend to reproduce the Windows 7 Superbar, including grouped task buttons, the notification area, system flyouts, overflow handling, and a very similar Properties interface.
 
-This software has been tested on Windows 10 21H2, Windows 10 22H2, and Windows 11 24H2. It generally works better on Windows 10 than on Windows 11.
+This software has been tested on Windows 10 21H2, Windows 10 22H2, and Windows 11 24H2. It generally works better on Windows 10 than on Windows 11. Win7Taskbar also works on Windows 11, but some functionality, particularly the system tray, is implemented as a recreation. Windows 11 no longer exposes the same taskbar elements that were available on previous versions of Windows, so the system tray behavior on Windows 11 is replicated rather than directly provided by the native taskbar.
 
 **Current state: `Alpha`**
 
