@@ -21,8 +21,11 @@
 // the "Windows 7/8.1 Language Switcher Restorer" mod), which reads it from
 // the thread that owns the keyboard focus.
 //
-// The click does NOT open a WPF menu: it calls the core's native popup (a
-// Win32 window drawn with GDI/GDI+, same logic as the mod). Language
+// v1.7.4: the click opens a plain Win32 menu through W7T_ShowContextMenuEx
+// (the same path as the clock and bar menus) and applies the picked layout
+// with WM_INPUTLANGCHANGEREQUEST. The old dedicated popup thread and its
+// managed callback are no longer exercised - they were the only plausible
+// source of the process exit on click. Language
 // changes arrive as a native callback; a 200 ms poll timer acts as a
 // safety net (the same polling mechanic ManagedShell uses).
 // ============================================================================
@@ -90,7 +93,11 @@ namespace Win7Taskbar.Controls
                  * ignores no-op writes), so without this explicit sync the
                  * entry stayed invisible forever with the default mode. */
                 SyncModeVisuals();
-                RegisterCallbackOnce();
+                /* v1.7.4: the native change callback is NOT registered
+                 * anymore. The shell-menu rewrite below needs no callback:
+                 * the abbreviation refreshes through the poll timer that
+                 * reads the core directly. No managed delegate ever leaves
+                 * the process now. */
                 RefreshFromNative();
                 _pollTimer.Start();
             };
@@ -196,65 +203,101 @@ namespace Win7Taskbar.Controls
 
             try
             {
-                Utilities.DiagnosticLogger.Write("LANGSW",
-                    $"show requested; mode={Mode}");
-                IntPtr fg = NativeMethods.GetForegroundWindow();
-                var source = PresentationSource.FromVisual(this) as HwndSource;
-                ulong owner = source != null ? (ulong)source.Handle : 0;
-                NativeMethods.W7T_LangSwitcherShow(
-                    owner, fg != IntPtr.Zero ? (ulong)fg : 0, Mode);
-                Utilities.DiagnosticLogger.Write("LANGSW",
-                    "show call returned normally");
+                ShowLanguageMenuViaShell();
             }
             catch (DllNotFoundException) { }
             catch (EntryPointNotFoundException) { }
-            catch (Exception)
+            catch (Exception ex)
             {
                 /* Never let the taskbar fall because of the indicator. */
+                Utilities.DiagnosticLogger.WriteException("LANGSW", ex);
             }
         }
 
-        /* ------------------------------------------------------------ */
-        /*  Data from the native side (active abbreviation + change      */
-        /*  callback)                                                    */
-        /* ------------------------------------------------------------ */
-
-        private bool _callbackRegistered;
-
-        /* v1.7.3: process-wide root for the delegate the native side keeps.
-         * If the taskbar window is recreated, the instance field dies with
-         * the old control: without a static root the GC can collect the
-         * old marshaled thunk while the native global still points at it,
-         * and the next invocation is a jump into freed memory (a plausible
-         * cause of the whole program closing on the ITA click). */
-        private static NativeMethods.W7TLangChangedCallback? s_nativeKeepAlive;
-
-        private void RegisterCallbackOnce()
+        /// <summary>
+        /// v1.7.4: the language list opens as a plain Win32 menu through
+        /// W7T_ShowContextMenuEx - the exact path the clock and the bar
+        /// menus use, which never closed the process. Picking a language
+        /// posts the canonical WM_INPUTLANGCHANGEREQUEST to the foreground
+        /// window. No dedicated thread, no owned popup, no managed callback
+        /// across the boundary: the crash class is removed by construction.
+        /// </summary>
+        private void ShowLanguageMenuViaShell()
         {
-            if (_callbackRegistered)
+            IntPtr[] layouts = NativeMethods.GetInstalledKeyboardLayouts();
+            if (layouts.Length == 0)
             {
+                Utilities.DiagnosticLogger.Write("LANGSW",
+                    "no keyboard layouts reported; menu not shown");
                 return;
             }
-            try
+
+            // Active layout = the foreground window's thread layout.
+            IntPtr foreground = NativeMethods.GetForegroundWindow();
+            IntPtr active = IntPtr.Zero;
+            if (foreground != IntPtr.Zero)
             {
-                _callbackKeepAlive = OnLangChanged;
-                s_nativeKeepAlive = OnLangChanged;
-                NativeMethods.W7T_LangSwitcherSetChangedCallback(
-                    _callbackKeepAlive);
-                _callbackRegistered = true;
+                uint tid = NativeMethods.GetWindowThreadProcessId(
+                    foreground, out _);
+                if (tid != 0)
+                {
+                    active = NativeMethods.GetKeyboardLayout(tid);
+                }
             }
-            catch (DllNotFoundException) { _callbackRegistered = true; }
-            catch (EntryPointNotFoundException) { _callbackRegistered = true; }
-            catch (Exception) { /* the poll timer remains the safety net */ }
+            uint activeLangId = (uint)(active.ToInt64() & 0xFFFF);
+
+            var items = new System.Text.StringBuilder();
+            foreach (IntPtr hkl in layouts)
+            {
+                if (items.Length > 0)
+                {
+                    items.Append('\n');
+                }
+                string name = NativeMethods.GetLanguageDisplayName(hkl);
+                if (string.IsNullOrEmpty(name))
+                {
+                    name = "0x" + ((uint)(hkl.ToInt64() & 0xFFFF)).ToString("X4");
+                }
+                bool isActive =
+                    ((uint)(hkl.ToInt64() & 0xFFFF)) == activeLangId;
+                items.Append(isActive ? "*" : "").Append(name);
+            }
+
+            // Anchor: above the indicator, bottom-aligned so the menu grows
+            // upward from the taskbar (same as the app menus).
+            Point origin = PointToScreen(
+                new Point(0, ActualHeight));
+            int x = (int)Math.Round(origin.X);
+            int y = (int)Math.Round(origin.Y);
+            Utilities.DiagnosticLogger.Write("LANGSW",
+                $"shell menu; layouts={layouts.Length}; active=0x" +
+                activeLangId.ToString("X4"));
+
+            int choice = NativeMethods.W7T_ShowContextMenuEx(
+                x, y, bottomEdge: 1, items.ToString(), anchorAtCursor: 0);
+            Utilities.DiagnosticLogger.Write("LANGSW",
+                $"shell menu returned choice={choice}");
+
+            if (choice < 1 || choice > layouts.Length)
+            {
+                return; // cancelled
+            }
+
+            IntPtr picked = layouts[choice - 1];
+            if (foreground != IntPtr.Zero)
+            {
+                NativeMethods.PostMessageW(
+                    foreground, NativeMethods.WM_INPUTLANGCHANGEREQUEST,
+                    IntPtr.Zero, picked);
+                Utilities.DiagnosticLogger.Write("LANGSW",
+                    $"posted WM_INPUTLANGCHANGEREQUEST hkl=0x" +
+                    picked.ToInt64().ToString("X"));
+            }
         }
 
-        /* Called on the UI thread (the timer lives in the native popup,
-         * which was created on this thread). */
-        private void OnLangChanged(uint langId)
-        {
-            Dispatcher.BeginInvoke(new Action(() => ApplyLang(langId)),
-                DispatcherPriority.Background);
-        }
+        /* ------------------------------------------------------------ */
+        /*  Data from the native side (active abbreviation)             */
+        /* ------------------------------------------------------------ */
 
         private bool _exportProbeLogged;
 

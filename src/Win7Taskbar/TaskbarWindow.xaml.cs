@@ -2218,7 +2218,9 @@ namespace Win7Taskbar
          * ================================================================ */
         // A static readonly field (not a const) on purpose: a compile-time
         // constant would make the rest of ShowTaskPreview unreachable code.
-        private static readonly bool TaskPreviewsEnabled = false;
+        // v1.7.4: previews are back (live DWM thumbnail with the positive
+        // confirmation fallback - see Controls/TaskThumbnail.cs).
+        private static readonly bool TaskPreviewsEnabled = true;
 
         private const int PreviewShowDelayMs = 400;
 

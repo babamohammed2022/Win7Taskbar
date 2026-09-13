@@ -625,6 +625,79 @@ namespace Win7Taskbar.Interop
         [DllImport("user32.dll")]
         public static extern IntPtr GetForegroundWindow();
 
+        // ---------------- v1.7.4: language bar via shell menu ----------------
+        // The ITA indicator now opens a plain Win32 menu (the same
+        // W7T_ShowContextMenuEx path the clock and the bar use, which never
+        // took the process down) and applies the picked layout with the
+        // canonical WM_INPUTLANGCHANGEREQUEST post. Public Win32 only; the
+        // dedicated popup thread and its managed callback stay untouched in
+        // the core but are no longer exercised.
+        internal const uint WM_INPUTLANGCHANGEREQUEST = 0x0050;
+        private const uint LOCALE_SLOCALIZEDDISPLAYNAME = 0x00000002;
+
+        [DllImport("user32.dll")]
+        public static extern uint GetKeyboardLayoutList(int nBuff,
+            [Out] IntPtr[]? lpList);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetKeyboardLayout(uint idThread);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd,
+            out uint processId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetLocaleInfoW(uint locale, uint lcType,
+            [Out] System.Text.StringBuilder data, int size);
+
+        [DllImport("user32.dll")]
+        public static extern bool PostMessageW(IntPtr hWnd, uint msg,
+            IntPtr wParam, IntPtr lParam);
+
+        /// <summary>Installed HKLs (may contain duplicates for different
+        /// keyboards of the same language: they are all offered).</summary>
+        internal static IntPtr[] GetInstalledKeyboardLayouts()
+        {
+            try
+            {
+                uint count = GetKeyboardLayoutList(0, null);
+                if (count == 0 || count > 64)
+                {
+                    return Array.Empty<IntPtr>();
+                }
+                var list = new IntPtr[count];
+                uint filled = GetKeyboardLayoutList((int)count, list);
+                if (filled == 0)
+                {
+                    return Array.Empty<IntPtr>();
+                }
+                Array.Resize(ref list, (int)filled);
+                return list;
+            }
+            catch (Exception)
+            {
+                return Array.Empty<IntPtr>();
+            }
+        }
+
+        /// <summary>Localized language name for an HKL (low word = language
+        /// identifier), e.g. "Italiano" for 0x0410. Empty on failure.</summary>
+        internal static string GetLanguageDisplayName(IntPtr hkl)
+        {
+            try
+            {
+                uint langId = (uint)(hkl.ToInt64() & 0xFFFF);
+                var sb = new System.Text.StringBuilder(128);
+                int n = GetLocaleInfoW(langId, LOCALE_SLOCALIZEDDISPLAYNAME,
+                    sb, sb.Capacity);
+                return n > 0 ? sb.ToString() : ("0x" + langId.ToString("X4"));
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
+        }
+
         // --- DWM: anteprime live delle finestre ---
         //
         // Stesse API usate dalla Superbar di Windows 7 e da RetroBar

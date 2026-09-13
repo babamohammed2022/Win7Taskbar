@@ -102,7 +102,19 @@
          taskbar buttons show the "forbidden" cursor and skip unsupported
          files when an executable declares SupportedTypes in the
          registry. -->
-    <Version>1.7.3-alpha</Version>
+    <!-- 1.7.4-alpha: window previews are back (live DWM thumbnail with the
+         positive confirmation timeout that falls back to the app icon -
+         registration success alone never proved the compositor painted
+         anything); the window-separator strip finally ships (the PNG sat
+         only in the repo-root Resources folder, which the project never
+         copies: it now lives next to the other theme PNGs); the ITA
+         indicator opens a plain Win32 menu through W7T_ShowContextMenuEx
+         and applies the layout with WM_INPUTLANGCHANGEREQUEST - no
+         dedicated thread, no managed callback across the boundary (the
+         crash class is removed by construction); the app bar re-asserts
+         its topmost position on every foreground change (fullscreen apps
+         could cover the taskbar). -->
+    <Version>1.7.4-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

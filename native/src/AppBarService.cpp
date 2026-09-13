@@ -466,6 +466,21 @@ void CALLBACK AppBarService::HideWatcherProc(HWINEVENTHOOK, DWORD event,
     }
 
     AppBarService& self = Instance();
+
+    /* v1.7.4: a ogni cambio di finestra in primo piano riafferma la NOstra
+     * barra nella fascia topmost, come fa explorer.exe con la propria.
+     * Senza questo, un'app che torna in primo piano (Chrome a schermo
+     * intero in primis) puo' finire SOPRA la barra perche' nessuno
+     * riacquista lo z-order per noi. Manutenzione best-effort: HWND
+     * invalido o SetWindowPos fallito non propagano nulla (si ritenta al
+     * prossimo cambio di foreground). SWP_NOACTIVATE: si aggiorna solo la
+     * posizione nella fascia topmost, il focus resta dove e'. */
+    if (event == EVENT_SYSTEM_FOREGROUND &&
+        self.m_hwnd != nullptr && IsWindow(self.m_hwnd)) {
+        SetWindowPos(self.m_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+
     if (!self.m_nativeHidden.load() || self.m_watchEvent == nullptr) {
         return;
     }
