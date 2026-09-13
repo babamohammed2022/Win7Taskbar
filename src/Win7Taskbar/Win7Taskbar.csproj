@@ -114,7 +114,14 @@
          crash class is removed by construction); the app bar re-asserts
          its topmost position on every foreground change (fullscreen apps
          could cover the taskbar). -->
-    <Version>1.7.4-alpha</Version>
+    <!-- 1.7.5-alpha: the native language popup is back as the ITA-click
+         UI, hardened: the hand-loaded GDI+ machinery (fifteen raw proc
+         pointers), the SEH longjmp wrappers, the managed change callback
+         and the critical-section healing hack are all REMOVED from the
+         switcher; the remaining paint paths use RAII guards (ScopeGuards.h)
+         and every entry point catches. The v1.7.4 shell menu stays as the
+         automatic fallback if the popup path cannot be reached. -->
+    <Version>1.7.5-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

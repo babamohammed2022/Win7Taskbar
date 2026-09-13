@@ -438,7 +438,7 @@ namespace Win7Taskbar.Interop
         // v1.4: selettore della lingua (port del mod switcher). Il testo
         // nella tray lo disegna il controllo gestito con la sigla che il
         // core legge dal thread col primo piano; il click apre il popup
-        // nativo (finestra Win32 GDI/GDI+ del core).
+        // nativo (finestra Win32 GDI del core).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_LangSwitcherShow(ulong ownerHwnd,
             ulong foregroundHwnd, int styleMode);

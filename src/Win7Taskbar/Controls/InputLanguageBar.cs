@@ -21,13 +21,16 @@
 // the "Windows 7/8.1 Language Switcher Restorer" mod), which reads it from
 // the thread that owns the keyboard focus.
 //
-// v1.7.4: the click opens a plain Win32 menu through W7T_ShowContextMenuEx
-// (the same path as the clock and bar menus) and applies the picked layout
-// with WM_INPUTLANGCHANGEREQUEST. The old dedicated popup thread and its
-// managed callback are no longer exercised - they were the only plausible
-// source of the process exit on click. Language
-// changes arrive as a native callback; a 200 ms poll timer acts as a
-// safety net (the same polling mechanic ManagedShell uses).
+// v1.7.5: the click is back on the DEDICATED NATIVE POPUP of the port
+// (the Win7-menu / Win8-flyout switcher): the managed side only posts a
+// show request to the popup thread and returns immediately - no managed
+// code runs inside the popup. The popup itself was hardened: the manual
+// GDI+ loading, the SEH longjmp wrappers and the managed callback were
+// removed from it (RAII guards + try/catch everywhere), so the old exit-
+// on-click class has nothing left to bite on. If the native popup cannot
+// be shown (missing export, failed post), the v1.7.4 shell-menu path
+// remains as the fallback. Language changes arrive via the 200 ms poll
+// timer (the same polling mechanic ManagedShell uses).
 // ============================================================================
 
 using System;
@@ -203,7 +206,7 @@ namespace Win7Taskbar.Controls
 
             try
             {
-                ShowLanguageMenuViaShell();
+                ShowLanguageSwitcher();
             }
             catch (DllNotFoundException) { }
             catch (EntryPointNotFoundException) { }
@@ -215,12 +218,49 @@ namespace Win7Taskbar.Controls
         }
 
         /// <summary>
-        /// v1.7.4: the language list opens as a plain Win32 menu through
-        /// W7T_ShowContextMenuEx - the exact path the clock and the bar
-        /// menus use, which never closed the process. Picking a language
-        /// posts the canonical WM_INPUTLANGCHANGEREQUEST to the foreground
-        /// window. No dedicated thread, no owned popup, no managed callback
-        /// across the boundary: the crash class is removed by construction.
+        /// v1.7.5: the click first tries the dedicated native popup
+        /// (W7T_LangSwitcherShow): the call only POSTS a request to the
+        /// popup's own thread and returns immediately, so the WPF input
+        /// thread never touches the popup's windows or state, and no
+        /// managed callback comes back (the callback machinery was
+        /// removed from the native side; the abbreviation refreshes via
+        /// the poll timer). If the popup path is unavailable, the v1.7.4
+        /// shell menu (W7T_ShowContextMenuEx) remains as the fallback.
+        /// </summary>
+        private void ShowLanguageSwitcher()
+        {
+            try
+            {
+                IntPtr fg = NativeMethods.GetForegroundWindow();
+                var source = PresentationSource.FromVisual(this) as HwndSource;
+                ulong owner = source != null ? (ulong)source.Handle : 0;
+                NativeMethods.W7T_LangSwitcherShow(
+                    owner, fg != IntPtr.Zero ? (ulong)fg : 0, Mode);
+                Utilities.DiagnosticLogger.Write("LANGSW",
+                    "click: native switcher popup requested");
+                return;
+            }
+            catch (DllNotFoundException dnfe)
+            {
+                Utilities.DiagnosticLogger.Write("LANGSW",
+                    "native popup unavailable (DLL missing): " + dnfe.Message);
+            }
+            catch (EntryPointNotFoundException epnfe)
+            {
+                Utilities.DiagnosticLogger.Write("LANGSW",
+                    "native popup unavailable (export missing): " +
+                    epnfe.Message);
+            }
+
+            /* Fallback: the v1.7.4 plain Win32 menu. */
+            ShowLanguageMenuViaShell();
+        }
+
+        /// <summary>
+        /// v1.7.4 (kept as fallback): the language list opens as a plain
+        /// Win32 menu through W7T_ShowContextMenuEx - the exact path the
+        /// clock and the bar menus use. Picking a language posts the
+        /// canonical WM_INPUTLANGCHANGEREQUEST to the foreground window.
         /// </summary>
         private void ShowLanguageMenuViaShell()
         {

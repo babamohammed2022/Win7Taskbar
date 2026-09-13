@@ -10,7 +10,7 @@
 #include "LanguageSwitcher.h"
 
 #include "Common.h"
-#include "SehGuard.h"
+#include "ScopeGuards.h"
 #include "Strings.h"
 
 #include <windows.h>
@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <new>
 #include <cwchar>
 #include <cwctype>
 #include <string>
@@ -37,8 +38,6 @@ namespace {
 /* ------------------------------------------------------------------ */
 
 constexpr wchar_t kFlyoutClassName[] = L"W7T_LangSwitcherFlyout";
-constexpr UINT kLangWatchTimerId = 0xB7;   /* 200 ms: active lang  */
-constexpr UINT kLangWatchTimerMs = 200;
 
 struct KeyboardLayoutItem {
     HKL hkl = nullptr;
@@ -61,37 +60,16 @@ std::atomic<HWND> g_hFlyoutWnd{ nullptr };
 std::atomic<HWND> g_targetWindow{ nullptr };
 std::atomic<HWND> g_hClickedTaskbar{ nullptr };
 
-CRITICAL_SECTION g_cs;
-bool g_csInit = false;
-
-/* v1.6 - PROTEZIONE ANTI-MOD. Un mod iniettato puo' hookare le API di
- * sistema che anche noi chiamiamo (UxTheme, DWM, GDI): se una di quelle
- * chiamate faulta DENTRO il nostro WndProc, un'eccezione non gestita
- * ucciderebbe la barra. Il WndProc del popup e i punti d'ingresso pubblici
- * ingoiano l'eccezione e proseguono (il popup si apre comunque). Perche'
- * l'ingoiare non lasci la sezione critica bloccata (il longjmp salta le
- * coppie Enter/Leave), ogni Enter/Leave passa da questi aiutanti che
- * contano la profondita' sul thread; il ramo di ripristino rilascia tutto
- * quello che e' rimasto aperto. */
-static thread_local int g_csDepth = 0;
-
-static void CsEnter() {
-    EnterCriticalSection(&g_cs);
-    ++g_csDepth;
-}
-
-static void CsLeave() {
-    --g_csDepth;
-    LeaveCriticalSection(&g_cs);
-}
-
-/* Rilascia le sezioni critiche rimaste aperte dopo un'eccezione ingoiata. */
-static void CsHealAfterFault() {
-    while (g_csDepth > 0) {
-        g_csDepth--;
-        LeaveCriticalSection(&g_cs);
-    }
-}
+/* v1.7.5: the layouts list, the selection and the hover state are owned
+ * and touched ONLY by the dedicated popup thread (RefreshKeyboardLayouts
+ * runs there, the flyout window proc runs there). The old critical
+ * section - with its raw Enter/Leave pairs and the thread_local depth
+ * healing hack - protected nothing real and its fault-repair path was
+ * another unsafe longjmp site. The calls below remain as documented
+ * no-ops so the port's structure stays recognizable; new code should
+ * simply touch the state directly. */
+static inline void CsEnter() {}
+static inline void CsLeave() {}
 SwitcherStyle g_style = SwitcherStyle::Win8;
 int g_styleMode = 1;                 /* Properties mode (1/2/3)           */
 std::vector<KeyboardLayoutItem> g_layouts;
@@ -99,98 +77,14 @@ size_t g_selectedIndex = 0;
 int g_hoveredIndex = -1;
 bool g_hoveredFooter = false;
 int g_hoveredWin7Index = -1;
-WORD g_lastNotifiedLangId = 0;
-LangChangedCallback g_callback = nullptr;
-/* v1.7.2: thread that registered g_callback (the WPF UI thread). */
-static DWORD g_callbackThreadId = 0;
+/* v1.7.5: no managed callback state anymore (see SetChangedCallback). */
 
-HMODULE g_hGdiPlus = nullptr;
-ULONG_PTR g_gdiplusToken = 0;
-
-/* ------------------------------------------------------------------ */
-/*  GDI+ loaded at runtime (as in the mod: no link-time dependency,    */
-/*  the checkmark drawing degrades to plain GDI).                      */
-/* ------------------------------------------------------------------ */
-
-typedef int (WINAPI *GdiplusStartupFunc)(ULONG_PTR*, const void*, void*);
-typedef void (WINAPI *GdiplusShutdownFunc)(ULONG_PTR);
-typedef int (WINAPI *GdipCreateFromHDCFunc)(HDC, void**);
-typedef int (WINAPI *GdipDeleteGraphicsFunc)(void*);
-typedef int (WINAPI *GdipSetSmoothingModeFunc)(void*, int);
-typedef int (WINAPI *GdipSetPixelOffsetModeFunc)(void*, int);
-typedef int (WINAPI *GdipCreatePathFunc)(int, void**);
-typedef int (WINAPI *GdipDeletePathFunc)(void*);
-typedef int (WINAPI *GdipAddPathPolygonFunc)(void*, const void*, int);
-typedef int (WINAPI *GdipCreateSolidFillFunc)(DWORD, void**);
-typedef int (WINAPI *GdipDeleteBrushFunc)(void*);
-typedef int (WINAPI *GdipFillPathFunc)(void*, void*, void*);
-typedef int (WINAPI *GdipCreatePen1Func)(DWORD, float, int, void**);
-typedef int (WINAPI *GdipDeletePenFunc)(void*);
-typedef int (WINAPI *GdipSetPenLineJoinFunc)(void*, int);
-typedef int (WINAPI *GdipDrawPathFunc)(void*, void*, void*);
-
-static GdipCreateFromHDCFunc pGdipCreateFromHDC = nullptr;
-static GdipDeleteGraphicsFunc pGdipDeleteGraphics = nullptr;
-static GdipSetSmoothingModeFunc pGdipSetSmoothingMode = nullptr;
-static GdipSetPixelOffsetModeFunc pGdipSetPixelOffsetMode = nullptr;
-static GdipCreatePathFunc pGdipCreatePath = nullptr;
-static GdipDeletePathFunc pGdipDeletePath = nullptr;
-static GdipAddPathPolygonFunc pGdipAddPathPolygon = nullptr;
-static GdipCreateSolidFillFunc pGdipCreateSolidFill = nullptr;
-static GdipDeleteBrushFunc pGdipDeleteBrush = nullptr;
-static GdipFillPathFunc pGdipFillPath = nullptr;
-static GdipCreatePen1Func pGdipCreatePen1 = nullptr;
-static GdipDeletePenFunc pGdipDeletePen = nullptr;
-static GdipSetPenLineJoinFunc pGdipSetPenLineJoin = nullptr;
-static GdipDrawPathFunc pGdipDrawPath = nullptr;
-
-/* Defined after the loader helpers below; the loader macro bails into it. */
-static void ShutdownGdiPlusRendering();
-
-static BOOL InitGdiPlusRendering() {
-    if (g_hGdiPlus) return TRUE;
-    g_hGdiPlus = LoadLibraryW(L"gdiplus.dll");
-    if (!g_hGdiPlus) return FALSE;
-
-    GdiplusStartupFunc pStartup = (GdiplusStartupFunc)GetProcAddress(
-        g_hGdiPlus, "GdiplusStartup");
-    if (!pStartup) { FreeLibrary(g_hGdiPlus); g_hGdiPlus = nullptr; return FALSE; }
-
-    struct { DWORD Version; void* Callback; BOOL Suppress; } si = {1, nullptr, FALSE};
-    if (pStartup(&g_gdiplusToken, &si, nullptr) != 0) {
-        FreeLibrary(g_hGdiPlus); g_hGdiPlus = nullptr; return FALSE;
-    }
-
-    #define W7T_GDIP_PROC(name, type) p##name = (type)GetProcAddress(g_hGdiPlus, #name); \
-        if (!p##name) { ShutdownGdiPlusRendering(); return FALSE; }
-    W7T_GDIP_PROC(GdipCreateFromHDC, GdipCreateFromHDCFunc)
-    W7T_GDIP_PROC(GdipDeleteGraphics, GdipDeleteGraphicsFunc)
-    W7T_GDIP_PROC(GdipSetSmoothingMode, GdipSetSmoothingModeFunc)
-    W7T_GDIP_PROC(GdipSetPixelOffsetMode, GdipSetPixelOffsetModeFunc)
-    W7T_GDIP_PROC(GdipCreatePath, GdipCreatePathFunc)
-    W7T_GDIP_PROC(GdipDeletePath, GdipDeletePathFunc)
-    W7T_GDIP_PROC(GdipAddPathPolygon, GdipAddPathPolygonFunc)
-    W7T_GDIP_PROC(GdipCreateSolidFill, GdipCreateSolidFillFunc)
-    W7T_GDIP_PROC(GdipDeleteBrush, GdipDeleteBrushFunc)
-    W7T_GDIP_PROC(GdipFillPath, GdipFillPathFunc)
-    W7T_GDIP_PROC(GdipCreatePen1, GdipCreatePen1Func)
-    W7T_GDIP_PROC(GdipDeletePen, GdipDeletePenFunc)
-    W7T_GDIP_PROC(GdipSetPenLineJoin, GdipSetPenLineJoinFunc)
-    W7T_GDIP_PROC(GdipDrawPath, GdipDrawPathFunc)
-    #undef W7T_GDIP_PROC
-    return TRUE;
-}
-
-static void ShutdownGdiPlusRendering() {
-    if (g_hGdiPlus) {
-        GdiplusShutdownFunc pShutdown = (GdiplusShutdownFunc)GetProcAddress(
-            g_hGdiPlus, "GdiplusShutdown");
-        if (pShutdown) pShutdown(g_gdiplusToken);
-        FreeLibrary(g_hGdiPlus);
-        g_hGdiPlus = nullptr;
-    }
-    g_gdiplusToken = 0;
-}
+/* v1.7.5: GDI+ IS GONE from this module. It used to be loaded by hand
+ * (GdiplusStartup on a service thread, fifteen raw proc pointers bound
+ * with GetProcAddress) and it was the one genuinely dangerous part of
+ * the port. The checkmark drawing is plain GDI now - the same technique
+ * as the rest of the flyout - so there is no secondary loader, no
+ * startup/shutdown token pair and no proc table left to maintain. */
 
 /* ------------------------------------------------------------------ */
 /*  Mod tables: abbreviations and localization                         */
@@ -757,27 +651,21 @@ static void SwitchToLayout(size_t index) {
         return;
     }
 
-    const DWORD dwTargetThreadId = GetWindowThreadProcessId(hTarget, nullptr);
-    if (hTarget && IsWindow(hTarget) && dwTargetThreadId != 0) {
-        HKL currentLayout = GetKeyboardLayout(dwTargetThreadId);
-        if (currentLayout != targetHkl) {
-            ActivateKeyboardLayout(targetHkl, KLF_SETFORPROCESS);
-            if (GetKeyboardLayout(dwTargetThreadId) != targetHkl) {
-                /* Per-message fallback, then the reset flag: same
-                 * chain of the mod. */
-                if (!PostMessageW(hTarget, WM_INPUTLANGCHANGEREQUEST, 0,
-                                  reinterpret_cast<LPARAM>(targetHkl))) {
-                    SendMessageW(hTarget, WM_INPUTLANGCHANGEREQUEST, 0,
-                                 reinterpret_cast<LPARAM>(targetHkl));
-                }
-                if (GetKeyboardLayout(dwTargetThreadId) != targetHkl) {
-                    ActivateKeyboardLayout(targetHkl,
-                                           KLF_SETFORPROCESS | KLF_RESET);
-                }
-            }
-            LogTagged(L"LANGSW",
-                      L"layout switched (external window updated)");
+    if (hTarget && IsWindow(hTarget)) {
+        /* v1.7.5: the CANONICAL delivery only (what the modern shell
+         * itself does): WM_INPUTLANGCHANGEREQUEST posted to the target
+         * window, whose thread owns its own keyboard layout. The old
+         * chain also called ActivateKeyboardLayout on OUR thread and a
+         * KLF_RESET variant - cross-thread layout mutation is the
+         * definition of "roba pericolosa" and bought nothing: the posted
+         * message is what actually switches the target. */
+        if (!PostMessageW(hTarget, WM_INPUTLANGCHANGEREQUEST, 0,
+                          reinterpret_cast<LPARAM>(targetHkl))) {
+            SendMessageW(hTarget, WM_INPUTLANGCHANGEREQUEST, 0,
+                         reinterpret_cast<LPARAM>(targetHkl));
         }
+        LogTagged(L"LANGSW",
+                  L"layout switch requested (WM_INPUTLANGCHANGEREQUEST)");
     }
 }
 
@@ -832,69 +720,9 @@ static void DrawWin7GdiFallbackCheck(HDC hdc, const RECT& gutter,
 
 static void DrawWin7MenuCheckmark(HDC hdc, const RECT& gutter,
                                   COLORREF color, UINT dpi) {
-    if (!hdc) return;
-
-    if (!g_hGdiPlus || !pGdipCreateFromHDC || !pGdipFillPath) {
-        DrawWin7GdiFallbackCheck(hdc, gutter, color, dpi);
-        return;
-    }
-
-    const BYTE r = GetRValue(color);
-    const BYTE g = GetGValue(color);
-    const BYTE b = GetBValue(color);
-
-    void* graphics = nullptr;
-    if (pGdipCreateFromHDC(hdc, &graphics) != 0 || !graphics) {
-        DrawWin7GdiFallbackCheck(hdc, gutter, color, dpi);
-        return;
-    }
-
-    pGdipSetSmoothingMode(graphics, 2);
-    pGdipSetPixelOffsetMode(graphics, 2);
-
-    const float boxL = static_cast<float>(gutter.left);
-    const float boxT = static_cast<float>(gutter.top);
-    const float boxW = static_cast<float>(gutter.right - gutter.left);
-    const float boxH = static_cast<float>(gutter.bottom - gutter.top);
-
-    float size = boxW * 0.70f;
-    if (size > boxH * 0.50f) size = boxH * 0.50f;
-    if (size < 8.0f) size = (boxH < boxW ? boxH : boxW) * 0.48f;
-
-    const float originX = boxL + (boxW - size) * 0.42f;
-    const float originY = boxT + (boxH - size) * 0.54f;
-
-    struct PointF { float X; float Y; };
-    const PointF pts[] = {
-        { originX + size * 0.06f, originY + size * 0.50f },
-        { originX + size * 0.18f, originY + size * 0.38f },
-        { originX + size * 0.38f, originY + size * 0.62f },
-        { originX + size * 0.82f, originY + size * 0.08f },
-        { originX + size * 0.96f, originY + size * 0.20f },
-        { originX + size * 0.38f, originY + size * 0.90f },
-    };
-
-    void* path = nullptr;
-    if (pGdipCreatePath(0, &path) == 0 && path) {
-        pGdipAddPathPolygon(path, pts, 6);
-        DWORD argb = (255 << 24) | (r << 16) | (g << 8) | b;
-        void* brush = nullptr;
-        if (pGdipCreateSolidFill(argb, &brush) == 0 && brush) {
-            pGdipFillPath(graphics, brush, path);
-            pGdipDeleteBrush(brush);
-        }
-        void* pen = nullptr;
-        float outlineW = (dpi >= 144) ? 0.90f * (static_cast<float>(dpi) / 96.0f)
-                                      : 0.70f;
-        if (pGdipCreatePen1(argb, outlineW, 2, &pen) == 0 && pen) {
-            pGdipSetPenLineJoin(pen, 2);
-            pGdipDrawPath(graphics, pen, path);
-            pGdipDeletePen(pen);
-        }
-        pGdipDeletePath(path);
-    }
-
-    pGdipDeleteGraphics(graphics);
+    /* v1.7.5: GDI+ is gone from this module; the GDI check drawing IS the
+     * implementation now (same geometry as the old fallback path). */
+    DrawWin7GdiFallbackCheck(hdc, gutter, color, dpi);
 }
 
 static HFONT CreateMenuFont(int sizePx, int weight, UINT dpi, bool underline) {
@@ -919,10 +747,14 @@ static void PaintWin7Menu(HWND hwnd, HDC hdc) {
     const int paddingLeft = ScaleForDpi(28, dpi);
     const int paddingRight = ScaleForDpi(16, dpi);
 
-    HDC memDC = CreateCompatibleDC(hdc);
-    if (!memDC) return;
-    HBITMAP memBmp = CreateCompatibleBitmap(hdc, width, height);
-    if (!memBmp) { DeleteDC(memDC); return; }
+    /* v1.7.5: DC, bitmap and fonts are RAII guards now - no paint path
+     * can leak them, whatever returns early. */
+    w7t::MemDcGuard memDcGuard(hdc);
+    if (!memDcGuard.valid()) return;
+    HDC memDC = memDcGuard.get();
+    w7t::UniqueGdiObject memBmpGuard(CreateCompatibleBitmap(hdc, width, height));
+    if (!memBmpGuard.valid()) return;
+    HBITMAP memBmp = static_cast<HBITMAP>(memBmpGuard.get());
     HGDIOBJ oldBmp = SelectObject(memDC, memBmp);
     SetBkMode(memDC, TRANSPARENT);
 
@@ -938,16 +770,16 @@ static void PaintWin7Menu(HWND hwnd, HDC hdc) {
     FillRect(memDC, &clientRect, bgBrush);
     DeleteObject(bgBrush);
 
-    HFONT fontMenu = CreateMenuFont(13, FW_NORMAL, dpi, false);
+    w7t::UniqueGdiObject fontMenuGuard(CreateMenuFont(13, FW_NORMAL, dpi, false));
+    if (!fontMenuGuard.valid()) return;
+    HFONT fontMenu = static_cast<HFONT>(fontMenuGuard.get());
 
     std::vector<KeyboardLayoutItem> layoutsCopy;
     size_t activeIdx = 0;
     int hovIdx = -1;
-    CsEnter();
     layoutsCopy = g_layouts;
     activeIdx = g_selectedIndex;
     hovIdx = g_hoveredWin7Index;
-    CsLeave();
 
     int currentY = ScaleForDpi(3, dpi);
 
@@ -1071,10 +903,8 @@ static void PaintWin7Menu(HWND hwnd, HDC hdc) {
 
     BitBlt(hdc, 0, 0, width, height, memDC, 0, 0, SRCCOPY);
 
-    DeleteObject(fontMenu);
     SelectObject(memDC, oldBmp);
-    DeleteObject(memBmp);
-    DeleteDC(memDC);
+    /* font, bitmap and DC are released by their guards */
 }
 
 /* The modern Windows 8.1 card (same style as the mod). */
@@ -1092,10 +922,12 @@ static void PaintWin8Flyout(HWND hwnd, HDC hdc) {
     const int paddingX = ScaleForDpi(16, dpi);
     const int separatorHeight = ScaleForDpi(1, dpi);
 
-    HDC memDC = CreateCompatibleDC(hdc);
-    if (!memDC) return;
-    HBITMAP memBmp = CreateCompatibleBitmap(hdc, width, height);
-    if (!memBmp) { DeleteDC(memDC); return; }
+    w7t::MemDcGuard memDcGuard(hdc);
+    if (!memDcGuard.valid()) return;
+    HDC memDC = memDcGuard.get();
+    w7t::UniqueGdiObject memBmpGuard(CreateCompatibleBitmap(hdc, width, height));
+    if (!memBmpGuard.valid()) return;
+    HBITMAP memBmp = static_cast<HBITMAP>(memBmpGuard.get());
     HGDIOBJ oldBmp = SelectObject(memDC, memBmp);
     SetBkMode(memDC, TRANSPARENT);
 
@@ -1116,21 +948,30 @@ static void PaintWin8Flyout(HWND hwnd, HDC hdc) {
     FillRect(memDC, &clientRect, bgBrush);
     DeleteObject(bgBrush);
 
-    HFONT fontAbbr = CreateMenuFont(18, FW_BOLD, dpi, false);
-    HFONT fontSubAbbr = CreateMenuFont(11, FW_BOLD, dpi, false);
-    HFONT fontTitle = CreateMenuFont(14, FW_NORMAL, dpi, false);
-    HFONT fontSub = CreateMenuFont(12, FW_NORMAL, dpi, false);
-    HFONT fontLink = CreateMenuFont(13, FW_NORMAL, dpi, g_hoveredFooter);
-    HFONT fontHint = CreateMenuFont(11, FW_NORMAL, dpi, false);
+    w7t::UniqueGdiObject fontAbbrGuard(CreateMenuFont(18, FW_BOLD, dpi, false));
+    w7t::UniqueGdiObject fontSubAbbrGuard(CreateMenuFont(11, FW_BOLD, dpi, false));
+    w7t::UniqueGdiObject fontTitleGuard(CreateMenuFont(14, FW_NORMAL, dpi, false));
+    w7t::UniqueGdiObject fontSubGuard(CreateMenuFont(12, FW_NORMAL, dpi, false));
+    w7t::UniqueGdiObject fontLinkGuard(CreateMenuFont(13, FW_NORMAL, dpi, g_hoveredFooter));
+    w7t::UniqueGdiObject fontHintGuard(CreateMenuFont(11, FW_NORMAL, dpi, false));
+    if (!fontAbbrGuard.valid() || !fontSubAbbrGuard.valid() ||
+        !fontTitleGuard.valid() || !fontSubGuard.valid() ||
+        !fontLinkGuard.valid() || !fontHintGuard.valid()) {
+        return;
+    }
+    HFONT fontAbbr = static_cast<HFONT>(fontAbbrGuard.get());
+    HFONT fontSubAbbr = static_cast<HFONT>(fontSubAbbrGuard.get());
+    HFONT fontTitle = static_cast<HFONT>(fontTitleGuard.get());
+    HFONT fontSub = static_cast<HFONT>(fontSubGuard.get());
+    HFONT fontLink = static_cast<HFONT>(fontLinkGuard.get());
+    HFONT fontHint = static_cast<HFONT>(fontHintGuard.get());
 
     std::vector<KeyboardLayoutItem> layoutsCopy;
     size_t selIndex = 0;
     int hovIndex = -1;
-    CsEnter();
     layoutsCopy = g_layouts;
     selIndex = g_selectedIndex;
     hovIndex = g_hoveredIndex;
-    CsLeave();
 
     int currentY = 0;
     for (size_t i = 0; i < layoutsCopy.size(); ++i) {
@@ -1241,28 +1082,26 @@ static void PaintWin8Flyout(HWND hwnd, HDC hdc) {
 
     BitBlt(hdc, 0, 0, width, height, memDC, 0, 0, SRCCOPY);
 
-    DeleteObject(fontAbbr);
-    DeleteObject(fontSubAbbr);
-    DeleteObject(fontTitle);
-    DeleteObject(fontSub);
-    DeleteObject(fontLink);
-    DeleteObject(fontHint);
-
     SelectObject(memDC, oldBmp);
-    DeleteObject(memBmp);
-    DeleteDC(memDC);
+    /* fonts, bitmap and DC are released by their guards */
 }
 
 static void PaintSwitcher(HWND hwnd, HDC hdc) {
     static thread_local bool s_inPaint = false;
     if (s_inPaint || !hwnd || !hdc) return;
-    s_inPaint = true;
-    if (g_style == SwitcherStyle::Win7) {
-        PaintWin7Menu(hwnd, hdc);
-    } else {
-        PaintWin8Flyout(hwnd, hdc);
+    /* v1.7.5: the re-entrancy flag is a scope guard now - an exception
+     * halfway through a paint can no longer leave it stuck. */
+    w7t::ScopeFlag paintGuard(s_inPaint);
+    try {
+        if (g_style == SwitcherStyle::Win7) {
+            PaintWin7Menu(hwnd, hdc);
+        } else {
+            PaintWin8Flyout(hwnd, hdc);
+        }
+    } catch (...) {
+        /* a failed paint just leaves last frame; WM_PAINT validated by
+         * the caller's fallback path */
     }
-    s_inPaint = false;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1385,95 +1224,45 @@ static void PositionWindowNearTray(HWND hwnd) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  The language timer: refreshes the tray and fires the callback       */
-/* ------------------------------------------------------------------ */
-
-static void OnLangWatchTickInner(HWND hwnd);
-
-static void OnLangWatchTick(HWND hwnd) {
-    /* v1.7.3: the whole tick is guarded: a fault here (a stale managed
-     * thunk, a hook that faults inside our calls) must never take the
-     * process down - the taskbar would close with the popup's own timer
-     * as the only witness. */
-    W7T_SEH_TRY {
-        OnLangWatchTickInner(hwnd);
-    } W7T_SEH_CATCH {
-        CsHealAfterFault();
-        LogTagged(L"LANGSW",
-                  L"tick: swallowed an exception; the popup keeps going");
-    } W7T_SEH_END
-}
-
-static void OnLangWatchTickInner(HWND hwnd) {
-    const WORD langId = ActiveLangIdWord();
-    if (langId != 0 && langId != g_lastNotifiedLangId) {
-        g_lastNotifiedLangId = langId;
-        LangChangedCallback cb = g_callback;
-        /* v1.7.2: invoke the managed delegate ONLY from the thread that
-         * registered it (the WPF UI thread). Since the popup moved to the
-         * dedicated thread, this timer fires there: calling a managed
-         * function pointer from a thread the CLR has never seen is a
-         * reverse-P/Invoke the runtime did not sign up for and is a
-         * plausible cause of the process dying on the first popup open.
-         * Skipping is safe: the managed poll timer re-reads the active
-         * language on its own (it was already the safety net). */
-        if (cb != nullptr && g_callbackThreadId == GetCurrentThreadId()) {
-            cb(langId);
-        }
-        InvalidateRect(hwnd, nullptr, FALSE);
-    }
-}
-
-/* ------------------------------------------------------------------ */
 /*  Popup window procedure (port)                                      */
 /* ------------------------------------------------------------------ */
 
 static LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg,
                                            WPARAM wParam, LPARAM lParam);
 
-/* v1.6 - PROTEZIONE ANTI-MOD. Il dispatch vero vive in FlyoutWndProcInner;
- * qui qualsiasi eccezione hardware (hook di terze parti che faultano
- * dentro le API che anche noi chiamiamo) viene ingoiata: la sezione
- * critica rimasta aperta viene rilasciata, un paint interrotto viene
- * validato (altrimenti Windows ripeterebbe il paint all'infinito) e il
- * popup resta vivo e apribile. */
 static LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
                                       LPARAM lParam) {
-    LRESULT result = 0;
-    W7T_SEH_TRY {
-        result = FlyoutWndProcInner(hwnd, uMsg, wParam, lParam);
-    } W7T_SEH_CATCH {
-        CsHealAfterFault();
+    /* v1.7.5: NO setjmp/longjmp here anymore. A longjmp across frames
+     * that own C++ objects (std::wstring, RAII guards) is undefined
+     * behaviour - that was the one genuinely dangerous part of the port,
+     * and the compiler kept warning about it (C4611). The dispatch is now
+     * protected with an ordinary try/catch: C++ exceptions unwind
+     * correctly; a hardware fault in a third-party hook is nobody's to
+     * swallow safely anyway. */
+    try {
+        return FlyoutWndProcInner(hwnd, uMsg, wParam, lParam);
+    } catch (...) {
         LogTagged(L"LANGSW",
-                  L"popup: swallowed an exception (third-party hook?); "
-                  L"the popup keeps going");
+                  L"popup: caught an exception; the message goes to "
+                  L"DefWindowProc");
         if (uMsg == WM_PAINT) {
             /* The interrupted paint may not have validated the region. */
             ValidateRect(hwnd, nullptr);
-            result = 0;
-        } else {
-            result = DefWindowProcW(hwnd, uMsg, wParam, lParam);
+            return 0;
         }
-    } W7T_SEH_END
-    return result;
+        return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+    }
 }
 
 static LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg,
                                            WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
-        case WM_CREATE: {
-            InitGdiPlusRendering();
-            SetTimer(hwnd, kLangWatchTimerId, kLangWatchTimerMs, nullptr);
-            g_lastNotifiedLangId = ActiveLangIdWord();
+        case WM_CREATE:
+            /* v1.7.5: no watch timer and no managed callback here
+             * anymore: the abbreviation refreshes through the managed
+             * poll timer (which calls GetActiveInfo directly). The
+             * popup does one thing only: show the list and switch. */
             return 0;
-        }
-
-        case WM_TIMER:
-            if (wParam == kLangWatchTimerId) {
-                OnLangWatchTick(hwnd);
-                return 0;
-            }
-            break;
 
         case WM_SETTINGCHANGE:
             /* v1.6: un cambio tema scuro/chiaro arriva come
@@ -1720,7 +1509,6 @@ static LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg,
             return 0;
 
         case WM_DESTROY:
-            KillTimer(hwnd, kLangWatchTimerId);
             g_hFlyoutWnd.store(nullptr, std::memory_order_release);
             return 0;
 
@@ -1842,7 +1630,7 @@ static HANDLE g_switcherReady = nullptr;        /* auto-reset             */
 static LRESULT CALLBACK SwitcherCtlWndProc(HWND hwnd, UINT msg,
                                            WPARAM wParam, LPARAM lParam) {
     LRESULT result = 0;
-    W7T_SEH_TRY {
+    try {
         switch (msg) {
             case kMsgSwitcherShow: {
                 ShowArgs* a = reinterpret_cast<ShowArgs*>(wParam);
@@ -1867,29 +1655,28 @@ static LRESULT CALLBACK SwitcherCtlWndProc(HWND hwnd, UINT msg,
                 result = DefWindowProcW(hwnd, msg, wParam, lParam);
                 break;
         }
-    } W7T_SEH_CATCH {
+    } catch (...) {
         LogTagged(L"LANGSW",
                   L"control window: swallowed an exception; the thread "
                   L"keeps going");
         result = 0;
-    } W7T_SEH_END
+    }
     return result;
 }
 
 static DWORD WINAPI SwitcherThreadProcInner();
 
 static DWORD WINAPI SwitcherThreadProc(LPVOID /*unused*/) {
-    /* v1.7.3: the whole thread body is guarded: this thread had no SEH
-     * frame outside the control window proc, so a fault in the setup or
-     * in the loop-exit path ended the process unguarded. */
-    W7T_SEH_TRY {
+    /* v1.7.5: ordinary try/catch (no longjmp). Any exception in the
+     * setup or in the loop-exit path ends THIS thread only, never the
+     * process. */
+    try {
         SwitcherThreadProcInner();
-    } W7T_SEH_CATCH {
-        CsHealAfterFault();
+    } catch (...) {
         LogTagged(L"LANGSW",
                   L"thread: swallowed an exception; thread ending");
         g_ctlWnd.store(nullptr, std::memory_order_release);
-    } W7T_SEH_END
+    }
     return 0;
 }
 
@@ -1949,10 +1736,10 @@ static bool EnsureSwitcherThread() {
  * (double belt) and routed through the dedicated thread: the WPF click
  * handler only posts a message and returns immediately. If the thread
  * cannot start, the inline path of the previous versions remains as a
- * fallback. An exception swallowed here also releases any critical
- * section left open, so the taskbar never hangs. */
+ * fallback. An exception swallowed here never escapes to the caller:
+ * the taskbar cannot fall because of the indicator. */
 void Show(uint64_t ownerHwnd, uint64_t foregroundHwnd, int styleMode) {
-    W7T_SEH_TRY {
+    try {
         if (EnsureSwitcherThread()) {
             ShowArgs* args = new (std::nothrow)
                 ShowArgs{ ownerHwnd, foregroundHwnd, styleMode };
@@ -1969,29 +1756,29 @@ void Show(uint64_t ownerHwnd, uint64_t foregroundHwnd, int styleMode) {
         } else {
             ShowInner(ownerHwnd, foregroundHwnd, styleMode);
         }
-    } W7T_SEH_CATCH {
-        CsHealAfterFault();
+    } catch (...) {
         LogTagged(L"LANGSW",
                   L"show: swallowed an exception; the popup was not opened "
                   L"this time");
-    } W7T_SEH_END
+    }
 }
 
 void Hide() {
-    W7T_SEH_TRY {
+    try {
         const HWND ctl = AtomicLoadHwnd(g_ctlWnd);
         if (ctl != nullptr) {
             PostMessageW(ctl, kMsgSwitcherHide, 0, 0);
         } else {
             HideInner();
         }
-    } W7T_SEH_CATCH {
-        CsHealAfterFault();
-    } W7T_SEH_END
+    } catch (...) {
+        /* the popup state stays consistent: worst case it stays hidden */
+    }
 }
 
 void GetActiveInfo(uint32_t* langId, wchar_t* three, int threeCap,
                    wchar_t* two, int twoCap) {
+    try {
     const WORD langIdWord = ActiveLangIdWord();
     if (langId != nullptr) {
         *langId = langIdWord;
@@ -2020,13 +1807,19 @@ void GetActiveInfo(uint32_t* langId, wchar_t* three, int threeCap,
         }
         two[n] = L'\0';
     }
+    } catch (...) {
+        /* bounded writes only: nothing to unwind, leave the outputs as
+         * the caller initialized them */
+    }
 }
 
-void SetChangedCallback(LangChangedCallback callback) {
-    g_callback = callback;
-    /* v1.7.2: remember who registered the delegate (always the WPF UI
-     * thread). OnLangWatchTick only invokes it from that thread. */
-    g_callbackThreadId = GetCurrentThreadId();
+void SetChangedCallback(LangChangedCallback /*callback*/) {
+    /* v1.7.5: intentionally a no-op. The managed callback machinery is
+     * GONE from the popup: no managed function pointer is stored, so no
+     * reverse P/Invoke can ever fire from the popup thread, and no thunk
+     * can outlive its delegate. The abbreviation refreshes through the
+     * managed poll timer that calls GetActiveInfo directly. The export
+     * stays for ABI compatibility with the current frontend. */
 }
 
 void Shutdown() {
