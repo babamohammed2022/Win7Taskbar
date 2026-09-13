@@ -3236,6 +3236,9 @@ void TrayService::StartBatteryOpenWatch(const RECT& anchor) {
     SetTimer(m_trayWnd, kTimerBatteryFallback, 1200, nullptr);
 }
 
+/* Defined further down next to the legacy-key helpers it belongs to. */
+static void RestoreWin32BatteryFlyoutValue();
+
 void TrayService::FinishBatteryOpenWatch() {
     if (m_trayWnd != nullptr) {
         KillTimer(m_trayWnd, kTimerBatteryFallback);

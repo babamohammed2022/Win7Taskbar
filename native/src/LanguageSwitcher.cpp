@@ -112,6 +112,9 @@ static GdipDeletePenFunc pGdipDeletePen = nullptr;
 static GdipSetPenLineJoinFunc pGdipSetPenLineJoin = nullptr;
 static GdipDrawPathFunc pGdipDrawPath = nullptr;
 
+/* Defined after the loader helpers below; the loader macro bails into it. */
+static void ShutdownGdiPlusRendering();
+
 static BOOL InitGdiPlusRendering() {
     if (g_hGdiPlus) return TRUE;
     g_hGdiPlus = LoadLibraryW(L"gdiplus.dll");
