@@ -64,6 +64,42 @@ constexpr UINT kMsgClick       = WM_APP + 2;
 constexpr UINT kMsgOverflow    = WM_APP + 3;
 constexpr UINT kMsgPlaceFlyout = WM_APP + 4;
 constexpr UINT kTimerPlacement = 0x51;   /* thread timer, HWND == nullptr */
+/* v1.5: fine della finestra di trasparenza al click (stesso tipo di timer). */
+constexpr UINT kTimerClickThrough = 0x52; /* thread timer, HWND == nullptr */
+
+/* v1.5: stato del clic "passante" (patterns UIA muti -> clic vero attraverso
+ * la nostra barra). Salva stili e cursore; il timer del thread ripristina. */
+struct ClickThroughSaved {
+    HWND hwnd;
+    LONG_PTR exStyle;
+};
+static std::vector<ClickThroughSaved> g_clickThroughSaved;
+static POINT g_clickThroughCursor = {};
+static bool g_clickThroughActive = false;
+
+struct ClickThroughEnumCtx {
+    POINT pt;
+    std::vector<ClickThroughSaved>* out;
+};
+
+static BOOL CALLBACK CollectOurWindowsAtPoint(HWND hwnd, LPARAM lp) {
+    auto* ctx = reinterpret_cast<ClickThroughEnumCtx*>(lp);
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid != GetCurrentProcessId() || !IsWindowVisible(hwnd)) {
+        return TRUE;
+    }
+    RECT wr = {};
+    if (!GetWindowRect(hwnd, &wr)) {
+        return TRUE;
+    }
+    POINT pt = ctx->pt;
+    if (PtInRect(&wr, pt)) {
+        ctx->out->push_back(
+            { hwnd, GetWindowLongPtrW(hwnd, GWL_EXSTYLE) });
+    }
+    return TRUE;
+}
 
 /* Overflow flyout placement: the hook callback runs on the worker thread
  * and only records what it saw; the loop does the window work. */
@@ -943,10 +979,19 @@ void Win11TrayReader::WorkerMain() {
 
         /* Da adesso i cambi di stato della shell arrivano da soli. */
         watchIslandProperties(taskbar != nullptr ? taskbar : overflow);
-        wchar_t line[160] = {};
-        swprintf(line, 160, L"tray Win11: %u icone (UI Automation)",
-                 static_cast<unsigned>(items.size()));
-        AppendCoreLog(line);
+        /* v1.7: la lettura gira ogni ~350 ms e sulla build 26100 il
+         * conto oscilla fra 0 e 3: si registra SOLO il CAMBIAMENTO,
+         * altrimenti il log e' un rumore continuo (il vecchio testo
+         * "0 icone" ripetuto ogni frazione di secondo). */
+        static std::atomic<int> s_lastLoggedCount{ -1 };
+        if (s_lastLoggedCount.exchange(
+                static_cast<int>(items.size())) !=
+            static_cast<int>(items.size())) {
+            wchar_t line[160] = {};
+            swprintf(line, 160, L"tray Win11: %u icone (UI Automation)",
+                     static_cast<unsigned>(items.size()));
+            AppendCoreLog(line);
+        }
         postReady();
     };
 
@@ -992,6 +1037,109 @@ void Win11TrayReader::WorkerMain() {
                     legacy != nullptr) {
                     done = SUCCEEDED(legacy->DoDefaultAction());
                     legacy->Release();
+                }
+            }
+            if (!done) {
+                /* v1.5 - ULTIMO RIPIEGO: il clic REALE per coordinate. Su
+                 * alcune build di Windows 11 i pattern di accessibilita'
+                 * dei pulsanti di sistema non producono effetto; un clic
+                 * sintetico al centro del rettangolo dell'elemento e'
+                 * esattamente cio' che farebbe l'utente. La nostra barra
+                 * copre quella nativa, quindi il punto cade quasi sempre
+                 * su una finestra NOSTRA: per l'istante del clic le nostre
+                 * finestre sul punto diventano trasparenti al mouse
+                 * (WS_EX_TRANSPARENT + layered opaco), il clic passa al
+                 * pulsante VERO di explorer e il timer kTimerClickThrough
+                 * ripristina stili e cursore. Prima (v1.4) il caso "coperto
+                 * da noi" veniva saltato: cosi' il clic non arrivava MAI e
+                 * il riquadro ricreato partiva sempre. */
+                RECT bounds = {};
+                if (SUCCEEDED(element->get_CurrentBoundingRectangle(
+                        &bounds)) && bounds.right > bounds.left &&
+                    bounds.bottom > bounds.top) {
+                    const POINT centre = {
+                        (bounds.left + bounds.right) / 2,
+                        (bounds.top + bounds.bottom) / 2
+                    };
+
+                    ClickThroughEnumCtx ctx = { centre,
+                                                &g_clickThroughSaved };
+                    g_clickThroughSaved.clear();
+                    EnumWindows(CollectOurWindowsAtPoint,
+                                reinterpret_cast<LPARAM>(&ctx));
+
+                    auto makeClick = [&centre](INPUT* click) {
+                        click[0].type = INPUT_MOUSE;
+                        click[0].mi.dwFlags = MOUSEEVENTF_ABSOLUTE |
+                                              MOUSEEVENTF_MOVE |
+                                              MOUSEEVENTF_VIRTUALDESK;
+                        click[0].mi.dx = static_cast<LONG>(
+                            (static_cast<LONG>(centre.x) * 65535LL) /
+                            (GetSystemMetrics(SM_CXVIRTUALSCREEN) - 1));
+                        click[0].mi.dy = static_cast<LONG>(
+                            (static_cast<LONG>(centre.y) * 65535LL) /
+                            (GetSystemMetrics(SM_CYVIRTUALSCREEN) - 1));
+                        click[1] = click[0];
+                        click[1].mi.dwFlags |= MOUSEEVENTF_LEFTDOWN;
+                        click[2] = click[0];
+                        click[2].mi.dwFlags |= MOUSEEVENTF_LEFTUP;
+                    };
+
+                    if (!g_clickThroughSaved.empty()) {
+                        for (const auto& pw : g_clickThroughSaved) {
+                            SetWindowLongPtrW(
+                                pw.hwnd, GWL_EXSTYLE,
+                                pw.exStyle | WS_EX_TRANSPARENT |
+                                    WS_EX_LAYERED);
+                            /* Layered senza attributi non verrebbe dipinta:
+                             * alpha piena la tiene identica a prima. */
+                            SetLayeredWindowAttributes(pw.hwnd, 0, 255,
+                                                       LWA_ALPHA);
+                        }
+                        HWND hit = WindowFromPoint(centre);
+                        DWORD hitPid = 0;
+                        if (hit != nullptr) {
+                            GetWindowThreadProcessId(hit, &hitPid);
+                        }
+                        if (hitPid != 0 &&
+                            hitPid != GetCurrentProcessId()) {
+                            INPUT click[3] = {};
+                            makeClick(click);
+                            GetCursorPos(&g_clickThroughCursor);
+                            g_clickThroughActive = true;
+                            if (SendInput(3, click, sizeof(INPUT)) == 3) {
+                                done = true;
+                                SetTimer(nullptr, kTimerClickThrough, 140,
+                                         nullptr);
+                                AppendCoreLog(L"tray Win11: clic consegnato "
+                                              L"attraverso la nostra barra "
+                                              L"(pattern muto)");
+                            } else {
+                                AppendCoreLog(L"tray Win11: SendInput del "
+                                              L"clic passante fallito");
+                            }
+                        } else {
+                            AppendCoreLog(L"tray Win11: anche trasparenti il "
+                                          L"punto resta nostro, clic salto");
+                        }
+                        if (!done) {
+                            /* Niente timer: ripristino immediato. */
+                            for (const auto& pw : g_clickThroughSaved) {
+                                SetWindowLongPtrW(pw.hwnd, GWL_EXSTYLE,
+                                                  pw.exStyle);
+                            }
+                            g_clickThroughSaved.clear();
+                            g_clickThroughActive = false;
+                        }
+                    } else {
+                        INPUT click[3] = {};
+                        makeClick(click);
+                        done = SendInput(3, click, sizeof(INPUT)) == 3;
+                        if (done) {
+                            AppendCoreLog(L"tray Win11: clic consegnato per "
+                                          L"coordinate (pattern muto)");
+                        }
+                    }
                 }
             }
         }
@@ -1103,6 +1251,33 @@ void Win11TrayReader::WorkerMain() {
         }
         if (msg.message == WM_TIMER && msg.wParam == kTimerPlacement) {
             stopFlyoutWatch();
+            continue;
+        }
+        if (msg.message == WM_TIMER && msg.wParam == kTimerClickThrough) {
+            /* v1.5: la finestra di trasparenza e' finita: stili e cursore
+             * tornano esattamente com'erano. */
+            KillTimer(nullptr, kTimerClickThrough);
+            if (g_clickThroughActive) {
+                INPUT back[1] = {};
+                back[0].type = INPUT_MOUSE;
+                back[0].mi.dwFlags = MOUSEEVENTF_ABSOLUTE |
+                                     MOUSEEVENTF_MOVE |
+                                     MOUSEEVENTF_VIRTUALDESK;
+                back[0].mi.dx = static_cast<LONG>(
+                    (static_cast<LONG>(g_clickThroughCursor.x) * 65535LL) /
+                    (GetSystemMetrics(SM_CXVIRTUALSCREEN) - 1));
+                back[0].mi.dy = static_cast<LONG>(
+                    (static_cast<LONG>(g_clickThroughCursor.y) * 65535LL) /
+                    (GetSystemMetrics(SM_CYVIRTUALSCREEN) - 1));
+                SendInput(1, back, sizeof(INPUT));
+                for (const auto& pw : g_clickThroughSaved) {
+                    if (IsWindow(pw.hwnd)) {
+                        SetWindowLongPtrW(pw.hwnd, GWL_EXSTYLE, pw.exStyle);
+                    }
+                }
+                g_clickThroughSaved.clear();
+                g_clickThroughActive = false;
+            }
             continue;
         }
         if (msg.message == WM_QUIT) {

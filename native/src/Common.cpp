@@ -299,6 +299,185 @@ namespace {
 constexpr int kResolveMaxPath = 520;
 } /* namespace */
 
+/* ------------------------------------------------------------------ */
+/*  v1.7.2: icone reali delle app PACCHETTIZZATE (UWP/Store)            */
+/* ------------------------------------------------------------------ */
+
+namespace {
+
+/* HBITMAP 32bpp -> HICON con canale alpha preservato. Le bitmap che
+ * IShellItemImageFactory::GetImage consegna non sono icone: serve il
+ * giro ICONINFO (maschera tutta zero = opaco, il canale alpha del
+ * bitmap colore fa il resto). CreateIconIndirect copia i bitmap: quelli
+ * temporanei si possono distruggere subito. */
+HICON HiconFromArgbDib(HBITMAP source) {
+    BITMAP bm = {};
+    if (GetObjectW(source, sizeof(bm), &bm) == 0) {
+        return nullptr;
+    }
+    const int w = bm.bmWidth;
+    const int h = bm.bmHeight > 0 ? bm.bmHeight : -bm.bmHeight;
+    if (w <= 0 || h <= 0 || w > 512 || h > 512) {
+        return nullptr;
+    }
+
+    BITMAPINFO bi = {};
+    bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth       = w;
+    bi.bmiHeader.biHeight      = -h;      /* top-down */
+    bi.bmiHeader.biPlanes      = 1;
+    bi.bmiHeader.biBitCount    = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+
+    BITMAPINFO mi = bi;
+    mi.bmiHeader.biHeight = h;            /* la maschera resta bottom-up */
+
+    HDC screen = GetDC(nullptr);
+    if (screen == nullptr) return nullptr;
+    void* colorBits = nullptr;
+    void* maskBits = nullptr;
+    HBITMAP color = CreateDIBSection(screen, &bi, DIB_RGB_COLORS,
+                                     &colorBits, nullptr, 0);
+    HBITMAP mask = CreateDIBSection(screen, &mi, DIB_RGB_COLORS,
+                                    &maskBits, nullptr, 0);
+    bool ok = false;
+    if (color != nullptr && mask != nullptr && colorBits != nullptr &&
+        maskBits != nullptr) {
+        HDC mem = CreateCompatibleDC(screen);
+        if (mem != nullptr) {
+            HGDIOBJ old = SelectObject(mem, color);
+            /* copia i pixel 32bpp cosi' come sono (nessun filtraggio GDI) */
+            if (GetDIBits(mem, source, 0, static_cast<UINT>(h),
+                          colorBits, &bi, DIB_RGB_COLORS) != 0) {
+                memset(maskBits, 0,
+                       static_cast<size_t>((w + 15) / 16 * 2) * h);
+                ok = true;
+            }
+            SelectObject(mem, old);
+            DeleteDC(mem);
+        }
+    }
+    ReleaseDC(nullptr, screen);
+
+    HICON out = nullptr;
+    if (ok) {
+        ICONINFO ii = {};
+        ii.fIcon    = TRUE;
+        ii.hbmMask  = mask;
+        ii.hbmColor = color;
+        out = CreateIconIndirect(&ii);
+    }
+    if (color != nullptr) DeleteObject(color);
+    if (mask != nullptr) DeleteObject(mask);
+    return out;
+}
+
+/* Dall'AppUserModelID all'icona: l'elemento della cartella
+ * shell:AppsFolder esposto dall'app. API pubbliche e documentate, lo
+ * stesso percorso di RetroBar/ManagedShell per le app dello Store. */
+HICON GetAppsFolderIcon(const wchar_t* aumid, int size) {
+    if (aumid == nullptr || aumid[0] == 0) {
+        return nullptr;
+    }
+    std::wstring path = L"shell:AppsFolder\\";
+    path += aumid;
+
+    IShellItem* item = nullptr;
+    if (FAILED(SHCreateItemFromParsingName(path.c_str(), nullptr,
+                                           IID_PPV_ARGS(&item))) ||
+        item == nullptr) {
+        return nullptr;
+    }
+
+    HICON out = nullptr;
+    IShellItemImageFactory* factory = nullptr;
+    if (SUCCEEDED(item->QueryInterface(IID_PPV_ARGS(&factory))) &&
+        factory != nullptr) {
+        HBITMAP bmp = nullptr;
+        const SIZE box = { size > 0 ? size : 32, size > 0 ? size : 32 };
+        if (SUCCEEDED(factory->GetImage(box, SIIGBF_ICONONLY, &bmp)) &&
+            bmp != nullptr) {
+            out = HiconFromArgbDib(bmp);
+            DeleteObject(bmp);
+        }
+        factory->Release();
+    }
+    item->Release();
+    return out;
+}
+
+/* COM per-thread: se il thread non l'ha ancora, lo inizializza MTA (le
+ * factory shell sono agnostiche); se il thread ha gia' una modalita'
+ * diversa, RPC_E_CHANGED_MODE va bene: il COM del thread e' gia' pronto. */
+class ComScope {
+public:
+    ComScope() : m_hr(CoInitializeEx(nullptr, COINIT_MULTITHREADED)) {}
+    ~ComScope() {
+        if (SUCCEEDED(m_hr)) {
+            CoUninitialize();
+        }
+    }
+    ComScope(const ComScope&) = delete;
+    ComScope& operator=(const ComScope&) = delete;
+private:
+    HRESULT m_hr;
+};
+
+} /* namespace */
+
+HICON GetWindowPackagedIcon(HWND hwnd, int size) {
+    if (hwnd == nullptr || !IsWindow(hwnd)) {
+        return nullptr;
+    }
+    W7T_SEH_TRY {
+        ComScope com;
+        IPropertyStore* store = nullptr;
+        if (FAILED(SHGetPropertyStoreForWindow(hwnd, IID_PPV_ARGS(&store))) ||
+            store == nullptr) {
+            return nullptr;
+        }
+        PROPVARIANT pv;
+        PropVariantInit(&pv);
+        HICON out = nullptr;
+        if (SUCCEEDED(store->GetValue(PKEY_AppUserModel_ID, &pv)) &&
+            pv.vt == VT_LPWSTR && pv.pwszVal != nullptr &&
+            pv.pwszVal[0] != L'\0') {
+            out = GetAppsFolderIcon(pv.pwszVal, size);
+        }
+        PropVariantClear(&pv);
+        store->Release();
+        return out;
+    } W7T_SEH_CATCH {} W7T_SEH_END
+    return nullptr;
+}
+
+HICON GetLnkPackagedIcon(const wchar_t* lnk, int size) {
+    if (lnk == nullptr || lnk[0] == 0) {
+        return nullptr;
+    }
+    W7T_SEH_TRY {
+        ComScope com;
+        IPropertyStore* store = nullptr;
+        if (FAILED(SHGetPropertyStoreFromParsingName(
+                lnk, nullptr, GPS_DEFAULT, IID_PPV_ARGS(&store))) ||
+            store == nullptr) {
+            return nullptr;
+        }
+        PROPVARIANT pv;
+        PropVariantInit(&pv);
+        HICON out = nullptr;
+        if (SUCCEEDED(store->GetValue(PKEY_AppUserModel_ID, &pv)) &&
+            pv.vt == VT_LPWSTR && pv.pwszVal != nullptr &&
+            pv.pwszVal[0] != L'\0') {
+            out = GetAppsFolderIcon(pv.pwszVal, size);
+        }
+        PropVariantClear(&pv);
+        store->Release();
+        return out;
+    } W7T_SEH_CATCH {} W7T_SEH_END
+    return nullptr;
+}
+
 HICON ResolveAppIcon(const wchar_t* lnk, const wchar_t* target, bool large) {
     /* 1.0.0-alpha: 'small' NON e' un nome sicuro per una variabile locale.
      * Il Windows SDK (rpcndr.h) definisce, quando si compila con MSVC,
@@ -362,6 +541,14 @@ HICON ResolveAppIcon(const wchar_t* lnk, const wchar_t* target, bool large) {
                 link->Release();
             }
         } W7T_SEH_CATCH {} W7T_SEH_END
+
+        /* v1.7.2: scorciatoie di app pacchettizzate (UWP): il lnk non ha
+         * GetIconLocation utile (il glifo e' nel pacchetto). L'AppUserModelID
+         * salvato nel lnk + la cartella shell:AppsFolder danno l'icona vera. */
+        HICON packaged = GetLnkPackagedIcon(lnk, large ? 48 : 16);
+        if (packaged != nullptr) {
+            return packaged;
+        }
     }
 
     if (target != nullptr && target[0] != 0) {
@@ -444,7 +631,51 @@ std::wstring ComputeAppId(HWND hwnd, DWORD pid, const std::wstring& exePath) {
         store->Release();
     }
 
-    /* 2) Fallback: percorso dell'eseguibile, normalizzato in minuscolo. */
+    /* 2) v3.6 - IL PANNELLO DI CONTROLLO NON E' EXPLORER.
+     *
+     * Su Windows 10/11 le pagine del Pannello di controllo (anche quelle
+     * aperte dai nostri menu, come il Centro connessioni) sono finestre
+     * CabinetWClass DENTRO explorer.exe: senza questa regola finivano nel
+     * gruppo di Esplora file, con il nome e l'icona di explorer. La
+     * Superbar vera le tiene separate: qui basta riconoscere il titolo
+     * localizzato ("Pannello di controllo\...") e dare alla finestra una
+     * identita' sua. */
+    if (hwnd != nullptr && !exePath.empty()) {
+        const size_t slash = exePath.find_last_of(L"\\/");
+        const std::wstring exeName =
+            (slash == std::wstring::npos)
+                ? exePath : exePath.substr(slash + 1);
+        if (_wcsicmp(exeName.c_str(), L"explorer.exe") == 0) {
+            wchar_t cls[64] = {};
+            if (GetClassNameW(hwnd, cls, 64) != 0
+                && _wcsicmp(cls, L"CabinetWClass") == 0) {
+                wchar_t title[W7T_MAX_TITLE] = {};
+                GetWindowTextW(hwnd, title, W7T_MAX_TITLE);
+                static const wchar_t* const kControlPanelNames[] = {
+                    L"Pannello di controllo",     /* it */
+                    L"Control Panel",             /* en */
+                    L"Panel de control",          /* es */
+                    L"Panneau de configuration",  /* fr */
+                    L"Systemsteuerung",           /* de */
+                    L"Painel de Controle",        /* pt-br */
+                    L"Painel de Controlo",        /* pt */
+                    L"Panel sterowania",          /* pl */
+                    L"\x041F\x0430\x043D\x0435\x043B\x044C \x0443\x043F\x0440\x0430\x0432\x043B\x0435\x043D\x0438\x044F", /* ru */
+                    L"\x30B3\x30F3\x30C8\x30ED\x30FC\x30EB \x30D1\x30CD\x30EB", /* ja */
+                    L"\x63A7\x5236\x9762\x677F",  /* zh */
+                    L"\x0644\x0648\x062D\x0629 \x0627\x0644\x062A\x062D\x0643\x0645", /* ar */
+                };
+                for (const wchar_t* name : kControlPanelNames) {
+                    const size_t len = wcslen(name);
+                    if (wcsncmp(title, name, len) == 0) {
+                        return std::wstring(L"w7t:control-panel");
+                    }
+                }
+            }
+        }
+    }
+
+    /* 3) Fallback: percorso dell'eseguibile, normalizzato in minuscolo. */
     if (!exePath.empty()) {
         std::wstring id = exePath;
         std::transform(id.begin(), id.end(), id.begin(),

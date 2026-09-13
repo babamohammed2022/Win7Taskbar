@@ -83,7 +83,22 @@ void WindowManager::Stop() {
     m_running = false;
 }
 
+/* v3.6 - CINGHIA DI SICUREZZA. L'utente ha avuto un crash della barra
+ * aprendo il Centro connessioni (una finestra CabinetWClass di explorer):
+ * il sospetto e' il percorso "nuova finestra" (identita', icona, stato).
+ * Ogni evento passa da qui: un fault in quel percorso toglie una finestra
+ * dalla barra, non tutta la barra. La funzione con __try non puo' tenere
+ * oggetti C++ (C2712): il corpo vero sta in OnWinEventImpl. */
 void WindowManager::OnWinEvent(DWORD event, HWND hwnd) {
+    __try {
+        OnWinEventImpl(event, hwnd);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        /* Niente azioni da un contesto potenzialmente corrotto: il giro
+         * di sicurezza periodico rimette in ordine il modello. */
+    }
+}
+
+void WindowManager::OnWinEventImpl(DWORD event, HWND hwnd) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
 
     const bool tracked = m_windows.find(hwnd) != m_windows.end();
@@ -263,6 +278,17 @@ BOOL CALLBACK WindowManager::EnumProc(HWND hwnd, LPARAM param) {
 }
 
 int32_t WindowManager::Refresh() {
+    /* v3.6: anche il giro di enumeration passa dalla cinghia (vedi
+     * OnWinEvent): BuildTracked tocca identita' e icone di finestre
+     * estranee, meglio non farlo cadere addosso al processo. */
+    __try {
+        return RefreshImpl();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
+int32_t WindowManager::RefreshImpl() {
     std::vector<HWND> found;
     found.reserve(64);
     EnumWindows(EnumProc, reinterpret_cast<LPARAM>(&found));
@@ -404,8 +430,28 @@ void WindowManager::EnsureIcon(TrackedWindow& win, int32_t desiredSize) {
             GetClassLongPtrW(win.hwnd, large ? GCLP_HICONSM : GCLP_HICON));
     }
 
-    /* Fallback finale: icona associata all'eseguibile. */
+    /* v1.7.2: icone reali delle app PACCHETTIZZATE (UWP). Le loro
+     * finestre vivono in ApplicationFrameHost.exe: WM_GETICON e la classe
+     * consegnano il glifo generico dell'host. Se l'host e' quello (o se
+     * non e' arrivata nessuna icona) si chiede l'icona al pacchetto via
+     * AppUserModelID + cartella shell:AppsFolder (API pubbliche). */
     bool destroyIcon = false;
+    {
+        const size_t slash = win.exePath.find_last_of(L"\\/");
+        const std::wstring exeName = (slash == std::wstring::npos)
+            ? win.exePath : win.exePath.substr(slash + 1);
+        const bool hostedFrame =
+            _wcsicmp(exeName.c_str(), L"applicationframehost.exe") == 0;
+        if (icon == nullptr || hostedFrame) {
+            HICON packaged = GetWindowPackagedIcon(win.hwnd, large ? 48 : 32);
+            if (packaged != nullptr) {
+                icon = packaged;
+                destroyIcon = true;
+            }
+        }
+    }
+
+    /* Fallback finale: icona associata all'eseguibile. */
     if (icon == nullptr && !win.exePath.empty()) {
         HICON extracted = nullptr;
         if (large) {

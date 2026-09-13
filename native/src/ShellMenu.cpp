@@ -179,73 +179,75 @@ int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
     }
 
     /* GetSystemMenu puo' fallire quando la finestra appartiene a un altro
-     * processo con integrita' piu' alta (app elevate, UWP) oppure quando la
+     * processo con integrita' piu' alta (app elevate) oppure quando la
      * finestra non ha un menu di sistema proprio. In quel caso Windows 7
      * mostra comunque il menu: lo ricostruiamo con le voci standard e lo
      * stato corretto, invece di non mostrare nulla. */
     if (systemMenu == nullptr) {
         BuildFallbackWindowMenu(popup, ownerHwnd);
+    } else {
+        /* Copia voce per voce: cosi' rispettiamo esattamente cio' che
+         * l'applicazione espone, comprese le voci personalizzate. */
+        const int count = GetMenuItemCount(systemMenu);
+        for (int i = 0; i < count; ++i) {
+            wchar_t text[256] = {};
+            MENUITEMINFOW info = {};
+            info.cbSize     = sizeof(info);
+            info.fMask      = MIIM_ID | MIIM_STATE | MIIM_FTYPE | MIIM_STRING;
+            info.dwTypeData = text;
+            info.cch        = static_cast<UINT>(std::size(text));
 
-        if (GetMenuItemCount(popup) == 0) {
-            DestroyMenu(popup);
-            return W7T_ERR_NOT_FOUND;
+            if (!GetMenuItemInfoW(systemMenu, static_cast<UINT>(i), TRUE, &info)) {
+                continue;
+            }
+
+            if ((info.fType & MFT_SEPARATOR) != 0) {
+                AppendMenuW(popup, MF_SEPARATOR, 0, nullptr);
+                continue;
+            }
+
+            UINT flags = MF_STRING;
+            if ((info.fState & MFS_DISABLED) != 0 ||
+                (info.fState & MFS_GRAYED) != 0) {
+                flags |= MF_GRAYED;
+            }
+            if ((info.fState & MFS_CHECKED) != 0) {
+                flags |= MF_CHECKED;
+            }
+            if ((info.fState & MFS_DEFAULT) != 0) {
+                flags |= MF_DEFAULT;
+            }
+
+            /* info.cch viene azzerato per le voci senza testo. */
+            info.dwTypeData = text;
+            AppendMenuW(popup, flags, info.wID, text);
         }
-
-        int32_t picked = 0;
-        {
-            ForegroundMenuScope scope(menuOwner);
-            picked = static_cast<int32_t>(TrackPopupMenuEx(
-                popup, CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
-        }
-
-        DestroyMenu(popup);
-
-        if (picked != 0) {
-            PostMessageW(ownerHwnd, WM_SYSCOMMAND, static_cast<WPARAM>(picked),
-                         MAKELPARAM(x, y));
-        }
-        return W7T_OK;
     }
 
-    /* Copia voce per voce: cosi' rispettiamo esattamente cio' che
-     * l'applicazione espone, comprese le voci personalizzate. */
-    const int count = GetMenuItemCount(systemMenu);
-    for (int i = 0; i < count; ++i) {
-        wchar_t text[256] = {};
-        MENUITEMINFOW info = {};
-        info.cbSize     = sizeof(info);
-        info.fMask      = MIIM_ID | MIIM_STATE | MIIM_FTYPE | MIIM_STRING;
-        info.dwTypeData = text;
-        info.cch        = static_cast<UINT>(std::size(text));
-
-        if (!GetMenuItemInfoW(systemMenu, static_cast<UINT>(i), TRUE, &info)) {
-            continue;
+    /* v1.7.1: a copied system menu can come back EMPTY or with every item
+     * disabled (packaged/UWP frame windows such as Snipping Tool on
+     * Windows 11 24H2 expose a stub menu). Windows 7 always shows
+     * something there: rebuild the standard menu instead of showing
+     * nothing, so Close/Minimize are always available. */
+    bool usable = false;
+    const int copiedCount = GetMenuItemCount(popup);
+    for (int i = 0; i < copiedCount && !usable; ++i) {
+        MENUITEMINFOW state = {};
+        state.cbSize = sizeof(state);
+        state.fMask  = MIIM_STATE | MIIM_FTYPE;
+        if (GetMenuItemInfoW(popup, static_cast<UINT>(i), TRUE, &state) &&
+            (state.fType & MFT_SEPARATOR) == 0 &&
+            (state.fState & (MFS_DISABLED | MFS_GRAYED)) == 0) {
+            usable = true;
         }
-
-        if ((info.fType & MFT_SEPARATOR) != 0) {
-            AppendMenuW(popup, MF_SEPARATOR, 0, nullptr);
-            continue;
-        }
-
-        UINT flags = MF_STRING;
-        if ((info.fState & MFS_DISABLED) != 0 || (info.fState & MFS_GRAYED) != 0) {
-            flags |= MF_GRAYED;
-        }
-        if ((info.fState & MFS_CHECKED) != 0) {
-            flags |= MF_CHECKED;
-        }
-        if ((info.fState & MFS_DEFAULT) != 0) {
-            flags |= MF_DEFAULT;
-        }
-
-        /* info.cch viene azzerato per le voci senza testo. */
-        info.dwTypeData = text;
-        AppendMenuW(popup, flags, info.wID, text);
     }
-
-    if (GetMenuItemCount(popup) == 0) {
+    if (!usable) {
         DestroyMenu(popup);
-        return W7T_ERR_NOT_FOUND;
+        popup = CreatePopupMenu();
+        if (popup == nullptr) {
+            return W7T_ERR_APPBAR;
+        }
+        BuildFallbackWindowMenu(popup, ownerHwnd);
     }
 
     int32_t chosen = 0;

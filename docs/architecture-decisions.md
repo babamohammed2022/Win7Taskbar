@@ -119,3 +119,135 @@ top-left corner", "the white rectangles are still there"), and the diagnosis is 
 it possible to tell a regression from a preference months later - so it is written down.
 But a folder full of per-version text files is noise for anyone reading the repository, and
 the release page is where a reader already looks for "what changed in this build".
+
+## 9. The AppBar rect is the only source of truth for the taskbar geometry
+
+**Decision.** The reservation is always made with the AppBar protocol
+(`ABM_QUERYPOS`/`ABM_SETPOS`) on the physical rectangle of the monitor that hosts
+the bar window, and the window is then moved onto the rect the shell confirmed.
+Shell notifications on the AppBar callback message (`ABN_POSCHANGED`, `ABN_WINDOWARRANGE`,
+`ABN_FULLSCREENAPP`) are handled, the AppBar is re-registered when Explorer restarts
+(`TaskbarCreated`), and `ABM_WINDOWPOSCHANGED`/`ABM_ACTIVATE` keep the shell up to date.
+
+**Why.** Earlier the reserved rect and the visible window were two separate
+calculations (the AppBar call used system metrics in the native core, the window was
+placed in DIPs by the frontend). Whenever the shell moved or re-stacked the AppBar -
+Explorer's own bar still registered on the same edge, a DPI or monitor change, an
+Explorer restart killing the old registration - the work area and the visible bar
+diverged, and a strip of unused screen appeared between maximized windows and the
+taskbar. Moving the window onto the shell-confirmed rect is the invariant
+ManagedShell/RetroBar (`AppBarWindow.SetWindowPosition(abd.rc)`) is built on, and the
+`ABN_*` notifications are how the shell keeps every AppBar converging on one layout.
+No second work-area mechanism is used, and no other window is ever resized by us.
+
+**Revisit if.** The bar ever needs per-monitor instances or non-bottom edges: the same
+invariant still holds, the edge and monitor simply come from the window being positioned.
+
+## 10. v1.2.0-alpha: the real shell first, recreation last
+
+**Decision.** Every feature in this iteration follows the same order of
+preference, and the code says so in one place each:
+
+- **Battery flyout.** With the "Windows 7" preference a click on a battery
+  icon is forwarded to the real `stobject.dll` icon when one exists (standard
+  tray click protocol), otherwise to the Windows 11 battery button via UI
+  Automation, and only when neither exists does the recreated panel appear.
+  `UseWin32BatteryFlyout=1` (the ExplorerPatcher key) is re-asserted at click
+  time, and the deferred check compares the SET of visible foreign windows,
+  not a count of popup-styled ones: the real Win32 flyout sometimes arrives
+  without `WS_POPUP`, which made the old check open the recreated panel on
+  top of the real one.
+- **Network flyout list.** When the Wi-Fi scan returns no networks but an
+  interface is connected, the current connection is queried and added to the
+  list, so a connected machine never shows an empty list; opening the flyout
+  with an empty list orders a `WlanScan`, and the reasons for an empty list
+  are written to the core log (`[NET]` lines).
+- **Input language indicator.** The indicator is a managed control fed by the
+  same API chain as RetroBar's `InputLanguage` (focused-thread `HKL` via
+  `GetGUIThreadInfo`/`GetKeyboardLayout`, switching via
+  `WM_INPUTLANGCHANGEREQUEST` broadcast); the picker menu is the native
+  `ShowContextMenuEx` menu used by every other taskbar entry. Three styles
+  (Windows 7, Windows 8.1 tile, Windows 10/11 code slightly enlarged) are
+  chosen from Properties (`InputLanguageMode`, COPYDATA offset 52).
+- **Recreated system icons get Windows 7 context menus.** The synthetic
+  volume/network/battery icons translate a right-click into the same menu
+  Windows 7 showed, built from the core string tables (all 11 languages) and
+  shown with `ShowContextMenuEx`; the commands launch the classic panels
+  (`SndVol.exe`, `mmsys.cpl`, Network and Sharing Center, Mobility Center,
+  Power Options).
+- **Group separators are graphics only.** The stack indicator in the task
+  button template draws at most TWO separators (#1F314F, shifted further
+  right by a `RenderTransform`), visible with the rule 1 window -> 0,
+  2 -> 1, 3+ -> 2; grouping, window detection and layout are untouched.
+- **Hidden native taskbar stays hidden during captures.** The hide watcher
+  no longer acts only on accessibility events: every 500 ms tick it checks
+  the native taskbar's visibility and re-hides it, which covers the Snipping
+  Tool case where Windows re-shows the bar without an event we receive.
+
+**Why.** Recreated panels are a fallback, not a goal; where Windows already
+has the real Windows 7 surface (the Win32 battery flyout, the real tray
+icons, the native menus) it is used, and the recreation only covers the gap.
+The empty network list and the double battery flyout were both cases where a
+fallback was chosen although the real surface was reachable.
+
+**Revisit if.** Windows removes the Win32 battery flyout entirely (it is
+already absent from the newest Windows 11 Insider builds): then the battery
+entry keeps the chain but always lands on the recreated panel.
+
+## 11. v1.4/1.5: the language entry is the switcher port; the battery click is physically delivered
+
+**Language entry.** The v1.3 native indicator slot (`LanguageBar.cpp`) is gone.
+The tray entry is a thin WPF `Border` (`InputLanguageBar`) that draws the active
+abbreviation and opens the core's native popup — the full port of the
+"Windows 7/8.1 Language Switcher Restorer" mod in `LanguageSwitcher.cpp`
+(GDI/GDI+ Win32 window, Win7 menu or Win8.1 card, layout switching for the
+window that had focus). One lesson is encoded twice: a `DependencyProperty`
+ignores no-op writes, so the mode is applied through an unconditional
+`ApplyMode()` that re-syncs visibility even when the value did not change —
+that exact case kept the entry collapsed forever with the default mode.
+
+**Battery ("Windows 10" option).** The real Windows-10-style Win32 battery
+flyout still lives in explorer's own `stobject.dll` and is reachable with the
+`UseWin32BatteryFlyout` legacy value, which we assert ONLY around the open
+attempt and restore afterwards (the registry is left untouched between
+attempts; a purely in-memory override cannot work here, because the reader of
+that value is explorer's process, not ours). The missing piece was delivery:
+the accessibility patterns of the Windows 11 battery button are silent, and a
+synthetic click at the button's coordinates hit OUR taskbar, which covers the
+native one. v1.5 makes our windows at that point mouse-transparent for the
+instant of the click (`WS_EX_TRANSPARENT` + opaque layered style, restored by
+a reader-thread timer together with the cursor), so the click lands on the
+real button.
+
+**Why not a downloaded Windows 10 `stobject.dll`.** Evaluated and rejected for
+now: `stobject.dll` exports only the standard COM surface
+(`DllGetClassObject`/`DllRegisterServer`/...), so hosting the Win10 binary
+in-process would require undocumented RVAs into C++ objects with no stable
+contract — strictly more fragile than the sanctioned in-memory key plus a
+physically delivered click on the real button. Revisit only if a Windows
+build removes the legacy flyout path from explorer's own `stobject.dll`.
+
+## 12. v1.6: our own windows swallow hardware faults (anti-mod hardening)
+
+**Decision.** The language-switcher popup's window procedure and the public
+entry points of its module run under the portable `W7T_SEH_*` guard: a
+hardware exception raised inside them (typically a third-party Windhawk mod
+hooking the same system APIs we call, and faulting) is logged and swallowed.
+Because swallowing skips the `Enter`/`Leave` pairs, every critical-section
+acquisition in the module goes through depth-counting helpers and the catch
+path releases whatever is left open; an interrupted paint validates its
+update region so Windows does not spin in an endless repaint. The entry
+points are guarded twice (here and at the C exports) on purpose.
+
+**Why.** A field crash happened with the language popup open: an unhandled
+exception from a window procedure kills the process that hosts it, and the
+taskbar must survive third-party software it does not control. The tray
+window procedure already had this shape (its `Inner` split dates from v2.6).
+
+**Limits.** Swallowing skips C++ unwinding: objects alive at the fault point
+leak once, and a `std::mutex` held across the fault would stay locked - that
+is why the guarded module uses raw critical sections with heal-on-fault and
+no locks are taken across the guarded boundary elsewhere.
+
+**Revisit if.** A fault repeats in one spot: the log line names the module
+phase, and the guard can then be narrowed to the exact call.

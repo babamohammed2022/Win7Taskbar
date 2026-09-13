@@ -4,7 +4,13 @@
 # version 3 or later (see the LICENSE file).
 
 cmake_minimum_required(VERSION 3.20)
+# Pin the Windows SDK before project(): the current runner image defaults to
+# the 10.0.26100 SDK whose import libraries are broken (uuid.lib not found;
+# actions/runner-images #13310), so the link step fails there. 10.0.22621 is
+# the newest SDK that links cleanly on this project.
+set(CMAKE_SYSTEM_VERSION "10.0.22621.0" CACHE STRING "Windows SDK version" FORCE)
 project(Win7TaskbarCore VERSION 1.7.0 DESCRIPTION "Win7Taskbar native backend" LANGUAGES CXX RC)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -21,6 +27,7 @@ add_library(Win7TaskbarCore SHARED
     src/TrayOverflowWindow.cpp src/AppSearchWindow.cpp
     src/Win7NetworkFlyout.cpp src/BatteryFlyout.cpp src/JumpListWindow.cpp
     src/PropertiesDialog.cpp src/PinnedApps.cpp src/Exports.cpp
+    src/LanguageSwitcher.cpp
     src/Strings.cpp src/LocalizationExports.cpp
     src/TrayFallbackIcons.cpp src/CrashHandler.cpp resources/app.rc)
 target_include_directories(Win7TaskbarCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -30,7 +37,10 @@ set_source_files_properties(resources/app.ico PROPERTIES HEADER_FILE_ONLY TRUE)
 target_sources(Win7TaskbarCore PRIVATE resources/app.ico)
 set_target_properties(Win7TaskbarCore PROPERTIES PREFIX "" OUTPUT_NAME "Win7TaskbarCore")
 if(MSVC)
-    target_compile_options(Win7TaskbarCore PRIVATE /W4 /permissive- /utf-8)
+    target_compile_options(Win7TaskbarCore PRIVATE /W4 /permissive- /utf-8
+        # Accepted diagnostics: C4611 setjmp/C++-RAII mix is intentional
+        # inside the SEH guards; the others are known pre-existing warnings.
+        /wd4611 /wd4189 /wd4100 /wd4244 /wd4457)
 else()
     target_compile_options(Win7TaskbarCore PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type)
     target_link_options(Win7TaskbarCore PRIVATE -static-libgcc -static-libstdc++ -static)
@@ -42,15 +52,18 @@ add_custom_command(TARGET Win7TaskbarCore POST_BUILD
     COMMENT "Copy Win7TaskbarCore.dll to dist/")
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+    # The checks run through run-check.py: same exit code, but on failure it
+    # also prints a "file(1): error C999:" line that the runner's C++
+    # problem matcher turns into a check annotation naming the failed check.
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
-        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/check-com-interfaces.py" $<TARGET_FILE:Win7TaskbarCore>
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-com-interfaces.py $<TARGET_FILE:Win7TaskbarCore>
         COMMENT "Check COM interfaces in binary" VERBATIM)
     # v2.62: la tabella degli export deve contenere TUTTE le funzioni che il
     # livello gestito richiama. Una build che ne perde qualcuna compila, si
     # avvia e fallisce al primo clic con EntryPointNotFoundException: e'
     # successo davvero, con nove funzioni mancanti in dist/.
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
-        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/check-exports.py" $<TARGET_FILE:Win7TaskbarCore>
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-exports.py $<TARGET_FILE:Win7TaskbarCore>
         COMMENT "Check exported functions in binary" VERBATIM)
 endif()
 add_library(W7TInject SHARED src/InjectHook.cpp)

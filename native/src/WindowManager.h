@@ -73,6 +73,9 @@ public:
 
     /* Invocato dagli hook WinEvent. */
     void OnWinEvent(DWORD event, HWND hwnd);
+    /* v3.6: corpi veri, protetti dalla cinghia SEH (vedi .cpp). */
+    void OnWinEventImpl(DWORD event, HWND hwnd);
+    int32_t RefreshImpl();
 
     /* Invocato da TrayService quando arriva HSHELL_FLASH: una finestra
      * non attiva sta chiedendo attenzione (FlashWindowEx). */

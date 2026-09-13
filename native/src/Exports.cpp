@@ -33,6 +33,7 @@
 #include "FlyoutLauncher.h"
 #include "AudioService.h"
 #include "JumpListWindow.h"     /* v2.38 */
+#include "LanguageSwitcher.h"   /* v1.4: selettore della lingua */
 #include "BatteryFlyout.h"      /* v2.38 */
 #include <thread>
 #include <atomic>
@@ -137,7 +138,13 @@ extern "C" W7T_API int32_t W7T_CALL W7T_GetWindowCount(void) {
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_GetWindows(W7T_WindowInfo* buffer, int32_t capacity) {
-    return WindowManager::Instance().CopyTo(buffer, capacity);
+    /* v3.6: anche questo percorso passa dalla cinghia: e' la via con cui
+     * il gestito scopre le finestre, e il crash del Centro connessioni
+     * arrivava proprio mentre questa lista si faceva. */
+    W7T_SEH_TRY {
+        return WindowManager::Instance().CopyTo(buffer, capacity);
+    } W7T_SEH_CATCH {} W7T_SEH_END
+    return 0;
 }
 
 /* v2.25: Pinned Application Model - sorgente autoritativa dei pin. */
@@ -311,6 +318,32 @@ extern "C" W7T_API int32_t W7T_CALL W7T_AppBarSetPos(uint64_t hwnd, int32_t edge
 
 extern "C" W7T_API int32_t W7T_CALL W7T_AppBarUnregister(uint64_t hwnd) {
     return AppBarService::Instance().Unregister(ToHwnd(hwnd));
+}
+
+/* v3.4: superfici per il protocollo AppBar completo (flusso di
+ * ManagedShell/RetroBar). Il messaggio di callback va gestito nella
+ * finestra che l'ha registrato: il frontend lo riconosce nel proprio
+ * WndProc e lo gira qui. */
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarCallbackMessage(void) {
+    return static_cast<int32_t>(AppBarService::Instance().CallbackMessage());
+}
+
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarIsRegistered(void) {
+    return AppBarService::Instance().IsRegistered() ? 1 : 0;
+}
+
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarNotify(uint32_t wParam, int32_t lParam) {
+    return AppBarService::Instance().HandleCallback(wParam, lParam) ? 1 : 0;
+}
+
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarWindowPosChanged(uint64_t hwnd) {
+    AppBarService::Instance().NotifyWindowPosChanged(ToHwnd(hwnd));
+    return W7T_OK;
+}
+
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarActivate(uint64_t hwnd) {
+    AppBarService::Instance().Activate(ToHwnd(hwnd));
+    return W7T_OK;
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_SetNativeTaskbarHidden(int32_t hidden) {
@@ -739,25 +772,6 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ShowGroupMenu(uint64_t hwnd, int32_t x, 
                                     minimizeText, closeText);
 }
 
-/* ------------------------------------------------------------------ */
-/*  DllMain                                                            */
-/* ------------------------------------------------------------------ */
-
-extern "C" BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
-    switch (reason) {
-        case DLL_PROCESS_ATTACH:
-            DisableThreadLibraryCalls(instance);
-            break;
-        case DLL_PROCESS_DETACH:
-            /* v2.41: rilascia le bitmap GDI+ del flyout batteria. */
-            w7t::BatteryFlyout::Instance().Shutdown();
-            break;
-        default:
-            break;
-    }
-    return TRUE;
-}
-
 /* v2.7: pannello overflow nativo con vetro Aero (fallback: Popup WPF). */
 static TrayOverflowWindow g_overflowWindow;
 
@@ -871,12 +885,18 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t lang, int32_t seconds, int32_t nativeFlyout,
         int32_t enableSearch, int32_t netFlyout, int32_t classicVolume,
         int32_t batteryFlyout, int32_t aeroPeek, int32_t toolbarDesktop,
-        int32_t toolbarAddress, int32_t toolbarLinks) {
+        int32_t toolbarAddress, int32_t toolbarLinks,
+        int32_t inputLanguageMode) {
     try {
+        /* v3.6: l'ordine DEVE essere quello della firma Show(): nativeFlyout,
+         * enableSearch, netFlyout. Prima erano invertiti (netFlyout al posto
+         * di enableSearch e viceversa): la spunta "ricerca" accendeva il
+         * flyout di rete e il selettore flyout di rete accendeva la ricerca. */
         g_properties.Show(reinterpret_cast<HWND>(ownerTaskbar), lang,
-                          seconds, nativeFlyout, netFlyout,
-                          enableSearch, classicVolume, batteryFlyout, aeroPeek,
-                          toolbarDesktop, toolbarAddress, toolbarLinks);
+                          seconds, nativeFlyout, enableSearch,
+                          netFlyout, classicVolume, batteryFlyout, aeroPeek,
+                          toolbarDesktop, toolbarAddress, toolbarLinks,
+                          inputLanguageMode);
     } catch (...) { /* mai propagare */ }
 }
 
@@ -918,6 +938,38 @@ extern "C" W7T_API void W7T_CALL W7T_JumpListShow(
             pinnedLnk ? pinnedLnk : L"",
             isPinned == 1,
             iconArgb, iconW, iconH, lang);
+    } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+/* ------------------------------------------------------------------ */
+/* v1.4: selettore della lingua (port del mod switcher).              */
+/* ------------------------------------------------------------------ */
+extern "C" W7T_API void W7T_CALL W7T_LangSwitcherShow(uint64_t ownerHwnd,
+        uint64_t foregroundHwnd, int32_t styleMode) {
+    W7T_SEH_TRY {
+        w7t::langswitcher::Show(ownerHwnd, foregroundHwnd, styleMode);
+    } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_LangSwitcherHide(void) {
+    W7T_SEH_TRY {
+        w7t::langswitcher::Hide();
+    } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_LangSwitcherGetActive(uint32_t* langId,
+        wchar_t* threeLetter, int32_t threeCap,
+        wchar_t* twoLetter, int32_t twoCap) {
+    W7T_SEH_TRY {
+        w7t::langswitcher::GetActiveInfo(langId, threeLetter, threeCap,
+                                         twoLetter, twoCap);
+    } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_LangSwitcherSetChangedCallback(
+        W7T_LangChangedCallback callback) {
+    W7T_SEH_TRY {
+        w7t::langswitcher::SetChangedCallback(callback);
     } W7T_SEH_CATCH {} W7T_SEH_END
 }
 

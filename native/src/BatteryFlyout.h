@@ -27,6 +27,10 @@ public:
     /* v2.41: rilascia le bitmap GDI+ (DLL_PROCESS_DETACH). */
     void Shutdown();
 
+    /* v1.7.1: Shutdown() only when the singleton exists; safe to call from
+     * DLL_PROCESS_DETACH because it never constructs the object. */
+    static void ShutdownIfCreated();
+
 private:
     BatteryFlyout() = default;
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
@@ -37,6 +41,7 @@ private:
 
     HWND m_hwnd = nullptr;
     bool m_classRegistered = false;
+    bool m_linkHot = false;          /* v1.7: hover sul link (stile overflow) */
     int  m_lang = 0;
 
     /* Icone decodificate UNA volta: HBITMAP 32bpp premoltiplicato. */

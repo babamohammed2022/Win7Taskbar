@@ -32,6 +32,9 @@ struct PropsApplyMsg {
     int32_t toolbarDesktop;  // 0/1 barra degli strumenti Desktop
     int32_t toolbarAddress;  // 0/1 barra degli strumenti Indirizzi
     int32_t toolbarLinks;    // 0/1 barra degli strumenti Collegamenti
+    /* v3.5: stile dell'indicatore della lingua di input.
+     * 0 = nascosta, 1 = Windows 7, 2 = Windows 8.1, 3 = Windows 10/11. */
+    int32_t inputLanguageMode;
 };
 constexpr DWORD kPropsCopyDataId = 'W7PA';
 
@@ -43,7 +46,7 @@ public:
               int32_t netFlyout, int32_t classicVolume,
               int32_t batteryFlyout, int32_t aeroPeek,
               int32_t toolbarDesktop, int32_t toolbarAddress,
-              int32_t toolbarLinks);
+              int32_t toolbarLinks, int32_t inputLanguageMode);
 
     /* v2.47: il font del dialogo e' un oggetto GDI: si crea una volta per
      * apertura e si distrugge alla chiusura, nel distruttore della classe
@@ -68,6 +71,7 @@ private:
     int32_t m_tbDesktop = 0;
     int32_t m_tbAddress = 0;
     int32_t m_tbLinks = 0;
+    int32_t m_inputLanguageMode = 1;   /* v3.5: stile Windows 7 di default */
     HFONT m_font = nullptr;   /* RAII: vive quanto il dialogo (v2.47) */
 };
 

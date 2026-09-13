@@ -117,6 +117,14 @@
                  UriSource="../Resources/Win7_Tray_TileHover.png" />
     <BitmapImage x:Key="TrayTilePressedImage"
                  UriSource="../Resources/Win7_Tray_TilePressed.png" />
+    <!-- v1.7.3: the soft-edged vertical strip for the window-count
+         separators (3x43, feathered alpha). v1.7.4: the file previously
+         lived only in the repo-root Resources folder, which the project
+         never copies to the output - THAT was why every loading mechanism
+         found nothing. It now sits next to the tile PNGs that demonstrably
+         ship and render, and loads with the same relative UriSource. -->
+    <BitmapImage x:Key="Win7_WindowStackBorderImage"
+                 UriSource="../Resources/multiplewindowborder.png" />
     <BitmapImage x:Key="ClockTileHoverImage"
                  UriSource="../Resources/Win7_Clock_TileHover.png" />
     <BitmapImage x:Key="ClockTilePressedImage"
@@ -1727,6 +1735,7 @@
                                       Margin="0,1,1,0"
                                       Opacity="0"
                                       ToolTip="Sposta fra tray e overflow (pin/unpin)"
+                                      Visibility="Collapsed"
                                       IsChecked="{Binding IsPinned, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
                                     <ToggleButton.Style>
                                         <Style TargetType="ToggleButton">
@@ -1901,6 +1910,7 @@
                                                                       Margin="0,1,1,0"
                                                                       Opacity="0"
                                                                       ToolTip="Sposta fra tray e overflow (pin/unpin)"
+                                                                      Visibility="Collapsed"
                                                                       IsChecked="{Binding IsPinned, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
                                     <ToggleButton.Style>
                                         <Style TargetType="ToggleButton">

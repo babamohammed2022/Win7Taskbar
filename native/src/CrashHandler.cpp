@@ -3,6 +3,12 @@
 // Licensed under the GNU General Public License version 3 or later.
 
 #include <windows.h>
+#ifdef _MSC_VER
+#include <crtdbg.h>
+#include <stdlib.h>
+#endif
+
+#include "BatteryFlyout.h"
 
 namespace {
 
@@ -98,6 +104,25 @@ void WriteCrashReport(EXCEPTION_POINTERS* ep) noexcept
     CloseHandle(file);
 }
 
+#ifdef _MSC_VER
+/* v1.7.2: CRT safety nets. The "Exception Processing Message 0xc0000005
+ * Unexpected Parameters" box the reporter saw on Windows 10 is NOT an
+ * access violation: it is the CRT's abort dialog for an invalid
+ * parameter (a bad swprintf/strcpy argument), and it kills the process
+ * without ever reaching the SEH guards. A handler that simply RETURNS
+ * makes the CRT function fail gracefully instead of aborting; abort's
+ * report dialog is disabled alongside it. */
+void __cdecl W7tInvalidParameterHandler(const wchar_t* expression,
+                                        const wchar_t* function,
+                                        const wchar_t* file,
+                                        unsigned int line,
+                                        uintptr_t /*reserved*/) {
+    (void)expression; (void)function; (void)file; (void)line;
+    OutputDebugStringW(L"Win7Taskbar: CRT invalid parameter suppressed\n");
+    /* returning = the CRT call reports an error, no abort */
+}
+#endif
+
 LONG WINAPI Win7TaskbarUnhandledExceptionFilter(EXCEPTION_POINTERS* ep) noexcept
 {
     WriteCrashReport(ep);
@@ -108,14 +133,33 @@ LONG WINAPI Win7TaskbarUnhandledExceptionFilter(EXCEPTION_POINTERS* ep) noexcept
 
 } // namespace
 
+// Single DllMain for the whole DLL. Exports.cpp used to define a second one
+// (v2.41 battery-flyout teardown) and MSVC link gave LNK2005 "DllMain already
+// defined" now that duplicate COMDATs are no longer silently folded; the two
+// bodies are merged here.
 extern "C" BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {
-    UNREFERENCED_PARAMETER(instance);
     UNREFERENCED_PARAMETER(reserved);
 
-    if (reason == DLL_PROCESS_ATTACH) {
-        DisableThreadLibraryCalls(instance);
-        SetUnhandledExceptionFilter(Win7TaskbarUnhandledExceptionFilter);
+    switch (reason) {
+        case DLL_PROCESS_ATTACH:
+            DisableThreadLibraryCalls(instance);
+            SetUnhandledExceptionFilter(Win7TaskbarUnhandledExceptionFilter);
+#ifdef _MSC_VER
+            _set_invalid_parameter_handler(W7tInvalidParameterHandler);
+            _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
+            _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
+            break;
+        case DLL_PROCESS_DETACH:
+            // Moved from Exports.cpp (v2.41): release the battery flyout's
+            // GDI+ bitmaps when the host unloads the DLL. v1.7.1: no-ops
+            // when the flyout was never shown, so shutdown never constructs
+            // the singleton under the loader lock.
+            w7t::BatteryFlyout::ShutdownIfCreated();
+            break;
+        default:
+            break;
     }
     return TRUE;
 }

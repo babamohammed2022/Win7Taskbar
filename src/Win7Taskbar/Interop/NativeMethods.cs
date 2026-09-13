@@ -321,6 +321,19 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppBarUnregister(ulong hwnd);
 
+        // v3.4: protocollo AppBar completo (notifiche ABN_*, stato, attivazione).
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarCallbackMessage();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarIsRegistered();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarNotify(uint wParam, int lParam);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarActivate(ulong hwnd);
+
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_SetNativeTaskbarHidden(int hidden);
 
@@ -422,11 +435,36 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppSearchInit(ulong ownerTaskbar, byte[]? argbPixels, int iconW, int iconH);
 
+        // v1.4: selettore della lingua (port del mod switcher). Il testo
+        // nella tray lo disegna il controllo gestito con la sigla che il
+        // core legge dal thread col primo piano; il click apre il popup
+        // nativo (finestra Win32 GDI del core).
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_LangSwitcherShow(ulong ownerHwnd,
+            ulong foregroundHwnd, int styleMode);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_LangSwitcherHide();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
+            CharSet = CharSet.Unicode)]
+        public static extern void W7T_LangSwitcherGetActive(ref uint langId,
+            [Out] char[] threeLetter, int threeCap,
+            [Out] char[] twoLetter, int twoCap);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        public delegate void W7TLangChangedCallback(uint langId);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_LangSwitcherSetChangedCallback(
+            W7TLangChangedCallback callback);
+
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_PropertiesShow(ulong ownerTaskbar, int lang,
             int seconds, int nativeFlyout, int enableSearch, int netFlyout,
             int classicVolume, int batteryFlyout,
-            int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks);
+            int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
+            int inputLanguageMode);
 
         // v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
@@ -587,6 +625,79 @@ namespace Win7Taskbar.Interop
         [DllImport("user32.dll")]
         public static extern IntPtr GetForegroundWindow();
 
+        // ---------------- v1.7.4: language bar via shell menu ----------------
+        // The ITA indicator now opens a plain Win32 menu (the same
+        // W7T_ShowContextMenuEx path the clock and the bar use, which never
+        // took the process down) and applies the picked layout with the
+        // canonical WM_INPUTLANGCHANGEREQUEST post. Public Win32 only; the
+        // dedicated popup thread and its managed callback stay untouched in
+        // the core but are no longer exercised.
+        internal const uint WM_INPUTLANGCHANGEREQUEST = 0x0050;
+        private const uint LOCALE_SLOCALIZEDDISPLAYNAME = 0x00000002;
+
+        [DllImport("user32.dll")]
+        public static extern uint GetKeyboardLayoutList(int nBuff,
+            [Out] IntPtr[]? lpList);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetKeyboardLayout(uint idThread);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd,
+            out uint processId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetLocaleInfoW(uint locale, uint lcType,
+            [Out] System.Text.StringBuilder data, int size);
+
+        [DllImport("user32.dll")]
+        public static extern bool PostMessageW(IntPtr hWnd, uint msg,
+            IntPtr wParam, IntPtr lParam);
+
+        /// <summary>Installed HKLs (may contain duplicates for different
+        /// keyboards of the same language: they are all offered).</summary>
+        internal static IntPtr[] GetInstalledKeyboardLayouts()
+        {
+            try
+            {
+                uint count = GetKeyboardLayoutList(0, null);
+                if (count == 0 || count > 64)
+                {
+                    return Array.Empty<IntPtr>();
+                }
+                var list = new IntPtr[count];
+                uint filled = GetKeyboardLayoutList((int)count, list);
+                if (filled == 0)
+                {
+                    return Array.Empty<IntPtr>();
+                }
+                Array.Resize(ref list, (int)filled);
+                return list;
+            }
+            catch (Exception)
+            {
+                return Array.Empty<IntPtr>();
+            }
+        }
+
+        /// <summary>Localized language name for an HKL (low word = language
+        /// identifier), e.g. "Italiano" for 0x0410. Empty on failure.</summary>
+        internal static string GetLanguageDisplayName(IntPtr hkl)
+        {
+            try
+            {
+                uint langId = (uint)(hkl.ToInt64() & 0xFFFF);
+                var sb = new System.Text.StringBuilder(128);
+                int n = GetLocaleInfoW(langId, LOCALE_SLOCALIZEDDISPLAYNAME,
+                    sb, sb.Capacity);
+                return n > 0 ? sb.ToString() : ("0x" + langId.ToString("X4"));
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
+        }
+
         // --- DWM: anteprime live delle finestre ---
         //
         // Stesse API usate dalla Superbar di Windows 7 e da RetroBar
@@ -612,6 +723,21 @@ namespace Win7Taskbar.Interop
         {
             public int cx;
             public int cy;
+        }
+
+        /// <summary>Parametro WM_WINDOWPOSCHANGED/WM_WINDOWPOSCHANGING:
+        /// posizione e flag dell'operazione di spostamento in corso
+        /// (serve a capire CHI ha mosso la finestra della barra).</summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public class WINDOWPOS
+        {
+            public IntPtr hwnd;
+            public IntPtr hwndInsertAfter;
+            public int x;
+            public int y;
+            public int cx;
+            public int cy;
+            public uint flags;
         }
 
         /* =================================================================
@@ -657,6 +783,7 @@ namespace Win7Taskbar.Interop
 
         public const uint SWP_NOSIZE = 0x0001;
         public const uint SWP_NOMOVE = 0x0002;
+        public const uint SWP_NOZORDER = 0x0004;
         public const uint SWP_NOACTIVATE = 0x0010;
         public const uint SWP_SHOWWINDOW = 0x0040;
 
@@ -664,6 +791,12 @@ namespace Win7Taskbar.Interop
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
                                                int X, int Y, int cx, int cy, uint uFlags);
+
+        /// <summary>Messaggi registrati a livello di sessione ("TaskbarCreated",
+        /// il messaggio di callback della nostra AppBar): il valore e' lo stesso
+        /// per tutti i processi fino al riavvio della sessione.</summary>
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern uint RegisterWindowMessage(string messageName);
 
         [DllImport("gdi32.dll")]
         public static extern IntPtr CreateCompatibleDC(IntPtr hdc);

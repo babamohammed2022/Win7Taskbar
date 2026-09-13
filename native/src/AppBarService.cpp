@@ -69,6 +69,13 @@ int32_t AppBarService::Register(HWND hwnd, int32_t edge, int32_t sizePx) {
     if (m_registered && m_hwnd == hwnd) {
         return W7T_OK;
     }
+    if (m_registered) {
+        /* La finestra della barra e' stata ricreata (riavvio di Explorer,
+         * ricostruzione del frontend): la registrazione vecchia punta a un
+         * HWND che non serve piu', va rimossa prima della nuova, altrimenti
+         * restano due prenotazioni sullo stesso bordo. */
+        Unregister(nullptr);
+    }
 
     m_callbackMessage = RegisterWindowMessageW(L"Win7TaskbarAppBarMessage");
     if (m_callbackMessage == 0) {
@@ -101,9 +108,32 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
         return W7T_ERR_APPBAR;
     }
 
-    /* Lavoriamo sul monitor primario: e' dove vive la taskbar principale. */
-    const int screenWidth  = GetSystemMetrics(SM_CXSCREEN);
-    const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    /* Rettangolo FISICO del monitor su cui vive la barra.
+     *
+     * Prima si usava GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN): in un
+     * processo Per-Monitor-V2 quei valori non garantiscono i pixel reali
+     * del monitor in tutti i contesti DPI, e la barra e' per progetto
+     * confinata al monitor primario. MonitorFromWindow + GetMonitorInfo
+     * danno il rettangolo esatto, nel sistema di coordinate fisiche che
+     * e' quello del protocollo AppBar (approccio di ManagedShell, che
+     * usa i bounds del monitor e mai le metriche di sistema). */
+    RECT monitor = {};
+    HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    if (mon != nullptr && GetMonitorInfoW(mon, &mi)) {
+        monitor = mi.rcMonitor;
+    } else {
+        /* Ripiego: metriche del monitor primario. */
+        monitor.left   = 0;
+        monitor.top    = 0;
+        monitor.right  = GetSystemMetrics(SM_CXSCREEN);
+        monitor.bottom = GetSystemMetrics(SM_CYSCREEN);
+    }
+
+    if (sizePx <= 0) {
+        sizePx = m_size > 0 ? m_size : 40;
+    }
 
     APPBARDATA abd = {};
     abd.cbSize = sizeof(abd);
@@ -112,29 +142,29 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
 
     switch (edge) {
         case W7T_EDGE_TOP:
-            abd.rc.left   = 0;
-            abd.rc.top    = 0;
-            abd.rc.right  = screenWidth;
-            abd.rc.bottom = sizePx;
+            abd.rc.left   = monitor.left;
+            abd.rc.top    = monitor.top;
+            abd.rc.right  = monitor.right;
+            abd.rc.bottom = monitor.top + sizePx;
             break;
         case W7T_EDGE_LEFT:
-            abd.rc.left   = 0;
-            abd.rc.top    = 0;
-            abd.rc.right  = sizePx;
-            abd.rc.bottom = screenHeight;
+            abd.rc.left   = monitor.left;
+            abd.rc.top    = monitor.top;
+            abd.rc.right  = monitor.left + sizePx;
+            abd.rc.bottom = monitor.bottom;
             break;
         case W7T_EDGE_RIGHT:
-            abd.rc.left   = screenWidth - sizePx;
-            abd.rc.top    = 0;
-            abd.rc.right  = screenWidth;
-            abd.rc.bottom = screenHeight;
+            abd.rc.left   = monitor.right - sizePx;
+            abd.rc.top    = monitor.top;
+            abd.rc.right  = monitor.right;
+            abd.rc.bottom = monitor.bottom;
             break;
         case W7T_EDGE_BOTTOM:
         default:
-            abd.rc.left   = 0;
-            abd.rc.top    = screenHeight - sizePx;
-            abd.rc.right  = screenWidth;
-            abd.rc.bottom = screenHeight;
+            abd.rc.left   = monitor.left;
+            abd.rc.top    = monitor.bottom - sizePx;
+            abd.rc.right  = monitor.right;
+            abd.rc.bottom = monitor.bottom;
             break;
     }
 
@@ -142,7 +172,9 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
      * conto delle altre AppBar gia' registrate. */
     SHAppBarMessage(ABM_QUERYPOS, &abd);
 
-    /* Dopo la query ricomponiamo lo spessore richiesto sul bordo scelto. */
+    /* Dopo la query ricomponiamo lo spessore richiesto sul bordo scelto
+     * (l'aggiustamento del sistema sposta il lato opposto: lo riportiamo,
+     * come fa anche ManagedShell::ABSetPos). */
     switch (edge) {
         case W7T_EDGE_TOP:
             abd.rc.bottom = abd.rc.top + sizePx;
@@ -164,10 +196,108 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
     m_edge = edge;
     m_size = sizePx;
 
+    /* IL PASSO CHE MANCAVA: la finestra si SPOSTA sul rettangolo che la
+     * shell ha confermato.
+     *
+     * Prima il rettangolo riservato (ABM_SETPOS) e la posizione della
+     * finestra WPF (calcolata a parte in DIP) erano due contabilita'
+     * separate: se la shell spostava la nostra AppBar (perche' la barra di
+     * Explorer era ancora registrata sul bordo, o dopo un cambio
+     * DPI/monitor) il lavoro di Windows (work area) e la barra visibile
+     * divergevano, e restava una fascia inutilizzata fra le finestre
+     * massimizzate e la barra. Con lo spostamento qui la finestra e il
+     * work area NON possono piu' divergere: e' l'invariante con cui
+     * ManagedShell/RetroBar (AppBarWindow.SetWindowPosition(abd.rc))
+     * tengono barra e area riservata sempre coincidenti. */
+    SetWindowPos(hwnd, nullptr,
+                 abd.rc.left, abd.rc.top,
+                 abd.rc.right - abd.rc.left, abd.rc.bottom - abd.rc.top,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+
+    /* La shell deve sapere che il nostro rettangolo e' cambiato: le altre
+     * AppBar ricalcolano la loro posizione rispetto alla nostra
+     * (stessa chiamata che ManagedShell fa da WM_WINDOWPOSCHANGED). */
+    NotifyWindowPosChanged(hwnd);
+
     if (out != nullptr) {
         *out = abd.rc;
     }
     return W7T_OK;
+}
+
+void AppBarService::NotifyWindowPosChanged(HWND hwnd) {
+    if (!m_registered) {
+        return;
+    }
+    if (hwnd == nullptr || !IsWindow(hwnd)) {
+        hwnd = m_hwnd;
+    }
+    if (hwnd == nullptr) {
+        return;
+    }
+    APPBARDATA abd = {};
+    abd.cbSize = sizeof(abd);
+    abd.hWnd   = hwnd;
+    SHAppBarMessage(ABM_WINDOWPOSCHANGED, &abd);
+}
+
+void AppBarService::Activate(HWND hwnd) {
+    if (!m_registered) {
+        return;
+    }
+    if (hwnd == nullptr || !IsWindow(hwnd)) {
+        hwnd = m_hwnd;
+    }
+    if (hwnd == nullptr) {
+        return;
+    }
+    APPBARDATA abd = {};
+    abd.cbSize = sizeof(abd);
+    abd.hWnd   = hwnd;
+    abd.lParam = 1;   /* TRUE: la barra e' attiva */
+    SHAppBarMessage(ABM_ACTIVATE, &abd);
+}
+
+bool AppBarService::HandleCallback(uint32_t wParam, int32_t lParam) {
+    if (!m_registered) {
+        return false;
+    }
+
+    /* Notifiche ABN_* del protocollo AppBar.
+     *
+     * Il messaggio di callback era registrato ma MAI gestito: la shell
+     * ci avvisa qui quando lo spazio riservato va ricalcolato (ABN_POSCHANGED
+     * arriva quando un'altra AppBar compare/scompare, quando la barra di
+     * Explorer cambia stato, quando cambiano i monitor). Ignorarlo lasciava
+     * la prenotazione stantia: esattamente il "buco" fra le finestre
+     * massimizzate e la barra. Lo stesso flusso e' quello di
+     * ManagedShell (AppBarWindow.WndProc, AppBarNotifications.PosChanged). */
+    switch (wParam) {
+        case ABN_POSCHANGED:
+            /* Riesegue la sequenza QUERYPOS/SETPOS e risistema la finestra
+             * sul rettangolo confermato (vedi SetPos). */
+            SetPos(m_hwnd, m_edge, m_size, nullptr);
+            return true;
+
+        case ABN_WINDOWARRANGE:
+            /* Prima che la shell disponga le finestre (lParam TRUE) la barra
+             * si toglie di mezzo; a disposizione finita (FALSE) torna. */
+            ShowWindow(m_hwnd, lParam ? SW_HIDE : SW_SHOW);
+            return true;
+
+        case ABN_FULLSCREENAPP:
+            /* App a schermo intero: la barra deve farsi da parte.
+             * Il frontend ha gia' il suo percorso (W7T_EVT_FULLSCREEN_CHANGED
+             * da WindowManager); qui si dichiara solo gestita, come fanno
+             * le shell che non vogliono l'animazione di default. */
+            return true;
+
+        case ABN_STATECHANGE:
+            return true;
+
+        default:
+            return false;
+    }
 }
 
 int32_t AppBarService::Unregister(HWND hwnd) {
@@ -336,6 +466,21 @@ void CALLBACK AppBarService::HideWatcherProc(HWINEVENTHOOK, DWORD event,
     }
 
     AppBarService& self = Instance();
+
+    /* v1.7.4: a ogni cambio di finestra in primo piano riafferma la NOstra
+     * barra nella fascia topmost, come fa explorer.exe con la propria.
+     * Senza questo, un'app che torna in primo piano (Chrome a schermo
+     * intero in primis) puo' finire SOPRA la barra perche' nessuno
+     * riacquista lo z-order per noi. Manutenzione best-effort: HWND
+     * invalido o SetWindowPos fallito non propagano nulla (si ritenta al
+     * prossimo cambio di foreground). SWP_NOACTIVATE: si aggiorna solo la
+     * posizione nella fascia topmost, il focus resta dove e'. */
+    if (event == EVENT_SYSTEM_FOREGROUND &&
+        self.m_hwnd != nullptr && IsWindow(self.m_hwnd)) {
+        SetWindowPos(self.m_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+
     if (!self.m_nativeHidden.load() || self.m_watchEvent == nullptr) {
         return;
     }
@@ -366,13 +511,22 @@ void CALLBACK AppBarService::HideWatcherProc(HWINEVENTHOOK, DWORD event,
 
 void AppBarService::HideWatcherLoop() {
     while (m_watchRun.load()) {
+        /* v3.5: il timeout NON ripiega piu' su "continue". Prima il loop
+         * ri-nascondeva la barra solo quando arrivava un evento (SHOW o
+         * FOREGROUND); durante una cattura dello Strumento di cattura,
+         * pero', la barra nativa viene rimessa a schermo da Windows senza
+         * che quegli eventi arrivino a noi (la cattura la mostra in un
+         * composizione dedicata), e il vecchio ripiego la lasciava
+         * lampeggiare nelle foto. Ora ogni 500 ms, evento o no, il loop
+         * controlla la visibilita' e la ri-nasconde se serve: e' il
+         * ripiego che RetroBar ottiene col suo monitor continuo. Il
+         * controllo resta leggero (FindWindow + IsWindowVisible) e non fa
+         * nulla quando la barra e' gia' nascosta. */
         const DWORD wait = WaitForSingleObject(m_watchEvent, 500);
         if (!m_watchRun.load()) {
             break;
         }
-        if (wait != WAIT_OBJECT_0) {
-            continue;
-        }
+        (void)wait;
         if (!m_nativeHidden.load()) {
             continue;
         }

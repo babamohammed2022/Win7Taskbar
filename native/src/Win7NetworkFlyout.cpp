@@ -37,6 +37,7 @@
 #include <shellapi.h>
 #include <commctrl.h>
 #include "WinhawkShim.h"
+#include "Common.h"      /* v3.5: LogTagged - diagnostica nel log del core */
 #include "SehGuard.h"   /* v2.63: lanci protetti (SEH + try/catch) */
 #include <netlistmgr.h>
 #include <process.h>
@@ -3210,6 +3211,10 @@ static BOOL XmlTagEqualsCI(const WCHAR* xml, const WCHAR* tagName, const WCHAR* 
 static BOOL ProfileSecurityMatches(const WCHAR* profileXml, DOT11_AUTH_ALGORITHM authAlgorithm, DOT11_CIPHER_ALGORITHM cipherAlgorithm);
 LRESULT CALLBACK ToolbarWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, DWORD_PTR uIdSubclass);
 void RefreshWifiData(HANDLE hClient);
+/* v3.5: se il riquadro si apre con la lista vuota si ordina una scansione
+ * WLAN, cosi' le reti arrivano entro pochi secondi (WlanScan e'
+ * asincrona: il risultato entra dalla notifica gia' registrata). */
+void TriggerWlanScanIfNeeded(void);
 void UpdateLayoutGeometry(int scrollbarOffset = 0);
 void ConnectToNetwork(int index);
 void DisconnectFromNetwork(int index);
@@ -4612,8 +4617,15 @@ void RefreshWifiData(HANDLE hClient) {
     static DWORD lastValidRefresh = 0;
     DWORD now = GetTickCount();
     PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
-    if (WlanEnumInterfaces(hClient, NULL, &pIfList) != ERROR_SUCCESS) return;
-    
+    const DWORD enumResult = WlanEnumInterfaces(hClient, NULL, &pIfList);
+    if (enumResult != ERROR_SUCCESS) {
+        /* v3.6: prima si usciva in SILENZIO: nessun indizio nel log. */
+        w7t::LogTagged(L"NET",
+                  L"RefreshWifiData: WlanEnumInterfaces non riuscito (%lu)",
+                  (unsigned long)enumResult);
+        return;
+    }
+
     int localWlanIfCount = 0;
     GUID localWlanIfGuids[16];
     if (pIfList) {
@@ -4634,9 +4646,18 @@ void RefreshWifiData(HANDLE hClient) {
         PWLAN_AVAILABLE_NETWORK_LIST pBssList  = NULL;
         PWLAN_PROFILE_INFO_LIST      pProfList = NULL;
         WlanGetProfileList(hClient, &IfInfo.InterfaceGuid, NULL, &pProfList);
-        if (WlanGetAvailableNetworkList(hClient, &IfInfo.InterfaceGuid,
-                WLAN_AVAILABLE_NETWORK_INCLUDE_ALL_MANUAL_HIDDEN_PROFILES,
-                NULL, &pBssList) == ERROR_SUCCESS) {
+        const DWORD scanResult = WlanGetAvailableNetworkList(
+            hClient, &IfInfo.InterfaceGuid,
+            WLAN_AVAILABLE_NETWORK_INCLUDE_ALL_MANUAL_HIDDEN_PROFILES,
+            NULL, &pBssList);
+        if (scanResult != ERROR_SUCCESS) {
+            /* v3.6: anche qui prima niente log: la lista restava vuota
+             * senza dire perche'. */
+            w7t::LogTagged(L"NET",
+                      L"RefreshWifiData: WlanGetAvailableNetworkList interfaccia %lu non riuscito (%lu)",
+                      (unsigned long)i, (unsigned long)scanResult);
+        }
+        if (scanResult == ERROR_SUCCESS) {
             for (DWORD j = 0; j < pBssList->dwNumberOfItems && tempCount < 50; j++) {
                 WLAN_AVAILABLE_NETWORK network = pBssList->Network[j];
                 size_t len = (size_t)network.dot11Ssid.uSSIDLength;
@@ -4741,6 +4762,121 @@ void RefreshWifiData(HANDLE hClient) {
         if (pProfList) WlanFreeMemory(pProfList);
     }
     WlanFreeMemory(pIfList);
+    /* v3.5/v3.6 - LA LISTA NON DEVE MAI RESTARE VUOTA COL PC COLLEGATO.
+     * Alcuni adattatori (driver lenti al logon, radio appena riattivata
+     * dal risparmio energetico, filtri di rete aziendali) rispondono a
+     * WlanGetAvailableNetworkList con una lista vuota ANCHE quando il PC
+     * e' collegato: il riquadro mostrava l'intestazione con la connessione
+     * e NESSUNA voce. Qui, per ogni interfaccia WLAN che non ha prodotto
+     * voci, si chiede a Windows la CONNESSIONE CORRENTE e la si aggiunge
+     * in lista; se anche quella non dice niente (radio spenta, PC su
+     * Ethernet), l'ultima rete di garanzia e' il nome della rete secondo
+     * Windows (NLM): una voce "collegata" con quel nome, cosi' l'utente
+     * vede sempre ALMENO la connessione in uso. */
+    if (tempCount == 0 && hClient) {
+        /* v3.6: se WlanEnumInterfaces non ha restituito NESSUNA interfaccia
+         * (radio in fase di inizializzazione, servizio WLAN lento), prima
+         * il fallback saltava TUTTO in silenzio. Ora lo dichiara nel log e
+         * prosegue con la garanzia NLM piu' sotto. */
+        if (localWlanIfCount <= 0) {
+            w7t::LogTagged(L"NET",
+                      L"lista vuota: WlanEnumInterfaces ha dato 0 interfacce (radio non pronta?)");
+        }
+        for (int i = 0; i < localWlanIfCount && tempCount < 50; i++) {
+            WLAN_CONNECTION_ATTRIBUTES* pConn = nullptr;
+            DWORD connSize = 0;
+            WLAN_OPCODE_VALUE_TYPE opType = wlan_opcode_value_type_invalid;
+            const DWORD queryResult = WlanQueryInterface(
+                hClient, &localWlanIfGuids[i],
+                wlan_intf_opcode_current_connection,
+                NULL, &connSize, (PVOID*)&pConn, &opType);
+            if (queryResult != ERROR_SUCCESS || !pConn) {
+                /* v3.6: il PERCHE' va nel log del core, non in OutputDebugString. */
+                w7t::LogTagged(L"NET",
+                          L"lista vuota: WlanQueryInterface(connessione corrente) interfaccia %d non riuscito (%lu)",
+                          i, (unsigned long)queryResult);
+                continue;
+            }
+            const DOT11_SSID& ssid = pConn->wlanAssociationAttributes.dot11Ssid;
+            const bool isConnected =
+                pConn->isState == wlan_interface_state_connected;
+            if (!isConnected || ssid.uSSIDLength == 0) {
+                w7t::LogTagged(L"NET",
+                          L"lista vuota: interfaccia %d in stato %d, SSID len %u (non collegata)",
+                          i, (int)pConn->isState,
+                          (unsigned)ssid.uSSIDLength);
+                WlanFreeMemory(pConn);
+                continue;
+            }
+            WifiNetworkItem& item = tempList[tempCount];
+            size_t len = (size_t)ssid.uSSIDLength;
+            BYTE cleanSsid[33] = {0};
+            size_t cleanLen = (len < 32u) ? len : 32u;
+            for (size_t k = 0; k < cleanLen; k++)
+                cleanSsid[k] = (ssid.ucSSID[k] == 0) ? (BYTE)' ' : ssid.ucSSID[k];
+            cleanSsid[cleanLen] = 0;
+            int converted = MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)cleanSsid,
+                                                (int)cleanLen, item.ssid, 32);
+            if (converted <= 0) {
+                for (size_t k = 0; k < cleanLen; k++)
+                    item.ssid[k] = (WCHAR)cleanSsid[k];
+                converted = (int)cleanLen;
+            }
+            item.ssid[converted] = L'\0';
+            item.isSecured = pConn->wlanSecurityAttributes.bSecurityEnabled
+                                 ? TRUE : FALSE;
+            /* Qualita' del segnale non richiesta dalla connessione
+             * corrente: si usa un valore pieno ma non estremo, e alla
+             * prima scansione riuscita la lista torna ai dati veri. */
+            item.signalQuality = 80;
+            item.interfaceGuid = localWlanIfGuids[i];
+            item.dot11BssType = dot11_BSS_type_infrastructure;
+            item.hasProfile = FALSE;
+            item.hasInternetAccess = FALSE;
+            item.connState = CONN_STATE_CONNECTED;
+            item.operationStartTime = 0;
+            item.authAlgorithm =
+                pConn->wlanSecurityAttributes.dot11AuthAlgorithm;
+            item.cipherAlgorithm =
+                pConn->wlanSecurityAttributes.dot11CipherAlgorithm;
+            item.displaySuffix = 0;
+            item.hasBssid = FALSE;
+            ZeroMemory(item.bssid, sizeof(item.bssid));
+            tempCount++;
+            w7t::LogTagged(L"NET",
+                      L"lista WLAN vuota dallo scan: aggiunta la connessione corrente '%s'",
+                      item.ssid);
+            WlanFreeMemory(pConn);
+        }
+        if (tempCount == 0) {
+            /* v3.6 - ULTIMA GARANZIA: la radio non riferisce nulla (spenta
+             * o PC collegato via cavo), ma Windows dice di essere
+             * collegati: si aggiunge la rete corrente col nome che da'
+             * Windows (NLM). La lista non resta mai vuota. */
+            const NlmConnectivitySnapshot nlmNow = QueryNlmConnectivity();
+            if (nlmNow.connected) {
+                WifiNetworkItem& item = tempList[tempCount];
+                ZeroMemory(&item, sizeof(item));
+                const WCHAR* name = (nlmNow.name[0] != L'\0')
+                                        ? nlmNow.name : L"Network";
+                StringCchCopyW(item.ssid, 33, name);
+                item.isSecured = FALSE;
+                item.signalQuality = 100;
+                item.dot11BssType = dot11_BSS_type_infrastructure;
+                item.hasProfile = FALSE;
+                item.hasInternetAccess = nlmNow.hasInternet ? TRUE : FALSE;
+                item.connState = CONN_STATE_CONNECTED;
+                item.displaySuffix = 0;
+                tempCount++;
+                w7t::LogTagged(L"NET",
+                          L"lista vuota e radio silenziosa: aggiunta la rete di Windows '%s' (collegata)",
+                          item.ssid);
+            } else {
+                w7t::LogTagged(L"NET",
+                          L"lista vuota: nessuna interfaccia WLAN collegata e NLM dice disconnesso");
+            }
+        }
+    }
     {
         bool seenConnectedForInterface[64] = {false};
         GUID seenGuids[64];
@@ -5154,6 +5290,15 @@ void RefreshNetworkData(BOOL forceDetection = FALSE, INetworkListManager* pNLMOv
     if (g_Ctx.hWlanClient) {
         RefreshWifiData(g_Ctx.hWlanClient);
     } else {
+        /* v3.5: la ragione del riquadro vuoto va nel log del core, non
+         * solo in OutputDebugString: e' la prima cosa da chiedere
+         * all'utente quando la lista non si riempie. */
+        static bool loggedMissingWlan = false;
+        if (!loggedMissingWlan) {
+            loggedMissingWlan = true;
+            w7t::LogTagged(L"NET",
+                      L"RefreshNetworkData: nessun handle WLAN (servizio WlanSvc assente o rifiutato): lista wifi vuota");
+        }
         EnterCriticalSection(&g_Ctx.csLock);
         g_NetworkCount = 0;
         LeaveCriticalSection(&g_Ctx.csLock);
@@ -7617,6 +7762,18 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
             CheckConnectionTimeouts();
             UpdateLayoutGeometry();
             InvalidateRect(hwnd, NULL, FALSE);
+        } else if (wParam == 1003) {
+            /* v3.6: IL COLPO DOPO LA SCANSIONE. All'apertura con lista
+             * vuota si ordina una scansione WLAN (TriggerWlanScanIfNeeded):
+             * i risultati arrivano dopo qualche secondo, ma prima nessuno
+             * riattivava il riquadro se il timer periodico non era parte.
+             * Ora un colpo unico a 4 s rilegge i dati: le reti comparse
+             * finiscono in lista. */
+            KillTimer(hwnd, 1003);
+            RefreshNetworkData();
+            ClampScrollPos();
+            UpdateLayoutGeometry();
+            InvalidateRect(hwnd, NULL, TRUE);
         }
         break;
     case WM_SHOW_FLYOUT:
@@ -9309,6 +9466,39 @@ void RemoveTrayInterception() {
 // -------------------------------------------------------
 // Toggle flyout
 // -------------------------------------------------------
+
+/* v3.5 - Scansione WLAN quando il riquadro apre la lista vuota. Il Native
+ * WiFi a volte serve la lista delle reti disponibili solo DOPO una
+ * scansione (subito dopo il logon, radio appena riattivata): senza questo
+ * ordine l'utente vedeva "Connesso" in testa e nessuna voce. Il ritmo e'
+ * limitato (una scansione ogni 5 secondi al massimo) perche' WlanScan
+ * costa alla radio. */
+void TriggerWlanScanIfNeeded(void) {
+    static DWORD lastScanRequest = 0;
+    const DWORD now = GetTickCount();
+    if (lastScanRequest != 0 && now - lastScanRequest < 5000) {
+        return;
+    }
+    lastScanRequest = now;
+    HANDLE hClient = g_Ctx.hWlanClient;
+    if (!hClient) {
+        return;
+    }
+    PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
+    if (WlanEnumInterfaces(hClient, NULL, &pIfList) != ERROR_SUCCESS
+        || !pIfList) {
+        w7t::LogTagged(L"NET", L"scansione WLAN: WlanEnumInterfaces non riuscito");
+        return;
+    }
+    for (DWORD i = 0; i < pIfList->dwNumberOfItems; i++) {
+        WlanScan(hClient, &pIfList->InterfaceInfo[i].InterfaceGuid,
+                 NULL, NULL, NULL);
+    }
+    w7t::LogTagged(L"NET",
+              L"riquadro aperto con lista vuota: scansione WLAN ordinata su %lu interfaccia/e",
+              (unsigned long)pIfList->dwNumberOfItems);
+    WlanFreeMemory(pIfList);
+}
 void ToggleFlyoutWindow() {
     DWORD dwCurrentThreadId = GetCurrentThreadId();
     BOOL flyoutAlreadyExists = (g_hWndFlyout && IsWindow(g_hWndFlyout));
@@ -9413,6 +9603,24 @@ void ToggleFlyoutWindow() {
             // on every single open (not just at startup) and always fall
             // back to the generic PC icon.
             RefreshNetworkData(/*forceDetection=*/TRUE);
+            /* v3.5: diagnostica nel log del core + scansione se la lista e'
+             * rimasta vuota. Sono le righe che dicono PERCHE' la lista non
+             * si riempiva (servizio WLAN, adattatore, driver). */
+            {
+                int netCountNow = -1;
+                EnterCriticalSection(&g_Ctx.csLock);
+                netCountNow = g_NetworkCount;
+                LeaveCriticalSection(&g_Ctx.csLock);
+                w7t::LogTagged(L"NET",
+                          L"apertura riquadro: %d rete/i in lista, WLAN %s",
+                          netCountNow,
+                          g_Ctx.hWlanClient ? L"attivo" : L"non disponibile");
+                if (netCountNow == 0) {
+                    TriggerWlanScanIfNeeded();
+                    /* v3.6: rilettura garantita dopo la scansione (4 s). */
+                    SetTimer(g_hWndFlyout, 1003, 4000, NULL);
+                }
+            }
             RecalcArrowRect();
             UpdateLayoutGeometry();
             PositionWindowNearTray(g_hWndFlyout);
