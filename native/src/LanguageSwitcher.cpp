@@ -1452,10 +1452,10 @@ static LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg,
             break;
 
         case WM_SETTINGCHANGE:
-            /* v1.6 (pattern portato da StartAllBack): un cambio tema
-             * scuro/chiaro arriva come WM_SETTINGCHANGE "ImmersiveColorSet";
-             * il popup ridipinge SUBITO (i colori sono riletti a ogni
-             * paint), senza polling. */
+            /* v1.6: un cambio tema scuro/chiaro arriva come
+             * WM_SETTINGCHANGE "ImmersiveColorSet"; il popup ridipinge
+             * SUBITO (i colori sono riletti a ogni paint), senza
+             * polling. */
             if (lParam != 0 &&
                 lstrcmpiW(reinterpret_cast<LPCWSTR>(lParam),
                           L"ImmersiveColorSet") == 0) {
@@ -1790,12 +1790,144 @@ static void HideInner() {
     }
 }
 
-/* v1.6: public entry points guarded like the exports do (double belt):
- * an exception swallowed here also releases any critical section left
- * open, so the taskbar never hangs on the next popup interaction. */
+/* ------------------------------------------------------------------ */
+/*  v1.7 - THREAD DEDICATO DEL POPUP                                   */
+/*                                                                     */
+/*  Il popup NON nasce piu' sul thread dell'interfaccia gestita: un    */
+/*  thread nativo nostro possiede la finestra di controllo invisibile  */
+/*  e il popup. Il Show pubblico spedisce SOLO un messaggio: il clic   */
+/*  sulla sigla non crea piu' finestre sul thread WPF e non tocca il   */
+/*  suo stack. Se una terza parte fa crashare qualcosa dentro il       */
+/*  popup, la guardia del WndProc ingoia e il thread resta vivo; se    */
+/*  il thread non parte, Show ripiega sul percorso inline di prima.    */
+/* ------------------------------------------------------------------ */
+
+struct ShowArgs {
+    uint64_t owner;
+    uint64_t foreground;
+    int styleMode;
+};
+
+constexpr UINT kMsgSwitcherShow = WM_APP + 1;   /* sulla finestra ctl     */
+constexpr UINT kMsgSwitcherHide = WM_APP + 2;   /* sulla finestra ctl     */
+
+static std::atomic<HWND> g_ctlWnd{ nullptr };
+static HANDLE g_switcherThread = nullptr;
+static HANDLE g_switcherReady = nullptr;        /* auto-reset             */
+
+static LRESULT CALLBACK SwitcherCtlWndProc(HWND hwnd, UINT msg,
+                                           WPARAM wParam, LPARAM lParam) {
+    LRESULT result = 0;
+    W7T_SEH_TRY {
+        switch (msg) {
+            case kMsgSwitcherShow: {
+                ShowArgs* a = reinterpret_cast<ShowArgs*>(wParam);
+                if (a != nullptr) {
+                    const ShowArgs local = *a;
+                    delete a;   /* prima della chiamata: nessun leak    */
+                    ShowInner(local.owner, local.foreground,
+                              local.styleMode);
+                }
+                result = 0;
+                break;
+            }
+            case kMsgSwitcherHide:
+                HideInner();
+                result = 0;
+                break;
+            case WM_DESTROY:
+                PostQuitMessage(0);
+                result = 0;
+                break;
+            default:
+                result = DefWindowProcW(hwnd, msg, wParam, lParam);
+                break;
+        }
+    } W7T_SEH_CATCH {
+        LogTagged(L"LANGSW",
+                  L"control window: swallowed an exception; the thread "
+                  L"keeps going");
+        result = 0;
+    } W7T_SEH_END
+    return result;
+}
+
+static DWORD WINAPI SwitcherThreadProc(LPVOID /*unused*/) {
+    const wchar_t kCtlClass[] = L"W7T_LangSwitcherCtl";
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = SwitcherCtlWndProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = kCtlClass;
+    RegisterClassExW(&wc);
+    /* Finestra message-only: nessun ingombro, nessun ciclo di UI. */
+    HWND ctl = CreateWindowExW(0, kCtlClass, L"", 0, 0, 0, 0, 0,
+                               HWND_MESSAGE, nullptr,
+                               GetModuleHandleW(nullptr), nullptr);
+    g_ctlWnd.store(ctl, std::memory_order_release);
+    if (g_switcherReady != nullptr) {
+        SetEvent(g_switcherReady);
+    }
+    if (ctl == nullptr) {
+        return 0;
+    }
+    MSG m{};
+    while (GetMessageW(&m, nullptr, 0, 0) > 0) {
+        TranslateMessage(&m);
+        DispatchMessageW(&m);
+    }
+    /* Uscita ordinata: il popup vive su QUESTO thread. */
+    HideInner();
+    g_ctlWnd.store(nullptr, std::memory_order_release);
+    return 0;
+}
+
+static bool EnsureSwitcherThread() {
+    if (AtomicLoadHwnd(g_ctlWnd) != nullptr) {
+        return true;
+    }
+    if (g_switcherReady == nullptr) {
+        g_switcherReady = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (g_switcherReady == nullptr) {
+            return false;
+        }
+    }
+    ResetEvent(g_switcherReady);
+    HANDLE h = CreateThread(nullptr, 0, SwitcherThreadProc, nullptr, 0,
+                            nullptr);
+    if (h == nullptr) {
+        return false;
+    }
+    g_switcherThread = h;
+    const DWORD waited = WaitForSingleObject(g_switcherReady, 2000);
+    return waited == WAIT_OBJECT_0 &&
+           AtomicLoadHwnd(g_ctlWnd) != nullptr;
+}
+
+/* v1.6/v1.7: public entry points, both guarded like the exports do
+ * (double belt) and routed through the dedicated thread: the WPF click
+ * handler only posts a message and returns immediately. If the thread
+ * cannot start, the inline path of the previous versions remains as a
+ * fallback. An exception swallowed here also releases any critical
+ * section left open, so the taskbar never hangs. */
 void Show(uint64_t ownerHwnd, uint64_t foregroundHwnd, int styleMode) {
     W7T_SEH_TRY {
-        ShowInner(ownerHwnd, foregroundHwnd, styleMode);
+        if (EnsureSwitcherThread()) {
+            ShowArgs* args = new (std::nothrow)
+                ShowArgs{ ownerHwnd, foregroundHwnd, styleMode };
+            if (args == nullptr) {
+                return;
+            }
+            if (!PostMessageW(AtomicLoadHwnd(g_ctlWnd), kMsgSwitcherShow,
+                              reinterpret_cast<WPARAM>(args), 0)) {
+                delete args;
+                LogTagged(L"LANGSW",
+                          L"show: post failed, inline fallback");
+                ShowInner(ownerHwnd, foregroundHwnd, styleMode);
+            }
+        } else {
+            ShowInner(ownerHwnd, foregroundHwnd, styleMode);
+        }
     } W7T_SEH_CATCH {
         CsHealAfterFault();
         LogTagged(L"LANGSW",
@@ -1806,7 +1938,12 @@ void Show(uint64_t ownerHwnd, uint64_t foregroundHwnd, int styleMode) {
 
 void Hide() {
     W7T_SEH_TRY {
-        HideInner();
+        const HWND ctl = AtomicLoadHwnd(g_ctlWnd);
+        if (ctl != nullptr) {
+            PostMessageW(ctl, kMsgSwitcherHide, 0, 0);
+        } else {
+            HideInner();
+        }
     } W7T_SEH_CATCH {
         CsHealAfterFault();
     } W7T_SEH_END
@@ -1849,8 +1986,18 @@ void SetChangedCallback(LangChangedCallback callback) {
 }
 
 void Shutdown() {
-    /* orderly shutdown (core shutdown): hide the popup if it is open. */
+    /* orderly shutdown (core shutdown): hide the popup and stop the
+     * dedicated thread. */
     Hide();
+    const HWND ctl = AtomicLoadHwnd(g_ctlWnd);
+    if (ctl != nullptr) {
+        PostMessageW(ctl, WM_CLOSE, 0, 0);
+    }
+    if (g_switcherThread != nullptr) {
+        WaitForSingleObject(g_switcherThread, 1000);
+        CloseHandle(g_switcherThread);
+        g_switcherThread = nullptr;
+    }
 }
 
 } // namespace langswitcher

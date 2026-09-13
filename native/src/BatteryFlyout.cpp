@@ -27,9 +27,14 @@ constexpr wchar_t kClassName[] = L"W7T_BatteryFlyout";
 /* v2.40: misure replicate dallo screenshot reale del flyout batteria di
  * Windows 7 (utente): ~270 x 110 px a 96 DPI. Zona superiore (icona+testo)
  * fino a kLinkTop, poi separatore e barra col link centrata. */
-constexpr int kWidth  = 270;
-constexpr int kHeight = 110;
-constexpr int kLinkTop = 70;
+/* v1.7: ingombro +2,5% (270x110 -> 277x113) e apertura 2% piu' in alto,
+ * come richiesto; la barra del link resta proporzionale. I COLORI sono
+ * adesso quelli del pannello overflow (sfondo bianco, fascia del link in
+ * gradiente 233/240/248 -> 240/245/252, riga di separazione CC/D9/EA,
+ * link 0066CC, hover DCE9F5 con bordo 6EA5D2). */
+constexpr int kWidth  = 277;
+constexpr int kHeight = 113;
+constexpr int kLinkTop = 72;
 
 /* v2.41: icone disegnate in GDI+ ad alta qualita', con lo STESSO
  * approccio della mod Windhawk MIT "Windows 7/8.1 Action Center
@@ -217,12 +222,19 @@ void BatteryFlyout::ShowAt(const RECT& iconRect) {
         }
         int x = iconRect.left + (iconRect.right - iconRect.left) / 2 - kWidth / 2;
         int y = iconRect.top - kHeight - 4;
+        /* v1.7: apertura del 2% piu' in alto (2% dell'altezza del
+         * riquadro, sopra il distacco standard di 4 px). */
+        y -= kHeight * 2 / 100;
         /* resta dentro lo schermo orizzontalmente */
         int sw = GetSystemMetrics(SM_CXSCREEN);
         if (x < 4) x = 4;
         if (x + kWidth > sw - 4) x = sw - kWidth - 4;
         SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, kWidth, kHeight,
-                     SWP_SHOWWINDOW | SWP_NOACTIVATE);
+                     SWP_SHOWWINDOW);
+        /* v1.7: il riquadro PRENDE il primo piano: cosi' un clic altrove
+         * lo disattiva e WM_ACTIVATE(WA_INACTIVE) lo chiude (prima era
+         * mostrato con NOACTIVATE e restava aperto per sempre). */
+        SetForegroundWindow(m_hwnd);
         InvalidateRect(m_hwnd, nullptr, TRUE);
     W7T_SEH_CATCH
     W7T_SEH_END
@@ -230,6 +242,7 @@ void BatteryFlyout::ShowAt(const RECT& iconRect) {
 
 void BatteryFlyout::Hide() {
     W7T_SEH_TRY
+        m_linkHot = false;
         if (m_hwnd != nullptr) ShowWindow(m_hwnd, SW_HIDE);
     W7T_SEH_CATCH
     W7T_SEH_END
@@ -245,7 +258,8 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
 
     RECT client{};
     GetClientRect(hwnd, &client);
-    HBRUSH bg = CreateSolidBrush(RGB(0xF2, 0xF6, 0xFB));
+    /* v1.7: schema del pannello overflow: corpo BIANCO. */
+    HBRUSH bg = CreateSolidBrush(RGB(0xFF, 0xFF, 0xFF));
     FillRect(hdc, &client, bg);
     DeleteObject(bg);
 
@@ -271,17 +285,42 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
         if (lvl > maxLvl) lvl = maxLvl;
         idx = base + lvl - 1;
     }
-    /* Barra inferiore col link + separatore, come nello screenshot reale. */
+    /* v1.7: barra inferiore col link, gradiente e riga di separazione
+     * IDENTICI al pannello overflow (233/240/248 -> 240/245/252,
+     * riga CC/D9/EA). Il link in hover usa la selezione dell'overflow
+     * (riempimento DC/E9/F5, bordo 6E/A5/D2). */
     RECT linkBar{ 0, kLinkTop, kWidth, kHeight };
-    HBRUSH lb = CreateSolidBrush(RGB(0xE9, 0xF1, 0xFB));
-    FillRect(hdc, &linkBar, lb);
-    DeleteObject(lb);
-    HPEN sep = CreatePen(PS_SOLID, 1, RGB(0xC3, 0xCE, 0xDE));
+    {
+        TRIVERTEX vtx[2] = {};
+        vtx[0].x = 0;         vtx[0].y = kLinkTop;
+        vtx[0].Red = 0xE9E9;  vtx[0].Green = 0xF0F0; vtx[0].Blue = 0xF8F8;
+        vtx[0].Alpha = 0xFFFF;
+        vtx[1].x = kWidth;    vtx[1].y = kHeight;
+        vtx[1].Red = 0xF0F0;  vtx[1].Green = 0xF5F5; vtx[1].Blue = 0xFCFC;
+        vtx[1].Alpha = 0xFFFF;
+        GRADIENT_RECT gr{ 0, 1 };
+        GradientFill(hdc, vtx, 2, &gr, 1, GRADIENT_FILL_RECT_V);
+    }
+    HPEN sep = CreatePen(PS_SOLID, 1, RGB(0xCC, 0xD9, 0xEA));
     HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, sep));
     MoveToEx(hdc, 0, kLinkTop, nullptr);
     LineTo(hdc, kWidth, kLinkTop);
     SelectObject(hdc, oldPen);
     DeleteObject(sep);
+
+    /* Hover sul link: come le icone dell'overflow. */
+    if (m_linkHot) {
+        RECT cell{ 4, kLinkTop + 3, kWidth - 4, kHeight - 3 };
+        HBRUSH fill = CreateSolidBrush(RGB(0xDC, 0xE9, 0xF5));
+        HPEN edge = CreatePen(PS_SOLID, 1, RGB(0x6E, 0xA5, 0xD2));
+        HBRUSH oldBr = static_cast<HBRUSH>(SelectObject(hdc, fill));
+        HPEN oldPn = static_cast<HPEN>(SelectObject(hdc, edge));
+        RoundRect(hdc, cell.left, cell.top, cell.right, cell.bottom, 3, 3);
+        SelectObject(hdc, oldBr);
+        SelectObject(hdc, oldPn);
+        DeleteObject(fill);
+        DeleteObject(edge);
+    }
 
     if (m_icons[idx] || m_gdip[idx]) {
         /* v1.6: il rapporto d'aspetto della sorgente ora si rispetta. I
@@ -335,7 +374,9 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
     DrawTextW(hdc, line, -1, &textRect, DT_WORDBREAK | DT_VCENTER | DT_LEFT);
 
     RECT linkRect = LinkRect();
-    SetTextColor(hdc, RGB(0x1E, 0x6F, 0xC9));
+    /* v1.7: colori del link come nel footer dell'overflow (0066CC,
+     * in hover 004E9E). */
+    SetTextColor(hdc, m_linkHot ? RGB(0x00, 0x4E, 0x9E) : RGB(0x00, 0x66, 0xCC));
     DrawTextW(hdc, S.link, -1, &linkRect, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
 
     SelectObject(hdc, oldFont);
@@ -364,6 +405,40 @@ LRESULT CALLBACK BatteryFlyout::WndProc(HWND hwnd, UINT msg,
             }
             case WM_ACTIVATE:
                 if (LOWORD(wParam) == WA_INACTIVE) Instance().Hide();
+                return 0;
+            case WM_SETCURSOR: {
+                /* v1.7: sopra il link il cursore a MANO, come le voci
+                 * del pannello overflow. */
+                if (LOWORD(lParam) == HTCLIENT) {
+                    POINT pt{};
+                    GetCursorPos(&pt);
+                    ScreenToClient(hwnd, &pt);
+                    if (PtInRect(&Instance().LinkRect(), pt)) {
+                        SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                        return TRUE;
+                    }
+                }
+                return DefWindowProcW(hwnd, msg, wParam, lParam);
+            }
+            case WM_MOUSEMOVE: {
+                /* v1.7: stato HOVER del link (come l'overflow): un
+                 * ripasso ripainta la voce con la selezione azzurra. */
+                POINT pt{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                const bool hot =
+                    PtInRect(&Instance().LinkRect(), pt) != FALSE;
+                if (hot != Instance().m_linkHot) {
+                    Instance().m_linkHot = hot;
+                    InvalidateRect(hwnd, nullptr, TRUE);
+                }
+                TRACKMOUSEEVENT tme{ sizeof(tme), TME_LEAVE, hwnd, 0 };
+                TrackMouseEvent(&tme);
+                return 0;
+            }
+            case WM_MOUSELEAVE:
+                if (Instance().m_linkHot) {
+                    Instance().m_linkHot = false;
+                    InvalidateRect(hwnd, nullptr, TRUE);
+                }
                 return 0;
             case WM_NCDESTROY:
                 Instance().m_hwnd = nullptr;

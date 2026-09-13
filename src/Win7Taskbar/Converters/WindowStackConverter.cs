@@ -119,4 +119,46 @@ namespace Win7Taskbar.Converters
                                   CultureInfo culture)
             => Binding.DoNothing;
     }
+
+    /// <summary>
+    /// v1.7: posizione dei separatori in funzione del numero di finestre.
+    /// La base (la "dimensione di quando c'e' una sola scheda aperta",
+    /// il fattore passato come parametro) viene leggermente AUMENTATA:
+    /// x1,015 con due finestre, x1,02 con tre o piu'. I restanti casi non
+    /// hanno separatori: restituisce il parametro invariato.
+    /// </summary>
+    [ValueConversion(typeof(int), typeof(double))]
+    public sealed class WindowStackSeparatorOffsetConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter,
+                              CultureInfo culture)
+        {
+            double baseFactor = 0.0;
+            if (parameter is string s && double.TryParse(
+                    s, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var parsed))
+            {
+                baseFactor = parsed;
+            }
+            else if (parameter is double d)
+            {
+                baseFactor = d;
+            }
+            int count = value is int n ? n : 0;
+            if (count == 2)
+            {
+                return baseFactor * 1.015;
+            }
+            if (count >= 3)
+            {
+                return baseFactor * 1.02;
+            }
+            return baseFactor;
+        }
+
+        public object ConvertBack(object value, Type targetType,
+                                  object parameter, CultureInfo culture)
+            => Binding.DoNothing;
+    }
 }

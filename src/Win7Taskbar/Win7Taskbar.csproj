@@ -48,19 +48,22 @@
     <Description>Taskbar in stile Windows 7 per Windows 10/11</Description>
     <Copyright>Copyright (c) 2026 Win7Taskbar contributors</Copyright>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
-    <!-- 1.6.0-alpha: hardening anti-mod (le eccezioni hardware dentro il
-         WndProc del popup lingue e nei punti d'ingresso vengono ingoiate,
-         con rilascio della sezione critica rimasta aperta: la barra non
-         muore e il popup si apre comunque); i separatori di gruppo sono
-         ridisegnati come nel Win7 vero (linea incisa di due pixel
-         #0F5282/#166497 invece del rettangolo pieno) e ristretti al 7%
-         della larghezza del pulsante; il glifo dentro il flyout batteria
-         ricreato torna proporzionato (11x16 a scala 3x esatta invece del
-         rettangolo fisso che lo stirava); cambio tema = repaint immediato
-         del popup (pattern portato da StartAllBack). -->
-    <Version>1.6.0-alpha</Version>
-    <AssemblyVersion>1.6.0.0</AssemblyVersion>
-    <FileVersion>1.6.0.0</FileVersion>
+    <!-- 1.7.0-alpha: il popup del selettore lingue vive su un thread
+         nativo dedicato (il click sulla sigla non crea piu' finestre sul
+         thread WPF; ripiego inline se il thread non parte); le eccezioni
+         non gestite dell'interfaccia gestita vengono ingoiate col
+         rapporto diagnostico (la barra resta viva); batteria: la voce
+         "Windows 7" apre SEMPRE il ricreato e la tendina torna
+         "Windows 7" / "Windows 10/11"; il riquadro ricreato cresce del
+         2,5%, si apre del 2% piu' in alto, copia i colori del pannello
+         overflow, si chiude col click fuori e ha hover e cursore a mano
+         sul link; separatori neri con la base dell'una-scheda aumentata
+         dell'1,5% (2 finestre) e del 2% (3+) piu' bordo destro al
+         limite; i lettori UIA registrano solo i cambiamenti del numero
+         di icone. -->
+    <Version>1.7.0-alpha</Version>
+    <AssemblyVersion>1.7.0.0</AssemblyVersion>
+    <FileVersion>1.7.0.0</FileVersion>
   
     <!-- v2.57: application icon (the classic Windows 7 flag in a single azure
          blue). Setting ApplicationIcon gives the executable the icon and, in
