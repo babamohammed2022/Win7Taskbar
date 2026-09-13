@@ -112,7 +112,10 @@ set_source_files_properties(resources/app.ico PROPERTIES HEADER_FILE_ONLY TRUE)
 target_sources(Win7TaskbarCore PRIVATE resources/app.ico)
 set_target_properties(Win7TaskbarCore PROPERTIES PREFIX "" OUTPUT_NAME "Win7TaskbarCore")
 if(MSVC)
-    target_compile_options(Win7TaskbarCore PRIVATE /W4 /permissive- /utf-8)
+    target_compile_options(Win7TaskbarCore PRIVATE /W4 /permissive- /utf-8
+        # Accepted diagnostics: C4611 setjmp/C++-RAII mix is intentional
+        # inside the SEH guards; the others are known pre-existing warnings.
+        /wd4611 /wd4189 /wd4100 /wd4244 /wd4457)
 else()
     target_compile_options(Win7TaskbarCore PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type)
     target_link_options(Win7TaskbarCore PRIVATE -static-libgcc -static-libstdc++ -static)
@@ -123,7 +126,7 @@ set(W7T_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../dist" CACHE PATH "Folder for th
 add_custom_command(TARGET Win7TaskbarCore POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Win7TaskbarCore> "${W7T_DIST_DIR}/"
-    COMMAND ${CMAKE_COMMAND} -E echo "native/src/stage1.txt(1): error C999: STAGE dist copy done"
+    COMMAND ${CMAKE_COMMAND} -DGATE_TEXT="STAGE dist copy done" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
     COMMENT "Copy Win7TaskbarCore.dll to dist/")
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
@@ -132,7 +135,7 @@ if(Python3_Interpreter_FOUND)
     # problem matcher turns into a check annotation naming the failed check.
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-com-interfaces.py $<TARGET_FILE:Win7TaskbarCore>
-        COMMAND ${CMAKE_COMMAND} -E echo "native/src/stage2.txt(1): error C999: STAGE check-com done"
+        COMMAND ${CMAKE_COMMAND} -DGATE_TEXT="STAGE check-com done" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
         COMMENT "Check COM interfaces in binary" VERBATIM)
     # v2.62: la tabella degli export deve contenere TUTTE le funzioni che il
     # livello gestito richiama. Una build che ne perde qualcuna compila, si
@@ -140,7 +143,7 @@ if(Python3_Interpreter_FOUND)
     # successo davvero, con nove funzioni mancanti in dist/.
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-exports.py $<TARGET_FILE:Win7TaskbarCore>
-        COMMAND ${CMAKE_COMMAND} -E echo "native/src/stage3.txt(1): error C999: STAGE check-exports done"
+        COMMAND ${CMAKE_COMMAND} -DGATE_TEXT="STAGE check-exports done" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
         COMMENT "Check exported functions in binary" VERBATIM)
 endif()
 add_library(W7TInject SHARED src/InjectHook.cpp)
@@ -152,13 +155,15 @@ endif()
 add_custom_command(TARGET W7TInject POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:W7TInject> "${W7T_DIST_DIR}/"
-    COMMAND ${CMAKE_COMMAND} -E echo "native/src/stage4.txt(1): error C999: STAGE inject copy done"
+    COMMAND ${CMAKE_COMMAND} -DGATE_TEXT="STAGE inject copy done" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
     COMMENT "Copy W7TInject.dll to dist/")
+file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
+"message(\"native/src/stage.txt(1): error C999: \\${GATE_TEXT}\")\n")
 file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/tools/final-gate.cmake"
-"if(EXISTS \"\${GATE_DLL}\")\n"
-"    message(\"native/src/stage5.txt(1): error C999: STAGE final gate dll present\")\n"
+"if(EXISTS \"\\${GATE_DLL}\")\n"
+"    message(\"native/src/stage.txt(1): error C999: STAGE final gate dll present\")\n"
 "else()\n"
-"    message(\"native/src/stage5.txt(1): error C999: STAGE final gate DLL MISSING\")\n"
+"    message(\"native/src/stage.txt(1): error C999: STAGE final gate DLL MISSING\")\n"
 "endif()\n")
 add_custom_target(w7tFinalGate ALL
     COMMAND ${CMAKE_COMMAND} -DGATE_DLL="${W7T_DIST_DIR}/Win7TaskbarCore.dll" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/final-gate.cmake"
