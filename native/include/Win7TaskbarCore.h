@@ -383,7 +383,8 @@ W7T_API void    W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t lang, int32_t seconds, int32_t nativeFlyout,
         int32_t enableSearch, int32_t netFlyout, int32_t classicVolume,
         int32_t batteryFlyout, int32_t aeroPeek, int32_t toolbarDesktop,
-        int32_t toolbarAddress, int32_t toolbarLinks);
+        int32_t toolbarAddress, int32_t toolbarLinks,
+        int32_t inputLanguageMode);
 W7T_API void    W7T_CALL W7T_AppSearchShow(int32_t x, int32_t y);
 W7T_API void    W7T_CALL W7T_AppSearchHide(void);
 W7T_API int32_t W7T_CALL W7T_AppSearchIsVisible(void);
