@@ -439,7 +439,8 @@ namespace Win7Taskbar.Interop
         public static extern void W7T_PropertiesShow(ulong ownerTaskbar, int lang,
             int seconds, int nativeFlyout, int enableSearch, int netFlyout,
             int classicVolume, int batteryFlyout,
-            int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks);
+            int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
+            int inputLanguageMode);
 
         // v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]

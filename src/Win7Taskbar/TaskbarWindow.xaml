@@ -532,6 +532,19 @@
                             VerticalAlignment="Center"
                             MouseWheel="TrayArea_MouseWheel">
 
+                    <!-- v3.5: L'INDICATORE DELLA LINGUA DI INPUT, come nella
+                         barra di Windows 7/8.1/10. Primo elemento dell'area
+                         di notifica, come nell'originale. Lo stile (nascosta,
+                         Windows 7, Windows 8.1, Windows 10/11 un po' piu'
+                         grande) si sceglie dalle Proprieta'; il controllo
+                         gestisce da solo la visibilita' in base al modo.
+                         Il menu di scelta lo apre il core nativo, per avere
+                         lo stesso aspetto delle altre voci della barra. -->
+                    <w7controls:InputLanguageBar x:Name="LanguageBar"
+                                                VerticalAlignment="Center"
+                                                Mode="1"
+                                                Visibility="Collapsed" />
+
                     <!-- Freccetta "mostra icone nascoste" + popup di overflow. -->
                     <!-- v2.1: AllowDrop sulla freccetta: trascinarci sopra
                          un'icona visibile la sposta nell'overflow (come in

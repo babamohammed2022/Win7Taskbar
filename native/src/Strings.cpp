@@ -81,6 +81,8 @@ constexpr PropStrings kPropIt = {
     L"Batteria:",
     L"Barra delle applicazioni",
     L"Lingua:",
+    /* v3.5: indicatore della lingua di input. */
+    L"Indicatore lingua:", L"Nascosto", L"Windows 7", L"Windows 8.1", L"Windows 10/11",
     L"Area di notifica",
     L"Personalizza quali icone e notifiche appaiono nell'area di notifica.",
     L"Personalizza...",
@@ -128,6 +130,8 @@ constexpr PropStrings kPropEn = {
     L"Battery:",
     L"Taskbar",
     L"Language:",
+    /* v3.5: input language indicator. */
+    L"Input indicator:", L"Hidden", L"Windows 7", L"Windows 8.1", L"Windows 10/11",
     L"Notification area",
     L"Customize which icons and notifications appear in the notification area.",
     L"Customize...",
@@ -176,6 +180,7 @@ constexpr PropStrings kPropEs = {
     L"Batería:",
     L"Barra de tareas",
     L"Idioma:",
+    L"Indicador de idioma:", L"Oculto", L"Windows 7", L"Windows 8.1", L"Windows 10/11",
     L"Área de notificación",
     L"Personaliza qué iconos y notificaciones aparecen en el área de notificación.",
     L"Personalizar...",
@@ -224,6 +229,7 @@ constexpr PropStrings kPropFr = {
     L"Batterie :",
     L"Barre des tâches",
     L"Langue :",
+    L"Indicateur de langue :", L"Masqué", L"Windows 7", L"Windows 8.1", L"Windows 10/11",
     L"Zone de notification",
     L"Personnalisez les icônes et notifications qui apparaissent dans la zone de notification.",
     L"Personnaliser...",
@@ -270,6 +276,7 @@ constexpr PropStrings kPropDe = {
     L"Akku:",
     L"Taskleiste",
     L"Sprache:",
+    L"Eingabeindikator:", L"Ausgeblendet", L"Windows 7", L"Windows 8.1", L"Windows 10/11",
     L"Infobereich",
     L"Legen Sie fest, welche Symbole und Benachrichtigungen im Infobereich angezeigt werden.",
     L"Anpassen...",
@@ -317,6 +324,7 @@ constexpr PropStrings kPropPt = {
     L"Bateria:",
     L"Barra de tarefas",
     L"Idioma:",
+    L"Indicador de idioma:", L"Oculto", L"Windows 7", L"Windows 8.1", L"Windows 10/11",
     L"Área de notação",
     L"Personalize quais ícones e notações aparecem na área de notação.",
     L"Personalizar...",
@@ -363,6 +371,7 @@ constexpr PropStrings kPropPl = {
     L"Bateria:",
     L"Pasek zadań",
     L"Język:",
+    L"Wskaźnik języka:", L"Ukryty", L"Windows 7", L"Windows 8.1", L"Windows 10/11",
     L"Obszar powiadomień",
     L"Wybierz, które ikony i powiadomienia mają być wyświetlane w obszarze powiadomień.",
     L"Dostosuj...",
@@ -409,6 +418,7 @@ constexpr PropStrings kPropRu = {
     L"Батарея:",
     L"Панель задач",
     L"Язык:",
+    L"Индикатор языка:", L"Скрыт", L"Windows 7", L"Windows 8.1", L"Windows 10/11",
     L"Область уведомлений",
     L"Настройте, какие значки и уведомления отображаются в области уведомлений.",
     L"Настроить...",
@@ -451,6 +461,7 @@ constexpr PropStrings kPropJa = {
     L"バッテリー:",
     L"タスクバー",
     L"言語:",
+    L"入力インジケーター:", L"非表示", L"Windows 7", L"Windows 8.1", L"Windows 10/11",
     L"通知領域",
     L"通知領域に表示するアイコンと通知をカスタマイズします。",
     L"カスタマイズ...",
@@ -491,6 +502,7 @@ constexpr PropStrings kPropZh = {
     L"电池:",
     L"任务栏",
     L"语言:",
+    L"输入指示器:", L"隐藏", L"Windows 7", L"Windows 8.1", L"Windows 10/11",
     L"通知区域",
     L"自定义在通知区域中显示的图标和通知。",
     L"自定义...",
@@ -532,6 +544,7 @@ constexpr PropStrings kPropAr = {
     L"البطارية:",
     L"شريط المهام",
     L"اللغة:",
+    L"مؤشر الإدخال:", L"مخفي", L"Windows 7", L"Windows 8.1", L"Windows 10/11",
     L"منطقة الإشعارات",
     L"تخصيص الأيقونات والإشعارات التي تظهر في منطقة الإشعارات.",
     L"تخصيص...",
@@ -667,6 +680,16 @@ struct ShortStrings {
     const wchar_t* groupClose;
 
     const wchar_t* overflowCustomize;
+
+    /* v3.5: menu contestuali delle icone di sistema ricreate. */
+    const wchar_t* ctxVolMixer;
+    const wchar_t* ctxPlayback;
+    const wchar_t* ctxRecording;
+    const wchar_t* ctxSounds;
+    const wchar_t* ctxTroubleshoot;
+    const wchar_t* ctxNetCenter;
+    const wchar_t* ctxMobility;
+    const wchar_t* ctxPower;
 };
 
 /* it: "Apri", "Esegui come amministratore", "Apri percorso file",
@@ -681,6 +704,12 @@ constexpr ShortStrings kShortIt = {
     L"I&ngrandisci", L"&Chiudi",
     L"Riduci a icona gruppo", L"Chiudi gruppo",
     L"Personalizza...",
+    /* v3.5: menu contestuali delle icone di sistema ricreate. */
+    L"Apri Mixer volume", L"Dispositivi di riproduzione",
+    L"Dispositivi di registrazione", L"Suoni",
+    L"Risoluzione dei problemi",
+    L"Apri Centro connessioni di rete e condivisione",
+    L"Centro mobility Windows", L"Opzioni risparmio energia",
 };
 
 constexpr ShortStrings kShortEn = {
@@ -691,6 +720,12 @@ constexpr ShortStrings kShortEn = {
     L"&Restore", L"&Move", L"&Size", L"Mi&nimize", L"Ma&ximize", L"&Close",
     L"Minimize group", L"Close group",
     L"Customize...",
+    /* v3.5: context menus of the recreated system icons. */
+    L"Open Volume Mixer", L"Playback devices",
+    L"Recording devices", L"Sounds",
+    L"Troubleshoot problems",
+    L"Open Network and Sharing Center",
+    L"Windows Mobility Center", L"Power Options",
 };
 
 constexpr ShortStrings kShortEs = {
@@ -701,6 +736,11 @@ constexpr ShortStrings kShortEs = {
     L"&Restaurar", L"&Mover", L"&Tamaño", L"Mi&nimizar", L"Ma&ximizar", L"&Cerrar",
     L"Minimizar grupo", L"Cerrar grupo",
     L"Personalizar...",
+    L"Abrir mezclador de volumen", L"Dispositivos de reproducción",
+    L"Dispositivos de grabación", L"Sonidos",
+    L"Solucionar problemas",
+    L"Abrir Centro de redes y recursos compartidos",
+    L"Centro de movilidad de Windows", L"Opciones de energía",
 };
 
 constexpr ShortStrings kShortFr = {
@@ -711,6 +751,11 @@ constexpr ShortStrings kShortFr = {
     L"&Restaurer", L"&Déplacer", L"&Taille", L"Réduire", L"Agrandir", L"&Fermer",
     L"Réduire le groupe", L"Fermer le groupe",
     L"Personnaliser...",
+    L"Ouvrir le mixtureur de volume", L"Périphériques de lecture",
+    L"Périphériques d'enregistrement", L"Sons",
+    L"Résoudre les problèmes",
+    L"Ouvrir le Centre Réseau et partage",
+    L"Centre de mobilité Windows", L"Options d'alimentation",
 };
 
 constexpr ShortStrings kShortDe = {
@@ -722,6 +767,11 @@ constexpr ShortStrings kShortDe = {
     L"Ma&ximieren", L"&Schließen",
     L"Gruppe minimieren", L"Gruppe schließen",
     L"Anpassen...",
+    L"Lautstärkemixer öffnen", L"Wiedergabegeräte",
+    L"Aufnahmegeräte", L"Sounds",
+    L"Problembehandlung",
+    L"Netzwerk- und Freigabecenter öffnen",
+    L"Windows-Mobilitätscenter", L"Energieoptionen",
 };
 
 constexpr ShortStrings kShortPt = {
@@ -732,6 +782,11 @@ constexpr ShortStrings kShortPt = {
     L"&Restaurar", L"&Mover", L"&Tamanho", L"Mi&nimizar", L"Ma&ximizar", L"&Fechar",
     L"Minimizar grupo", L"Fechar grupo",
     L"Personalizar...",
+    L"Abrir Mixer de Volume", L"Dispositivos de reprodução",
+    L"Dispositivos de gravação", L"Sons",
+    L"Solucionar problemas",
+    L"Abrir Central de Rede e Compartilhamento",
+    L"Central de Mobilidade do Windows", L"Opções de Energia",
 };
 
 constexpr ShortStrings kShortPl = {
@@ -743,6 +798,11 @@ constexpr ShortStrings kShortPl = {
     L"Ma&ksymalizuj", L"&Zamknij",
     L"Minimalizuj grupę", L"Zamknij grupę",
     L"Dostosuj...",
+    L"Otwórz mikser głośności", L"Urządzenia odtwarzające",
+    L"Urządzenia rejestrujące", L"Dźwięki",
+    L"Rozwiąż problemy",
+    L"Otwórz Centrum sieci i udostępniania",
+    L"Centrum mobilności Windows", L"Opcje zasilania",
 };
 
 constexpr ShortStrings kShortRu = {
@@ -754,6 +814,11 @@ constexpr ShortStrings kShortRu = {
     L"Р&азвернуть", L"&Закрыть",
     L"Свернуть группу", L"Закрыть группу",
     L"Настройка...",
+    L"Открыть микшер громкости", L"Устройства воспроизведения",
+    L"Устройства записи", L"Звуки",
+    L"Устранение неполадок",
+    L"Открыть Центр управления сетями и общим доступом",
+    L"Центр мобильности Windows", L"Электропитание",
 };
 
 constexpr ShortStrings kShortJa = {
@@ -765,6 +830,11 @@ constexpr ShortStrings kShortJa = {
     L"最大化(&X)", L"閉じる(&C)",
     L"グループを最小化", L"グループを閉じる",
     L"カスタマイズ...",
+    L"音量ミキサーを開く", L"再生デバイス",
+    L"録音デバイス", L"サウンド",
+    L"問題のトラブルシューティング",
+    L"ネットワークと共有センターを開く",
+    L"Windows モビリティ センター", L"電源オプション",
 };
 
 constexpr ShortStrings kShortZh = {
@@ -776,6 +846,11 @@ constexpr ShortStrings kShortZh = {
     L"关闭(&C)",
     L"最小化组", L"关闭组",
     L"自定义...",
+    L"打开音量合成器", L"播放设备",
+    L"录制设备", L"声音",
+    L"疑难解答",
+    L"打开网络和共享中心",
+    L"Windows 移动中心", L"电源选项",
 };
 
 /* Arabic - contributed by mahmogamer (see CREDITS.txt). */
@@ -788,6 +863,11 @@ constexpr ShortStrings kShortAr = {
     L"إغلاق(&C)",
     L"تصغير المجموعة", L"إغلاق المجموعة",
     L"تخصيص...",
+    L"فتح أداة مزج الصوت", L"أجهزة التشغيل",
+    L"أجهزة التسجيل", L"الأصوات",
+    L"استكشاف الأخطاء وإصلاحها",
+    L"فتح مركز الشبكة والمشاركة",
+    L"مركز تنقل Windows", L"خيارات الطاقة",
 };
 
 const PropStrings& PickProp(Lang lang) {
@@ -858,6 +938,15 @@ const wchar_t* PickShortId(const ShortStrings& s, StrId id) {
         case StrId::GroupMinimize:        return s.groupMinimize;
         case StrId::GroupClose:           return s.groupClose;
         case StrId::OverflowCustomize:    return s.overflowCustomize;
+        /* v3.5: menu contestuali delle icone di sistema ricreate. */
+        case StrId::CtxVolMixer:          return s.ctxVolMixer;
+        case StrId::CtxPlayback:          return s.ctxPlayback;
+        case StrId::CtxRecording:         return s.ctxRecording;
+        case StrId::CtxSounds:            return s.ctxSounds;
+        case StrId::CtxTroubleshoot:      return s.ctxTroubleshoot;
+        case StrId::CtxNetCenter:         return s.ctxNetCenter;
+        case StrId::CtxMobility:          return s.ctxMobility;
+        case StrId::CtxPower:             return s.ctxPower;
     }
     return L"";
 }

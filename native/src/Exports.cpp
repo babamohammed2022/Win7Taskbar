@@ -897,12 +897,14 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t lang, int32_t seconds, int32_t nativeFlyout,
         int32_t enableSearch, int32_t netFlyout, int32_t classicVolume,
         int32_t batteryFlyout, int32_t aeroPeek, int32_t toolbarDesktop,
-        int32_t toolbarAddress, int32_t toolbarLinks) {
+        int32_t toolbarAddress, int32_t toolbarLinks,
+        int32_t inputLanguageMode) {
     try {
         g_properties.Show(reinterpret_cast<HWND>(ownerTaskbar), lang,
                           seconds, nativeFlyout, netFlyout,
                           enableSearch, classicVolume, batteryFlyout, aeroPeek,
-                          toolbarDesktop, toolbarAddress, toolbarLinks);
+                          toolbarDesktop, toolbarAddress, toolbarLinks,
+                          inputLanguageMode);
     } catch (...) { /* mai propagare */ }
 }
 

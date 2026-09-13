@@ -528,10 +528,12 @@ namespace Win7Taskbar.Interop
             => NativeMethods.W7T_AppSearchInit((ulong)taskbarHwnd, argbPixels, iconW, iconH) == 1;
         public void PropertiesShow(IntPtr owner, int lang, int seconds, int nativeFlyout,
             int enableSearch, int netFlyout, int classicVolume, int batteryFlyout,
-            int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks)
+            int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
+            int inputLanguageMode)
             => NativeMethods.W7T_PropertiesShow((ulong)owner, lang, seconds, nativeFlyout,
                 enableSearch, netFlyout, classicVolume, batteryFlyout,
-                aeroPeek, toolbarDesktop, toolbarAddress, toolbarLinks);
+                aeroPeek, toolbarDesktop, toolbarAddress, toolbarLinks,
+                inputLanguageMode);
 
         /// <summary>v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).</summary>
         public bool NetFlyoutInit() => NativeMethods.W7T_NetFlyoutInit() == 1;

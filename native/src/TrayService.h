@@ -358,12 +358,24 @@ private:
      * inizializzato dal frontend). */
     void StartBatteryOpenWatch(const RECT& anchor);
     void FinishBatteryOpenWatch();
+    /* v3.5: cerca nel modello un'icona VERA di stobject.dll (la batteria
+     * reale importata dalla tray di Explorer). Ritorna true e riempie i
+     * parametri quando la trova. */
+    bool FindRealStobjectIcon(uint64_t* owner, uint32_t* uid,
+                              uint32_t* callback, uint32_t* version);
 
     bool                                 m_win7NetworkFlyoutReady = false;
 
     /* v2.63: batteria - stato della verifica differita. */
     RECT                                 m_pendingBatteryAnchor = {};
     int                                  m_pendingBatteryPopups = 0;
+    /* v3.5: istantanea delle finestre esterne visibili PRIMA del clic
+     * sulla batteria. Il confronto e' per insieme, non per numero: il
+     * riquadro Win32 di Windows 7 a volte arriva senza lo stile WS_POPUP
+     * (o dentro una finestra gia' contata), quindi contare solo i popup
+     * faceva credere che la shell non avesse aperto niente e il riquadro
+     * ricreato si impilava sopra quello vero. */
+    std::set<uint64_t>                   m_pendingBatteryWindows;
     std::vector<TrayIconKey>        m_order;
 
     /* Indice GUID -> chiave, per il riaggancio delle re-registrazioni:

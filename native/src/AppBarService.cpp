@@ -496,13 +496,22 @@ void CALLBACK AppBarService::HideWatcherProc(HWINEVENTHOOK, DWORD event,
 
 void AppBarService::HideWatcherLoop() {
     while (m_watchRun.load()) {
+        /* v3.5: il timeout NON ripiega piu' su "continue". Prima il loop
+         * ri-nascondeva la barra solo quando arrivava un evento (SHOW o
+         * FOREGROUND); durante una cattura dello Strumento di cattura,
+         * pero', la barra nativa viene rimessa a schermo da Windows senza
+         * che quegli eventi arrivino a noi (la cattura la mostra in un
+         * composizione dedicata), e il vecchio ripiego la lasciava
+         * lampeggiare nelle foto. Ora ogni 500 ms, evento o no, il loop
+         * controlla la visibilita' e la ri-nasconde se serve: e' il
+         * ripiego che RetroBar ottiene col suo monitor continuo. Il
+         * controllo resta leggero (FindWindow + IsWindowVisible) e non fa
+         * nulla quando la barra e' gia' nascosta. */
         const DWORD wait = WaitForSingleObject(m_watchEvent, 500);
         if (!m_watchRun.load()) {
             break;
         }
-        if (wait != WAIT_OBJECT_0) {
-            continue;
-        }
+        (void)wait;
         if (!m_nativeHidden.load()) {
             continue;
         }

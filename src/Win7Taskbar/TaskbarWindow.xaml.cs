@@ -282,6 +282,19 @@ namespace Win7Taskbar
                 };
             });
 
+            RunStage("barra-lingua", () =>
+            {
+                // v3.5: indicatore della lingua di input (stile Win7/8.1/10).
+                ApplyInputLanguageMode();
+                RetroBar.Utilities.Settings.Instance.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(RetroBar.Utilities.Settings.InputLanguageMode))
+                    {
+                        ApplyInputLanguageMode();
+                    }
+                };
+            });
+
             RunStage("area-di-notifica", () =>
             {
                 _viewModel.NotificationArea.PropertyChanged += (_, _) => UpdateOverflowState();
@@ -1453,6 +1466,15 @@ namespace Win7Taskbar
                 st.UseClassicVolumeMixer = classicVolume == 1;
                 st.UseBatteryFlyout = batteryFlyout == 1;
                 st.AeroPeek = aeroPeek == 1;
+                /* v3.5: stile dell'indicatore della lingua di input.
+                 * Aggiunto IN CODA al pacchetto (offset 52, 56 byte): si
+                 * legge solo se il nativo lo contiene davvero, cosi' un
+                 * core piu' vecchio non lo azzera. */
+                int inputLanguageMode = cds.cbData >= 56
+                    ? System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 52)
+                    : st.InputLanguageMode;
+                st.InputLanguageMode =
+                    (inputLanguageMode is < 0 or > 3) ? 1 : inputLanguageMode;
                 if (hasToolbars)
                 {
                     /* Le caselle della scheda "Barre degli strumenti" sono le
@@ -5522,6 +5544,24 @@ namespace Win7Taskbar
             catch (Exception) { /* ignora */ }
         }
 
+        /// <summary>
+        /// v3.5: l'indicatore della lingua di input. Lo stile arriva dalle
+        /// Proprieta' (0 nascosta, 1 Windows 7, 2 Windows 8.1, 3 Windows
+        /// 10/11); il menu di scelta lingue lo apre il core nativo, come le
+        /// altre voci della barra.
+        /// </summary>
+        private void ApplyInputLanguageMode()
+        {
+            try
+            {
+                LanguageBar.ContextMenuShower = (x, y, items)
+                    => _bridge.ShowContextMenuEx(x, y, true, items, true);
+                LanguageBar.Mode =
+                    RetroBar.Utilities.Settings.Instance.InputLanguageMode;
+            }
+            catch (Exception) { /* ignora */ }
+        }
+
         private void SearchButton_Click(object sender, RoutedEventArgs e)
         {
             // v2.37 punto 17: la lente funziona da interruttore. Se la
@@ -5593,7 +5633,8 @@ namespace Win7Taskbar
                     st.AeroPeek ? 1 : 0,
                     tbDesktop ? 1 : 0,
                     tbAddress ? 1 : 0,
-                    tbLinks ? 1 : 0);
+                    tbLinks ? 1 : 0,
+                    st.InputLanguageMode);
             }
             catch (Exception ex)
             {
