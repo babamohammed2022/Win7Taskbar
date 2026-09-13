@@ -389,7 +389,8 @@ namespace Win7Taskbar.Controls
                 VerticalAlignment.Center);
             presenter.SetBinding(MarginProperty, new System.Windows.Data.Binding("Padding")
             {
-                RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent),
+                RelativeSource = new System.Windows.Data.RelativeSource(
+                    System.Windows.Data.RelativeSourceMode.TemplatedParent),
             });
 
             border.AppendChild(presenter);
