@@ -187,7 +187,7 @@ namespace Win7Taskbar.Controls
                 _lastSentScreenTopLeft = screenTopLeft;
 
                 NativeMethods.W7T_LangBarPlace(
-                    source.Handle.ToUInt64(), mode, x, y, w, h);
+                    (ulong)source.Handle, mode, x, y, w, h);
             }
             catch (DllNotFoundException) { }
             catch (EntryPointNotFoundException) { }
