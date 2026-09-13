@@ -1,4 +1,4 @@
-// Win7Taskbar - host gestito dell'indicatore della lingua di input
+// Win7Taskbar - voce "lingua" della tray (text language switcher)
 // Copyright (c) 2026 Win7Taskbar contributors
 //
 // This program is free software: you can redistribute it and/or modify
@@ -15,19 +15,16 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // ============================================================================
-// v3.6: PORT COMPLETO DELL'INDICATORE, LATO NATIVO.
+// v1.4: THE LANGUAGE LABEL IS DRAWN HERE, in the tray XAML, in the same
+// style as the other entries (battery, network, volume): the active
+// abbreviation ("ENG", "ITA", ...) comes from the native core (a port of
+// the "Windows 7/8.1 Language Switcher Restorer" mod), which reads it from
+// the thread that owns the keyboard focus.
 //
-// Le tre mod Windhawk (layout-control, more-space, fix-legacy) sono
-// portate una a una nel core nativo (LanguageBar.cpp), che crea la STESSA
-// struttura di Windows (cornice TrayInputIndicatorWClass + figlio-testo
-// InputIndicatorButton), disegna la sigla in stile mod e gestisce i layout
-// (meccanica ManagedShell: sondaggio del thread in primo piano, cambio
-// lingua con LoadKeyboardLayout + broadcast WM_INPUTLANGCHANGEREQUEST).
-//
-// Questo controllo gestito resta l'INGOMBRO nella disposizione della barra:
-// riserva lo spazio giusto per lo stile scelto e passa al core il
-// rettangolo a schermo (fisico) a ogni riposizionamento. Nulla di visibile
-// si disegna qui: il testo lo disegna il porting nativo, come richiesto.
+// The click does NOT open a WPF menu: it calls the core's native popup (a
+// Win32 window drawn with GDI/GDI+, same logic as the mod). Language
+// changes arrive as a native callback; a 200 ms poll timer acts as a
+// safety net (the same polling mechanic ManagedShell uses).
 // ============================================================================
 
 using System;
@@ -36,19 +33,19 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Win7Taskbar.Interop;
 
 namespace Win7Taskbar.Controls
 {
     /// <summary>
-    /// Host dell'indicatore della lingua: riserva lo spazio nella TrayArea
-    /// e alimenta il porting nativo con il rettangolo a schermo.
-    /// Italiano: l'ospite dell'indicatore della lingua; il disegno e la
-    /// logica sono nel core nativo.
+    /// Tray "language" entry: the active language abbreviation, drawn in
+    /// the same style as the other icons; the click opens the core's
+    /// native selector (a Win32 window, port of the mod).
     /// </summary>
-    public sealed class InputLanguageBar : FrameworkElement
+    public sealed class InputLanguageBar : Border
     {
-        /* Modo scelto dalle Proprieta' (stessi valori delle tabelle native). */
+        /* Styles selectable in Properties (InputLanguageMode). */
         public const int ModeHidden = 0;
         public const int ModeWin7 = 1;
         public const int ModeWin81 = 2;
@@ -57,155 +54,232 @@ namespace Win7Taskbar.Controls
         public static readonly DependencyProperty ModeProperty =
             DependencyProperty.Register(nameof(Mode), typeof(int),
                 typeof(InputLanguageBar),
-                new FrameworkPropertyMetadata(ModeWin7,
-                    new PropertyChangedCallback(OnModeChanged)));
+                new FrameworkPropertyMetadata(ModeWin7, OnModeChanged));
 
-        /// <summary>0 nascosta, 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11.</summary>
+        /// <summary>0 hidden, 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11.</summary>
         public int Mode
         {
             get => (int)GetValue(ModeProperty);
             set => SetValue(ModeProperty, value);
         }
 
-        /* Ingombri in DIP per modo (l'altezza 32 della targhetta Windows 8.1
-         * e' la regola della mod more-space: sotto 32 le due righe non
-         * stanno). */
-        private static readonly Size SlotWin7 = new Size(28, 24);
-        private static readonly Size SlotWin81 = new Size(34, 32);
-        private static readonly Size SlotWin10 = new Size(40, 26);
-
-        private Size _lastSentSize;
-        private Point _lastSentScreenTopLeft;
-        private int _lastSentMode = -1;
-        private bool _forwardScheduled;
+        private readonly TextBlock _primary = new TextBlock();
+        private readonly TextBlock _secondary = new TextBlock();
+        private readonly StackPanel? _tile;
+        private readonly DispatcherTimer _pollTimer;
+        private uint _lastLangId;
+        private NativeMethods.W7TLangChangedCallback? _callbackKeepAlive;
 
         public InputLanguageBar()
         {
-            Visibility = Visibility.Collapsed;   /* lo accende il modo */
-            LayoutUpdated += (s, e) => ScheduleForward();
-            SizeChanged += (s, e) => ScheduleForward();
-        }
+            IsHitTestVisible = true;
+            Cursor = System.Windows.Input.Cursors.Hand;
+            Background = Brushes.Transparent;
+            Child = BuildContent(out _tile);
 
-        /// <summary>Chiude l'indicatore nativo allo smontaggio.</summary>
-        protected override void OnVisualParentChanged(DependencyObject oldParent)
-        {
-            base.OnVisualParentChanged(oldParent);
-            if (VisualParent == null && PresentationSource.FromVisual(this) == null)
+            _pollTimer = new DispatcherTimer(DispatcherPriority.Background)
             {
-                TryShutdown();
-            }
+                Interval = TimeSpan.FromMilliseconds(200),
+            };
+            _pollTimer.Tick += (sender, args) => RefreshFromNative();
+            Loaded += (sender, args) =>
+            {
+                RegisterCallbackOnce();
+                RefreshFromNative();
+                _pollTimer.Start();
+            };
+            Unloaded += (sender, args) => _pollTimer.Stop();
         }
 
         private static void OnModeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             var bar = (InputLanguageBar)d;
-            int mode = bar.Mode;
-            bar.Visibility = (mode == ModeHidden)
+            bar.Visibility = bar.Mode == ModeHidden
                 ? Visibility.Collapsed
                 : Visibility.Visible;
-
-            Size slot = mode == ModeWin81 ? SlotWin81
-                      : mode == ModeWin10 ? SlotWin10
-                      : SlotWin7;
-            /* La riserva di spazio cambia col modo: lo dice subito al
-             * pannello che ci sta attorno. */
-            bar.Width = slot.Width;
-            bar.Height = slot.Height;
-            bar.InvalidateMeasure();
-            bar.ScheduleForward();
+            bar.RefreshLayout();
         }
 
-        protected override Size MeasureOverride(Size availableSize)
+        private UIElement BuildContent(out StackPanel? tile)
         {
-            int mode = Mode;
-            Size slot = mode == ModeWin81 ? SlotWin81
-                      : mode == ModeWin10 ? SlotWin10
-                      : SlotWin7;
-            if (mode == ModeHidden)
+            _primary.SetResourceReference(TextBlock.ForegroundProperty,
+                "InputLanguageForeground");
+            _primary.SetResourceReference(TextBlock.FontFamilyProperty,
+                "GlobalFontFamily");
+
+            /* The Windows 8.1 card: three-letter abbreviation on top,
+             * two-letter below (RefreshLayout fills the content). */
+            var stack = new StackPanel
             {
-                return new Size(0, 0);
-            }
-            return slot;
+                Orientation = Orientation.Vertical,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            stack.Children.Add(_primary);
+            stack.Children.Add(_secondary);
+            tile = stack;
+            return stack;
         }
 
-        /// <summary>
-        /// Passa il rettangolo a schermo al porting nativo. Le coordinate
-        /// arrivano FISICHE (pixel reali), come le vuole il core.
-        /// </summary>
-        private void ScheduleForward()
+        private void RefreshLayout()
         {
-            if (_forwardScheduled || Mode == ModeHidden)
+            switch (Mode)
+            {
+                case ModeWin81:
+                    _primary.FontSize = 11;
+                    _primary.FontWeight = FontWeights.SemiBold;
+                    _primary.HorizontalAlignment = HorizontalAlignment.Center;
+                    _primary.Margin = new Thickness(0, 0, 0, -2);
+                    _secondary.FontSize = 10;
+                    _secondary.FontWeight = FontWeights.Normal;
+                    _secondary.HorizontalAlignment = HorizontalAlignment.Center;
+                    _secondary.Margin = new Thickness(0, 0, 0, 1);
+                    _secondary.Visibility = Visibility.Visible;
+                    Padding = new Thickness(4, 1, 4, 1);
+                    break;
+
+                case ModeWin10:
+                    _primary.FontSize = 14;
+                    _primary.FontWeight = FontWeights.Normal;
+                    _primary.Margin = new Thickness(0);
+                    _secondary.Visibility = Visibility.Collapsed;
+                    Padding = new Thickness(6, 0, 6, 0);
+                    break;
+
+                default:
+                    /* Windows 7: the three-letter abbreviation, sized for
+                     * the taskbar. */
+                    _primary.FontSize = 11;
+                    _primary.FontWeight = FontWeights.SemiBold;
+                    _primary.Margin = new Thickness(0);
+                    _secondary.Visibility = Visibility.Collapsed;
+                    Padding = new Thickness(4, 0, 4, 0);
+                    break;
+            }
+        }
+
+        /// <summary>The click takes the foreground away from the user's
+        /// window: the layout-switch target must be captured BEFORE
+        /// (PreviewMouseDown), then the native popup opens.</summary>
+        protected override void OnPreviewMouseDown(
+            System.Windows.Input.MouseButtonEventArgs e)
+        {
+            base.OnPreviewMouseDown(e);
+            if (e.ChangedButton != System.Windows.Input.MouseButton.Left ||
+                Mode == ModeHidden)
             {
                 return;
             }
-            /* Si lascia concludere il layout: dentro LayoutUpdated il
-             * misurare ancora e' vietato. */
-            _forwardScheduled = true;
-            Dispatcher.BeginInvoke(new Action(ForwardRect),
-                System.Windows.Threading.DispatcherPriority.Loaded);
-        }
 
-        private void ForwardRect()
-        {
-            _forwardScheduled = false;
             try
             {
-                int mode = Mode;
-                if (mode == ModeHidden)
-                {
-                    return;
-                }
-
+                IntPtr fg = NativeMethods.GetForegroundWindow();
                 var source = PresentationSource.FromVisual(this) as HwndSource;
-                if (source?.CompositionTarget == null || !IsLoaded)
-                {
-                    return;
-                }
-
-                /* Angolo dell'elemento -> schermo -> pixel fisici. */
-                Point screenTopLeft = PointToScreen(new Point(0, 0));
-                double scale = source.CompositionTarget.TransformToDevice.M11;
-                if (scale <= 0)
-                {
-                    scale = 1.0;
-                }
-                int x = (int)Math.Round(screenTopLeft.X * scale);
-                int y = (int)Math.Round(screenTopLeft.Y * scale);
-                int w = (int)Math.Round(ActualWidth * scale);
-                int h = (int)Math.Round(ActualHeight * scale);
-
-                /* Niente chiamate inutili: il core non deve ridisegnare a
-                 * ogni respiro del layout. */
-                if (mode == _lastSentMode
-                    && w == _lastSentSize.Width && h == _lastSentSize.Height
-                    && screenTopLeft == _lastSentScreenTopLeft)
-                {
-                    return;
-                }
-                _lastSentMode = mode;
-                _lastSentSize = new Size(w, h);
-                _lastSentScreenTopLeft = screenTopLeft;
-
-                NativeMethods.W7T_LangBarPlace(
-                    (ulong)source.Handle, mode, x, y, w, h);
+                ulong owner = source != null ? (ulong)source.Handle : 0;
+                NativeMethods.W7T_LangSwitcherShow(
+                    owner, fg != IntPtr.Zero ? (ulong)fg : 0, Mode);
             }
             catch (DllNotFoundException) { }
             catch (EntryPointNotFoundException) { }
             catch (Exception)
             {
-                /* Mai far cadere la barra per l'indicatore. */
+                /* Never let the taskbar fall because of the indicator. */
             }
         }
 
-        private static void TryShutdown()
+        /* ------------------------------------------------------------ */
+        /*  Data from the native side (active abbreviation + change      */
+        /*  callback)                                                    */
+        /* ------------------------------------------------------------ */
+
+        private bool _callbackRegistered;
+
+        private void RegisterCallbackOnce()
+        {
+            if (_callbackRegistered)
+            {
+                return;
+            }
+            try
+            {
+                _callbackKeepAlive = OnLangChanged;
+                NativeMethods.W7T_LangSwitcherSetChangedCallback(
+                    _callbackKeepAlive);
+                _callbackRegistered = true;
+            }
+            catch (DllNotFoundException) { _callbackRegistered = true; }
+            catch (EntryPointNotFoundException) { _callbackRegistered = true; }
+            catch (Exception) { /* the poll timer remains the safety net */ }
+        }
+
+        /* Called on the UI thread (the timer lives in the native popup,
+         * which was created on this thread). */
+        private void OnLangChanged(uint langId)
+        {
+            Dispatcher.BeginInvoke(new Action(() => ApplyLang(langId)),
+                DispatcherPriority.Background);
+        }
+
+        private void RefreshFromNative()
         {
             try
             {
-                NativeMethods.W7T_LangBarShutdown();
+                uint langId = 0;
+                char[] three = new char[8];
+                char[] two = new char[8];
+                NativeMethods.W7T_LangSwitcherGetActive(
+                    ref langId, three, three.Length, two, two.Length);
+                ApplyLang(langId, new string(three).TrimEnd('\0'),
+                    new string(two).TrimEnd('\0'));
             }
             catch (DllNotFoundException) { }
             catch (EntryPointNotFoundException) { }
-            catch (Exception) { }
+            catch (Exception)
+            {
+                /* No text is better than a broken taskbar. */
+            }
+        }
+
+        private void ApplyLang(uint langId, string? three = null, string? two = null)
+        {
+            if (langId != 0 && langId == _lastLangId && three == null)
+            {
+                return;
+            }
+            if (langId != 0)
+            {
+                _lastLangId = langId;
+            }
+
+            if (string.IsNullOrEmpty(three) || string.IsNullOrEmpty(two))
+            {
+                char[] threeBuf = new char[8];
+                char[] twoBuf = new char[8];
+                uint id = _lastLangId;
+                try
+                {
+                    NativeMethods.W7T_LangSwitcherGetActive(
+                        ref id, threeBuf, threeBuf.Length, twoBuf, twoBuf.Length);
+                    three = new string(threeBuf).TrimEnd('\0');
+                    two = new string(twoBuf).TrimEnd('\0');
+                    _lastLangId = id;
+                }
+                catch (Exception)
+                {
+                    return;
+                }
+            }
+
+            if (string.IsNullOrEmpty(three))
+            {
+                three = "---";
+            }
+            if (string.IsNullOrEmpty(two))
+            {
+                two = three.Length >= 2 ? three.Substring(0, 2) : "--";
+            }
+
+            _primary.Text = three;
+            _secondary.Text = two;
         }
     }
 }

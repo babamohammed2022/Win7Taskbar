@@ -5554,9 +5554,9 @@ namespace Win7Taskbar
         {
             try
             {
-                /* v3.6: il menu di scelta lingue lo apre il porting nativo
-                 * (ShellMenu del core): al livello gestito resta solo
-                 * l'ingombro e il rettangolo da passare al core. */
+                /* v1.4: la sigla e' disegnata dal controllo (che interroga
+                 * il core nativo); il click apre il popup nativo del
+                 * selettore (port del mod), non un menu WPF. */
                 LanguageBar.Mode =
                     RetroBar.Utilities.Settings.Instance.InputLanguageMode;
             }

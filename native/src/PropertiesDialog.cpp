@@ -71,6 +71,10 @@ constexpr short MAIN_HEIGHT = 326;
  * prodotto, come "Windows 7" e "Windows 10/11"). */
 constexpr const wchar_t* kFlyoutWin7  = L"Windows 7";
 constexpr const wchar_t* kFlyoutWin10 = L"Windows 10/11";
+/* v1.4: la tendina della BATTERIA non ha piu' la voce "Windows 11":
+ * il riquadro reale che si apre e' quello di Windows 10 (Win32), con la
+ * chiave legacy applicata solo attorno al tentativo di apertura. */
+constexpr const wchar_t* kFlyoutBatteryWin10 = L"Windows 10";
 
 enum CtrlId {
     IDC_TAB_MAIN = 100,
@@ -632,7 +636,7 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
 
         HWND hCB = GetDlgItem(hwnd, IDC_CMB_BATTERY);
         ComboBox_AddString(hCB, kFlyoutWin7);      /* 0 = flyout stile Windows 7 */
-        ComboBox_AddString(hCB, kFlyoutWin10);     /* 1 = flyout del sistema */
+        ComboBox_AddString(hCB, kFlyoutBatteryWin10); /* 1 = riquadro reale di Windows 10 */
         ComboBox_SetCurSel(hCB, self->m_batteryFlyout ? 0 : 1);
 
         /* v3.5: stile dell'indicatore della lingua di input.

@@ -435,15 +435,29 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppSearchInit(ulong ownerTaskbar, byte[]? argbPixels, int iconW, int iconH);
 
-        // v3.6: indicatore della lingua di input (port completo delle tre
-        // mod): il lato gestito passa il rettangolo fisico, il core nativo
-        // crea le finestre TrayInputIndicatorWClass/InputIndicatorButton.
+        // v1.4: selettore della lingua (port del mod switcher). Il testo
+        // nella tray lo disegna il controllo gestito con la sigla che il
+        // core legge dal thread col primo piano; il click apre il popup
+        // nativo (finestra Win32 GDI/GDI+ del core).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
-        public static extern void W7T_LangBarPlace(ulong ownerHwnd, int mode,
-            int x, int y, int width, int height);
+        public static extern void W7T_LangSwitcherShow(ulong ownerHwnd,
+            ulong foregroundHwnd, int styleMode);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
-        public static extern void W7T_LangBarShutdown();
+        public static extern void W7T_LangSwitcherHide();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
+            CharSet = CharSet.Unicode)]
+        public static extern void W7T_LangSwitcherGetActive(ref uint langId,
+            [Out] char[] threeLetter, int threeCap,
+            [Out] char[] twoLetter, int twoCap);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        public delegate void W7TLangChangedCallback(uint langId);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_LangSwitcherSetChangedCallback(
+            W7TLangChangedCallback callback);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_PropertiesShow(ulong ownerTaskbar, int lang,

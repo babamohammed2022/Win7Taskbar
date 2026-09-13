@@ -431,16 +431,22 @@ W7T_API void W7T_CALL W7T_JumpListShow(const RECT* buttonRect,
 W7T_API void W7T_CALL W7T_JumpListHide(void);
 
 /* ------------------------------------------------------------------ */
-/*  v3.6: indicatore della lingua di input (port completo delle tre   */
-/*  mod: TrayInputIndicatorWClass/InputIndicatorButton, minimo 32 px, */
-/*  layout-control a 4 modi, testo in stile fix-legacy). mode:        */
-/*  0 nascosta, 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11.          */
-/*  Le coordinate sono fisiche, client della finestra owner (la       */
-/*  barra). Va richiamato a ogni riposizionamento della barra.        */
+/*  v1.4: selettore della lingua in stile Windows 7/8.1 (port del mod */
+/*  "win7-language-switcher-restorer"). ownerHwnd = la barra;          */
+/*  foregroundHwnd = la finestra che aveva il primo piano prima del    */
+/*  clic (0 = scoperta interna); styleMode: 1 = menu classico Win7,    */
+/*  2/3 = targhetta Win8.1. GetActive ritorna la sigla della lingua    */
+/*  attiva per il testo nella tray; il callback avvisa dei cambi.      */
 /* ------------------------------------------------------------------ */
-W7T_API void W7T_CALL W7T_LangBarPlace(uint64_t ownerHwnd, int32_t mode,
-        int32_t x, int32_t y, int32_t width, int32_t height);
-W7T_API void W7T_CALL W7T_LangBarShutdown(void);
+W7T_API void W7T_CALL W7T_LangSwitcherShow(uint64_t ownerHwnd,
+        uint64_t foregroundHwnd, int32_t styleMode);
+W7T_API void W7T_CALL W7T_LangSwitcherHide(void);
+W7T_API void W7T_CALL W7T_LangSwitcherGetActive(uint32_t* langId,
+        wchar_t* threeLetter, int32_t threeCap,
+        wchar_t* twoLetter, int32_t twoCap);
+typedef void (__stdcall* W7T_LangChangedCallback)(uint32_t langId);
+W7T_API void W7T_CALL W7T_LangSwitcherSetChangedCallback(
+        W7T_LangChangedCallback callback);
 
 /* ------------------------------------------------------------------ */
 /*  v2.38: flyout batteria ricreato (stile Windows 7).                */

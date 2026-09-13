@@ -994,6 +994,56 @@ void Win11TrayReader::WorkerMain() {
                     legacy->Release();
                 }
             }
+            if (!done) {
+                /* v1.4 - ULTIMO RIPIEGO: il clic REALE per coordinate. Su
+                 * alcune build di Windows 11 i pattern di accessibilita'
+                 * dei pulsanti di sistema non producono effetto; un clic
+                 * sintetico al centro del rettangolo dell'elemento e'
+                 * esattamente cio' che farebbe l'utente. Il guard: il
+                 * punto NON deve cadere su una finestra del NOSTRO
+                 * processo (la nostra barra copre quella nativa), altrimi
+                 * si cliccherebbe noi stessi. */
+                RECT bounds = {};
+                if (SUCCEEDED(element->get_CurrentBoundingRectangle(
+                        &bounds)) && bounds.right > bounds.left &&
+                    bounds.bottom > bounds.top) {
+                    POINT centre = { (bounds.left + bounds.right) / 2,
+                                     (bounds.top + bounds.bottom) / 2 };
+                    HWND hit = WindowFromPoint(centre);
+                    DWORD hitPid = 0;
+                    if (hit != nullptr) {
+                        GetWindowThreadProcessId(hit, &hitPid);
+                    }
+                    if (hitPid != 0 && hitPid != GetCurrentProcessId()) {
+                        const LONG savedX = centre.x;
+                        const LONG savedY = centre.y;
+                        INPUT click[3] = {};
+                        click[0].type = INPUT_MOUSE;
+                        click[0].mi.dwFlags = MOUSEEVENTF_ABSOLUTE |
+                                              MOUSEEVENTF_MOVE;
+                        click[0].mi.dx = static_cast<LONG>(
+                            (savedX * 65535LL) /
+                            (GetSystemMetrics(SM_CXSCREEN) - 1));
+                        click[0].mi.dy = static_cast<LONG>(
+                            (savedY * 65535LL) /
+                            (GetSystemMetrics(SM_CYSCREEN) - 1));
+                        click[1] = click[0];
+                        click[1].mi.dwFlags |= MOUSEEVENTF_LEFTDOWN;
+                        click[2] = click[0];
+                        click[2].mi.dwFlags |= MOUSEEVENTF_LEFTUP;
+                        done = SendInput(3, click, sizeof(INPUT)) == 3;
+                        if (done) {
+                            AppendCoreLog(L"tray Win11: clic consegnato "
+                                          L"per coordinate (pattern "
+                                          L"muto)");
+                        }
+                    } else {
+                        AppendCoreLog(L"tray Win11: punto coperto dalla "
+                                      L"nostra barra, clic per coordinate "
+                                      L"salto");
+                    }
+                }
+            }
         }
         if (!done) {
             AppendCoreLog(L"tray Win11: clic non consegnato dall'elemento");

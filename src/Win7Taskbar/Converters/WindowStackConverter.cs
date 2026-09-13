@@ -119,26 +119,4 @@ namespace Win7Taskbar.Converters
                                   CultureInfo culture)
             => Binding.DoNothing;
     }
-
-    /// <summary>
-    /// v3.6: spessore delle linee dei separatori, dipendente dal NUMERO di
-    /// finestre del gruppo. Con DUE finestre la linea unica e' piu' larga
-    /// (4 px); con TRE O PIU' le linee tornano ai 3 px della Superbar,
-    /// perche' due linee in fila hanno meno spazio. E' solo grafica: non
-    /// cambia pulsante, icona o layout.
-    /// </summary>
-    [ValueConversion(typeof(int), typeof(double))]
-    public sealed class WindowStackLineWidthConverter : IValueConverter
-    {
-        public object Convert(object value, Type targetType, object parameter,
-                              CultureInfo culture)
-        {
-            int count = value is int n ? n : 0;
-            return count >= 3 ? 3.0 : 4.0;
-        }
-
-        public object ConvertBack(object value, Type targetType, object parameter,
-                                  CultureInfo culture)
-            => Binding.DoNothing;
-    }
 }

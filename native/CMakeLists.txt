@@ -21,7 +21,7 @@ add_library(Win7TaskbarCore SHARED
     src/TrayOverflowWindow.cpp src/AppSearchWindow.cpp
     src/Win7NetworkFlyout.cpp src/BatteryFlyout.cpp src/JumpListWindow.cpp
     src/PropertiesDialog.cpp src/PinnedApps.cpp src/Exports.cpp
-    src/LanguageBar.cpp
+    src/LanguageSwitcher.cpp
     src/Strings.cpp src/LocalizationExports.cpp
     src/TrayFallbackIcons.cpp resources/app.rc)
 target_include_directories(Win7TaskbarCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)

@@ -3240,6 +3240,7 @@ void TrayService::FinishBatteryOpenWatch() {
     if (m_trayWnd != nullptr) {
         KillTimer(m_trayWnd, kTimerBatteryFallback);
     }
+    RestoreWin32BatteryFlyoutValue();
     std::set<uint64_t> now;
     CollectForeignVisibleWindows(now);
     bool shellOpenedSomething = false;
@@ -3282,6 +3283,7 @@ void TrayService::StopBatteryUiARetry() {
         KillTimer(m_trayWnd, kTimerBatteryUiARetry);
     }
     m_batteryUiARetryTicks = 0;
+    RestoreWin32BatteryFlyoutValue();
 }
 
 void TrayService::SetWin7NetworkFlyout(bool ready) {
@@ -3892,7 +3894,22 @@ bool TrayService::TryWindhawkNetFlyoutClick(uint64_t ownerHwnd, uint32_t uid) {
  * momento del clic perche' la shell puo' leggerla proprio mentre apre il
  * riquadro (un'installazione recente o un reset delle impostazioni non
  * devono portare l'utente al riquadro moderno). */
+/* v1.4 - LA CHIAVE LEGACY E' TRANSITORIA. Il valore UseWin32BatteryFlyout
+ * viene scritto SOLO attorno al tentativo di apertura (prima del clic, poi
+ * ripristinato al valore precedente quando il tentativo finisce, in un
+ * senso o nell'altro): il registro dell'utente non resta toccato. E' la
+ * piu' fedele attuazione possibile della richiesta "modifica in memoria
+ * senza toccarlo realmente" da parte di un processo che NON vive dentro
+ * explorer.exe: la lettura che conta e' quella di explorer, quindi il
+ * valore deve essere vero nel registro per l'istante del clic. */
+static bool g_batteryKeyTouched = false;
+static DWORD g_batteryKeyPrevValue = 0;
+static bool g_batteryKeyPrevExists = false;
+
 static void EnsureWin32BatteryFlyoutValue() {
+    if (g_batteryKeyTouched) {
+        return;   /* un tentativo e' gia' in corso: non toccare due volte */
+    }
     HKEY key = nullptr;
     const LSTATUS opened = RegCreateKeyExW(
         HKEY_CURRENT_USER,
@@ -3909,12 +3926,39 @@ static void EnsureWin32BatteryFlyoutValue() {
                                           nullptr, &type,
                                           reinterpret_cast<LPBYTE>(&value),
                                           &size);
+    g_batteryKeyPrevExists = (read == ERROR_SUCCESS);
+    g_batteryKeyPrevValue = (read == ERROR_SUCCESS) ? value : 0;
     if (read != ERROR_SUCCESS || value != 1) {
         const DWORD one = 1;
         RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
                        reinterpret_cast<const BYTE*>(&one), sizeof(one));
+        g_batteryKeyTouched = true;
     }
     RegCloseKey(key);
+}
+
+/* Ripristina il valore precedente (o cancella la voce che non c'era). */
+static void RestoreWin32BatteryFlyoutValue() {
+    if (!g_batteryKeyTouched) {
+        return;
+    }
+    g_batteryKeyTouched = false;
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
+                      0, KEY_SET_VALUE, &key) != ERROR_SUCCESS ||
+        key == nullptr) {
+        return;
+    }
+    if (g_batteryKeyPrevExists) {
+        RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
+                       reinterpret_cast<const BYTE*>(&g_batteryKeyPrevValue),
+                       sizeof(g_batteryKeyPrevValue));
+    } else {
+        RegDeleteValueW(key, L"UseWin32BatteryFlyout");
+    }
+    RegCloseKey(key);
+    LogTagged(L"GATE", L"batteria: chiave legacy ripristinata al valore precedente");
 }
 
 /* Il clic standard su una voce VERA della tray, identico al forwarding in

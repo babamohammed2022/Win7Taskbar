@@ -128,14 +128,6 @@ enum class StrId {
     CtxNetCenter,
     CtxMobility,
     CtxPower,
-
-    /* v3.6: le 4 scelte del layout-control dell'indicatore della lingua
-     * (port del layout-control della mod: keepLayoutOnly / hide / show /
-     * windowsDefault). */
-    LangBarKeepLayout,
-    LangBarHide,
-    LangBarShow,
-    LangBarWindowsDefault,
 };
 
 /* Imposta la lingua corrente (dal managed, o all'avvio col rilevamento). */

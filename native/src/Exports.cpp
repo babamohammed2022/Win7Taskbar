@@ -33,7 +33,7 @@
 #include "FlyoutLauncher.h"
 #include "AudioService.h"
 #include "JumpListWindow.h"     /* v2.38 */
-#include "LanguageBar.h"        /* v3.6: indicatore della lingua */
+#include "LanguageSwitcher.h"   /* v1.4: selettore della lingua */
 #include "BatteryFlyout.h"      /* v2.38 */
 #include <thread>
 #include <atomic>
@@ -961,18 +961,34 @@ extern "C" W7T_API void W7T_CALL W7T_JumpListShow(
 }
 
 /* ------------------------------------------------------------------ */
-/* v3.6: indicatore della lingua di input (port delle tre mod).       */
+/* v1.4: selettore della lingua (port del mod switcher).              */
 /* ------------------------------------------------------------------ */
-extern "C" W7T_API void W7T_CALL W7T_LangBarPlace(uint64_t ownerHwnd,
-        int32_t mode, int32_t x, int32_t y, int32_t width, int32_t height) {
+extern "C" W7T_API void W7T_CALL W7T_LangSwitcherShow(uint64_t ownerHwnd,
+        uint64_t foregroundHwnd, int32_t styleMode) {
     W7T_SEH_TRY {
-        w7t::langbar::Place(ownerHwnd, mode, x, y, width, height);
+        w7t::langswitcher::Show(ownerHwnd, foregroundHwnd, styleMode);
     } W7T_SEH_CATCH {} W7T_SEH_END
 }
 
-extern "C" W7T_API void W7T_CALL W7T_LangBarShutdown(void) {
+extern "C" W7T_API void W7T_CALL W7T_LangSwitcherHide(void) {
     W7T_SEH_TRY {
-        w7t::langbar::Shutdown();
+        w7t::langswitcher::Hide();
+    } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_LangSwitcherGetActive(uint32_t* langId,
+        wchar_t* threeLetter, int32_t threeCap,
+        wchar_t* twoLetter, int32_t twoCap) {
+    W7T_SEH_TRY {
+        w7t::langswitcher::GetActiveInfo(langId, threeLetter, threeCap,
+                                         twoLetter, twoCap);
+    } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_LangSwitcherSetChangedCallback(
+        W7T_LangChangedCallback callback) {
+    W7T_SEH_TRY {
+        w7t::langswitcher::SetChangedCallback(callback);
     } W7T_SEH_CATCH {} W7T_SEH_END
 }
 
