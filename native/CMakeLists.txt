@@ -118,33 +118,25 @@ else()
     target_link_options(Win7TaskbarCore PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 set(W7T_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../dist" CACHE PATH "Folder for the compiled DLL")
-# The diagnostic full-project probe builds the same target without needing
-# the dist copy or the binary checks; skip them there.
-if(NOT W7T_INNER)
 add_custom_command(TARGET Win7TaskbarCore POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Win7TaskbarCore> "${W7T_DIST_DIR}/"
     COMMENT "Copy Win7TaskbarCore.dll to dist/")
-endif()
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     # The checks run through run-check.py: same exit code, but on failure it
     # also prints a "file(1): error C999:" line that the runner's C++
     # problem matcher turns into a check annotation naming the failed check.
-    if(NOT W7T_INNER)
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-com-interfaces.py $<TARGET_FILE:Win7TaskbarCore>
         COMMENT "Check COM interfaces in binary" VERBATIM)
-    endif()
     # v2.62: la tabella degli export deve contenere TUTTE le funzioni che il
     # livello gestito richiama. Una build che ne perde qualcuna compila, si
     # avvia e fallisce al primo clic con EntryPointNotFoundException: e'
     # successo davvero, con nove funzioni mancanti in dist/.
-    if(NOT W7T_INNER)
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-exports.py $<TARGET_FILE:Win7TaskbarCore>
         COMMENT "Check exported functions in binary" VERBATIM)
-    endif()
 endif()
 add_library(W7TInject SHARED src/InjectHook.cpp)
 set_target_properties(W7TInject PROPERTIES PREFIX "" OUTPUT_NAME "W7TInject")
@@ -152,11 +144,9 @@ target_link_libraries(W7TInject PRIVATE user32 comctl32)
 if(NOT MSVC)
     target_link_options(W7TInject PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
-if(NOT W7T_INNER)
 add_custom_command(TARGET W7TInject POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:W7TInject> "${W7T_DIST_DIR}/"
     COMMENT "Copy W7TInject.dll to dist/")
-endif()
 install(TARGETS Win7TaskbarCore W7TInject RUNTIME DESTINATION bin)
 install(FILES include/Win7TaskbarCore.h DESTINATION include)
