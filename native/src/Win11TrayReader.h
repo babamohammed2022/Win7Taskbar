@@ -136,7 +136,11 @@ public:
     bool IsLastReadValid() const { return m_lastReadValid.load(); }
 
 private:
-    Win11TrayReader() = default;
+    /* v2.64: constructor/destructor live in Win11TrayReaderResilience.cpp so
+     * the reader can install a small, best-effort Explorer/XAML rebuild hook
+     * only when the singleton is actually created (not from DllMain). */
+    Win11TrayReader();
+    ~Win11TrayReader();
     Win11TrayReader(const Win11TrayReader&) = delete;
     Win11TrayReader& operator=(const Win11TrayReader&) = delete;
 
