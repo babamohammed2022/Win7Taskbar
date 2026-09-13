@@ -2629,11 +2629,25 @@ void TrayService::ApplyWin11TraySnapshot() {
          * un utente che segnala "le icone non si vedono" non lascia nessuna
          * traccia di cosa e' successo nel core. */
         if (!Win11TrayReader::Instance().IsLastReadValid()) {
+            /* v2.62 - I PRIMI TENTATIVI SONO RAPIDI.
+             *
+             * All'avvio l'isola della tray puo' non essere pronta per qualche
+             * centinaio di millisecondi: con il solo backoff lento si
+             * aspettava un secondo, poi due, poi quattro..., e l'utente
+             * vedeva le icone arrivare con calma. I primi quattro tentativi
+             * sono a 400/800/1600/3200 ms; da li' in poi vale il backoff
+             * (1 s -> 15 s), che non e' un sondaggio continuo. */
+            unsigned long delayMs = m_uiaRetryDelayMs;
+            if (m_uiaFastRetries < 4) {
+                delayMs = 400ul << m_uiaFastRetries;
+                ++m_uiaFastRetries;
+            }
+
             wchar_t line[160] = {};
             swprintf(line, 160,
                      L"tray Win11: lettura non valida (lettore %s), riprovo fra %lu ms",
                      Win11TrayReader::Instance().IsRunning() ? L"attivo" : L"fermo",
-                     m_uiaRetryDelayMs);
+                     delayMs);
             AppendCoreLog(line);
 
             /* Un lettore fermo non si rianima da solo: si riavvia qui. */
@@ -2643,15 +2657,17 @@ void TrayService::ApplyWin11TraySnapshot() {
                 }
             }
 
-            ScheduleReconcile(kReconcileUiaTray, m_uiaRetryDelayMs);
+            ScheduleReconcile(kReconcileUiaTray, delayMs);
             m_uiaRetryDelayMs = (std::min)(15000ul, m_uiaRetryDelayMs * 2);
         } else {
             m_uiaRetryDelayMs = 1000;
         }
         return;
     }
-    /* Lettura valida: il backoff riparte da un secondo. */
+    /* Lettura valida: il backoff riparte da un secondo e i tentativi
+     * rapidi dell'avvio sono finiti. */
     m_uiaRetryDelayMs = 1000;
+    m_uiaFastRetries = 0;
 
     std::set<uint32_t> present;
     std::set<SystemIconKind> presentKinds;
@@ -2716,18 +2732,39 @@ void TrayService::ApplyWin11TraySnapshot() {
                     entry.tooltip = item.name;
                     changed = true;
                 }
-                if (entry.isPinned != !item.hidden) {
-                    /* La barra di Windows 11 ha l'ultima parola su dove sta
-                     * l'icona: il pin locale non la sposta. */
-                    entry.isPinned = !item.hidden;
-                    changed = true;
+                /* v2.62 - LA POSIZIONE LA DECIDE L'UTENTE, NON LA SHELL.
+                 *
+                 * Prima la disposizione di Windows 11 (dentro o fuori dal
+                 * pannello delle icone nascoste) veniva riscritta nel modello
+                 * a ogni lettura: spostare un'icona con pin/unpin non aveva
+                 * effetto, perche' la lettura successiva la rimetteva dov'era.
+                 * Ora la disposizione della shell vale solo finche' l'utente
+                 * non ha espresso la sua (preferenza salvata). */
+                if (!HasSavedPreference(key)) {
+                    if (entry.isPinned != !item.hidden) {
+                        entry.isPinned = !item.hidden;
+                        entry.hiddenDesired = item.hidden;
+                        changed = true;
+                    }
                 }
-                if (entry.bitmap.empty() && !item.bitmap.empty()) {
-                    entry.bitmap = item.bitmap;
-                    entry.pixelHash = ArgbHash(entry.bitmap);
-                    ++entry.iconRevision;
-                    anyBitmapChange = true;
-                    changed = true;
+                /* v2.62 - ANCHE IL DISEGNO PUO' CAMBIARE.
+                 *
+                 * Un'applicazione cambia icona quando cambia stato (una
+                 * sincronizzazione in corso, un profilo diverso, un
+                 * aggiornamento): prima il bitmap veniva preso solo se il
+                 * modello non ne aveva ancora nessuno, quindi l'icona
+                 * restava quella del primo avvio. Ora si aggiorna quando il
+                 * disegno e' davvero diverso (il confronto e' un hash, non
+                 * un'uguaglianza pixel per pixel). */
+                if (!item.bitmap.empty()) {
+                    const uint64_t hash = ArgbHash(item.bitmap);
+                    if (hash != entry.pixelHash) {
+                        entry.bitmap = item.bitmap;
+                        entry.pixelHash = hash;
+                        ++entry.iconRevision;
+                        anyBitmapChange = true;
+                        changed = true;
+                    }
                 }
                 if (changed) {
                     ++updated;
@@ -3545,6 +3582,24 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
         if (!CurrentIconRect(TrayIconKey{ ownerHwnd, uid }, anchor)) {
             if (m_trayWnd == nullptr || !GetWindowRect(m_trayWnd, &anchor)) {
                 return W7T_ERR_NOT_FOUND;
+            }
+        }
+
+        /* v2.62 - IL TASTO DESTRO E' IL MENU DELLA SHELL.
+         *
+         * Sulle icone vere di Windows il tasto destro non apre il riquadro:
+         * apre il menu contestuale (impostazioni audio, risoluzione dei
+         * problemi, dispositivi...). Quando la shell espone quel tipo di
+         * icona, il clic viene rimandato all'elemento vero, cosi' il menu e'
+         * quello di sistema e non una copia. Se quel tipo non esiste (tipico
+         * su Windows 11 22H2+, dove la shell ne disegna uno solo) non c'e'
+         * nessun menu da mostrare: si apre il riquadro, che e' comunque
+         * meglio di un clic senza effetto. */
+        if (clickType == W7T_TRAY_CLICK_RIGHT) {
+            uint32_t shellUid = 0;
+            if (Win11TrayReader::Instance().FindByKind(syntheticKind, &shellUid) &&
+                Win11TrayReader::Instance().RequestClick(shellUid, true)) {
+                return W7T_OK;
             }
         }
 

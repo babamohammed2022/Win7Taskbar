@@ -98,6 +98,13 @@ public:
     /* System icon class of a snapshot entry (Network/Volume/Battery/None). */
     SystemIconKind KindOf(uint32_t uid) const;
 
+    /* v2.62: ricerca per TIPO invece che per chiave. Serve a rimandare alla
+     * shell i clic che non gestiamo noi - il tasto destro, che apre il menu
+     * contestuale vero dell'icona - quando la shell espone quel tipo.
+     * Falso se non lo espone (su Windows 11 22H2+ ne espone uno solo,
+     * quello delle notifiche rapide). */
+    bool FindByKind(SystemIconKind kind, uint32_t* outUid) const;
+
     /* Left click (invoke) or right click (context menu) on an entry. */
     bool RequestClick(uint32_t uid, bool rightButton);
 
@@ -126,7 +133,6 @@ public:
      * una lettura non valida non deve mai essere interpretata come assenza.
      */
     bool IsLastReadValid() const { return m_lastReadValid.load(); }
-
 
 private:
     Win11TrayReader() = default;

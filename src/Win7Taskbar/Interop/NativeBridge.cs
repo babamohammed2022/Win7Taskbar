@@ -468,6 +468,21 @@ namespace Win7Taskbar.Interop
         /// <summary>v2.61: Windows 11 secondo il core (RtlGetVersion).</summary>
         public bool IsWindows11() => NativeMethods.W7T_IsWindows11() == 1;
 
+        /// <summary>v2.62: chiude il riquadro dell'orologio della shell se
+        /// e' aperto (non lo apre mai).</summary>
+        public void HideClockFlyout()
+        {
+            try
+            {
+                NativeMethods.W7T_HideClockFlyout();
+            }
+            catch
+            {
+                /* La chiusura e' una precauzione: se il core non risponde si
+                 * prosegue e il riquadro nostro si apre comunque. */
+            }
+        }
+
         // v3.0: ricerca app opzionale.
         public bool AppSearchInit(IntPtr taskbarHwnd, byte[]? argbPixels, int iconW, int iconH)
             => NativeMethods.W7T_AppSearchInit((ulong)taskbarHwnd, argbPixels, iconW, iconH) == 1;

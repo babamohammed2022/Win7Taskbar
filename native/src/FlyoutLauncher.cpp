@@ -367,6 +367,30 @@ int32_t FlyoutLauncher::InvokeFlyout(FlyoutKind kind, FlyoutAction action,
 }
 
 int32_t FlyoutLauncher::ShowClockFlyout(HWND taskbarHwnd) {
+    /* ------------------------------------------------------------------ */
+    /*  v2.62 - SU WINDOWS 11 IL RIQUADRO DELLA SHELL NON SI APRE DA QUI. */
+    /*                                                                    */
+    /*  Il riquadro dell'orologio di Windows 11 e' un'isola XAML che la   */
+    /*  shell materializza quando vuole: la chiamata riesce, la finestra   */
+    /*  puo' comparire ben dopo il tempo massimo che possiamo aspettare, e */
+    /*  nel frattempo il frontend apriva il riquadro di Windows 7.         */
+    /*  Risultato: l'utente vedeva prima quello di sistema e poi il       */
+    /*  nostro. Qui la richiesta viene rifiutata con un codice che dice    */
+    /*  "questo sistema non ha un riquadro nativo da usare": il frontend  */
+    /*  apre il riquadro di Windows 7, che su Windows 11 e' l'unico.       */
+    /*  La decisione sta nel CORE (che conosce la build con certezza) e    */
+    /*  non solo nel livello gestito: cosi' non puo' essere aggirata da un */
+    /*  errore di lettura della versione.                                 */
+    /* ------------------------------------------------------------------ */
+    if (IsWindows11OrBetter()) {
+        static bool loggedOnce = false;
+        if (!loggedOnce) {
+            loggedOnce = true;
+            AppendCoreLog(L"orologio: su Windows 11 si usa il riquadro ricreato");
+        }
+        return W7T_ERR_NOT_FOUND;
+    }
+
     RECT barRect = {};
     if (!TryGetBarRect(taskbarHwnd, barRect)) {
         return W7T_ERR_INVALID_ARG;
@@ -410,6 +434,16 @@ int32_t FlyoutLauncher::ShowClockFlyout(HWND taskbarHwnd) {
     }
 
     return W7T_ERR_NOT_FOUND;
+}
+
+int32_t FlyoutLauncher::HideClockFlyout() {
+    /* Solo la chiusura: nessuna sonda, nessuna attesa. Se il riquadro non
+     * c'e' la chiamata non ha effetto e torna subito. */
+    const RECT none{};
+    ComScope com;
+    return ToCoreResult(ImmersiveFlyouts::Invoke(FlyoutKind::Clock,
+                                                 FlyoutAction::Hide,
+                                                 MakeWinRtRect(none)));
 }
 
 int32_t FlyoutLauncher::ShowVolumeFlyout(HWND taskbarHwnd) {

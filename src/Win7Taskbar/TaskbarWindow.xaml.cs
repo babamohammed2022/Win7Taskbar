@@ -3861,6 +3861,19 @@ namespace Win7Taskbar
                 }
             }
 
+            /* v2.62 - UN RIQUADRO SOLO, SEMPRE.
+             *
+             * Su Windows 11 il riquadro e' SEMPRE il nostro. Se la shell ha
+             * aperto il suo per conto (il clic puo' arrivare anche alla barra
+             * nativa, che su alcune build resta dietro la nostra) va chiuso
+             * PRIMA di mostrare il nostro: senza questa riga i due convivono.
+             * La chiamata chiude e basta, non apre nulla, e se il riquadro
+             * non c'e' non ha effetto. */
+            if (IsWindows11Host())
+            {
+                _bridge.HideClockFlyout();
+            }
+
             ShowClassicCalendarFlyout(sender as FrameworkElement);
         }
 
@@ -4117,7 +4130,17 @@ namespace Win7Taskbar
                 }
                 catch
                 {
-                    _isWindows11Host = false;
+                    /* v2.62 - IN CASO DI DUBBIO SI USA IL RIQUADRO NOSTRO.
+                     *
+                     * Prima un errore qui valeva "non e' Windows 11", e con
+                     * quel "no" il percorso nativo tornava attivo: la shell
+                     * accettava di mostrare il suo riquadro, l'isola XAML
+                     * compariva piu' tardi del tempo che possiamo aspettare, e
+                     * l'utente vedeva prima il calendario di sistema e poi il
+                     * nostro. Il comportamento giusto e' l'opposto: si usa il
+                     * riquadro nativo solo se sappiamo CON CERTEZZA che questo
+                     * non e' Windows 11. */
+                    _isWindows11Host = true;
                 }
             }
 
@@ -4168,18 +4191,19 @@ namespace Win7Taskbar
 
             _calendarPopup = new Popup
             {
-                /* La mira vera la imposta ShowClassicCalendarFlyout a ogni
-                 * apertura (l'orologio puo' essersi spostato, la barra puo'
-                 * essere su un altro monitor): qui basta un valore valido. */
+                /* v2.62 - POSIZIONE CALCOLATA, NON DELEGATA AL LAYOUT.
+                 *
+                 * Prima il riquadro si agganciava all'elemento con
+                 * Placement=Custom e un callback che lo metteva "sopra, a
+                 * filo con la destra": nessuno teneva conto del monitor, dei
+                 * bordi dello schermo ne' del DPI, e con la barra spostata o a
+                 * DPI diversi il riquadro finiva fuori posto (o fuori dallo
+                 * schermo). Ora la posizione la calcola PlaceCalendarFlyout:
+                 * rettangolo reale dell'orologio, area di lavoro del monitor
+                 * su cui l'orologio si trova, e correzione dopo l'apertura se
+                 * il risultato non e' quello richiesto. */
                 PlacementTarget = (UIElement)this,
-                Placement = PlacementMode.Custom,
-                CustomPopupPlacementCallback = (size, targetSize, _) =>
-                    new[]
-                    {
-                        new CustomPopupPlacement(
-                            new Point(targetSize.Width - size.Width, -size.Height),
-                            PopupPrimaryAxis.None)
-                    },
+                Placement = PlacementMode.Absolute,
                 StaysOpen = true,
                 AllowsTransparency = true,
                 PopupAnimation = PopupAnimation.Fade,
@@ -4229,11 +4253,235 @@ namespace Win7Taskbar
              * il DPI e' cambiato, il riquadro compare comunque attaccato
              * all'orologio. */
             _calendarPopup.PlacementTarget = target ?? (UIElement)this;
+
+            /* Misura prima di aprire: serve la dimensione del riquadro per
+             * calcolarne la posizione, e chiederla qui evita che il primo
+             * disegno avvenga nella posizione sbagliata. */
+            try
+            {
+                if (_calendarPopup.Child is FrameworkElement child)
+                {
+                    child.Measure(new Size(double.PositiveInfinity,
+                                           double.PositiveInfinity));
+                }
+            }
+            catch { }
+
+            PlaceCalendarFlyout();
             _calendarPopup.IsOpen = true;
+        }
+
+        /* ------------------------------------------------------------------ */
+        /*  v2.62 - Posizione del riquadro dell'orologio                      */
+        /*                                                                    */
+        /*  Regole, nell'ordine:                                              */
+        /*   1. il riquadro e' agganciato all'orologio VERO, sul monitor in    */
+        /*      cui l'orologio si trova adesso (barra spostata, monitor        */
+        /*      diverso, DPI diverso: si ricalcola ogni volta);                */
+        /*   2. come Windows 7: a filo con la destra dell'orologio e subito    */
+        /*      sopra la barra, con un piccolo distacco;                       */
+        /*   3. se sopra non c'e' spazio (barra in alto, schermo piccolo) si   */
+        /*      passa sotto l'orologio;                                        */
+        /*   4. il riquadro resta sempre dentro l'area di lavoro del monitor.  */
+        /*                                                                    */
+        /*  Le coordinate sono pixel fisici; gli offset del Popup sono in      */
+        /* unita' indipendenti dal DPI, quindi si dividono per la scala del    */
+        /* monitor. La conversione viene poi verificata (vedi                */
+        /* CorrectCalendarPlacement) perche' un riquadro sbagliato di 200 px  */
+        /* e' peggio di nessun riquadro.                                      */
+        /* ------------------------------------------------------------------ */
+
+        private const int CalendarFlyoutGap = 2;
+
+        /// <summary>Scala DPI dell'albero a cui appartiene l'elemento.</summary>
+        private static double GetDpiScale(Visual visual)
+        {
+            try
+            {
+                double scale = VisualTreeHelper.GetDpi(visual).DpiScaleX;
+                return scale > 0 ? scale : 1.0;
+            }
+            catch
+            {
+                return 1.0;
+            }
+        }
+
+        /// <summary>Rettangolo fisico (pixel) dell'orologio.</summary>
+        private bool TryGetClockScreenRect(out int left, out int top,
+                                           out int right, out int bottom)
+        {
+            left = top = right = bottom = 0;
+
+            FrameworkElement anchor = ClockHost;
+            if (anchor == null)
+            {
+                anchor = this;
+            }
+
+            try
+            {
+                Point a = anchor.PointToScreen(new Point(0, 0));
+                Point b = anchor.PointToScreen(
+                    new Point(anchor.ActualWidth, anchor.ActualHeight));
+                left = (int)Math.Round(Math.Min(a.X, b.X));
+                top = (int)Math.Round(Math.Min(a.Y, b.Y));
+                right = (int)Math.Round(Math.Max(a.X, b.X));
+                bottom = (int)Math.Round(Math.Max(a.Y, b.Y));
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+
+            return right > left && bottom > top;
+        }
+
+        /// <summary>
+        /// Misura in pixel fisici del riquadro (0 se non e' ancora disegnato).
+        /// </summary>
+        private bool TryGetFlyoutSize(out int width, out int height)
+        {
+            width = height = 0;
+
+            if (_calendarPopup?.Child is not FrameworkElement child)
+            {
+                return false;
+            }
+
+            double scale = GetDpiScale(child);
+            double w = child.ActualWidth > 0 ? child.ActualWidth : child.DesiredSize.Width;
+            double h = child.ActualHeight > 0 ? child.ActualHeight : child.DesiredSize.Height;
+            if (w <= 0 || h <= 0)
+            {
+                return false;
+            }
+
+            width = (int)Math.Ceiling(w * scale);
+            height = (int)Math.Ceiling(h * scale);
+            return true;
+        }
+
+        /// <summary>Posizione fisica voluta per il riquadro.</summary>
+        private bool TryGetCalendarFlyoutTarget(out int x, out int y)
+        {
+            x = y = 0;
+
+            if (!TryGetClockScreenRect(out int clockLeft, out int clockTop,
+                                       out int clockRight, out int clockBottom) ||
+                !TryGetFlyoutSize(out int width, out int height))
+            {
+                return false;
+            }
+
+            var center = new NativeMethods.POINT
+            {
+                x = (clockLeft + clockRight) / 2,
+                y = (clockTop + clockBottom) / 2
+            };
+            IntPtr monitor = NativeMethods.MonitorFromPoint(
+                center, NativeMethods.MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            var info = new NativeMethods.MONITORINFO
+            {
+                cbSize = System.Runtime.InteropServices.Marshal
+                    .SizeOf<NativeMethods.MONITORINFO>()
+            };
+            if (!NativeMethods.GetMonitorInfoW(monitor, ref info))
+            {
+                return false;
+            }
+
+            NativeMethods.RECT work = info.rcWork;
+
+            /* Come Windows 7: a filo con la destra dell'orologio, sopra la
+             * barra. Se sopra non c'e' spazio si passa sotto. */
+            x = clockRight - width;
+            y = clockTop - height - CalendarFlyoutGap;
+            if (y < work.Top)
+            {
+                y = clockBottom + CalendarFlyoutGap;
+            }
+
+            /* Mai fuori dall'area di lavoro del monitor. */
+            int maxX = work.Right - width;
+            int maxY = work.Bottom - height;
+            x = Math.Max(work.Left, Math.Min(x, Math.Max(work.Left, maxX)));
+            y = Math.Max(work.Top, Math.Min(y, Math.Max(work.Top, maxY)));
+            return true;
+        }
+
+        /// <summary>Applica la posizione voluta (in unita' del Popup).</summary>
+        private void PlaceCalendarFlyout()
+        {
+            if (_calendarPopup == null ||
+                !TryGetCalendarFlyoutTarget(out int x, out int y))
+            {
+                return;
+            }
+
+            double scale = GetDpiScale(_calendarPopup.Child);
+            _calendarPopup.HorizontalOffset = x / scale;
+            _calendarPopup.VerticalOffset = y / scale;
+        }
+
+        /// <summary>
+        /// v2.62: dopo l'apertura si controlla DOVE il riquadro e' finito
+        /// davvero e, se non e' dove deve stare, lo si sposta della
+        /// differenza. Serve perche' la conversione fra unita' del Popup e
+        /// pixel dipende dal DPI del monitor e dal contesto in cui la finestra
+        /// del riquadro viene creata: misurarlo e' piu' affidabile che
+        /// calcolarlo. Si ripete al massimo due volte, poi si lascia stare.
+        /// </summary>
+        private void CorrectCalendarPlacement(int attempt = 0)
+        {
+            if (_calendarPopup?.Child is not FrameworkElement child ||
+                !_calendarPopup.IsOpen ||
+                !TryGetCalendarFlyoutTarget(out int wantedX, out int wantedY))
+            {
+                return;
+            }
+
+            double actualX, actualY;
+            try
+            {
+                Point screen = child.PointToScreen(new Point(0, 0));
+                actualX = screen.X;
+                actualY = screen.Y;
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+
+            double dx = wantedX - actualX;
+            double dy = wantedY - actualY;
+            if (Math.Abs(dx) < 1 && Math.Abs(dy) < 1)
+            {
+                return;
+            }
+
+            double scale = GetDpiScale(child);
+            _calendarPopup.HorizontalOffset += dx / scale;
+            _calendarPopup.VerticalOffset += dy / scale;
+
+            if (attempt < 2)
+            {
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
+                    new Action(() => CorrectCalendarPlacement(attempt + 1)));
+            }
         }
 
         private void CalendarPopup_Opened(object? sender, EventArgs e)
         {
+            /* v2.62: dove e' finito davvero il riquadro? Se non e' attaccato
+             * all'orologio lo si sposta (DPI, monitor, barra spostata). */
+            CorrectCalendarPlacement();
+
             // Start global mouse hook to detect clicks outside flyout
             // Requirement: If clock flyout open and click other parts of screen outside flyout, it must close
             try

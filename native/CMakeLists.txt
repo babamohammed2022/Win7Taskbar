@@ -45,6 +45,13 @@ if(Python3_Interpreter_FOUND)
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/check-com-interfaces.py" $<TARGET_FILE:Win7TaskbarCore>
         COMMENT "Check COM interfaces in binary" VERBATIM)
+    # v2.62: la tabella degli export deve contenere TUTTE le funzioni che il
+    # livello gestito richiama. Una build che ne perde qualcuna compila, si
+    # avvia e fallisce al primo clic con EntryPointNotFoundException: e'
+    # successo davvero, con nove funzioni mancanti in dist/.
+    add_custom_command(TARGET Win7TaskbarCore POST_BUILD
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/check-exports.py" $<TARGET_FILE:Win7TaskbarCore>
+        COMMENT "Check exported functions in binary" VERBATIM)
 endif()
 add_library(W7TInject SHARED src/InjectHook.cpp)
 set_target_properties(W7TInject PROPERTIES PREFIX "" OUTPUT_NAME "W7TInject")

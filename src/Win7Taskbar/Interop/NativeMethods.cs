@@ -389,6 +389,15 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_IsWindows11();
 
+        /// <summary>
+        /// v2.62: chiude il riquadro dell'orologio DELLA SHELL, se aperto.
+        /// Non lo apre mai: su Windows 11 il riquadro mostrato e' sempre
+        /// quello ricreato da Win7Taskbar, e se il sistema ha aperto il suo
+        /// per conto i due non devono convivere.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_HideClockFlyout();
+
         // v3.0: optional app search panel.
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppSearchInit(ulong ownerTaskbar, byte[]? argbPixels, int iconW, int iconH);

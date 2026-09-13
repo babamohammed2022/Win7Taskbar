@@ -344,6 +344,11 @@ private:
      * 1 s appena una lettura e' valida: nessun polling continuo, solo un
      * ritentativo in backoff guidato dagli eventi. */
     unsigned long                        m_uiaRetryDelayMs = 1000;
+
+    /* v2.62: quanti tentativi "rapidi" (400/800/1600/3200 ms) sono gia'
+     * stati fatti all'avvio. Si azzera alla prima lettura valida: da quel
+     * momento vale il backoff normale e non si sonda piu' di frequente. */
+    int                                  m_uiaFastRetries = 0;
     std::vector<TrayIconKey>        m_order;
 
     /* Indice GUID -> chiave, per il riaggancio delle re-registrazioni:

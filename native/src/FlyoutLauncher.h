@@ -76,6 +76,17 @@ public:
     /** Riquadro del volume ancorato al rettangolo dell'icona. */
     static int32_t ShowVolumeFlyoutAt(const RECT& anchorRect);
 
+    /**
+     * v2.62 - Chiude il riquadro dell'orologio DELLA SHELL se e' aperto.
+     *
+     * Non lo apre mai: serve solo a garantire "un solo riquadro" quando il
+     * sistema ha mostrato il suo per conto (per esempio perche' il clic e'
+     * arrivato anche alla barra nativa, che su alcune build resta dietro la
+     * nostra). Su Windows 10 questo percorso e' quello scelto dall'utente e
+     * il frontend non lo chiama.
+     */
+    static int32_t HideClockFlyout();
+
     /** Apre il mixer volume classico (SndVol.exe). */
     static int32_t ShowVolumeMixer();
 

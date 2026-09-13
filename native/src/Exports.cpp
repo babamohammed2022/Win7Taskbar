@@ -478,6 +478,14 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ShowClockFlyout(uint64_t taskbarHwnd) {
     return FlyoutLauncher::ShowClockFlyout(ToHwnd(taskbarHwnd));
 }
 
+/* v2.62: chiude il riquadro dell'orologio della shell se e' aperto (non lo
+ * apre mai). Il frontend lo usa su Windows 11, dove il riquadro mostrato e'
+ * sempre quello ricreato: se la shell ha aperto il suo per conto, i due non
+ * devono convivere. */
+extern "C" W7T_API int32_t W7T_CALL W7T_HideClockFlyout(void) {
+    return FlyoutLauncher::HideClockFlyout();
+}
+
 extern "C" W7T_API int32_t W7T_CALL W7T_ShowVolumeFlyout(uint64_t taskbarHwnd) {
     return FlyoutLauncher::ShowVolumeFlyout(ToHwnd(taskbarHwnd));
 }

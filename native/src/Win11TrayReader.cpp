@@ -27,6 +27,7 @@
 #include "Strings.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cwctype>
 #include <map>
 #include <new>
@@ -52,6 +53,11 @@ const GUID kIidInvokePattern =
     { 0xFB377FBE, 0x8EA6, 0x46D5, { 0x9C, 0x73, 0x64, 0x99, 0x64, 0x2D, 0x30, 0x59 } };
 const GUID kIidLegacyPattern =
     { 0x828055AD, 0x355B, 0x4435, { 0x86, 0xD5, 0x3B, 0x51, 0xC1, 0x4A, 0x9B, 0x1B } };
+/* IUIAutomationPropertyChangedEventHandler: serve per sapere SUBITO che lo
+ * stato di un'icona e' cambiato (percentuale della batteria, rete che va e
+ * viene, tooltip riscritto) invece di aspettare il risveglio di sicurezza. */
+const GUID kIidPropertyChangedHandler =
+    { 0x40CD37D4, 0xC756, 0x4B0C, { 0x8C, 0x6F, 0xBD, 0xDF, 0xEE, 0xB1, 0x3B, 0x50 } };
 
 constexpr UINT kMsgRead        = WM_APP + 1;
 constexpr UINT kMsgClick       = WM_APP + 2;
@@ -252,6 +258,104 @@ SystemIconKind ClassifySystemIcon(const std::wstring& name) {
     return SystemIconKind::None;
 }
 
+/* -------------------------------------------------------------------------
+ *  v2.62 - ICONA VERA DELL'APPLICAZIONE
+ *
+ *  La tray di Windows 11 non consegna nessuna immagine: l'albero di
+ *  accessibilita' ha il nome e il proprietario, non il disegno. L'icona va
+ *  quindi chiesta al processo, e la fonte migliore e' il processo stesso:
+ *  molte applicazioni di tray mettono la PROPRIA icona (quella che su
+ *  Windows 10 finirebbe in NOTIFYICONDATA.hIcon) su una finestra, spesso
+ *  invisibile. Chiedere quel HICON da' l'icona esatta, stato compreso: e'
+ *  quello che si vede sulla tray vera.
+ *
+ *  Ordine di ricerca: finestra con la classe che contiene "Tray" (quasi
+ *  sempre la finestra del messaggio di tray dell'applicazione), poi
+ *  qualunque altra finestra del processo, poi - solo se il processo non
+ *  espone nulla - l'icona dell'eseguibile, e infine l'icona generica.
+ * ------------------------------------------------------------------------- */
+
+struct ProcessIconSearch {
+    DWORD pid = 0;
+    HICON trayWindow = nullptr;   /* finestra che sembra quella della tray */
+    HICON anyWindow  = nullptr;   /* qualunque finestra del processo        */
+};
+
+BOOL CALLBACK CollectProcessIcon(HWND hwnd, LPARAM param) {
+    auto* search = reinterpret_cast<ProcessIconSearch*>(param);
+
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid != search->pid) {
+        return TRUE;
+    }
+
+    HICON icon = nullptr;
+    DWORD_PTR result = 0;
+    /* ICON_SMALL2 e' l'icona piccola "vera" quando l'applicazione ne ha una
+     * distinta; ICON_SMALL la copre per le applicazioni piu' vecchie. */
+    if (SendMessageTimeoutW(hwnd, WM_GETICON, ICON_SMALL2, 0,
+                            SMTO_ABORTIFHUNG | SMTO_BLOCK, 120, &result) != 0 &&
+        result != 0) {
+        icon = reinterpret_cast<HICON>(result);
+    }
+    if (icon == nullptr &&
+        SendMessageTimeoutW(hwnd, WM_GETICON, ICON_SMALL, 0,
+                            SMTO_ABORTIFHUNG | SMTO_BLOCK, 120, &result) != 0 &&
+        result != 0) {
+        icon = reinterpret_cast<HICON>(result);
+    }
+    if (icon == nullptr) {
+        icon = reinterpret_cast<HICON>(GetClassLongPtrW(hwnd, GCLP_HICONSM));
+    }
+    if (icon == nullptr) {
+        icon = reinterpret_cast<HICON>(GetClassLongPtrW(hwnd, GCLP_HICON));
+    }
+    if (icon == nullptr) {
+        return TRUE;
+    }
+
+    if (search->anyWindow == nullptr) {
+        search->anyWindow = icon;
+    }
+    if (search->trayWindow == nullptr) {
+        wchar_t cls[128] = {};
+        GetClassNameW(hwnd, cls, _countof(cls));
+        if (Contains(std::wstring(cls), L"Tray")) {
+            search->trayWindow = icon;
+        }
+    }
+    return TRUE;
+}
+
+bool LoadProcessWindowIcon(DWORD pid, ArgbBitmap& out) {
+    if (pid == 0 || pid == GetCurrentProcessId()) {
+        return false;
+    }
+
+    ProcessIconSearch search;
+    search.pid = pid;
+    W7T_SEH_TRY {
+        EnumWindows(CollectProcessIcon, reinterpret_cast<LPARAM>(&search));
+    } W7T_SEH_CATCH {
+        search.trayWindow = nullptr;
+        search.anyWindow  = nullptr;
+    } W7T_SEH_END
+
+    HICON icon = search.trayWindow != nullptr ? search.trayWindow
+                                              : search.anyWindow;
+    if (icon == nullptr) {
+        return false;
+    }
+
+    ArgbBitmap bmp;
+    if (!IconToArgb(icon, bmp) || !BitmapSane(bmp)) {
+        return false;
+    }
+    out = std::move(bmp);
+    return true;
+}
+
 /* Icon of an executable: the image the tray shows for applications that do
  * not hand the shell their own HICON. */
 bool LoadImageIcon(const std::wstring& exePath, ArgbBitmap& out) {
@@ -317,6 +421,80 @@ uint32_t UidFromToken(const std::wstring& token) {
 } /* namespace */
 
 /* ------------------------------------------------------------------ */
+/*  v2.62 - Eventi di proprieta' della tray                            */
+/*                                                                     */
+/*  La shell notifica il cambio di proprieta' degli elementi della     */
+/*  tray: e' il modo per sapere SUBITO che la batteria e' scesa, che   */
+/*  la rete e' cambiata o che un'applicazione ha riscritto il suo      */
+/*  tooltip, senza interrogare l'albero a intervalli. L'handler non    */
+/*  legge niente: segnala al thread di lavoro di rileggere, con una    */
+/*  soglia minima fra due segnalazioni (gli aggiornamenti della shell  */
+/*  arrivano a raffica).                                               */
+/*                                                                     */
+/*  La classe sta fuori dal namespace anonimo di proposito: un         */
+/*  oggetto COM implementato in un namespace anonimo puo' essere       */
+/*  ottimizzato via, e il difetto si vede solo a runtime.              */
+/* ------------------------------------------------------------------ */
+
+class TrayPropertyChangeHandler final : public IUIAutomationPropertyChangedEventHandler {
+public:
+    void AttachTo(DWORD threadId) {
+        m_threadId = threadId;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override {
+        return static_cast<ULONG>(InterlockedIncrement(&m_refs));
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override {
+        const LONG left = InterlockedDecrement(&m_refs);
+        if (left == 0) {
+            delete this;
+        }
+        return static_cast<ULONG>(left);
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** object) override {
+        if (object == nullptr) {
+            return E_POINTER;
+        }
+        if (IsEqualIID(riid, kIidPropertyChangedHandler) ||
+            IsEqualIID(riid, IID_IUnknown)) {
+            *object = static_cast<IUIAutomationPropertyChangedEventHandler*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *object = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    HRESULT STDMETHODCALLTYPE HandlePropertyChangedEvent(
+            IUIAutomationElement* sender, PROPERTYID propertyId,
+            VARIANT newValue) override {
+        (void)sender;
+        (void)propertyId;
+        (void)newValue;
+
+        const ULONGLONG now = GetTickCount64();
+        if (now - m_lastPost.load() < 300) {
+            return S_OK;
+        }
+        m_lastPost.store(now);
+
+        const DWORD thread = m_threadId;
+        if (thread != 0) {
+            PostThreadMessageW(thread, kMsgRead, 0, 0);
+        }
+        return S_OK;
+    }
+
+private:
+    LONG  volatile       m_refs = 1;
+    DWORD                m_threadId = 0;
+    std::atomic<ULONGLONG> m_lastPost{ 0 };
+};
+
+/* ------------------------------------------------------------------ */
 /*  Requests between the caller and the worker                         */
 /* ------------------------------------------------------------------ */
 
@@ -377,6 +555,12 @@ bool Win11TrayReader::Start() {
      * publish it (a few milliseconds, the loop starts right away). */
     for (int i = 0; i < 200 && m_threadId == 0; ++i) {
         Sleep(5);
+    }
+    if (m_threadId != 0) {
+        /* v2.62: prima lettura SUBITO. La tray deve riempirsi all'avvio, non
+         * al primo evento della shell: aspettare l'hook o il risveglio di
+         * sicurezza significava icona dopo icona con secondi di ritardo. */
+        PostThreadMessageW(m_threadId, kMsgRead, 0, 0);
     }
     return m_threadId != 0;
 }
@@ -464,6 +648,22 @@ SystemIconKind Win11TrayReader::KindOf(uint32_t uid) const {
     return SystemIconKind::None;
 }
 
+bool Win11TrayReader::FindByKind(SystemIconKind kind, uint32_t* outUid) const {
+    if (kind == SystemIconKind::None) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (const Win11TrayItem& item : m_snapshot) {
+        if (item.kind == kind) {
+            if (outUid != nullptr) {
+                *outUid = item.uid;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Worker thread                                                      */
 /* ------------------------------------------------------------------ */
@@ -493,6 +693,45 @@ void Win11TrayReader::WorkerMain() {
     std::map<uint32_t, IUIAutomationElement*> elements;
     IUIAutomationElement* chevron = nullptr;
     HWINEVENTHOOK flyoutHook = nullptr;
+
+    /* v2.62: ascolto dei cambi di proprieta' dell'isola della tray. */
+    TrayPropertyChangeHandler* propertyHandler = nullptr;
+    IUIAutomationElement* watchedRoot = nullptr;
+    HWND watchedIsland = nullptr;
+
+    auto watchIslandProperties = [&](HWND island) {
+        if (uia == nullptr || island == nullptr || island == watchedIsland) {
+            return;
+        }
+        if (watchedRoot != nullptr && propertyHandler != nullptr) {
+            uia->RemovePropertyChangedEventHandler(watchedRoot, propertyHandler);
+            watchedRoot->Release();
+            watchedRoot = nullptr;
+            watchedIsland = nullptr;
+        }
+        if (propertyHandler == nullptr) {
+            propertyHandler = new (std::nothrow) TrayPropertyChangeHandler();
+            if (propertyHandler == nullptr) {
+                return;
+            }
+            propertyHandler->AttachTo(m_threadId);
+        }
+        IUIAutomationElement* root = nullptr;
+        if (FAILED(uia->ElementFromHandle(island, &root)) || root == nullptr) {
+            return;
+        }
+        /* Nome e stato attivo: sono le due proprieta' che cambiano quando
+         * un'icona cambia stato (percentuale, rete, notifiche). */
+        PROPERTYID properties[] = { UIA_NamePropertyId, UIA_IsEnabledPropertyId };
+        if (SUCCEEDED(uia->AddPropertyChangedEventHandlerNativeArray(
+                root, TreeScope_Subtree, nullptr, propertyHandler,
+                properties, 2))) {
+            watchedRoot = root;     /* tenuto per la disiscrizione */
+            watchedIsland = island;
+        } else {
+            root->Release();
+        }
+    };
 
     auto releaseElements = [&]() {
         for (auto& pair : elements) {
@@ -614,7 +853,11 @@ void Win11TrayReader::WorkerMain() {
                         element->Release();
                         continue;
                     }
-                } else {
+                } else if (!LoadProcessWindowIcon(item.pid, item.bitmap)) {
+                    /* Nessuna finestra del processo espone un'icona: si
+                     * ripiega su quella dell'eseguibile (per la maggior
+                     * parte delle applicazioni sono la stessa immagine) e
+                     * solo se anche quella manca sull'icona generica. */
                     LoadImageIcon(item.exePath, item.bitmap);
                 }
 
@@ -633,7 +876,31 @@ void Win11TrayReader::WorkerMain() {
                 if (owner.empty()) {
                     owner = std::to_wstring(item.pid);
                 }
-                std::wstring token = L"uia:" + owner + L"|" + text;
+                /* v2.62 - IDENTITA' STABILE, SENZA IL TOOLTIP.
+                 *
+                 * Il nome accessibile di un'icona e' un bersaglio mobile:
+                 * "Batteria 87%" diventa 86% dopo un minuto, un client di
+                 * posta ci mette il numero di messaggi, un download manager
+                 * la velocita'. Con il nome dentro la chiave ogni lettura
+                 * creava un'icona NUOVA e ne faceva sparire un'altra:
+                 * l'utente vedeva l'icona lampeggiare, la posizione e la
+                 * preferenza pin/nascondi andavano perse e il modello si
+                 * riempiva di doppioni.
+                 *
+                 * La chiave e' quindi il processo (piu' il tipo, per le
+                 * icone di sistema che la shell espone): resta la stessa
+                 * finche' l'icona esiste. Il nome continua ad arrivare al
+                 * modello e ad aggiornare il tooltip (entry.tooltip), che e'
+                 * esattamente dove deve stare. */
+                std::wstring token;
+                if (item.systemOwned) {
+                    token = L"uia:system|";
+                    token += (item.kind == SystemIconKind::Volume) ? L"volume"
+                           : (item.kind == SystemIconKind::Network) ? L"network"
+                                                                    : L"battery";
+                } else {
+                    token = L"uia:" + owner;
+                }
                 uint32_t uid = UidFromToken(token);
                 for (int suffix = 1; usedUids.count(uid) != 0 ||
                                     uid == 0x77000000u; ++suffix) {
@@ -676,6 +943,9 @@ void Win11TrayReader::WorkerMain() {
         /* L'isola c'era ed e' stata attraversata: la lettura e' valida anche
          * se non ha trovato nulla (tutte le icone nascoste dall'utente). */
         m_lastReadValid.store(true);
+
+        /* Da adesso i cambi di stato della shell arrivano da soli. */
+        watchIslandProperties(taskbar != nullptr ? taskbar : overflow);
         wchar_t line[160] = {};
         swprintf(line, 160, L"tray Win11: %u icone (UI Automation)",
                  static_cast<unsigned>(items.size()));
@@ -755,20 +1025,29 @@ void Win11TrayReader::WorkerMain() {
         if (msg.message == kMsgClick) {
             Request* request = reinterpret_cast<Request*>(msg.lParam);
             if (request != nullptr) {
-                IUIAutomationElement* element = nullptr;
+                bool delivered = false;
                 auto it = elements.find(request->uid);
                 if (it != elements.end()) {
-                    element = it->second;
+                    delivered = callPattern(it->second, request->rightButton);
                 }
-                if (element == nullptr) {
-                    readNow();   /* the tray changed: refresh and retry */
+                /* v2.62 - IL PUNTATORE PUO' ESSERE MORTO.
+                 *
+                 * Dopo un riavvio di Explorer, o quando la shell ricrea
+                 * l'isola della tray, gli elementi raccolti prima non
+                 * esistono piu': la chiave dell'icona e' ancora valida ma il
+                 * clic non arriva a nessuno. Si rilegge e si ritenta UNA
+                 * volta (la rilettura rilascia i puntatori vecchi, quindi
+                 * dopo non si usa piu' quello di prima). */
+                if (!delivered) {
+                    readNow();
                     auto again = elements.find(request->uid);
                     if (again != elements.end()) {
-                        element = again->second;
+                        delivered = callPattern(again->second,
+                                                request->rightButton);
                     }
                 }
-                if (element != nullptr) {
-                    callPattern(element, request->rightButton);
+                if (!delivered) {
+                    AppendCoreLog(L"tray Win11: clic non consegnato");
                 }
                 delete request;
             }
@@ -836,6 +1115,15 @@ void Win11TrayReader::WorkerMain() {
 
     stopFlyoutWatch();
     releaseElements();
+    if (watchedRoot != nullptr && propertyHandler != nullptr && uia != nullptr) {
+        uia->RemovePropertyChangedEventHandler(watchedRoot, propertyHandler);
+        watchedRoot->Release();
+        watchedRoot = nullptr;
+    }
+    if (propertyHandler != nullptr) {
+        propertyHandler->Release();
+        propertyHandler = nullptr;
+    }
     if (uia != nullptr) {
         uia->Release();
     }
