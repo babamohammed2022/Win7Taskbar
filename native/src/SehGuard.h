@@ -65,7 +65,7 @@ inline void SehInstallOnce() {
  * distruzione locale stacca il frame ancora in cima. Se invece il blocco
  * e' uscito da CATCH/END (gia' staccato) o via longjmp (staccato dal
  * ramo CATCH), qui il top e' diverso e non tocca nulla. */
-struct SehAutoPop {
+struct W7tSehAutoPop {
     ::w7t::SehFrame** top;
     ::w7t::SehFrame* frame;
     ~SehAutoPop() {
@@ -81,8 +81,8 @@ struct SehAutoPop {
         ::w7t::SehFrame w7tSehFrame{};                                  \
         w7tSehFrame.previous = ::w7t::g_sehTop;                         \
         ::w7t::g_sehTop = &w7tSehFrame;                                 \
-        ::w7t::SehAutoPop w7tSehAutoPop{ &::w7t::g_sehTop,              \
-                                         &w7tSehFrame };                \
+        W7tSehAutoPop w7tSehAutoPop{ &::w7t::g_sehTop,                 \
+                                        &w7tSehFrame };                \
         if (setjmp(w7tSehFrame.jump) == 0) {
 
 #define W7T_SEH_CATCH                                                   \
