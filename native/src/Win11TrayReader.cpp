@@ -979,19 +979,10 @@ void Win11TrayReader::WorkerMain() {
 
         /* Da adesso i cambi di stato della shell arrivano da soli. */
         watchIslandProperties(taskbar != nullptr ? taskbar : overflow);
-        /* v1.7: la lettura gira ogni ~350 ms e sulla build 26100 il
-         * conto oscilla fra 0 e 3: si registra SOLO il CAMBIAMENTO,
-         * altrimenti il log e' un rumore continuo (il vecchio testo
-         * "0 icone" ripetuto ogni frazione di secondo). */
-        static std::atomic<int> s_lastLoggedCount{ -1 };
-        if (s_lastLoggedCount.exchange(
-                static_cast<int>(items.size())) !=
-            static_cast<int>(items.size())) {
-            wchar_t line[160] = {};
-            swprintf(line, 160, L"tray Win11: %u icone (UI Automation)",
-                     static_cast<unsigned>(items.size()));
-            AppendCoreLog(line);
-        }
+        wchar_t line[160] = {};
+        swprintf(line, 160, L"tray Win11: %u icone (UI Automation)",
+                 static_cast<unsigned>(items.size()));
+        AppendCoreLog(line);
         postReady();
     };
 

@@ -4246,25 +4246,8 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                  * tentativi 2 e 3 confronta le finestre visibili per
                  * INSIEME, non piu' solo lo stile popup: era il difetto che
                  * mostrava il ricreato SOPRA il riquadro vero. */
-                /* v1.7 - POLITICA RICHIESTA: la voce "Windows 7" della
-                 * tendina apre SEMPRE il riquadro ricreato, senza alcun
-                 * tentativo verso la shell (il lettore UIA sulla build
-                 * 26100 restituisce 0 icone quasi sempre, quindi la catena
-                 * reale finiva nel ricreato dopo 5 inutili riprove). La
-                 * voce "Windows 10/11" continua a puntare al riquadro
-                 * VERO: prima le icone reali di stobject.dll, poi il
-                 * pulsante batteria della tray di Windows 11 via UI
-                 * Automation, e solo se non c'e' niente di vero il
-                 * ricreato. La chiave legacy resta TRANSITORIA e viene
-                 * usata solo da questa seconda voce. */
                 if (route == w7t::FlyoutRoute::Classic) {
-                    BatteryFlyout::Instance().ShowAt(anchor);
-                    return W7T_OK;
-                }
-                /* "Windows 10/11": catena reale (identica a quella che
-                 * prima serviva la voce "Windows 7"). */
-                {
-EnsureWin32BatteryFlyoutValue();
+                    EnsureWin32BatteryFlyoutValue();
 
                     /* 1. l'icona cliccata E' la batteria vera. */
                     {
@@ -4346,7 +4329,12 @@ EnsureWin32BatteryFlyoutValue();
                     StartBatteryUiARetry(anchor);
                     return W7T_OK;
                 }
-                /* Niente di vero (o catena non riuscita): il ricreato. */
+                /* "Windows 10/11": prima il riquadro della shell, come per
+                 * gli altri tipi; il ricreato resta il ripiego. */
+                if (FlyoutLauncher::InvokeFlyoutAt(FlyoutKind::Battery,
+                                                   FlyoutAction::Show, anchor) == W7T_OK) {
+                    return W7T_OK;
+                }
                 BatteryFlyout::Instance().ShowAt(anchor);
                 return W7T_OK;
 

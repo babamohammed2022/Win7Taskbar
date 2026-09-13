@@ -71,10 +71,10 @@ constexpr short MAIN_HEIGHT = 326;
  * prodotto, come "Windows 7" e "Windows 10/11"). */
 constexpr const wchar_t* kFlyoutWin7  = L"Windows 7";
 constexpr const wchar_t* kFlyoutWin10 = L"Windows 10/11";
-/* v1.7: la voce "Windows 7" apre SEMPRE il riquadro ricreato; la voce
- * "Windows 10/11" punta al riquadro reale della shell (con la chiave
- * legacy applicata solo attorno al tentativo di apertura). */
-constexpr const wchar_t* kFlyoutBatteryWin10 = L"Windows 10/11";
+/* v1.4: la tendina della BATTERIA non ha piu' la voce "Windows 11":
+ * il riquadro reale che si apre e' quello di Windows 10 (Win32), con la
+ * chiave legacy applicata solo attorno al tentativo di apertura. */
+constexpr const wchar_t* kFlyoutBatteryWin10 = L"Windows 10";
 
 enum CtrlId {
     IDC_TAB_MAIN = 100,
