@@ -17,7 +17,7 @@ add_library(Win7TaskbarCore SHARED
     src/Common.cpp src/WindowManager.cpp src/TrayService.cpp src/TrayToolbar.cpp
     src/SystemEventsWatch.cpp src/AppBarService.cpp src/ShellMenu.cpp
     src/ImmersiveFlyouts.cpp src/FlyoutLauncher.cpp src/AudioService.cpp
-    src/ExplorerTrayReader.cpp src/Win11TrayReader.cpp
+    src/ExplorerTrayReader.cpp src/Win11TrayReader.cpp src/Win11TrayReaderResilience.cpp
     src/TrayOverflowWindow.cpp src/AppSearchWindow.cpp
     src/Win7NetworkFlyout.cpp src/BatteryFlyout.cpp src/JumpListWindow.cpp
     src/PropertiesDialog.cpp src/PinnedApps.cpp src/Exports.cpp
