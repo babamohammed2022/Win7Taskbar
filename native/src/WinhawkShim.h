@@ -18,6 +18,13 @@
 #include <cstdio>
 #include <cstdarg>
 
+/* v2.64: le righe del riquadro di rete entrano nel registro del programma.
+ * Dichiarazione locale per non trascinare qui tutto Common.h; la definizione
+ * e' quella di w7t::AppendCoreLog (Common.cpp). */
+namespace w7t {
+void AppendCoreLog(const wchar_t* line);
+}
+
 namespace w7tshim {
 
 /* Impostazioni predefinite della mod (le stesse della mod originale):
@@ -49,8 +56,15 @@ inline void Wh_Log(const wchar_t* fmt, ...) {
     _vsnwprintf_s(buf, _TRUNCATE, fmt, args);
     va_end(args);
     wchar_t line[1100];
-    StringCchPrintfW(line, ARRAYSIZE(line), L"[W7TNetFlyout] %s\n", buf);
+    StringCchPrintfW(line, ARRAYSIZE(line), L"[W7TNetFlyout] %s", buf);
     OutputDebugStringW(line);
+    /* v2.64 - NON SOLO AL DEBUGGER.
+     *
+     * Fino a ieri queste righe esistevano solo in OutputDebugString: il
+     * riquadro di rete era l'unico componente del programma a non dire
+     * niente nel registro, quindi un elenco vuoto o un handle WLAN non
+     * disponibile erano invisibili. Ora finiscono anche in log-core.txt. */
+    w7t::AppendCoreLog(line);
 }
 
 inline int Wh_GetIntSetting(const wchar_t* name) {

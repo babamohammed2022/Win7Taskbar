@@ -3817,6 +3817,13 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                     w7tnet::W7TNetFlyout_Toggle();
                     return W7T_OK;
                 }
+                if (route == w7t::FlyoutRoute::Classic) {
+                    /* v2.64: il riquadro ricreato non e' pronto (inizializzato
+                     * dal frontend all'avvio). Si dice nel registro, perche'
+                     * altrimenti il riquadro della shell che compare al suo
+                     * posto sembra un difetto senza spiegazione. */
+                    LogTagged(L"GATE", L"rete: riquadro di Windows 7 non pronto, uso quello della shell");
+                }
                 return FlyoutLauncher::InvokeFlyoutAt(FlyoutKind::Network,
                                                       FlyoutAction::Show, anchor);
 
@@ -3844,6 +3851,17 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                         StartBatteryOpenWatch(anchor);
                         return W7T_OK;
                     }
+                    /* v2.64 - DIRE PERCHE' SI RIPIEGA.
+                     *
+                     * I due casi sono diversi e vanno distinti nel registro:
+                     * la shell non espone nessun pulsante batteria (su questa
+                     * build la tray di Windows 11 non lo pubblica), oppure lo
+                     * espone ma il clic non e' stato consegnato. Nel primo
+                     * caso il riquadro Win32 di Windows 7 non e' raggiungibile
+                     * da qui e il ricreato e' l'unica risposta possibile. */
+                    LogTagged(L"GATE", shellBatteryUid == 0
+                        ? L"batteria: la shell non espone il pulsante batteria, uso il ricreato"
+                        : L"batteria: clic al pulsante della shell non consegnato, uso il ricreato");
                     BatteryFlyout::Instance().ShowAt(anchor);
                     return W7T_OK;
                 }

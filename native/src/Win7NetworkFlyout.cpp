@@ -4608,11 +4608,22 @@ static GUID g_WlanInterfaceGuids[16];
 static int  g_WlanInterfaceCount = 0;
 
 void RefreshWifiData(HANDLE hClient) {
-    if (!hClient) return;
+    if (!hClient) {
+        Wh_Log(L"rete: nessun handle WLAN, elenco reti non aggiornabile");
+        return;
+    }
     static DWORD lastValidRefresh = 0;
     DWORD now = GetTickCount();
     PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
-    if (WlanEnumInterfaces(hClient, NULL, &pIfList) != ERROR_SUCCESS) return;
+    DWORD enumErr = WlanEnumInterfaces(hClient, NULL, &pIfList);
+    if (enumErr != ERROR_SUCCESS) {
+        Wh_Log(L"rete: WlanEnumInterfaces non riuscito (errore %lu)", enumErr);
+        return;
+    }
+    if (pIfList != NULL) {
+        Wh_Log(L"rete: %lu interfaccia/e WLAN presenti",
+               (unsigned long)pIfList->dwNumberOfItems);
+    }
     
     int localWlanIfCount = 0;
     GUID localWlanIfGuids[16];
@@ -4634,9 +4645,13 @@ void RefreshWifiData(HANDLE hClient) {
         PWLAN_AVAILABLE_NETWORK_LIST pBssList  = NULL;
         PWLAN_PROFILE_INFO_LIST      pProfList = NULL;
         WlanGetProfileList(hClient, &IfInfo.InterfaceGuid, NULL, &pProfList);
-        if (WlanGetAvailableNetworkList(hClient, &IfInfo.InterfaceGuid,
+        DWORD availErr = WlanGetAvailableNetworkList(hClient, &IfInfo.InterfaceGuid,
                 WLAN_AVAILABLE_NETWORK_INCLUDE_ALL_MANUAL_HIDDEN_PROFILES,
-                NULL, &pBssList) == ERROR_SUCCESS) {
+                NULL, &pBssList);
+        if (availErr != ERROR_SUCCESS) {
+            Wh_Log(L"rete: elenco reti non disponibile (errore %lu)", availErr);
+        }
+        if (availErr == ERROR_SUCCESS) {
             for (DWORD j = 0; j < pBssList->dwNumberOfItems && tempCount < 50; j++) {
                 WLAN_AVAILABLE_NETWORK network = pBssList->Network[j];
                 size_t len = (size_t)network.dot11Ssid.uSSIDLength;
@@ -4825,6 +4840,19 @@ void RefreshWifiData(HANDLE hClient) {
             g_NetworkCount = 0;
             g_PendingConnectIndex = -1;
         }
+    }
+    {
+        /* v2.64 - IL NUMERO CHE CONTA.
+         *
+         * "Non mostra le connessioni a cui connettersi" puo' voler dire tre
+         * cose diverse: nessun handle WLAN, nessuna interfaccia, oppure un
+         * elenco che Windows restituisce vuoto perche' non e' stata fatta una
+         * scansione recente. Questa riga le distingue. */
+        wchar_t summary[192] = {};
+        StringCchPrintfW(summary, ARRAYSIZE(summary),
+                         L"rete: %d interfaccia/e WLAN, %d rete/i visibili",
+                         localWlanIfCount, tempCount);
+        Wh_Log(L"%s", summary);
     }
     if (tempCount > 0) {
         lastValidRefresh = now;
@@ -7574,6 +7602,20 @@ void EnsureRowVisible(int index) {
 // -------------------------------------------------------
 // Flyout Window Procedure
 // -------------------------------------------------------
+/* v2.64 - IL CENTRO DI RETE SI APRE DA QUI, NON DAL GESTORE DEL CLIC.
+ *
+ * Il lancio avveniva dentro il gestore del messaggio del clic, con il
+ * riquadro ancora vivo: se control.exe prendeva il primo piano, il riquadro
+ * riceveva i messaggi di attivazione mentre era a meta' del proprio lavoro.
+ * Ora il clic nasconde il riquadro e avvia questo thread: il guscio protetto
+ * (SEH + try/catch) resta, ma nessuna parte di questo processo e' piu' a
+ * meta' quando arriva il pannello. */
+static DWORD WINAPI OpenNetworkCenterThread(LPVOID /*unused*/) {
+    SafeShellExecuteOpen(NULL, L"control.exe",
+                         L"/name Microsoft.NetworkAndSharingCenter");
+    return 0;
+}
+
 LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_NCHITTEST: {
@@ -8555,11 +8597,21 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             break;
         }
         if (PtInRect(&rcF,pt)) {
-            /* v2.63: con la guardia SEH/try-catch: aprire il pannello di
-             * controllo non deve far cadere la barra (difetto segnalato). */
-            SafeShellExecuteOpen(NULL, L"control.exe",
-                                 L"/name Microsoft.NetworkAndSharingCenter");
-            ShowWindow(hwnd,SW_HIDE);
+            /* v2.63/v2.64 - APRIRE IL CENTRO DI RETE NON DEVE FAR CADERE NULLA.
+             *
+             * Prima il lancio stava qui dentro, con la finestra ancora viva e
+             * il messaggio del clic ancora in corso (difetto segnalato: il
+             * programma si chiudeva). Ora si nasconde il riquadro e si lancia
+             * da un thread separato, con il guscio SEH/try-catch: il clic
+             * finisce subito e nessuna parte del processo resta a meta'. */
+            ShowWindow(hwnd, SW_HIDE);
+            HANDLE hLaunch = CreateThread(NULL, 0, OpenNetworkCenterThread, NULL, 0, NULL);
+            if (hLaunch != NULL) {
+                CloseHandle(hLaunch);
+            } else {
+                SafeShellExecuteOpen(NULL, L"control.exe",
+                                     L"/name Microsoft.NetworkAndSharingCenter");
+            }
             break;
         }
         if (showWifiList && g_bListExpanded && ly >= LIST_Y_START && ly < LIST_Y_END) {
@@ -9325,6 +9377,38 @@ void RemoveTrayInterception() {
 // -------------------------------------------------------
 // Toggle flyout
 // -------------------------------------------------------
+/* v2.64 - CHIEDE UNA SCANSIONE WLAN.
+ *
+ * L'elenco delle reti che il sistema tiene in cache puo' essere vecchio o
+ * vuoto (nessuno ha scansionato da un po', oppure il servizio WLAN e' appena
+ * partito): il riquadro si apriva con lo stato di connessione corretto ma
+ * senza l'elenco delle reti a cui connettersi. La scansione e' asincrona e la
+ * notifica WLAN e' gia' registrata: quando arriva
+ * wlan_notification_acm_scan_complete il riquadro si riaggiorna da solo,
+ * quindi l'elenco compare un istante dopo l'apertura senza bloccare niente. */
+static void RequestWlanScan(void) {
+    if (!g_Ctx.hWlanClient) {
+        return;
+    }
+    PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
+    if (WlanEnumInterfaces(g_Ctx.hWlanClient, NULL, &pIfList) != ERROR_SUCCESS || !pIfList) {
+        return;
+    }
+    DWORD scanned = 0;
+    for (DWORD i = 0; i < pIfList->dwNumberOfItems; i++) {
+        DWORD scanResult = WlanScan(g_Ctx.hWlanClient,
+                                    &pIfList->InterfaceInfo[i].InterfaceGuid,
+                                    NULL, NULL, NULL);
+        if (scanResult == ERROR_SUCCESS) {
+            ++scanned;
+        } else {
+            Wh_Log(L"rete: WlanScan non richiesta (errore %lu)", scanResult);
+        }
+    }
+    Wh_Log(L"rete: scansione richiesta su %lu interfaccia/e", (unsigned long)scanned);
+    WlanFreeMemory(pIfList);
+}
+
 void ToggleFlyoutWindow() {
     DWORD dwCurrentThreadId = GetCurrentThreadId();
     BOOL flyoutAlreadyExists = (g_hWndFlyout && IsWindow(g_hWndFlyout));
@@ -9409,6 +9493,8 @@ void ToggleFlyoutWindow() {
             DetermineLocale();
             LoadSettings();
             ApplyNativeControlsTheme();
+            /* v2.64: scansione all'apertura (vedi RequestWlanScan). */
+            RequestWlanScan();
             UINT dpi = haveIconRect ? GetDpiForScreenRect(&rcIconForDpi)
                                     : GetDpiForWindow(g_hWndFlyout);
             if (dpi < 96) dpi = 96;
