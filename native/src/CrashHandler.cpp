@@ -125,8 +125,10 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved
             break;
         case DLL_PROCESS_DETACH:
             // Moved from Exports.cpp (v2.41): release the battery flyout's
-            // GDI+ bitmaps when the host unloads the DLL.
-            w7t::BatteryFlyout::Instance().Shutdown();
+            // GDI+ bitmaps when the host unloads the DLL. v1.7.1: no-ops
+            // when the flyout was never shown, so shutdown never constructs
+            // the singleton under the loader lock.
+            w7t::BatteryFlyout::ShutdownIfCreated();
             break;
         default:
             break;

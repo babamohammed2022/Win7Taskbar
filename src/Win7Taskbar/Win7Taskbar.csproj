@@ -61,7 +61,21 @@
          dell'1,5% (2 finestre) e del 2% (3+) piu' bordo destro al
          limite; i lettori UIA registrano solo i cambiamenti del numero
          di icone. -->
-    <Version>1.7.0-alpha</Version>
+    <!-- 1.7.1-alpha: the app-button context menu falls back to the
+         standard items when a window's copied system menu is empty or
+         fully disabled (packaged Snipping Tool on Windows 11 24H2 opened
+         no menu at all); the battery flyout opens 7% higher (footer text
+         no longer clipped) and hover only tints the power-link text (the
+         footer keeps its gradient at rest and under the mouse); window
+         separators switch to the soft-edged native strip at
+         Resources/multiplewindowborder.png drawn as a no-layout overlay
+         at the button's right edge (1 line with 2 windows, 2 lines with
+         3+), so the icon keeps its exact size; the SEH vector-handler
+         installs once per process; the battery-flyout teardown is skipped
+         when the flyout was never created; GDI objects in the flyout
+         paint are RAII-managed; app-button click and menu handlers catch
+         and log their failures. -->
+    <Version>1.7.1-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

@@ -16,6 +16,7 @@
 #pragma once
 #include <windows.h>
 #include <setjmp.h>
+#include <atomic>
 
 namespace w7t {
 
@@ -25,7 +26,9 @@ struct SehFrame {
 };
 
 inline thread_local SehFrame* g_sehTop = nullptr;
-inline thread_local bool g_sehVehInstalled = false;
+/* Process-wide (not thread_local): one VEH for the whole process. A
+ * thread_local flag made every new thread add another handler. */
+inline std::atomic<bool> g_sehVehInstalled{ false };
 
 inline LONG WINAPI SehVectoredHandler(PEXCEPTION_POINTERS ep) {
     switch (ep->ExceptionRecord->ExceptionCode) {
@@ -51,8 +54,8 @@ inline LONG WINAPI SehVectoredHandler(PEXCEPTION_POINTERS ep) {
 }
 
 inline void SehInstallOnce() {
-    if (!g_sehVehInstalled) {
-        g_sehVehInstalled = true;
+    bool expected = false;
+    if (g_sehVehInstalled.compare_exchange_strong(expected, true)) {
         AddVectoredExceptionHandler(1, SehVectoredHandler);
     }
 }

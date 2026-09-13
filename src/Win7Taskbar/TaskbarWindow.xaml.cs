@@ -2063,6 +2063,21 @@ namespace Win7Taskbar
                 return;
             }
 
+            // v1.7.1: a click that fails (dead window, gone preview, native
+            // error) must not bubble up as an unhandled exception.
+            try
+            {
+                ActivateTaskButton(element, group, e);
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.WriteException("TASKCLICK", ex);
+            }
+        }
+
+        private void ActivateTaskButton(FrameworkElement element, TaskGroup group, RoutedEventArgs e)
+        {
+
             // v2.20: gruppo idle (pinnata non avviata) -> avvia l'app reale.
             if (group.Windows.Count == 0)
             {
@@ -2693,6 +2708,22 @@ namespace Win7Taskbar
             }
 
             e.Handled = true;
+
+            // v1.7.1: a context-menu failure must never become an unhandled
+            // exception (the native side already falls back to a standard
+            // menu for stub system menus, e.g. UWP frame windows).
+            try
+            {
+                OpenTaskButtonMenu(element, group);
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.WriteException("TASKMENU", ex);
+            }
+        }
+
+        private void OpenTaskButtonMenu(FrameworkElement element, TaskGroup group)
+        {
 
             Point origin;
             try { origin = element.PointToScreen(new Point(0, element.ActualHeight)); }

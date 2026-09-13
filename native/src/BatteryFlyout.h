@@ -27,6 +27,10 @@ public:
     /* v2.41: rilascia le bitmap GDI+ (DLL_PROCESS_DETACH). */
     void Shutdown();
 
+    /* v1.7.1: Shutdown() only when the singleton exists; safe to call from
+     * DLL_PROCESS_DETACH because it never constructs the object. */
+    static void ShutdownIfCreated();
+
 private:
     BatteryFlyout() = default;
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);

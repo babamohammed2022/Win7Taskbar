@@ -148,7 +148,18 @@ static bool GdipDrawHQ(HDC hdc, void* bmp, int x, int y, int w, int h) {
 
 BatteryFlyout& BatteryFlyout::Instance() {
     static BatteryFlyout instance;
+    g_batteryFlyoutCreated.store(true, std::memory_order_release);
     return instance;
+}
+
+/* Detach-safe teardown: no-op when the flyout was never shown, so the
+ * DLL_PROCESS_DETACH path in CrashHandler.cpp cannot construct the
+ * singleton while the process is going down. */
+void BatteryFlyout::ShutdownIfCreated() {
+    if (!g_batteryFlyoutCreated.load(std::memory_order_acquire)) {
+        return;
+    }
+    Instance().Shutdown();
 }
 
 void BatteryFlyout::SetLanguage(int appLang) {
@@ -222,9 +233,10 @@ void BatteryFlyout::ShowAt(const RECT& iconRect) {
         }
         int x = iconRect.left + (iconRect.right - iconRect.left) / 2 - kWidth / 2;
         int y = iconRect.top - kHeight - 4;
-        /* v1.7: apertura del 2% piu' in alto (2% dell'altezza del
-         * riquadro, sopra il distacco standard di 4 px). */
-        y -= kHeight * 2 / 100;
+        /* v1.7.1: apertura del 7% piu' in alto (prima era il 2%): il
+         * footer resta interamente sopra la taskbar e le scritte non
+         * vengono piu' tagliate. */
+        y -= kHeight * 7 / 100;
         /* resta dentro lo schermo orizzontalmente */
         int sw = GetSystemMetrics(SM_CXSCREEN);
         if (x < 4) x = 4;
@@ -252,6 +264,30 @@ bool BatteryFlyout::IsVisible() const {
     return m_hwnd != nullptr && IsWindowVisible(m_hwnd);
 }
 
+/* RAII guard for one-off GDI objects: selects the object into the DC and
+ * releases + deletes it when the scope ends, so no early return can leak
+ * a pen, brush or font. */
+class ScopedGdiObject {
+public:
+    ScopedGdiObject(HDC hdc, HGDIOBJ obj)
+        : m_hdc(hdc), m_obj(obj),
+          m_old(obj != nullptr ? SelectObject(hdc, obj) : nullptr) {}
+    ~ScopedGdiObject() {
+        if (m_obj != nullptr) {
+            SelectObject(m_hdc, m_old);
+            DeleteObject(m_obj);
+        }
+    }
+    ScopedGdiObject(const ScopedGdiObject&) = delete;
+    ScopedGdiObject& operator=(const ScopedGdiObject&) = delete;
+    operator HGDIOBJ() const { return m_obj; }
+
+private:
+    HDC     m_hdc;
+    HGDIOBJ m_obj;
+    HGDIOBJ m_old;
+};
+
 void BatteryFlyout::OnPaint(HWND hwnd) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(hwnd, &ps);
@@ -259,9 +295,8 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
     RECT client{};
     GetClientRect(hwnd, &client);
     /* v1.7: schema del pannello overflow: corpo BIANCO. */
-    HBRUSH bg = CreateSolidBrush(RGB(0xFF, 0xFF, 0xFF));
-    FillRect(hdc, &client, bg);
-    DeleteObject(bg);
+    ScopedGdiObject bg(hdc, CreateSolidBrush(RGB(0xFF, 0xFF, 0xFF)));
+    FillRect(hdc, &client, static_cast<HBRUSH>(bg));
 
     SYSTEM_POWER_STATUS sps{};
     GetSystemPowerStatus(&sps);
@@ -301,26 +336,13 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
         GRADIENT_RECT gr{ 0, 1 };
         GradientFill(hdc, vtx, 2, &gr, 1, GRADIENT_FILL_RECT_V);
     }
-    HPEN sep = CreatePen(PS_SOLID, 1, RGB(0xCC, 0xD9, 0xEA));
-    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, sep));
+    ScopedGdiObject sep(hdc, CreatePen(PS_SOLID, 1, RGB(0xCC, 0xD9, 0xEA)));
     MoveToEx(hdc, 0, kLinkTop, nullptr);
     LineTo(hdc, kWidth, kLinkTop);
-    SelectObject(hdc, oldPen);
-    DeleteObject(sep);
 
-    /* Hover sul link: come le icone dell'overflow. */
-    if (m_linkHot) {
-        RECT cell{ 4, kLinkTop + 3, kWidth - 4, kHeight - 3 };
-        HBRUSH fill = CreateSolidBrush(RGB(0xDC, 0xE9, 0xF5));
-        HPEN edge = CreatePen(PS_SOLID, 1, RGB(0x6E, 0xA5, 0xD2));
-        HBRUSH oldBr = static_cast<HBRUSH>(SelectObject(hdc, fill));
-        HPEN oldPn = static_cast<HPEN>(SelectObject(hdc, edge));
-        RoundRect(hdc, cell.left, cell.top, cell.right, cell.bottom, 3, 3);
-        SelectObject(hdc, oldBr);
-        SelectObject(hdc, oldPn);
-        DeleteObject(fill);
-        DeleteObject(edge);
-    }
+    /* v1.7.1: NO hover fill on the footer. The footer gradient stays
+     * identical at rest and under the mouse; hover feedback is only the
+     * link text colour below plus the hand cursor. */
 
     if (m_icons[idx] || m_gdip[idx]) {
         /* v1.6: il rapporto d'aspetto della sorgente ora si rispetta. I
@@ -347,10 +369,9 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
     }
 
     SetBkMode(hdc, TRANSPARENT);
-    HFONT font = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-    HGDIOBJ oldFont = SelectObject(hdc, font);
+    ScopedGdiObject font(hdc, CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE,
+        FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI"));
 
     const BattStrings& S = BattStringsFor(LangFromIndex(m_lang));
     wchar_t line[160] = {};
@@ -379,8 +400,6 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
     SetTextColor(hdc, m_linkHot ? RGB(0x00, 0x4E, 0x9E) : RGB(0x00, 0x66, 0xCC));
     DrawTextW(hdc, S.link, -1, &linkRect, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
 
-    SelectObject(hdc, oldFont);
-    DeleteObject(font);
     EndPaint(hwnd, &ps);
 }
 
