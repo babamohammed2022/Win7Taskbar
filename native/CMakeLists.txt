@@ -32,6 +32,11 @@ target_sources(Win7TaskbarCore PRIVATE resources/app.ico)
 set_target_properties(Win7TaskbarCore PROPERTIES PREFIX "" OUTPUT_NAME "Win7TaskbarCore")
 if(MSVC)
     target_compile_options(Win7TaskbarCore PRIVATE /W4 /permissive- /utf-8)
+    # The runner-image roll-out of 2026-09-13 (newer MSVC/linker) can strip
+    # the COM GUID blobs and export surface this project's POST-BUILD checks
+    # require, failing the build silently. Keep linker dead-stripping and
+    # COMDAT folding off for the core DLL so the binary keeps them.
+    target_link_options(Win7TaskbarCore PRIVATE "/OPT:NOREF" "/OPT:NOICF")
 else()
     target_compile_options(Win7TaskbarCore PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type)
     target_link_options(Win7TaskbarCore PRIVATE -static-libgcc -static-libstdc++ -static)
@@ -43,15 +48,18 @@ add_custom_command(TARGET Win7TaskbarCore POST_BUILD
     COMMENT "Copy Win7TaskbarCore.dll to dist/")
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+    # The checks run through run-check.py: same exit code, but on failure it
+    # also prints a "file(1): error C999:" line that the runner's C++
+    # problem matcher turns into a check annotation naming the failed check.
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
-        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/check-com-interfaces.py" $<TARGET_FILE:Win7TaskbarCore>
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-com-interfaces.py $<TARGET_FILE:Win7TaskbarCore>
         COMMENT "Check COM interfaces in binary" VERBATIM)
     # v2.62: la tabella degli export deve contenere TUTTE le funzioni che il
     # livello gestito richiama. Una build che ne perde qualcuna compila, si
     # avvia e fallisce al primo clic con EntryPointNotFoundException: e'
     # successo davvero, con nove funzioni mancanti in dist/.
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
-        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/check-exports.py" $<TARGET_FILE:Win7TaskbarCore>
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-exports.py $<TARGET_FILE:Win7TaskbarCore>
         COMMENT "Check exported functions in binary" VERBATIM)
 endif()
 add_library(W7TInject SHARED src/InjectHook.cpp)

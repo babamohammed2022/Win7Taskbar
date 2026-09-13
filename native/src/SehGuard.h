@@ -38,9 +38,11 @@ inline LONG WINAPI SehVectoredHandler(PEXCEPTION_POINTERS ep) {
     case EXCEPTION_IN_PAGE_ERROR:
     case EXCEPTION_PRIV_INSTRUCTION:
         if (g_sehTop != nullptr) {
-            SehFrame* f = g_sehTop;
-            g_sehTop = f->previous;   // stacca PRIMA di saltare
-            longjmp(f->jump, 1);      // non ritorna
+            // v1.7: NON stacca piu' qui. Lo stacco lo fa il ramo CATCH
+            // (o il pop RAII se un `return` anticipato esce dal blocco):
+            // due stacchi si annullano a vicenda perche' entrambi
+            // scrivono frame->previous.
+            longjmp(g_sehTop->jump, 1);   // non ritorna
         }
         return EXCEPTION_CONTINUE_SEARCH;
     default:
@@ -57,12 +59,30 @@ inline void SehInstallOnce() {
 
 } /* namespace w7t */
 
+/* v1.7: pop di sicurezza. Se il blocco esce con un `return` anticipato
+ * (saldo permesso da sempre, ma prima lasciava il frame APPESO su
+ * g_sehTop: l'eccezione dopo l'uscita saltava in un frame morto), la
+ * distruzione locale stacca il frame ancora in cima. Se invece il blocco
+ * e' uscito da CATCH/END (gia' staccato) o via longjmp (staccato dal
+ * ramo CATCH), qui il top e' diverso e non tocca nulla. */
+struct W7tSehAutoPop {
+    ::w7t::SehFrame** top;
+    ::w7t::SehFrame* frame;
+    ~W7tSehAutoPop() {
+        if (*top == frame) {
+            *top = frame->previous;
+        }
+    }
+};
+
 #define W7T_SEH_TRY                                                     \
     ::w7t::SehInstallOnce();                                            \
     {                                                                   \
         ::w7t::SehFrame w7tSehFrame{};                                  \
         w7tSehFrame.previous = ::w7t::g_sehTop;                         \
         ::w7t::g_sehTop = &w7tSehFrame;                                 \
+        W7tSehAutoPop w7tSehAutoPop{ &::w7t::g_sehTop,                 \
+                                        &w7tSehFrame };                \
         if (setjmp(w7tSehFrame.jump) == 0) {
 
 #define W7T_SEH_CATCH                                                   \
