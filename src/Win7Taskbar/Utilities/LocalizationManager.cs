@@ -14,8 +14,9 @@ namespace Win7Taskbar.Utilities
 {
     /// <summary>
     /// Loads language ResourceDictionary from Languages folder and injects into Application resources.
-    /// English: Supports Italian (it) and English (en). Falls back to Italian if file missing.
-    /// Italiano: Supporta Italiano (it) e Inglese (en). Ripiega su Italiano se file mancante.
+    /// English: one dictionary per supported language (it, en, es, fr, de, pt,
+    /// pl, ru, ja, zh, ar). Anything unsupported falls back to English, never
+    /// to Italian: Italian is a translation like the others, not the default.
     /// </summary>
     public static class LocalizationManager
     {
@@ -32,11 +33,11 @@ namespace Win7Taskbar.Utilities
         /// </summary>
         public static void ApplyLanguage(string langCode)
         {
-            DiagnosticLogger.Write("LANGUAGE", "requested=" + (langCode ?? "<null>"));
             if (Application.Current == null) return;
             try
             {
-                if (string.IsNullOrEmpty(langCode)) langCode = "it";
+                if (string.IsNullOrEmpty(langCode)) langCode = Settings.DefaultLanguageCode;
+                langCode = NormalizeLanguageCode(langCode);
 
                 // Remove previous language dictionary if present
                 var toRemove = new System.Collections.Generic.List<ResourceDictionary>();
@@ -55,20 +56,44 @@ namespace Win7Taskbar.Utilities
                 // Mark it
                 langDict[LanguageDictKey] = true;
                 Application.Current.Resources.MergedDictionaries.Add(langDict);
-                DiagnosticLogger.Write("LANGUAGE", "displayed=" + langCode + ";dictionary=" + LanguageFileFor(langCode));
-                DiagnosticLogger.Snapshot("language-applied");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"LocalizationManager: failed to apply language {langCode}: {ex.Message}");
-                DiagnosticLogger.WriteException("LANGUAGE_ERROR", ex, "requested=" + langCode);
             }
         }
 
-        /// <summary>Code -> dictionary file (Italian is the fallback).
-        /// Codice -> file dizionario (ripiego: Italiano).</summary>
+        /// <summary>
+        /// Normalizes a language code against the single list in Settings (which
+        /// mirrors the list of the native core): an unsupported or unknown code
+        /// becomes English, never Italian.
+        /// Italiano: normalizza il codice sull'elenco di Settings; codice
+        /// sconosciuto o non supportato -> inglese, mai italiano.
+        /// </summary>
+        public static string NormalizeLanguageCode(string? langCode)
+        {
+            if (string.IsNullOrWhiteSpace(langCode))
+                return Settings.DefaultLanguageCode;
+
+            string code = langCode.Trim().ToLowerInvariant();
+            return Array.IndexOf(Settings.SupportedLanguages, code) >= 0
+                ? code
+                : Settings.DefaultLanguageCode;
+        }
+
+        /// <summary>Code -> dictionary file (English is the fallback).
+        /// Codice -> file dizionario (ripiego: Inglese).</summary>
         private static string LanguageFileFor(string langCode) => langCode switch
         {
+            /* v2.62 - "it" C'ERA? NO.
+             *
+             * L'italiano non aveva il suo caso e finiva nel ramo di
+             * ripiego: veniva caricato English.xaml. Finche' nessuno
+             * leggeva queste chiavi dal codice la cosa non si vedeva; da
+             * quando i menu contestuali prendono i testi da qui, su un
+             * sistema italiano il menu usciva in inglese mentre tutto il
+             * resto (che passa dalle stringhe native) restava italiano. */
+            "it" => "Italian.xaml",
             "en" => "English.xaml",
             "es" => "Spanish.xaml",
             "fr" => "French.xaml",
@@ -78,7 +103,8 @@ namespace Win7Taskbar.Utilities
             "ru" => "Russian.xaml",
             "ja" => "Japanese.xaml",
             "zh" => "Chinese.xaml",
-            _ => "Italian.xaml",
+            "ar" => "Arabic.xaml",
+            _ => "English.xaml",
         };
 
         private static ResourceDictionary LoadLanguageDictionary(string langCode)
@@ -108,8 +134,8 @@ namespace Win7Taskbar.Utilities
             }
             catch
             {
-                // Ultimate fallback: Italian embedded
-                string fallback = "pack://application:,,,/Win7Taskbar;component/Languages/Italian.xaml";
+                // Ultimate fallback: embedded English
+                string fallback = "pack://application:,,,/Win7Taskbar;component/Languages/English.xaml";
                 return new ResourceDictionary { Source = new Uri(fallback, UriKind.Absolute) };
             }
         }

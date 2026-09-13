@@ -18,12 +18,18 @@
 
 #include <mutex>
 
-#include "DiagnosticLogger.h"
 #include "TrayService.h"
+
+/* v2.62: i riquadri di Windows 7 per le icone di sistema ricreate. */
+#include "BatteryFlyout.h"
+#include "Win7NetworkFlyout.h"
+
 #include "TrayOverflowWindow.h"   /* v3.1: refresh conservativo del pannello */
 #include "../include/RaiiWrappers.h"
 #include "ExplorerTrayReader.h"
+#include "Win11TrayReader.h"
 #include "TrayToolbar.h"
+#include "TrayFallbackIcons.h"
 #include "SystemEventsWatch.h"
 #include <powrprof.h>
 #include <windows.h>
@@ -31,6 +37,7 @@
 #include "WindowManager.h"  /* per segnalare il lampeggio delle finestre */
 #include "AppBarService.h"  /* per ri-nascondere la barra dopo un riavvio di Explorer */
 #include "FlyoutLauncher.h"  /* ApplyAeroFlyoutStyle: bordi Aero dei flyout */
+#include "Strings.h"         /* PropStringsFor: etichette dei tipi di sistema */
 #include <algorithm>
 #include <cstdio>
 #include <cwctype>
@@ -105,7 +112,20 @@ constexpr DWORD kDebounceMs = 350;
 /*  anche il GUID). Valore DWORD: 1 = visibile, 0 = nell'overflow.      */
 /* ------------------------------------------------------------------ */
 
-const wchar_t* const kTrayPrefsKeyPath = L"SOFTWARE\\Win7Taskbar\\TrayIconPrefs";
+/*  v2.62 - CHIAVE NUOVA.
+ *
+ *  La chiave precedente (TrayIconPrefs) e' stata scritta anche da sola, senza
+ *  che l'utente toccasse niente: la sincronizzazione del modello col core
+ *  salvava ogni differenza come se fosse una scelta dell'utente. Da quando
+ *  una preferenza salvata vince sulla disposizione della shell, quei valori
+ *  hanno congelato la tray: le icone che la shell tiene nel suo pannello non
+ *  entravano piu' nel nostro e la freccetta restava senza niente da
+ *  mostrare. I valori vecchi non si cancellano (restano li' se servissero a
+ *  capire il passato): semplicemente non si leggono piu'.
+ *
+ *  Da qui in poi si scrive SOLO su azione esplicita dell'utente (spostare
+ *  un'icona, appuntarla o nasconderla dal pannello). */
+const wchar_t* const kTrayPrefsKeyPath = L"SOFTWARE\\Win7Taskbar\\TrayIconPrefs2";
 
 std::wstring MakePreferenceName(uint64_t ownerHwnd, uint32_t uid) {
     HWND hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(ownerHwnd));
@@ -294,6 +314,93 @@ std::wstring GuidToString(const GUID& guid) {
 }
 
 } /* namespace */
+
+/* v2.63 - Quanti popup visibili ha aperto qualcun altro adesso.
+ *
+ * Serve alla verifica differita del riquadro batteria: quando il clic viene
+ * inoltrato al pulsante vero della shell, Windows apre il riquadro Win32 di
+ * Windows 7 (chiave UseWin32BatteryFlyout). Se non lo apre - puo' succedere
+ * su una build in cui quel percorso non risponde - l'utente non deve restare
+ * con un clic senza effetto: si confronta questo numero prima e dopo e, se
+ * non e' comparso nulla, si mostra il riquadro ricreato. Le finestre nostre
+ * non contano: il confronto e' fra "prima del clic" e "dopo il clic". */
+struct PopupCountContext { int count; };
+
+static BOOL CALLBACK CountPopupEnumProc(HWND hwnd, LPARAM param) {
+    PopupCountContext* ctx = reinterpret_cast<PopupCountContext*>(param);
+    if (ctx == nullptr) {
+        return FALSE;
+    }
+    if (!IsWindowVisible(hwnd)) {
+        return TRUE;
+    }
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == 0 || pid == GetCurrentProcessId()) {
+        return TRUE;   /* le nostre finestre non sono il riquadro di Windows */
+    }
+    const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+    if ((style & WS_POPUP) != 0 || (style & WS_DLGFRAME) != 0) {
+        ++ctx->count;
+    }
+    return TRUE;
+}
+
+int CountVisibleForeignPopups() {
+    PopupCountContext ctx{ 0 };
+    EnumWindows(CountPopupEnumProc, reinterpret_cast<LPARAM>(&ctx));
+    return ctx.count;
+}
+
+namespace {
+HINSTANCE s_hInjectDll = nullptr;
+HHOOK     s_hFreezeHook = nullptr;
+HWND      s_frozenFlyout = nullptr;
+
+HHOOK s_hFreezeHookProbe() { return s_hFreezeHook; }
+
+void UninstallFlyoutFreeze() {
+    if (s_frozenFlyout != nullptr && IsWindow(s_frozenFlyout)) {
+        const UINT u = RegisterWindowMessageW(L"W7T_UnfreezeSize");
+        if (u != 0) {
+            SendMessageW(s_frozenFlyout, u, 0, 0);  /* rimuove il subclass nel bersaglio */
+        }
+    }
+    if (s_hFreezeHook != nullptr) {
+        UnhookWindowsHookEx(s_hFreezeHook);
+        s_hFreezeHook = nullptr;
+    }
+    s_frozenFlyout = nullptr;
+}
+
+void InstallFlyoutFreeze(HWND flyout);   /* fwd decl */
+
+void RetryFlyoutFreeze(HWND flyout) {
+    extern HHOOK s_hFreezeHookProbe();
+    /* probe dichiarato sotto: evita di esporre lo stato */
+    if (s_hFreezeHookProbe() == nullptr) {
+        InstallFlyoutFreeze(flyout);
+    }
+}
+
+void InstallFlyoutFreeze(HWND flyout) {
+    if (flyout == nullptr || s_frozenFlyout == flyout) return;
+    UninstallFlyoutFreeze();
+    SetPropW(flyout, L"W7T_FreezeSize", reinterpret_cast<HANDLE>(1));
+    if (s_hInjectDll == nullptr) {
+        s_hInjectDll = LoadLibraryW(L"W7TInject.dll");
+    }
+    if (s_hInjectDll == nullptr) return;   /* ripiego: snap-back del watcher */
+    auto proc = reinterpret_cast<HOOKPROC>(
+        GetProcAddress(s_hInjectDll, "W7TInject_CallWndProc"));
+    if (proc == nullptr) return;
+    const DWORD tid = GetWindowThreadProcessId(flyout, nullptr);
+    if (tid == 0) return;
+    s_hFreezeHook = SetWindowsHookExW(WH_CALLWNDPROC, proc, s_hInjectDll, tid);
+    s_frozenFlyout = flyout;
+}
+} /* namespace */
+
 
 TrayService& TrayService::Instance() {
     static TrayService instance;
@@ -499,6 +606,29 @@ bool IsOwnerExplorerCached(HWND owner, std::map<DWORD, bool>& cache) {
 } /* namespace */
 
 void TrayService::ReconcileWithExplorer(uint32_t sources) {
+    /* Windows 11 non ha nessuna toolbar della tray da leggere: la passata
+     * classica finirebbe in "lettura non valida" a ogni giro. Il modello lo
+     * riempie il lettore UI Automation, che risponde in modo asincrono su
+     * kMsgUiaTray (vedi ApplyWin11TraySnapshot). */
+    if (m_win11Tray) {
+        /* v2.61: alimentazione e rete cambiano il DISEGNO delle nostre tre
+         * icone. Si aggiornano subito, senza aspettare la lettura della
+         * shell (che comunque parte qui sotto). */
+        if (sources & (kReconcilePower | kReconcileNetwork | kReconcileInitial
+                       | kReconcileExplorer)) {
+            int added = 0, updated = 0;
+            bool pixel = false;
+            EnsureSyntheticSystemIcons(nullptr, nullptr, &added, &updated,
+                                       &pixel);
+            if (added != 0 || updated != 0 || pixel) {
+                SyncToolbarModel();
+                TrayOverflowWindow::NotifyTrayChanged();
+            }
+        }
+        Win11TrayReader::Instance().RequestRead();
+        return;
+    }
+
     /* Cosa catturare (PrintWindow sulla toolbar di Explorer):
      * - alla prima passata e dopo un riavvio di Explorer: tutto;
      * - dopo un evento di sistema (alimentazione, rete): solo le icone di
@@ -520,6 +650,16 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
          * lettura fallita non deve mai cancellare icone (era questa la
          * causa delle "icone che spariscono a cambio AC/DC"). */
         AppendCoreLog(L"reconcile: lettura toolbar non valida, nessuna rimozione");
+
+        /* Se pero' la toolbar della tray non esiste proprio, questo e' un
+         * Windows 11: si passa al lettore di accessibilita' e si lascia che
+         * sia lui a rispondere. Prima di questa deviazione l'avvio su
+         * Windows 11 restava senza nessuna icona preesistente. */
+        EnableWin11Tray();
+        if (m_win11Tray) {
+            Win11TrayReader::Instance().RequestRead();
+            return;
+        }
     }
 
     std::map<DWORD, bool> pidCache;
@@ -577,11 +717,6 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
 
             entry.ownerPath = OwnerPathOf(key.ownerHwnd);
             entry.toolbarId = EnsureToolbarId(key);
-            {
-                const std::string process = Utf8(entry.ownerPath);
-                const std::string kind = entry.ownerIsExplorer ? "explorer-shell" : "app-owned";
-                W7T_LOG("TRAY_ICON", std::string("real=true;process=") + process + ";kind=" + kind + ";identity=process+kind");
-            }
             PurgeDuplicateIdentityLocked(key, entry.tooltip,
                                          entry.ownerPath);
             m_icons[key] = std::move(entry);
@@ -694,6 +829,22 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
                 entry.netChecked = true;
             }
 
+            /* v2.59: che tipo di icona di sistema e' questa? (rete, volume,
+             * batteria, oppure nessuna). Un solo giro di identificazione per
+             * voce: GUID della shell, poi modulo proprietario. Serve sia per
+             * il ripiego dei pixel sia per le decisioni del managed. */
+            if (!entry.sysChecked) {
+                entry.systemKind = TrayFallbackIcons::Identify(key.ownerHwnd,
+                                                               item.guidItem);
+                entry.sysChecked = true;
+                if (entry.systemKind == SystemIconKind::Network) {
+                    /* Il riconoscimento per GUID rende superfluo quello per
+                     * modulo: non si riapre il processo una seconda volta. */
+                    entry.isNetwork  = true;
+                    entry.netChecked = true;
+                }
+            }
+
             /* Quale fonte vincerebbe in questa passata (stessa priorita' di
              * sempre: hIcon vivo dichiarato dall'app, poi disegno della
              * toolbar di Explorer). */
@@ -730,6 +881,7 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
                         entry.iconRevision++;
                         entry.netPendingHash  = 0;
                         entry.netPendingCount = 0;
+                        entry.usingFallback   = false;
                         changed = true;
                         anyPixelChanged = true;
                     } else if (!needNetConfirm) {
@@ -739,6 +891,7 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
                     entry.bitmap       = *newBmp;
                     entry.pixelHash    = newHash;
                     entry.iconRevision++;
+                    entry.usingFallback = false;
                     changed = true;
                     anyPixelChanged = true;
                 }
@@ -747,6 +900,41 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
                  * il candidato transitorio non si e' confermato, si scorda. */
                 entry.netPendingHash  = 0;
                 entry.netPendingCount = 0;
+            }
+
+            /* v2.59 - RIPIEGO per le icone di sistema senza pixel.
+             *
+             * Se questa passata non ha portato NESSUNA bitmap reale e la voce
+             * e' una di rete/volume/batteria (identificata per proprietario),
+             * il posto resterebbe vuoto: si disegna la nostra icona dello
+             * stato corrente. Tre regole, in quest'ordine:
+             *
+             *  1. se la voce ha gia' pixel veri, non si tocca nulla;
+             *  2. il ripiego si aggiorna quando lo STATO cambia (batteria che
+             *     scende, rete che cade): `usingFallback` dice che i pixel in
+             *     `bitmap` sono nostri, non di Explorer;
+             *  3. appena Explorer torna a fornire pixel, l'adozione qui sopra
+             *     azzera `usingFallback` e l'icona vera riprende il posto.
+             */
+            if (newBmp == nullptr && entry.systemKind != SystemIconKind::None &&
+                (entry.bitmap.empty() || entry.usingFallback)) {
+                ArgbBitmap fallback;
+                if (TrayFallbackIcons::Render(entry.systemKind, fallback)) {
+                    const uint64_t hashFallback = ArgbHash(fallback);
+                    if (entry.bitmap.empty() || hashFallback != entry.pixelHash) {
+                        entry.bitmap        = fallback;
+                        entry.pixelHash     = hashFallback;
+                        entry.usingFallback = true;
+                        entry.iconRevision++;
+                        changed = true;
+                        anyPixelChanged = true;
+                        TrayFallbackIcons::LogFirstUse(
+                            entry.systemKind,
+                            (!item.hasIconBitmap && !item.capturedPixels)
+                                ? L"Explorer non ha fornito ne' icona ne' pixel"
+                                : L"la bitmap fornita non e' utilizzabile");
+                    }
+                }
             }
 
             if (changed) {
@@ -1422,6 +1610,10 @@ bool TrayService::CreateWindows() {
                                   0, 0,
                                   WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
 
+    /* v2.60: su Windows 11 la tray non e' una toolbar Win32. Se il sistema
+     * e' quello, il modello si legge dall'albero di accessibilita'. */
+    EnableWin11Tray();
+
     /* Passata di sicurezza rara: diff leggero senza cattura pixel e
      * verifica dei proprietari morti. Non sostituisce gli eventi: li
      * copre se il sistema non li consegna (sessioni remote, shell pazze). */
@@ -1462,6 +1654,13 @@ void TrayService::DestroyWindows() {
         UnhookWinEvent(m_ownerHook);
         m_ownerHook = nullptr;
     }
+    if (m_trayHostHook != nullptr) {
+        UnhookWinEvent(m_trayHostHook);
+        m_trayHostHook = nullptr;
+    }
+    if (m_win11Tray) {
+        Win11TrayReader::Instance().Stop();
+    }
     SystemEventsWatch::StopRegistryWatch();
     SystemEventsWatch::StopNetworkWatch();
     SystemEventsWatch::StopSessionWatch();
@@ -1471,6 +1670,8 @@ void TrayService::DestroyWindows() {
     if (m_trayWnd != nullptr) {
         KillTimer(m_trayWnd, kTimerBackstop);
         KillTimer(m_trayWnd, kTimerDebounce);
+        KillTimer(m_trayWnd, kTimerSynthetic);
+        KillTimer(m_trayWnd, kTimerBatteryFallback);
     }
 
     // Unregister power notifications (RAII handles will auto-unregister)
@@ -1542,6 +1743,28 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
             self.RunDeferredReconciles();
             return 0;
         }
+        if (static_cast<UINT_PTR>(wParam) == kTimerSynthetic) {
+            /* v2.61: solo il disegno delle icone nostre. Nessuna lettura di
+             * Explorer, nessuna finestra toccata: se lo stato e' cambiato
+             * (volume, rete, batteria) la voce si aggiorna, altrimenti
+             * questa passata non produce nulla. */
+            if (self.m_win11Tray) {
+                int added = 0, updated = 0;
+                bool pixel = false;
+                self.EnsureSyntheticSystemIcons(nullptr, nullptr, &added,
+                                                &updated, &pixel);
+                if (added != 0 || updated != 0 || pixel) {
+                    self.SyncToolbarModel();
+                    TrayOverflowWindow::NotifyTrayChanged();
+                }
+            }
+            return 0;
+        }
+        if (static_cast<UINT_PTR>(wParam) == kTimerBatteryFallback) {
+            /* v2.63: un solo colpo (il timer non viene riarmato). */
+            self.FinishBatteryOpenWatch();
+            return 0;
+        }
         if (static_cast<UINT_PTR>(wParam) == kTimerBackstop) {
             self.WatchdogLoop();
             return 0;
@@ -1551,6 +1774,12 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
     if (msg >= WM_APP + 100 && msg <= WM_APP + 120) {
         if (msg == kMsgToolbarSync) {
             self.SyncToolbarModel();   /* ora siamo sul thread giusto */
+            return 0;
+        }
+        if (msg == kMsgUiaTray) {
+            /* v2.60: il lettore UIA ha finito una lettura: lo snapshot si
+             * fonde nel modello qui, sul thread che lo possiede. */
+            self.ApplyWin11TraySnapshot();
             return 0;
         }
         self.OnWatcherMessage(msg, wParam, lParam);
@@ -2067,6 +2296,27 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
 /*  Query dal managed layer                                            */
 /* ------------------------------------------------------------------ */
 
+bool TrayService::CurrentIconRect(const TrayIconKey& key, RECT& out) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    auto it = m_iconRects.find(key);
+    if (it == m_iconRects.end()) {
+        return false;
+    }
+
+    const RECT r = it->second;
+    if (r.right - r.left <= 0 || r.bottom - r.top <= 0) {
+        return false;
+    }
+    /* Un rettangolo che non appartiene a nessun monitor non e' una
+     * posizione: e' memoria di un layout che non esiste piu' (monitor
+     * staccato, barra spostata). Meglio il ripiego del chiamante. */
+    if (MonitorFromRect(&r, MONITOR_DEFAULTTONULL) == nullptr) {
+        return false;
+    }
+    out = r;
+    return true;
+}
+
 void TrayService::SetIconRect(uint64_t ownerHwnd, uint32_t uid, const RECT& rect) {
     TrayIconKey key{ ownerHwnd, uid };
     HWND flyout = nullptr;
@@ -2187,7 +2437,6 @@ void TrayService::PurgeDuplicateIdentityLocked(const TrayIconKey& key,
 
 std::vector<OverflowSnapshot> TrayService::GetUnpinnedSnapshot() {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
-    W7T_LOG("OVERFLOW", std::string("stage=model-snapshot;model-count=") + std::to_string(m_order.size()) + ";result=ready");
     std::vector<OverflowSnapshot> out;
     std::vector<TrayIconKey> dead;
     for (const auto& key : m_order) {
@@ -2197,8 +2446,12 @@ std::vector<OverflowSnapshot> TrayService::GetUnpinnedSnapshot() {
         }
         /* v2.29: icone il cui proprietario e' morto non devono restare
          * nell'overflow (taskmgr.exe e simili che chiudono senza che il
-         * NIM_DELETE arrivi in tempo): la shell fa lo stesso cleanup. */
-        if (!IsWindow(reinterpret_cast<HWND>(
+         * NIM_DELETE arrivi in tempo): la shell fa lo stesso cleanup.
+         * v2.60: le voci della tray di Windows 11 non hanno un HWND
+         * proprietario (ownerHwnd = 0): la loro esistenza la decide la
+         * lettura UI Automation, non IsWindow. */
+        if (!it->second.fromWin11Uia &&
+            !IsWindow(reinterpret_cast<HWND>(
                 static_cast<uintptr_t>(key.ownerHwnd)))) {
             dead.push_back(key);
             continue;
@@ -2225,6 +2478,558 @@ std::vector<OverflowSnapshot> TrayService::GetUnpinnedSnapshot() {
 int32_t TrayService::GetCount() {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     return static_cast<int32_t>(m_icons.size());
+}
+
+/* ------------------------------------------------------------------ */
+/*  v2.60 - Tray XAML di Windows 11: attivazione del percorso UIA      */
+/* ------------------------------------------------------------------ */
+
+void TrayService::EnableWin11Tray() {
+    if (m_trayWnd == nullptr) {
+        return;
+    }
+
+    if (!m_win11Tray) {
+        if (!Win11TrayReader::Detect()) {
+            /* Isola non ancora pronta (avvio, Explorer che si ricrea): si
+             * riprova alla prossima passata, senza latitare niente. */
+            return;
+        }
+        m_win11Tray = true;
+        Win11TrayReader::Instance().SetNotify(m_trayWnd, kMsgUiaTray);
+    }
+
+    /* v2.61 - IL LETTORE SI AVVIA SEMPRE, E SE NON E' PARTITO SI RIPROVA.
+     *
+     * Prima bastava una chiamata andata male una volta (shell occupata
+     * all'avvio, thread non ancora pubblicato) per non riprovare mai piu':
+     * m_win11Tray restava true e questa funzione usciva subito. Il
+     * risultato, sulla macchina dell'utente, era una tray senza letture per
+     * minuti interi: le icone comparivano solo se e quando qualcos'altro
+     * faceva ripartire il lettore. */
+    if (!Win11TrayReader::Instance().IsRunning()) {
+        if (Win11TrayReader::Instance().Start()) {
+            AppendCoreLog(L"tray: Windows 11, lettura UI Automation attiva");
+        } else {
+            AppendCoreLog(L"tray: Windows 11, lettura non partita, si riprova");
+            ScheduleReconcile(kReconcileUiaTray, m_uiaRetryDelayMs);
+            m_uiaRetryDelayMs = (std::min)(15000ul, m_uiaRetryDelayMs * 2);
+            return;
+        }
+    }
+
+    /* v2.61: le tre icone di sistema che la shell non espone entrano nel
+     * modello ADESSO, non al primo giro di lettura riuscito. Da questo
+     * momento la tray ha sempre volume, rete e batteria, qualunque cosa
+     * faccia Explorer. */
+    int added = 0, updated = 0;
+    bool pixel = false;
+    EnsureSyntheticSystemIcons(nullptr, nullptr, &added, &updated, &pixel);
+
+    /* Risveglio leggero dello stato (il volume non manda eventi alla tray):
+     * non tocca Explorer, non apre nulla, non muove finestre. */
+    SetTimer(m_trayWnd, kTimerSynthetic, 10000, nullptr);
+
+    /* Le isole XAML non sono finestre della tray: quando il flyout delle
+     * icone nascoste si apre, o quando una qualunque finestra della shell
+     * con quella classe compare/scompare, si rilegge. Filtro per classe:
+     * l'hook e' globale ma costa una GetClassNameW per evento. */
+    if (m_trayHostHook == nullptr) {
+        m_trayHostHook = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW,
+                                         nullptr, TrayHostChangedProc,
+                                         0, 0,
+                                         WINEVENT_OUTOFCONTEXT |
+                                         WINEVENT_SKIPOWNPROCESS);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  v2.60 - Tray XAML di Windows 11 (UI Automation)                    */
+/*                                                                     */
+/*  Il lettore non parla mai col modello: consegna uno snapshot e      */
+/*  posta kMsgUiaTray alla finestra del servizio. Questa passata gira  */
+/*  quindi sul thread dei messaggi, dove vive il resto del modello.    */
+/* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/*  v2.61 - LE TRE ICONE DI SISTEMA CHE LA SHELL DI WINDOWS 11 NON     */
+/*  ESPONE (volume, rete, batteria)                                    */
+/*                                                                     */
+/*  Perche' e' una funzione a se': queste voci NON sono il risultato    */
+/*  di una lettura di Explorer. Devono esistere appena la modalita'     */
+/*  Windows 11 e' attiva, prima di qualunque lettura, e restare nel     */
+/*  modello anche quando Explorer non risponde: erano proprio i due     */
+/*  casi in cui l'utente non le vedeva mai (o le vedeva dopo dieci      */
+/*  minuti, quando una lettura andava finalmente a buon fine).          */
+/*                                                                     */
+/*  Chi la chiama: EnableWin11Tray (subito), ApplyWin11TraySnapshot     */
+/*  (anche a lettura vuota), il timer leggero kTimerSynthetic (stato),  */
+/*  gli eventi di alimentazione e di rete.                              */
+/* ------------------------------------------------------------------ */
+void TrayService::EnsureSyntheticSystemIcons(
+        const std::set<SystemIconKind>* shellExposed,
+        std::set<uint32_t>* presentUids,
+        int* added, int* updated, bool* bitmapChanged) {
+    /* uid riservati alle icone sintetiche: in cima allo spazio dei 32 bit,
+     * lontano dagli hash FNV-1a delle voci UI Automation (0x77000000|hash)
+     * e da qualunque ownerHwnd reale. */
+    constexpr uint32_t kSyntheticSystemUidBase = 0x7F000000u;
+
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+            /*  v2.61 - LE TRE ICONE DI SISTEMA CHE LA SHELL NON ESPONE            */
+            /*                                                                    */
+            /*  Da Windows 11 22H2 (e ancora su 24H2) volume e rete non sono piu'  */
+            /*  pulsanti separati della tray: la shell ne disegna UNO solo, il     */
+            /*  centro delle notifiche rapide, e i tre stati vivono dentro il suo  */
+            /*  riquadro. La lettura UI Automation riporta quindi solo cio' che    */
+            /*  esiste davvero - per esempio la batteria - e la tray restava con   */
+            /*  una sola icona.                                                    */
+            /*                                                                    */
+            /*  Qui i tipi che la shell non espone vengono DISEGNATI da noi con    */
+            /*  gli stessi glifi del ripiego di Windows 10 (TrayFallbackIcons      */
+            /*  segue lo stato corrente: volume, connessione, batteria) e il clic  */
+            /*  apre il riquadro nativo corrispondente (vedi SendClick).           */
+            /*                                                                    */
+            /*  Regola di precedenza: appena la shell espone QUEL tipo, la voce    */
+            /*  sintetica non viene piu' rinnovata e sparisce da sola dopo due     */
+            /*  letture (la shell ha sempre l'ultima parola). Limite dichiarato    */
+            /*  nella documentazione (docs/Windows11.md): su Windows 11 la tray    */
+            /*  mostra le icone che la shell fornisce PIU' le nostre tre.          */
+            /* ------------------------------------------------------------------ */
+            static const SystemIconKind kSyntheticKinds[] = {
+                SystemIconKind::Volume,
+                SystemIconKind::Network,
+                SystemIconKind::Battery,
+            };
+            const PropStrings& sysNames = PropStringsFor(CurrentLanguage());
+            auto syntheticLabel = [&sysNames](SystemIconKind kind) {
+                const wchar_t* raw = (kind == SystemIconKind::Volume) ? sysNames.lblVolume
+                                   : (kind == SystemIconKind::Network) ? sysNames.lblNetwork
+                                                                       : sysNames.lblBattery;
+                std::wstring word(raw != nullptr ? raw : L"");
+                /* Le etichette delle Proprieta' finiscono con ':' ("Volume:\"). */
+                while (!word.empty() && (word.back() == L':' || word.back() == L' ')) {
+                    word.pop_back();
+                }
+                return word;
+            };
+            auto syntheticGuidKey = [](SystemIconKind kind) -> const wchar_t* {
+                switch (kind) {
+                    case SystemIconKind::Volume:  return L"uia:volume";
+                    case SystemIconKind::Network: return L"uia:network";
+                    default:                      return L"uia:battery";
+                }
+            };
+
+            for (SystemIconKind kind : kSyntheticKinds) {
+                if (shellExposed != nullptr && shellExposed->count(kind) != 0) {
+                    /* La shell espone questo tipo.
+                     *
+                     * v2.62: non succede piu' - le icone di sistema che la
+                     * shell espone non entrano nel modello (vedi il filtro in
+                     * ApplyWin11TraySnapshot), quindi qui "esposta" resta
+                     * falso e le tre icone ricreate sono sempre le nostre.
+                     * Il ramo resta come rete di sicurezza per il percorso
+                     * classico (Windows 10 e precedenti), dove la shell le
+                     * disegna davvero ed e' giusto che vinca la sua. */
+                    continue;
+                }
+
+                const uint32_t uid = kSyntheticSystemUidBase |
+                                     static_cast<uint32_t>(kind);
+                const TrayIconKey key{ 0, uid };
+                /* Inserita tra le "presenti": la passata di rimozione del
+                 * chiamante non deve portarla via. */
+                if (presentUids != nullptr) {
+                    presentUids->insert(uid);
+                }
+
+                ArgbBitmap glyph;
+                const bool drawn = TrayFallbackIcons::Render(kind, glyph);
+
+                auto it = m_icons.find(key);
+                if (it == m_icons.end()) {
+                    if (!drawn) {
+                        continue;   /* niente stato da disegnare: meglio il vuoto */
+                    }
+                    TrayIconEntry entry;
+                    entry.key           = key;
+                    entry.fromWin11Uia  = true;    /* nessun HWND proprietario   */
+                    entry.syntheticKind = kind;    /* il clic apre il riquadro   */
+                    entry.tooltip       = syntheticLabel(kind);
+                    entry.bitmap        = std::move(glyph);
+                    entry.pixelHash     = ArgbHash(entry.bitmap);
+                    entry.iconRevision  = 1;
+                    entry.usingFallback = true;
+                    entry.isPinned      = true;
+                    entry.hiddenDesired = false;
+                    entry.state         = 0;
+                    entry.sysChecked    = true;
+                    entry.systemKind    = kind;
+                    entry.guidKey       = syntheticGuidKey(kind);
+                    entry.toolbarId     = EnsureToolbarId(key);
+                    m_icons[key] = std::move(entry);
+                    m_order.push_back(key);
+                    if (added != nullptr) {
+                        ++added;
+                    }
+                    CoreState::Instance().QueueEvent(W7T_EVT_TRAY_ADD, 0, uid);
+                    continue;
+                }
+
+                TrayIconEntry& entry = it->second;
+                entry.missCount = 0;
+                entry.lastReadFailed = false;
+
+                /* Cambio di lingua: l'etichetta della voce sintetica e' nostra,
+                 * quindi si riallinea qui (le voci della shell portano il nome
+                 * che da' lei). */
+                const std::wstring label = syntheticLabel(kind);
+                if (entry.tooltip != label) {
+                    entry.tooltip = label;
+                    if (updated != nullptr) {
+                        ++updated;
+                    }
+                    CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY, 0, uid);
+                }
+
+                if (!drawn) {
+                    continue;
+                }
+                const uint64_t hash = ArgbHash(glyph);
+                if (hash == entry.pixelHash) {
+                    continue;
+                }
+                entry.bitmap        = std::move(glyph);
+                entry.pixelHash     = hash;
+                entry.usingFallback = true;
+                ++entry.iconRevision;
+                if (bitmapChanged != nullptr) {
+                    *bitmapChanged = true;
+                }
+                if (updated != nullptr) {
+                    ++updated;
+                }
+                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY, 0, uid);
+            }
+}
+
+
+void TrayService::ApplyWin11TraySnapshot() {
+    if (!m_win11Tray) {
+        return;
+    }
+
+    const std::vector<Win11TrayItem> raw =
+        Win11TrayReader::Instance().TakeSnapshot();
+
+    /* v2.62 - LE ICONE DI SISTEMA CHE RICREIAMO NON SI IMPORTANO.
+     *
+     * Volume, rete e batteria sono le tre icone che questa barra ridisegna
+     * (vedi EnsureSyntheticSystemIcons): se la shell ne espone una - su
+     * Windows 11 la batteria compare nell'angolo della tray, volume e rete
+     * no - importarla significava mostrarla DUE volte: la nostra e quella
+     * di Windows. L'utente le vedeva affiancate.
+     *
+     * Qui la voce della shell viene ignorata all'origine: resta la nostra,
+     * una sola, che parla la lingua di Windows 7 (icona e riquadro), mentre
+     * una voce importata aprirebbe il riquadro della shell.
+     *
+     * Il resto della tray (le icone delle applicazioni, comprese quelle nel
+     * pannello nascosto) si importa come sempre. */
+    std::vector<Win11TrayItem> items;
+    items.reserve(raw.size());
+    size_t skippedShellKinds = 0;
+    for (const Win11TrayItem& item : raw) {
+        if (item.kind != SystemIconKind::None) {
+            ++skippedShellKinds;
+            continue;
+        }
+        items.push_back(item);
+    }
+    if (skippedShellKinds != 0) {
+        wchar_t line[160] = {};
+        swprintf(line, 160,
+                 L"tray Win11: %zu icone di sistema ignorate (le ricreiamo noi)",
+                 skippedShellKinds);
+        AppendCoreLog(line);
+    }
+
+    if (items.empty()) {
+        /* Nessuna icona dalla shell in questa lettura: il modello non si
+         * tocca (una lettura incompleta non e' una sparizione), ma le NOSTRE
+         * tre ci sono lo stesso: sono l'unica cosa che possiamo disegnare
+         * senza chiedere niente a Explorer. */
+        int added = 0, updated = 0;
+        bool pixel = false;
+        EnsureSyntheticSystemIcons(nullptr, nullptr, &added, &updated, &pixel);
+        if (added != 0 || updated != 0 || pixel) {
+            SyncToolbarModel();
+            TrayOverflowWindow::NotifyTrayChanged();
+        }
+
+        /* Nessuna icona della shell. Due casi diversi, e vanno trattati
+         * diversamente:
+         *
+         *  - lettura NON valida (isola assente, Explorer sotto stress,
+         *    lettore non partito): si ritenta in backoff 1 s -> 2 s -> 4 s ->
+         *    8 s -> 15 s, e appena una lettura riesce si torna a 1 s. Il
+         *    risveglio di sicurezza a 30 s resta comunque attivo.
+         *  - lettura valida ma vuota: non c'e' nulla da leggere (l'utente ha
+         *    nascosto tutto), quindi non si ritenta: si aspetta un evento.
+         *
+         * Il log dice quale dei due casi si e' verificato: senza questa riga
+         * un utente che segnala "le icone non si vedono" non lascia nessuna
+         * traccia di cosa e' successo nel core. */
+        if (!Win11TrayReader::Instance().IsLastReadValid()) {
+            /* v2.62 - I PRIMI TENTATIVI SONO RAPIDI.
+             *
+             * All'avvio l'isola della tray puo' non essere pronta per qualche
+             * centinaio di millisecondi: con il solo backoff lento si
+             * aspettava un secondo, poi due, poi quattro..., e l'utente
+             * vedeva le icone arrivare con calma. I primi quattro tentativi
+             * sono a 400/800/1600/3200 ms; da li' in poi vale il backoff
+             * (1 s -> 15 s), che non e' un sondaggio continuo. */
+            unsigned long delayMs = m_uiaRetryDelayMs;
+            if (m_uiaFastRetries < 4) {
+                delayMs = 400ul << m_uiaFastRetries;
+                ++m_uiaFastRetries;
+            }
+
+            wchar_t line[160] = {};
+            swprintf(line, 160,
+                     L"tray Win11: lettura non valida (lettore %s), riprovo fra %lu ms",
+                     Win11TrayReader::Instance().IsRunning() ? L"attivo" : L"fermo",
+                     delayMs);
+            AppendCoreLog(line);
+
+            /* Un lettore fermo non si rianima da solo: si riavvia qui. */
+            if (!Win11TrayReader::Instance().IsRunning()) {
+                if (Win11TrayReader::Instance().Start()) {
+                    AppendCoreLog(L"tray Win11: lettore riavviato");
+                }
+            }
+
+            ScheduleReconcile(kReconcileUiaTray, delayMs);
+            m_uiaRetryDelayMs = (std::min)(15000ul, m_uiaRetryDelayMs * 2);
+        } else {
+            m_uiaRetryDelayMs = 1000;
+        }
+        return;
+    }
+    /* Lettura valida: il backoff riparte da un secondo e i tentativi
+     * rapidi dell'avvio sono finiti. */
+    m_uiaRetryDelayMs = 1000;
+    m_uiaFastRetries = 0;
+
+    std::set<uint32_t> present;
+    std::set<SystemIconKind> presentKinds;
+    for (const Win11TrayItem& item : items) {
+        present.insert(item.uid);
+        if (item.kind != SystemIconKind::None) {
+            presentKinds.insert(item.kind);
+        }
+    }
+
+    int added = 0;
+    int updated = 0;
+    int removed = 0;
+    bool anyBitmapChange = false;
+
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+        for (const Win11TrayItem& item : items) {
+            const TrayIconKey key{ 0, item.uid };
+            auto it = m_icons.find(key);
+            if (it == m_icons.end()) {
+                TrayIconEntry entry;
+                entry.key          = key;
+                entry.fromWin11Uia = true;
+                entry.fromExplorer = false;
+                entry.tooltip      = item.name;
+                entry.ownerPath    = item.exePath;
+                entry.bitmap       = item.bitmap;
+                entry.pixelHash    = ArgbHash(entry.bitmap);
+                entry.iconRevision = entry.bitmap.empty() ? 0 : 1;
+                entry.isPinned     = !item.hidden;
+                entry.hiddenDesired = item.hidden;
+                /* v2.62 - NASCOSTO DALLA SHELL NON VUOL DIRE NASCOSTO PER NOI.
+                 *
+                 * NIS_HIDDEN significa "l'applicazione ha chiesto di non
+                 * mostrare questa icona": e' quello che il modello usa per
+                 * togliere l'icona da ENTRAMBE le viste. Le icone che
+                 * Windows 11 tiene nel suo pannello delle icone nascoste non
+                 * sono nascoste dall'applicazione: sono esattamente le icone
+                 * che la NOSTRA freccetta deve mostrare. Marcandole
+                 * NIS_HIDDEN sparivano dal modello (ne' barra ne' pannello) e
+                 * l'overflow restava vuoto: la freccetta si nascondeva da
+                 * sola e il pannello - quando si apriva - non conteneva
+                 * niente.
+                 *
+                 * Quindi: stato 0 e isPinned falso. L'icona vive nella barra
+                 * solo se la shell la mostra, altrimenti nel nostro pannello.
+                 */
+                entry.state        = 0;
+                entry.sysChecked   = true;
+                entry.systemKind   = item.kind;
+                /* Il tipo viaggia anche nel campo guidKey: e' l'unico
+                 * campo di W7T_TrayIconInfo che il livello gestito puo'
+                 * leggere per sapere che si tratta del volume, della rete
+                 * o della batteria ricreati. */
+                if (item.kind == SystemIconKind::Network) {
+                    entry.guidKey = L"uia:network";
+                } else if (item.kind == SystemIconKind::Volume) {
+                    entry.guidKey = L"uia:volume";
+                } else if (item.kind == SystemIconKind::Battery) {
+                    entry.guidKey = L"uia:battery";
+                }
+                entry.toolbarId = EnsureToolbarId(key);
+                m_icons[key] = std::move(entry);
+                m_order.push_back(key);
+                ++added;
+                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_ADD, 0, key.uid);
+            } else {
+                TrayIconEntry& entry = it->second;
+                entry.missCount = 0;
+                entry.lastReadFailed = false;
+
+                bool changed = false;
+                if (entry.tooltip != item.name) {
+                    entry.tooltip = item.name;
+                    changed = true;
+                }
+                /* v2.62 - LA POSIZIONE LA DECIDE L'UTENTE, NON LA SHELL.
+                 *
+                 * Prima la disposizione di Windows 11 (dentro o fuori dal
+                 * pannello delle icone nascoste) veniva riscritta nel modello
+                 * a ogni lettura: spostare un'icona con pin/unpin non aveva
+                 * effetto, perche' la lettura successiva la rimetteva dov'era.
+                 * Ora la disposizione della shell vale solo finche' l'utente
+                 * non ha espresso la sua (preferenza salvata). */
+                if (!HasSavedPreference(key)) {
+                    if (entry.isPinned != !item.hidden) {
+                        entry.isPinned = !item.hidden;
+                        entry.hiddenDesired = item.hidden;
+                        changed = true;
+                    }
+                }
+                /* v2.62: lo stato "nascosto" non si eredita dalla shell (vedi
+                 * sopra): se una voce creata da una build precedente se lo
+                 * portava dietro, si azzera qui alla prima lettura utile. */
+                if (entry.state != 0) {
+                    entry.state = 0;
+                    changed = true;
+                }
+                /* v2.62 - ANCHE IL DISEGNO PUO' CAMBIARE.
+                 *
+                 * Un'applicazione cambia icona quando cambia stato (una
+                 * sincronizzazione in corso, un profilo diverso, un
+                 * aggiornamento): prima il bitmap veniva preso solo se il
+                 * modello non ne aveva ancora nessuno, quindi l'icona
+                 * restava quella del primo avvio. Ora si aggiorna quando il
+                 * disegno e' davvero diverso (il confronto e' un hash, non
+                 * un'uguaglianza pixel per pixel). */
+                if (!item.bitmap.empty()) {
+                    const uint64_t hash = ArgbHash(item.bitmap);
+                    if (hash != entry.pixelHash) {
+                        entry.bitmap = item.bitmap;
+                        entry.pixelHash = hash;
+                        ++entry.iconRevision;
+                        anyBitmapChange = true;
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    ++updated;
+                    CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY, 0,
+                                                     key.uid);
+                }
+            }
+        }
+
+        /* ------------------------------------------------------------------ */
+        /* v2.61: le tre icone che la shell non espone: la funzione qui
+         * sopra non dipende da questa lettura. */
+        EnsureSyntheticSystemIcons(&presentKinds, &present, &added, &updated,
+                                   &anyBitmapChange);
+
+
+        /* Rimozione delle voci della tray di Windows 11 sparite. Due
+         * assenze consecutive, come per le icone di Explorer: una lettura
+         * transitoria non fa sparire nulla. */
+        std::vector<TrayIconKey> toRemove;
+        for (auto& pair : m_icons) {
+            TrayIconEntry& entry = pair.second;
+            if (!entry.fromWin11Uia) {
+                continue;
+            }
+            if (present.count(pair.first.uid) != 0) {
+                continue;
+            }
+            if (++entry.missCount >= 2) {
+                toRemove.push_back(pair.first);
+            }
+        }
+        for (const TrayIconKey& key : toRemove) {
+            RemoveEntryLocked(key);
+            ++removed;
+        }
+    }
+
+    if (added != 0 || updated != 0 || removed != 0 || anyBitmapChange) {
+        size_t total = 0;
+        {
+            std::lock_guard<std::recursive_mutex> lock(m_mutex);
+            total = m_icons.size();
+        }
+        wchar_t line[160] = {};
+        swprintf(line, 160,
+                 L"tray Win11: +%d ~%d -%d voci (modello a %u)",
+                 added, updated, removed, static_cast<unsigned>(total));
+        AppendCoreLog(line);
+        SyncToolbarModel();
+        TrayOverflowWindow::NotifyTrayChanged();
+    }
+}
+
+SystemIconKind TrayService::KindOf(uint64_t ownerHwnd, uint32_t uid) const {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    auto it = m_icons.find(TrayIconKey{ ownerHwnd, uid });
+    if (it == m_icons.end()) {
+        return SystemIconKind::None;
+    }
+    return it->second.systemKind;
+}
+
+void CALLBACK TrayService::TrayHostChangedProc(HWINEVENTHOOK, DWORD,
+                                               HWND hwnd, LONG idObject,
+                                               LONG idChild, DWORD, DWORD) {
+    if (hwnd == nullptr || idObject != OBJID_WINDOW || idChild != 0) {
+        return;
+    }
+
+    TrayService& self = Instance();
+    if (!self.m_win11Tray || !self.m_running.load()) {
+        return;
+    }
+
+    wchar_t cls[128] = {};
+    if (GetClassNameW(hwnd, cls, 128) == 0) {
+        return;
+    }
+    const bool isTrayHost =
+        wcsstr(cls, L"TopLevelWindowForOverflowXamlIsland") != nullptr ||
+        wcsstr(cls, L"DesktopWindowContentBridge") != nullptr ||
+        _wcsicmp(cls, L"Shell_TrayWnd") == 0 ||
+        _wcsicmp(cls, L"Shell_SecondaryTrayWnd") == 0;
+    if (!isTrayHost) {
+        return;
+    }
+
+    /* Il debounce e' gia' quello delle riconciliazioni: piu' eventi vicini
+     * diventano una sola lettura. */
+    self.ScheduleReconcile(kReconcileUiaTray, 250);
 }
 
 int32_t TrayService::CopyTo(W7T_TrayIconInfo* buffer, int32_t capacity) {
@@ -2269,6 +3074,38 @@ int32_t TrayService::GetIconBitmap(uint64_t ownerHwnd, uint32_t uid,
         return W7T_ERR_NOT_FOUND;
     }
     return EmitBitmap(it->second.bitmap, width, height, pixels, pixelsBytes);
+}
+
+/* v2.63 - batteria: verifica differita dell'apertura del riquadro Win32. */
+void TrayService::StartBatteryOpenWatch(const RECT& anchor) {
+    if (m_trayWnd == nullptr) {
+        return;
+    }
+    m_pendingBatteryAnchor = anchor;
+    m_pendingBatteryPopups = CountVisibleForeignPopups();
+    SetTimer(m_trayWnd, kTimerBatteryFallback, 900, nullptr);
+}
+
+void TrayService::FinishBatteryOpenWatch() {
+    if (m_trayWnd != nullptr) {
+        KillTimer(m_trayWnd, kTimerBatteryFallback);
+    }
+    const int now = CountVisibleForeignPopups();
+    if (now > m_pendingBatteryPopups) {
+        LogTagged(L"GATE", L"batteria: riquadro di Windows aperto dalla shell");
+        return;
+    }
+    LogTagged(L"GATE", L"batteria: la shell non ha aperto il riquadro, uso il ricreato");
+    BatteryFlyout::Instance().ShowAt(m_pendingBatteryAnchor);
+}
+
+void TrayService::SetWin7NetworkFlyout(bool ready) {
+    /* v2.62: il frontend avvisa che il riquadro di rete di Windows 7 e'
+     * pronto (modulo inizializzato e modo "Windows 7 (ricreato)" scelto).
+     * Senza questo avviso il core non puo' sapere se invocare quel modulo e'
+     * sicuro: chiamarlo prima dell'inizializzazione significherebbe usare un
+     * contesto vuoto. */
+    m_win7NetworkFlyoutReady = ready;
 }
 
 int32_t TrayService::SetPinned(uint64_t ownerHwnd, uint32_t uid, int32_t pinned) {
@@ -2358,55 +3195,6 @@ namespace {
  * li' dentro, applica SetWindowSubclass e risponde HTBORDER ai lati in
  * WM_NCHITTEST: bordi Aero conservati, resize disattivato. Se la DLL non
  * si carica resta comunque lo snap-back del watcher come ripiego. */
-namespace {
-HINSTANCE s_hInjectDll = nullptr;
-HHOOK     s_hFreezeHook = nullptr;
-HWND      s_frozenFlyout = nullptr;
-
-HHOOK s_hFreezeHookProbe() { return s_hFreezeHook; }
-
-void UninstallFlyoutFreeze() {
-    if (s_frozenFlyout != nullptr && IsWindow(s_frozenFlyout)) {
-        const UINT u = RegisterWindowMessageW(L"W7T_UnfreezeSize");
-        if (u != 0) {
-            SendMessageW(s_frozenFlyout, u, 0, 0);  /* rimuove il subclass nel bersaglio */
-        }
-    }
-    if (s_hFreezeHook != nullptr) {
-        UnhookWindowsHookEx(s_hFreezeHook);
-        s_hFreezeHook = nullptr;
-    }
-    s_frozenFlyout = nullptr;
-}
-
-void InstallFlyoutFreeze(HWND flyout);   /* fwd decl */
-
-void RetryFlyoutFreeze(HWND flyout) {
-    extern HHOOK s_hFreezeHookProbe();
-    /* probe dichiarato sotto: evita di esporre lo stato */
-    if (s_hFreezeHookProbe() == nullptr) {
-        InstallFlyoutFreeze(flyout);
-    }
-}
-
-void InstallFlyoutFreeze(HWND flyout) {
-    if (flyout == nullptr || s_frozenFlyout == flyout) return;
-    UninstallFlyoutFreeze();
-    SetPropW(flyout, L"W7T_FreezeSize", reinterpret_cast<HANDLE>(1));
-    if (s_hInjectDll == nullptr) {
-        s_hInjectDll = LoadLibraryW(L"W7TInject.dll");
-    }
-    if (s_hInjectDll == nullptr) return;   /* ripiego: snap-back del watcher */
-    auto proc = reinterpret_cast<HOOKPROC>(
-        GetProcAddress(s_hInjectDll, "W7TInject_CallWndProc"));
-    if (proc == nullptr) return;
-    const DWORD tid = GetWindowThreadProcessId(flyout, nullptr);
-    if (tid == 0) return;
-    s_hFreezeHook = SetWindowsHookExW(WH_CALLWNDPROC, proc, s_hInjectDll, tid);
-    s_frozenFlyout = flyout;
-}
-} /* namespace */
-
 bool IsFlyoutProcess(HWND hwnd) {
     DWORD pid = 0;
     GetWindowThreadProcessId(hwnd, &pid);
@@ -2841,7 +3629,6 @@ void TrayService::ReanchorFlyouts() {
 /*  all'icona, esattamente come fa con i clic di RetroBar.              */
 /* ------------------------------------------------------------------ */
 bool TrayService::TryWindhawkNetFlyoutClick(uint64_t ownerHwnd, uint32_t uid) {
-    W7T_LOG("FLYOUT", "requested=network;origin=TryWindhawkNetFlyoutClick");
     const UINT queryMsg = RegisterWindowMessageW(L"Win7NetFlyout_QueryNetworkIcon");
     if (queryMsg == 0) {
         return false;   /* nessuno ha registrato il messaggio: mod assente */
@@ -2914,6 +3701,8 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                                int32_t x, int32_t y) {
     uint32_t callbackMessage = 0;
     uint32_t version = 0;
+    bool uiaEntry = false;
+    SystemIconKind syntheticKind = SystemIconKind::None;
     {
         std::lock_guard<std::recursive_mutex> lock(m_mutex);
         auto it = m_icons.find(TrayIconKey{ ownerHwnd, uid });
@@ -2922,6 +3711,161 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
         }
         callbackMessage = it->second.callbackMessage;
         version = it->second.version;
+        uiaEntry = it->second.fromWin11Uia;
+        syntheticKind = it->second.syntheticKind;
+    }
+
+    /* v2.61 - Icone di sistema ricreate da noi (la tray di Windows 11 non
+     * le espone: vedi ApplyWin11TraySnapshot). Non c'e' nessun elemento UI
+     * Automation da invocare: il clic apre il riquadro del tipo.
+     *
+     * v2.62 - E IL RIQUADRO E' QUELLO DI WINDOWS 7.
+     *
+     * Prima questi tre clic finivano nei flyout immersivi della shell: su
+     * Windows 11 l'utente si vedeva aprire i riquadri di Windows 10 (o il
+     * ripiego) al posto di quelli di Windows 7 che questa barra ricrea. Le
+     * icone sono ricreate da noi, quindi il riquadro e' il nostro:
+     * volume -> riquadro classico del volume, rete -> riquadro di rete di
+     * Windows 7, batteria -> riquadro batteria ricreato.
+     *
+     * Il tasto destro fa la stessa cosa del sinistro (come in Windows 7 il
+     * clic sul riquadro di volume lo apre e basta): NON si inoltra piu' alla
+     * shell, che avrebbe aperto un menu contestuale di Windows 11 estraneo a
+     * questa barra. Il tasto centrale resta senza azione, come per le altre
+     * voci della tray. */
+    if (syntheticKind != SystemIconKind::None) {
+        if (clickType == W7T_TRAY_CLICK_MIDDLE) {
+            return W7T_ERR_INVALID_ARG;
+        }
+
+        /* Il frontend manda DUE eventi per un clic (pressione e rilascio),
+         * esattamente come la shell. Qui si agisce solo sul rilascio: aprire
+         * il riquadro anche sulla pressione significava aprirlo e richiuderlo
+         * subito (i riquadri di rete e batteria si aprono/chiudono a
+         * alternanza), cioe' il clic sembrava non fare niente. */
+        if (clickType == W7T_TRAY_CLICK_LEFT_DOWN) {
+            return W7T_OK;
+        }
+
+        /* v2.61 - IL FLYOUT VA DOVE STA L'ICONA ADESSO.
+         *
+         * Il rettangolo arriva dal frontend (W7T_SetIconRect) e viene
+         * rimandato a ogni movimento reale dell'icona: barra spostata, DPI
+         * cambiato, altro monitor, icone riordinate, overflow aperto o
+         * chiuso, Explorer riavviato. Qui si usa quello, non la posizione
+         * dell'importazione; se manca o non e' plausibile (fuori da ogni
+         * monitor, rettangolo vuoto) si ripiega sul rettangolo della barra,
+         * che il core conosce perche' il frontend glielo riporta a ogni
+         * layout (W7T_SetShellRects). */
+        RECT anchor{};
+        if (!CurrentIconRect(TrayIconKey{ ownerHwnd, uid }, anchor)) {
+            if (m_trayWnd == nullptr || !GetWindowRect(m_trayWnd, &anchor)) {
+                return W7T_ERR_NOT_FOUND;
+            }
+        }
+
+        const int centreX = (anchor.left + anchor.right) / 2;
+
+        /* v2.63 - CHI APRE IL RIQUADRO NON LO DECIDE PIU' QUESTO SWITCH.
+         *
+         * La scelta "Windows 7" / "Windows 10/11" delle Proprieta' arriva
+         * qui dal frontend (W7T_SetFlyoutPreferences) e vive in un posto
+         * solo (FlyoutLauncher.cpp). Prima ogni ramo aveva la propria copia
+         * della regola: il volume apriva SEMPRE il mixer classico anche con
+         * "Windows 10/11" selezionato, la batteria apriva SEMPRE il riquadro
+         * ricreato anche con "Windows 10/11" selezionato, la rete il
+         * ricreato o il ripiego moderno a seconda di un flag. Da qui
+         * l'impressione - giusta - che le due voci fossero scambiate. */
+        const w7t::FlyoutKind routeKind =
+            (syntheticKind == SystemIconKind::Volume)  ? w7t::FlyoutKind::Sound
+          : (syntheticKind == SystemIconKind::Network) ? w7t::FlyoutKind::Network
+                                                       : w7t::FlyoutKind::Battery;
+        const w7t::FlyoutRoute route = w7t::ChooseFlyoutRoute(routeKind);
+
+        switch (syntheticKind) {
+            case SystemIconKind::Volume:
+                /* "Windows 7": il mixer classico (SndVol -f), ancorato sopra
+                 * l'icona: e' quello che Windows 7 mostrava al clic
+                 * sull'icona del volume. Se il lancio non riesce (SndVol
+                 * assente o rifiutato dal sistema) si usa il riquadro del
+                 * volume della shell: meglio del clic senza effetto. */
+                if (route == w7t::FlyoutRoute::Classic) {
+                    if (W7T_LaunchClassicVolume(centreX, anchor.top) != 0) {
+                        return W7T_OK;
+                    }
+                    LogTagged(L"GATE", L"volume: SndVol non disponibile, uso il riquadro della shell");
+                }
+                return FlyoutLauncher::ShowVolumeFlyoutAt(anchor);
+
+            case SystemIconKind::Network:
+                /* "Windows 7": il riquadro di rete ricreato, ma solo quando il
+                 * frontend lo ha preparato (NetFlyoutInit); la preparazione
+                 * (g_ctx, hook) la fa il frontend una volta sola. */
+                if (route == w7t::FlyoutRoute::Classic && m_win7NetworkFlyoutReady) {
+                    w7tnet::W7TNetFlyout_SetAnchorRect(&anchor);
+                    w7tnet::W7TNetFlyout_Toggle();
+                    return W7T_OK;
+                }
+                return FlyoutLauncher::InvokeFlyoutAt(FlyoutKind::Network,
+                                                      FlyoutAction::Show, anchor);
+
+            case SystemIconKind::Battery:
+                /* v2.63 - IL RIQUADRO BATTERIA DI WINDOWS 7, come chiesto.
+                 *
+                 * Con la preferenza "Windows 7" il clic va al pulsante
+                 * batteria VERO della shell (lo stesso che la shell disegna
+                 * nella sua tray): il frontend ha gia' messo in
+                 * HKCU\...\ImmersiveShell la chiave che ExplorerPatcher usa
+                 * per questa scelta (UseWin32BatteryFlyout=1), quindi e'
+                 * Windows a mostrare il riquadro Win32 di Windows 7,
+                 * ancorato alla sua icona. Se il pulsante vero non e'
+                 * raggiungibile si usa il riquadro ricreato, ancorato
+                 * all'icona nostra: meglio del clic senza effetto. */
+                if (route == w7t::FlyoutRoute::Classic) {
+                    const uint32_t shellBatteryUid =
+                        Win11TrayReader::Instance().UidOfKind(SystemIconKind::Battery);
+                    if (shellBatteryUid != 0 &&
+                        Win11TrayReader::Instance().RequestClick(shellBatteryUid, false)) {
+                        /* Verifica differita (900 ms): se Windows non apre il
+                         * riquadro Win32, compare il ricreato. Cosi' il clic
+                         * non resta mai senza effetto, qualunque cosa faccia
+                         * la shell su questa build. */
+                        StartBatteryOpenWatch(anchor);
+                        return W7T_OK;
+                    }
+                    BatteryFlyout::Instance().ShowAt(anchor);
+                    return W7T_OK;
+                }
+                /* "Windows 10/11": prima il riquadro della shell, come per
+                 * gli altri tipi; il ricreato resta il ripiego. */
+                if (FlyoutLauncher::InvokeFlyoutAt(FlyoutKind::Battery,
+                                                   FlyoutAction::Show, anchor) == W7T_OK) {
+                    return W7T_OK;
+                }
+                BatteryFlyout::Instance().ShowAt(anchor);
+                return W7T_OK;
+
+            default:
+                break;
+        }
+        return W7T_ERR_NOT_FOUND;
+    }
+
+    /* v2.60 - Voci della tray di Windows 11: non esiste nessun proprietario
+     * a cui mandare il messaggio di callback (l'icona e' disegnata da
+     * explorer.exe dentro un'isola XAML). Il clic va al pattern di
+     * accessibilita' dell'elemento: e' il meccanismo con cui lo apre anche
+     * la tastiera di sistema. */
+    if (uiaEntry) {
+        const bool right = clickType == W7T_TRAY_CLICK_RIGHT;
+        const bool middle = clickType == W7T_TRAY_CLICK_MIDDLE;
+        if (middle) {
+            /* Il tasto centrale non ha un pattern equivalente: si lascia
+             * stare, meglio di un'azione sbagliata. */
+            return W7T_ERR_INVALID_ARG;
+        }
+        return Win11TrayReader::Instance().RequestClick(uid, right)
+             ? W7T_OK : W7T_ERR_NOT_FOUND;
     }
 
     HWND owner = reinterpret_cast<HWND>(static_cast<uintptr_t>(ownerHwnd));
@@ -2979,7 +3923,6 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
              * explorer aprirebbe il flyout moderno e la mod lo
              * sopprimerebbe, quindi non si aprirebbe nulla. */
             if (TryWindhawkNetFlyoutClick(ownerHwnd, uid)) {
-                W7T_LOG("FLYOUT", "requested=network;gate=windhawk-network;result=accepted;shown=windhawk-classic");
                 break;
             }
             /* ManagedShell (IconMouseUp): SEMPRE WM_LBUTTONUP, piu'

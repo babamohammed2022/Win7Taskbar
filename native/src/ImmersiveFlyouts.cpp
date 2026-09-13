@@ -325,7 +325,9 @@ BOOL CALLBACK CollectFlyoutWindows(HWND hwnd, LPARAM lParam) {
     const bool hostProcess = snap->hostPids.count(pid) > 0;
     const bool xamlIsland = wcscmp(className, L"Windows.UI.Core.CoreWindow") == 0
                          || wcscmp(className, L"XamlExplorerHostIslandWindow") == 0
-                         || wcscmp(className, L"ControlCenterWindow") == 0;
+                         || wcscmp(className, L"ControlCenterWindow") == 0
+                         || wcscmp(className,
+                                   L"TopLevelWindowForOverflowXamlIsland") == 0;
     if (hostProcess || xamlIsland) {
         snap->windows.insert(hwnd);
     }
@@ -441,7 +443,14 @@ HRESULT ImmersiveFlyouts::Invoke(FlyoutKind kind, FlyoutAction action,
     const FlyoutWindowSnapshot before = TakeFlyoutSnapshot();
 
     HRESULT hr = InvokeFlyoutManager(kind, action, anchor);
-    if (SUCCEEDED(hr) && WaitForNewFlyoutWindow(before, 500)) {
+    /* v2.61: se la chiamata COM e' andata a buon fine la shell ha ACCETTATO
+     * di mostrare il riquadro, e su Windows 11 l'isola XAML puo' comparire
+     * ben oltre il mezzo secondo: si aspetta di piu' invece di dichiarare
+     * un fallimento che faceva aprire anche il riquadro nostro (l'utente
+     * vedeva prima il nativo e poi il nostro). Se invece la chiamata ha
+     * fallito non comparira' nulla e non ha senso restare fermi. */
+    const int showBudget = SUCCEEDED(hr) ? 1400 : 500;
+    if (SUCCEEDED(hr) && WaitForNewFlyoutWindow(before, showBudget)) {
         return S_OK;
     }
 

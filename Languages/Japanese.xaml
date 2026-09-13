@@ -38,4 +38,17 @@
     <s:String x:Key="lang_about_title">概要</s:String>
     <s:String x:Key="lang_about_text">Win7Taskbar は、最新のタスクバーの上に Windows 7 のタスクバーを再現する、常に改良中のベストエフォート型プロジェクトです。精度は時間とともに向上します。既知の制限：タスクバーの回転（横・上）には対応していないため、関連するオプションは現在装飾的なものです。システムウィンドウ（フライアウト、スタートメニュー）はフックして再配置するものであり、再現するものではありません。</s:String>
     <s:String x:Key="lang_credits">クレジット：一部のグラフィックリソースおよび XAML アイデアの着想について 3ds に感謝します。</s:String>
+    <s:String x:Key="lang_menu_toolbars">ツールバー</s:String>
+    <s:String x:Key="lang_menu_desktop">デスクトップ</s:String>
+    <s:String x:Key="lang_menu_links">リンク</s:String>
+    <s:String x:Key="lang_menu_address">アドレス</s:String>
+    <s:String x:Key="lang_menu_cascade">重ねて表示</s:String>
+    <s:String x:Key="lang_menu_stack">ウィンドウを上下に並べて表示</s:String>
+    <s:String x:Key="lang_menu_sidebyside">ウィンドウを左右に並べて表示</s:String>
+    <s:String x:Key="lang_menu_lock">タスクバーを固定する</s:String>
+    <s:String x:Key="lang_menu_pin">このプログラムをタスクバーにピン留めする</s:String>
+    <s:String x:Key="lang_menu_unpin">このプログラムをタスクバーからピン留めを解除する</s:String>
+    <s:String x:Key="lang_address_tip">アドレス: パスまたは URL を入力して Enter キーを押します</s:String>
+    <s:String x:Key="lang_tray_pin_tip">トレイとオーバーフローの間で移動 (ピン留め/解除)</s:String>
+    <s:String x:Key="lang_close_tip">閉じる</s:String>
 </ResourceDictionary>

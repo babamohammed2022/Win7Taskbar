@@ -26,8 +26,8 @@
  * C o di C# e' stata copiata. Vedi CREDITS.txt e THIRD-PARTY-NOTICES.md.
  */
 
-#include "DiagnosticLogger.h"
 #include "FlyoutLauncher.h"
+#include "SehGuard.h"
 #include <commctrl.h>
 
 #include <objbase.h>
@@ -128,6 +128,47 @@ void WaitForFlyoutStable(const wchar_t* className, HWND& outFlyout) {
 
 
 
+/* v2.63: la stessa collocazione, ma su un riquadro GIA' trovato: serve al
+ * percorso dell'orologio, che deve sapere se la finestra di Windows 7
+ * (classe ClockFlyoutWindow) e' davvero comparsa prima di dichiarare
+ * riuscita l'apertura. Prima bastava che ShowFlyout rispondesse S_OK: su
+ * Windows 11 la shell risponde S_OK e apre la SUA isola XAML, e il
+ * frontend - convinto che il riquadro di Windows 7 fosse aperto - non
+ * apriva nulla. */
+void PositionFoundFlyout(HWND flyout, HWND taskbarHwnd, const RECT& barRect) {
+    if (flyout == nullptr || !IsWindow(flyout)) {
+        return;
+    }
+    ApplyAeroFlyoutStyle(flyout);
+    GrowClockFlyoutHeight(flyout);
+
+    RECT rect = {};
+    if (!GetWindowRect(flyout, &rect)) {
+        return;
+    }
+
+    HMONITOR monitor = MonitorFromWindow(taskbarHwnd, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(monitor, &mi)) {
+        return;
+    }
+
+    const RECT wa = mi.rcWork;
+    const LONG width  = rect.right - rect.left;
+    const LONG height = rect.bottom - rect.top;
+
+    /* Come Windows 7: calendario allineato a destra sopra l'orologio. */
+    LONG x = barRect.right - width;
+    LONG y = barRect.top - height;
+
+    x = (std::max)(wa.left, (std::min)(x, wa.right - width));
+    y = (std::max)(wa.top, (std::min)(y, wa.bottom - height));
+
+    SetWindowPos(flyout, nullptr, static_cast<int>(x), static_cast<int>(y),
+                 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER);
+}
+
 void FixFlyoutPosition(const wchar_t* className, HWND taskbarHwnd,
                        const RECT& barRect) {
     HWND flyout = nullptr;
@@ -170,15 +211,27 @@ void FixFlyoutPosition(const wchar_t* className, HWND taskbarHwnd,
 }
 
 bool ShowAeroClock(HWND taskbarHwnd, RECT& barRect) {
+    /* v2.63: S_OK non basta piu'.
+     *
+     * Su Windows 11 la shell risponde S_OK anche quando ad aprire e' la SUA
+     * isola XAML (classe XamlExplorerHostIslandWindow, non ClockFlyoutWindow):
+     * dichiarare riuscita l'apertura in quel caso lasciava l'utente senza il
+     * riquadro che aveva chiesto, perche' il frontend non apriva il nostro
+     * (credeva di aver gia' aperto quello di Windows 7). Quindi: si chiede il
+     * riquadro, si ASPETTA che compaia la finestra classica dell'orologio e
+     * solo allora si risponde di si'. Se non compare, e' un no e il frontend
+     * apre il calendario ricreato. */
+    HWND flyout = nullptr;
+    bool requested = false;
+
+    W7T_SEH_TRY
     if (IsWindows8OrBetter()) {
         if (g_aeroClock == nullptr) {
             CoCreateInstance(kClsidAeroClock, nullptr, CLSCTX_INPROC_SERVER,
                              kIidAeroClock, reinterpret_cast<void**>(&g_aeroClock));
         }
-        if (g_aeroClock != nullptr
-            && SUCCEEDED(g_aeroClock->ShowFlyout(taskbarHwnd, &barRect))) {
-            FixFlyoutPosition(L"ClockFlyoutWindow", taskbarHwnd, barRect);
-            return true;
+        if (g_aeroClock != nullptr) {
+            requested = SUCCEEDED(g_aeroClock->ShowFlyout(taskbarHwnd, &barRect));
         }
     } else {
         if (g_aeroClockLegacy == nullptr) {
@@ -186,14 +239,38 @@ bool ShowAeroClock(HWND taskbarHwnd, RECT& barRect) {
                              kIidAeroClockLegacy,
                              reinterpret_cast<void**>(&g_aeroClockLegacy));
         }
-        if (g_aeroClockLegacy != nullptr
-            && SUCCEEDED(g_aeroClockLegacy->ShowFlyout(0, &barRect))) {
-            FixFlyoutPosition(L"ClockFlyoutWindow", taskbarHwnd, barRect);
-            return true;
+        if (g_aeroClockLegacy != nullptr) {
+            requested = SUCCEEDED(g_aeroClockLegacy->ShowFlyout(0, &barRect));
         }
     }
-
+    W7T_SEH_CATCH
+    AppendCoreLog(L"orologio: eccezione nel riquadro Aero classico");
     return false;
+    W7T_SEH_END
+
+    WaitForFlyoutStable(L"ClockFlyoutWindow", flyout);
+    if (flyout == nullptr) {
+        /* Nessuna finestra dell'orologio classico.
+         *
+         * Su Windows 8/10 la shell puo' impiegare piu' del tempo che
+         * aspettiamo e la chiamata era comunque riuscita: li' si mantiene il
+         * comportamento di sempre (riuscita = la shell ha accettato), cosi'
+         * nessuna build precedente cambia comportamento.
+         *
+         * Su Windows 11 no: la shell risponde S_OK e apre la SUA isola XAML,
+         * che non e' il riquadro di Windows 7 chiesto dall'utente. Li' si
+         * dice "non riuscito" e il frontend apre il calendario ricreato. */
+        if (requested && !IsWindows11OrBetter()) {
+            LogTagged(L"GATE", L"orologio: la shell ha accettato (Windows 10, riquadro non ancora visibile)");
+            return true;
+        }
+        LogTagged(L"GATE", L"orologio: il riquadro di Windows 7 (ClockFlyoutWindow) non e' comparso");
+        return false;
+    }
+
+    PositionFoundFlyout(flyout, taskbarHwnd, barRect);
+    LogTagged(L"GATE", L"orologio: aperto il riquadro di Windows 7");
+    return true;
 }
 
 /* Prepara COM sul thread chiamante. RPC_E_CHANGED_MODE non e' un errore:
@@ -228,6 +305,105 @@ bool TryGetBarRect(HWND taskbarHwnd, RECT& out) {
 }
 
 } /* namespace */
+
+/* ====================================================================== */
+/*  v2.63 - Preferenze dei riquadri e porta dei riquadri moderni          */
+/* ====================================================================== */
+
+namespace {
+
+/* Un solo posto dove vive la scelta dell'utente. Aggiornata dal frontend con
+ * W7T_SetFlyoutPreferences; letta da tutti i percorsi di apertura. */
+FlyoutPreferences g_flyoutPrefs;
+bool g_flyoutPrefsPublished = false;
+
+/* Diagnostica: l'ultima riga pubblicata, per non ripetere lo stesso log a
+ * ogni clic (il gate viene interrogato molto spesso). */
+wchar_t g_lastGateLine[256] = {};
+
+const wchar_t* StyleName(FlyoutStyle style) {
+    return style == FlyoutStyle::Modern ? L"Windows10/11" : L"Windows7";
+}
+
+const wchar_t* KindName(FlyoutKind kind) {
+    switch (kind) {
+        case FlyoutKind::Network: return L"network";
+        case FlyoutKind::Clock:   return L"clock";
+        case FlyoutKind::Battery: return L"battery";
+        case FlyoutKind::Sound:   return L"sound";
+        default:                  return L"?";
+    }
+}
+
+} /* namespace */
+
+void SetFlyoutPreferences(const FlyoutPreferences& prefs) {
+    g_flyoutPrefs = prefs;
+    g_flyoutPrefsPublished = true;
+    g_lastGateLine[0] = L'\0';   /* nuova riga di log alla prossima domanda */
+
+    LogTagged(L"SETTINGS",
+              L"preferenze riquadri dal frontend: orologio=%s rete=%s volume=%s batteria=%s",
+              StyleName(prefs.clock), StyleName(prefs.network),
+              StyleName(prefs.volume), StyleName(prefs.battery));
+    LogFlyoutGate(L"SetFlyoutPreferences");
+}
+
+FlyoutPreferences GetFlyoutPreferences() {
+    return g_flyoutPrefs;
+}
+
+FlyoutStyle PreferredStyle(FlyoutKind kind) {
+    switch (kind) {
+        case FlyoutKind::Clock:   return g_flyoutPrefs.clock;
+        case FlyoutKind::Network: return g_flyoutPrefs.network;
+        case FlyoutKind::Battery: return g_flyoutPrefs.battery;
+        case FlyoutKind::Sound:   return g_flyoutPrefs.volume;
+        default:                  return FlyoutStyle::Win7;
+    }
+}
+
+bool IsImmersiveFlyoutHostUsable() {
+    /* Condizione tecnica: Windows 10 o successivo E la fabbrica
+     * ShellExperience raggiungibile (combase + CLSID). Su un Windows 11
+     * "spogliato" la seconda risponde no e il chiamante usa il percorso
+     * classico senza pagare l'attesa. */
+    return IsWindows10OrBetter() && ImmersiveFlyouts::IsSupported();
+}
+
+bool IsModernFlyoutHostAvailable() {
+    /* I riquadri immersivi di Windows 11 sono isole XAML: esistono, ma
+     * compaiono quando decide la shell e non si ancorano come quelli di
+     * Windows 10. Questa e' la differenza che il resto del codice usa per
+     * scegliere fra riquadro della shell e riquadro ricreato. */
+    return IsImmersiveFlyoutHostUsable() && GetWindowsBuildNumber() >= 22000u;
+}
+
+FlyoutRoute ChooseFlyoutRoute(FlyoutKind kind) {
+    const FlyoutStyle style = PreferredStyle(kind);
+    if (style == FlyoutStyle::Modern && IsImmersiveFlyoutHostUsable()) {
+        return FlyoutRoute::Immersive;
+    }
+    return FlyoutRoute::Classic;
+}
+
+void LogFlyoutGate(const wchar_t* where) {
+    wchar_t line[256] = {};
+    wsprintfW(line,
+              L"[GATE] %s: build=%u modernHost=%s orologio=%s rete=%s volume=%s batteria=%s prefs=%s",
+              where != nullptr ? where : L"?",
+              GetWindowsBuildNumber(),
+              IsModernFlyoutHostAvailable() ? L"si" : L"no",
+              StyleName(g_flyoutPrefs.clock), StyleName(g_flyoutPrefs.network),
+              StyleName(g_flyoutPrefs.volume), StyleName(g_flyoutPrefs.battery),
+              g_flyoutPrefsPublished ? L"frontend" : L"default");
+
+    if (wcscmp(line, g_lastGateLine) == 0) {
+        return;   /* identica all'ultima: niente righe ripetute nel log */
+    }
+    lstrcpynW(g_lastGateLine, line, ARRAYSIZE(g_lastGateLine));
+    AppendCoreLog(line);
+}
 
 /* v2.29: i flyout classici ricevono WS_THICKFRAME per il bordo Aero dal
  * compositor, ma NON devono essere ridimensionabili: come il pannello
@@ -343,6 +519,34 @@ void GrowClockFlyoutHeight(HWND flyout) {
 /*  API pubblica del modulo                                               */
 /* ====================================================================== */
 
+int32_t FlyoutLauncher::InvokeFlyoutAt(FlyoutKind kind, FlyoutAction action,
+                                       const RECT& anchorRect) {
+    /* v2.63: nessuna eccezione e nessun fault attraversa questa porta.
+     *
+     * Il percorso immersivo parla con la shell (COM + WinRT): un guasto li'
+     * dentro non deve far cadere la barra. Si registra e si risponde
+     * "non disponibile", cosi' il chiamante ripiega sul riquadro ricreato. */
+    int32_t result = W7T_ERR_NOT_FOUND;
+
+    /* ComScope vive FUORI dal blocco protetto: nessun oggetto con
+     * distruttore attraversa il salto di setjmp. */
+    ComScope com;
+
+    W7T_SEH_TRY
+    result = ToCoreResult(ImmersiveFlyouts::Invoke(kind, action,
+                                                   MakeWinRtRect(anchorRect)));
+    W7T_SEH_CATCH
+    LogTagged(L"GATE", L"riquadro %s: fault nel percorso immersivo", KindName(kind));
+    result = W7T_ERR_NOT_FOUND;
+    W7T_SEH_END
+
+    return result;
+}
+
+int32_t FlyoutLauncher::ShowVolumeFlyoutAt(const RECT& anchorRect) {
+    return InvokeFlyoutAt(FlyoutKind::Sound, FlyoutAction::Show, anchorRect);
+}
+
 int32_t FlyoutLauncher::InvokeFlyout(FlyoutKind kind, FlyoutAction action,
                                      HWND taskbarHwnd) {
     RECT barRect = {};
@@ -352,47 +556,96 @@ int32_t FlyoutLauncher::InvokeFlyout(FlyoutKind kind, FlyoutAction action,
         return W7T_ERR_INVALID_ARG;
     }
 
-    ComScope com;
-
-    return ToCoreResult(ImmersiveFlyouts::Invoke(kind, action, MakeWinRtRect(barRect)));
+    return InvokeFlyoutAt(kind, action, barRect);
 }
 
 int32_t FlyoutLauncher::ShowClockFlyout(HWND taskbarHwnd) {
+    /* ------------------------------------------------------------------ */
+    /*  v2.63 - LA PREFERENZA DECIDE IL PERCORSO, NON LA BUILD.            */
+    /*                                                                    */
+    /*  Prima qui c'era un rifiuto incondizionato su Windows 11: la scelta */
+    /*  "Windows 7" delle Proprieta' restava scritta ma non veniva mai     */
+    /*  eseguita, e l'utente vedeva sempre il calendario ricreato (era il  */
+    /*  difetto segnalato: "il riquadro dell'orologio apre quello ricreato */
+    /*  invece di quello di Windows 7").                                  */
+    /*                                                                    */
+    /*  Ora:                                                            */
+    /*   - preferenza "Windows 7"  -> calendario classico Aero (finestra   */
+    /*     ClockFlyoutWindow), che esiste anche su Windows 11 e si         */
+    /*     riposiziona come in Windows 7; se non compare, no e il frontend */
+    /*     apre il calendario ricreato;                                    */
+    /*   - preferenza "Windows 10/11" -> riquadro della shell (isola XAML  */
+    /*     su Windows 11, riquadro immersivo su Windows 10), con la        */
+    /*     chiusura del riquadro di sistema prima di aprire il nostro.     */
+    /*                                                                    */
+    /*  La sonda "il riquadro immersivo esiste su questa build" non e' piu' */
+    /*  un flag permanente: un fallimento transitorio (shell non ancora    */
+    /*  pronta dopo l'accesso) non deve valere per tutta la sessione.      */
+    /* ------------------------------------------------------------------ */
+    LogFlyoutGate(L"ShowClockFlyout");
+
     RECT barRect = {};
     if (!TryGetBarRect(taskbarHwnd, barRect)) {
         return W7T_ERR_INVALID_ARG;
     }
 
-    ComScope com;
+    if (ChooseFlyoutRoute(FlyoutKind::Clock) == FlyoutRoute::Immersive) {
+        ComScope com;
 
-    /* Su Windows 10 e 11 il calendario e' l'esperienza XAML della shell:
-     * e' quello che vede l'utente quando usa la barra di sistema.
-     *
-     * Memoria dell'esito: se la sonda ha gia' dimostrato una volta che su
-     * questa build il host dei flyout non esiste, non si ripaga mezza
-     * attesa a ogni clic: si va dritti al ripiego del chiamante. */
-    static bool nativeClockMissing = false;
-    W7T_LOG_GATE("native-clock-host-available", !nativeClockMissing);
-    if (!nativeClockMissing) {
-        const int32_t outcome = ToCoreResult(ImmersiveFlyouts::Invoke(
-            FlyoutKind::Clock, FlyoutAction::Show, MakeWinRtRect(barRect)));
-        if (outcome == W7T_OK) {
-            W7T_LOG_FLYOUT("clock", "native-host", "accepted", "immersive-clock");
-            return W7T_OK;
+        /* Sonda con memoria a tempo: se la shell non ha risposto, si riprova
+         * dopo mezzo minuto invece di rinunciare per sempre. */
+        static bool  probeFailed = false;
+        static DWORD probeFailedAt = 0;
+        const DWORD now = GetTickCount();
+        if (probeFailed && (now - probeFailedAt) > 30000u) {
+            probeFailed = false;
         }
-        nativeClockMissing = true;
-        W7T_LOG_FLYOUT("clock", "native-host", "rejected", "none");
+
+        if (!probeFailed) {
+            const int32_t outcome = ToCoreResult(ImmersiveFlyouts::Invoke(
+                FlyoutKind::Clock, FlyoutAction::Show, MakeWinRtRect(barRect)));
+            if (outcome == W7T_OK) {
+                return W7T_OK;
+            }
+            probeFailed = true;
+            probeFailedAt = now;
+            LogTagged(L"GATE", L"orologio: il riquadro immersivo non ha risposto su questa build");
+        }
+
+        /* La shell puo' materializzare il SUO calendario anche quando la
+         * sonda non l'ha visto in tempo: si chiude prima di aprire il nostro. */
+        ImmersiveFlyouts::Invoke(FlyoutKind::Clock, FlyoutAction::Hide,
+                                 MakeWinRtRect(barRect));
+        return W7T_ERR_NOT_FOUND;
     }
 
-    /* Ripiego per Vista/7/8, e per le build in cui l'esperienza moderna
-     * non e' disponibile. */
+    /* Preferenza "Windows 7": il calendario classico, senza passare dai
+     * riquadri immersivi della shell. */
+    ComScope com;
     if (ShowAeroClock(taskbarHwnd, barRect)) {
-        W7T_LOG_FLYOUT("clock", "legacy-aero-fallback", "accepted", "aero-clock");
         return W7T_OK;
     }
 
-    W7T_LOG_FLYOUT("clock", "legacy-aero-fallback", "rejected", "none");
+    /* Il calendario classico non e' comparso.
+     *
+     * NON si ripiega sul riquadro della shell: chi ha scelto "Windows 7" ha
+     * chiesto quel riquadro, e su Windows 11 la shell risponde S_OK aprendo la
+     * sua isola XAML - sarebbe di nuovo il difetto segnalato ("apre il nativo
+     * invece di quello di Windows 7"), per giunta con il rischio dei due
+     * riquadri sovrapposti. Si risponde "non riuscito" e il frontend apre il
+     * calendario ricreato, che e' il ripiego dichiarato. */
+    LogTagged(L"GATE", L"orologio: nessun riquadro di Windows 7, si apre il ricreato");
     return W7T_ERR_NOT_FOUND;
+}
+
+int32_t FlyoutLauncher::HideClockFlyout() {
+    /* Solo la chiusura: nessuna sonda, nessuna attesa. Se il riquadro non
+     * c'e' la chiamata non ha effetto e torna subito. */
+    const RECT none{};
+    ComScope com;
+    return ToCoreResult(ImmersiveFlyouts::Invoke(FlyoutKind::Clock,
+                                                 FlyoutAction::Hide,
+                                                 MakeWinRtRect(none)));
 }
 
 int32_t FlyoutLauncher::ShowVolumeFlyout(HWND taskbarHwnd) {

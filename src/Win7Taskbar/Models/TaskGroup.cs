@@ -251,6 +251,56 @@ namespace Win7Taskbar.Models
             OnPropertyChanged(nameof(IsRunning));
         }
 
+        // ===============================================================
+        //  v2.60 - Larghezza del pulsante quando i programmi aperti sono
+        //  tanti (vedi UpdateTaskButtonLayout in TaskbarWindow.xaml.cs).
+        //
+        //  Fino alla v2.59 il pulsante non aveva NESSUN vincolo di
+        //  larghezza: si dimensionava sul contenuto fra il minimo del tema e
+        //  l'icona. Con molti programmi la somma superava lo spazio della
+        //  barra e i pulsanti finivano disegnati SOPRA l'orologio e la tray,
+        //  con le cornici tagliate a meta' (i "bordi disegnati male").
+        //
+        //  Qui il numero lo scrive la finestra: NaN = "quanto chiede il
+        //  contenuto" (comportamento di sempre), un valore = larghezza
+        //  imposta dal calcolo che fa stare tutti i pulsanti nello spazio
+        //  disponibile, come fa la Superbar vera quando si stringe.
+        // ===============================================================
+
+        private double _buttonWidth = double.NaN;
+        private double _buttonMinWidth = 52;
+
+        /// <summary>Larghezza imposta al pulsante (NaN = automatica).</summary>
+        public double ButtonWidth
+        {
+            get => _buttonWidth;
+            set
+            {
+                if (_buttonWidth.Equals(value))
+                {
+                    return;
+                }
+                _buttonWidth = value;
+                OnPropertyChanged();
+            }
+        }
+
+        /// <summary>Minimo del pulsante: cresce fino a quello del tema quando
+        /// c'e' spazio, scende quando i pulsanti devono stringersi.</summary>
+        public double ButtonMinWidth
+        {
+            get => _buttonMinWidth;
+            set
+            {
+                if (_buttonMinWidth.Equals(value))
+                {
+                    return;
+                }
+                _buttonMinWidth = value;
+                OnPropertyChanged();
+            }
+        }
+
         private void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }

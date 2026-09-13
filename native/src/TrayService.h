@@ -46,6 +46,7 @@
 #define W7T_TRAY_SERVICE_H
 
 #include "Common.h"
+#include "TrayFallbackIcons.h"
 #include "../include/RaiiWrappers.h"
 #include <thread>
 #include <atomic>
@@ -86,6 +87,10 @@ struct TrayIconEntry {
 
     /* --- sincronizzazione 1:1 con la shell (modello a riconciliazione) --- */
     bool     fromExplorer    = false;  /* nata dalla lettura della toolbar  */
+    bool     fromWin11Uia    = false;  /* v2.60: nata dalla lettura UI
+                                        * Automation della tray di Windows 11
+                                        * (nessun HWND proprietario: la chiave
+                                        * e' (0, uid sintetico))              */
     bool     ownerIsExplorer = false;  /* il proprietario e' explorer.exe:
                                         * le sue uniche fonti di aggiornamento
                                         * sono la toolbar e gli eventi di
@@ -106,6 +111,24 @@ struct TrayIconEntry {
     bool    isNetwork        = false;  /* proprietario = pnidui.dll         */
     uint64_t netPendingHash  = 0;      /* hash candidato non ancora accolto */
     int     netPendingCount  = 0;      /* letture concordi del candidato    */
+
+    /* v2.59: ICONA DI RIPIEGO. Alcune macchine non lasciano leggere la
+     * bitmap delle icone di sistema (CopyIcon rifiutata, cattura fallita) e
+     * il posto restava vuoto. Per rete/volume/batteria, riconosciute dal
+     * proprietario (GUID della shell o modulo), si usa un'icona nostra che
+     * segue lo stato corrente. Il ripiego entra SOLO quando manca la
+     * bitmap vera e viene abbandonato appena ne arriva una leggibile:
+     * `usingFallback` dice quale delle due sta disegnando il modello. */
+    bool           sysChecked    = false;
+    SystemIconKind systemKind    = SystemIconKind::None;
+    bool           usingFallback = false;
+
+    /* v2.61: la voce NON viene dalla shell ma e' stata ricreata da noi
+     * perche' la tray di Windows 11 non espone quel tipo (volume, rete,
+     * o batteria dove la shell non la mostra). Il clic non ha nessun
+     * elemento UI Automation da invocare: apre direttamente il riquadro
+     * nativo del tipo. */
+    SystemIconKind syntheticKind = SystemIconKind::None;
 };
 
 /* v2.7: istantanea delle icone non fissate per il pannello overflow nativo. */
@@ -126,6 +149,9 @@ enum TrayReconcileSource : uint32_t {
     kReconcilePixels    = 1u << 6,   /* v2.1: ricattura i pixel delle icone
                                       * rimaste senza bitmap (CopyIcon
                                       * negata all'import iniziale)        */
+    kReconcileUiaTray   = 1u << 7,   /* v2.60: tray XAML di Windows 11 (la
+                                      * lettura arriva dal lettore UI
+                                      * Automation, non da una toolbar)     */
 };
 
 class TrayService {
@@ -180,6 +206,10 @@ public:
     int32_t SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickType, int32_t x, int32_t y);
     int32_t SetPinned(uint64_t ownerHwnd, uint32_t uid, int32_t pinned);
 
+    /* v2.62: il frontend dichiara pronta (o no) l'esperienza del riquadro di
+     * rete di Windows 7: vedi SendClick. */
+    void SetWin7NetworkFlyout(bool ready);
+
     /* Riordino del modello dal trascinamento del livello gestito: sposta
      * l'icona accanto a un'altra e muove il pulsante reale con
      * TB_MOVEBUTTON, come fa la shell. */
@@ -197,6 +227,41 @@ public:
      * thread dei messaggi del servizio, mai dal callback directly). */
     void NotifyOwnerDiedAsync(HWND owner);
 
+    /* v2.60: attiva il percorso Windows 11 (lettore UIA + hook sulle
+     * finestre che ospitano la tray XAML). Idempotente. */
+    void EnableWin11Tray();
+
+    /* v2.61: crea/aggiorna le tre icone di sistema che la tray di Windows 11
+     * non espone (volume, rete, batteria). Non dipende da nessuna lettura di
+     * Explorer: esiste appena la modalita' Windows 11 e' attiva, e da quel
+     * momento resta nel modello. `shellExposed` (se non nullo) sono i tipi
+     * che la shell fornisce in QUESTA lettura: per quelli la voce sintetica
+     * non viene rinnovata e sparisce da sola. `presentUids` (se non nullo)
+     * riceve gli uid sintetici, cosi' la passata di rimozione non li tocca. */
+    void EnsureSyntheticSystemIcons(const std::set<SystemIconKind>* shellExposed,
+                                    std::set<uint32_t>* presentUids,
+                                    int* added, int* updated,
+                                    bool* bitmapChanged);
+
+    /* v2.61: rettangolo CORRENTE di un'icona, riportato dal frontend
+     * (W7T_SetIconRect) a ogni movimento reale: layout, DPI, monitor,
+     * apertura/chiusura dell'overflow. Serve ad ancorare i flyout alla
+     * posizione ATTUALE dell'icona, mai a quella dell'importazione. */
+    bool CurrentIconRect(const TrayIconKey& key, RECT& out);
+
+    /* v2.60: la tray di Windows 11 si legge dall'albero di accessibilita'
+     * (vedi Win11TrayReader.h). Questa passata fonde quel risultato nel
+     * modello: aggiunge, aggiorna e rimuove SOLO le voci nate da li'. */
+    void ApplyWin11TraySnapshot();
+
+    /* Tipo di icona di sistema di una voce: per le voci normali e' quello
+     * riconosciuto dal proprietario/GUID, per quelle della tray di Windows
+     * 11 e' quello classificato dal nome accessibile. */
+    SystemIconKind KindOf(uint64_t ownerHwnd, uint32_t uid) const;
+
+    /* true quando questa sessione usa la tray XAML di Windows 11. */
+    bool IsWin11Tray() const { return m_win11Tray; }
+
     /* true dopo la prima richiesta di importazione. */
     bool m_importStarted = false;
 
@@ -211,6 +276,14 @@ private:
 
     static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+    /* v2.60: la tray di Windows 11 cambia quando la sua isola XAML crea,
+     * mostra o nasconde qualcosa. L'hook e' filtrato per classe e processo,
+     * quindi costa una GetClassNameW per evento e nient'altro. */
+    static void CALLBACK TrayHostChangedProc(HWINEVENTHOOK hook, DWORD event,
+                                             HWND hwnd, LONG idObject,
+                                             LONG idChild, DWORD thread,
+                                             DWORD time);
     LRESULT HandleCopyData(HWND hwnd, const COPYDATASTRUCT* cds);
 
     /* Vista normalizzata di NOTIFYICONDATAW, indipendente dal bitness
@@ -261,7 +334,7 @@ private:
     void RebindByGuid(const TrayIconKey& oldKey, const TrayIconKey& newKey);
     bool HasSavedPreference(const TrayIconKey& key) const;
 
-    std::recursive_mutex            m_mutex;
+    mutable std::recursive_mutex    m_mutex;   /* mutabile: anche i getter const leggono il modello */
     std::map<TrayIconKey, TrayIconEntry> m_icons;
     std::map<TrayIconKey, RECT>          m_iconRects;
     /* v2.7: flyout orologio a dimensione fissa (bordi Aero conservati):
@@ -269,6 +342,28 @@ private:
     RECT m_clockFixedRect{};
     bool m_haveClockFixed = false;
     RECT                                 m_chevronRect = {};
+
+    /* v2.61: attesa corrente fra due tentativi di lettura della tray di
+     * Windows 11 quando la shell non risponde (1 s, 2 s, 4 s, 5 s). Torna a
+     * 1 s appena una lettura e' valida: nessun polling continuo, solo un
+     * ritentativo in backoff guidato dagli eventi. */
+    unsigned long                        m_uiaRetryDelayMs = 1000;
+
+    /* v2.62: quanti tentativi "rapidi" (400/800/1600/3200 ms) sono gia'
+     * stati fatti all'avvio. Si azzera alla prima lettura valida: da quel
+     * momento vale il backoff normale e non si sonda piu' di frequente. */
+    int                                  m_uiaFastRetries = 0;
+
+    /* v2.62: il riquadro di rete di Windows 7 e' pronto all'uso (modulo
+     * inizializzato dal frontend). */
+    void StartBatteryOpenWatch(const RECT& anchor);
+    void FinishBatteryOpenWatch();
+
+    bool                                 m_win7NetworkFlyoutReady = false;
+
+    /* v2.63: batteria - stato della verifica differita. */
+    RECT                                 m_pendingBatteryAnchor = {};
+    int                                  m_pendingBatteryPopups = 0;
     std::vector<TrayIconKey>        m_order;
 
     /* Indice GUID -> chiave, per il riaggancio delle re-registrazioni:
@@ -297,8 +392,19 @@ private:
     static constexpr UINT kMsgOwnerDied     = WM_APP + 104; // WinEventHook
     static constexpr UINT kMsgRetryImport   = WM_APP + 105; // secondo giro import
     static constexpr UINT kMsgToolbarSync   = WM_APP + 106; // sync rinviato al thread dei messaggi
+    static constexpr UINT kMsgUiaTray       = WM_APP + 107; // v2.60: snapshot tray Win11 pronto
     static constexpr UINT kTimerDebounce    = 0xB1;
     static constexpr UINT kTimerBackstop    = 0xB2;
+    /* v2.61: risveglio leggero (10 s) delle sole icone sintetiche mentre si
+     * e' su Windows 11. Non legge nulla di Explorer: ridisegna il glifo del
+     * volume (che non ha eventi), della rete e della batteria dallo stato
+     * corrente, cosi' il livello del volume si aggiorna anche senza eventi
+     * della tray. */
+    static constexpr UINT kTimerSynthetic   = 0xB3;
+    /* v2.63: verifica differita dell'apertura del riquadro batteria di
+     * Windows (vedi SendClick). Un solo colpo: se la shell non ha aperto
+     * nulla, il riquadro ricreato compare lo stesso. */
+    static constexpr UINT kTimerBatteryFallback = 0xB4;
 
     std::atomic<uint32_t> m_pendingSources{ 0 };
     std::atomic<bool>     m_importDone{ false };
@@ -308,6 +414,8 @@ private:
     std::set<HWND> m_dyingOwners;
 
     HWINEVENTHOOK m_ownerHook = nullptr;
+    HWINEVENTHOOK m_trayHostHook = nullptr;   /* v2.60: isole della tray Win11 */
+    bool          m_win11Tray = false;
 
     /* Flyout di sistema attualmente agganciato a un'icona. */
     struct FlyoutAnchor {

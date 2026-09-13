@@ -316,20 +316,72 @@ void AppBarService::RestoreNativeTaskbarNow() {
     SetNativeTaskbarVisibility(false);
 }
 
-void AppBarService::MonitorLoop() {
-    while (m_monitorRun.load()) {
-        Sleep(100);
+/* ------------------------------------------------------------------ */
+/*  v2.60 - Ritorno della barra nativa: solo eventi                     */
+/*                                                                      */
+/*  Explorer rimostra la sua barra premendo Start, cambiando risoluzione */
+/*  o riavviando la shell. Prima lo si scopriva con un ciclo a 100 ms    */
+/*  che chiamava ABM_SETSTATE e SetWindowPos(HIDE) per 3 secondi: da      */
+/*  fuori il risultato era la barra nativa che lampeggiava sopra la      */
+/*  nostra. Ora la comparsa e' un evento di sistema (EVENT_OBJECT_SHOW,   */
+/*  EVENT_SYSTEM_FOREGROUND) e il ri-nascondi avviene una volta sola,     */
+/*  fuori dal callback, su un thread che dorme finche' non serve.        */
+/* ------------------------------------------------------------------ */
 
-        if (!m_nativeHidden.load()) {
+void CALLBACK AppBarService::HideWatcherProc(HWINEVENTHOOK, DWORD event,
+                                             HWND hwnd, LONG idObject,
+                                             LONG idChild, DWORD, DWORD) {
+    if (hwnd == nullptr || idObject != OBJID_WINDOW || idChild != 0) {
+        return;
+    }
+
+    AppBarService& self = Instance();
+    if (!self.m_nativeHidden.load() || self.m_watchEvent == nullptr) {
+        return;
+    }
+
+    /* Solo le barre di Explorer: i nostri stessi oggetti hanno la stessa
+     * classe (il server tray registra Shell_TrayWnd), quindi il processo
+     * proprietario deve essere un altro. */
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == 0 || pid == GetCurrentProcessId()) {
+        return;
+    }
+
+    wchar_t cls[64] = {};
+    if (GetClassNameW(hwnd, cls, 64) == 0) {
+        return;
+    }
+    const bool isBar = _wcsicmp(cls, L"Shell_TrayWnd") == 0 ||
+                       _wcsicmp(cls, L"Shell_SecondaryTrayWnd") == 0;
+    if (!isBar) {
+        return;
+    }
+
+    /* Un solo evento per volta: finche' il thread non ha finito, gli
+     * eventi successivi non accodano lavoro (auto-reset). */
+    SetEvent(self.m_watchEvent);
+}
+
+void AppBarService::HideWatcherLoop() {
+    while (m_watchRun.load()) {
+        const DWORD wait = WaitForSingleObject(m_watchEvent, 500);
+        if (!m_watchRun.load()) {
             break;
         }
-
+        if (wait != WAIT_OBJECT_0) {
+            continue;
+        }
+        if (!m_nativeHidden.load()) {
+            continue;
+        }
+        /* Rinasconde una volta; se Explorer la rimostra, arriva un altro
+         * evento. Il controllo di visibilita' evita lavoro inutile. */
         HWND taskbar = FindNativeTaskbar();
         if (taskbar != nullptr && IsWindowVisible(taskbar)) {
             DoHideNativeTaskbar();
-            continue;
         }
-
         HWND secondary = nullptr;
         while ((secondary = FindSecondaryTaskbar(secondary)) != nullptr) {
             if (IsWindowVisible(secondary)) {
@@ -337,6 +389,56 @@ void AppBarService::MonitorLoop() {
                 break;
             }
         }
+    }
+}
+
+void AppBarService::StartHideWatcher() {
+    if (m_watchThread.joinable()) {
+        return;
+    }
+    if (m_watchEvent == nullptr) {
+        m_watchEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (m_watchEvent == nullptr) {
+            return;
+        }
+    }
+
+    m_watchRun.store(true);
+    m_watchThread = std::thread([this] { HideWatcherLoop(); });
+
+    if (m_hideHook == nullptr) {
+        m_hideHook = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW,
+                                     nullptr, HideWatcherProc, 0, 0,
+                                     WINEVENT_OUTOFCONTEXT);
+    }
+    if (m_fgHook == nullptr) {
+        m_fgHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND,
+                                   EVENT_SYSTEM_FOREGROUND,
+                                   nullptr, HideWatcherProc, 0, 0,
+                                   WINEVENT_OUTOFCONTEXT);
+    }
+}
+
+void AppBarService::StopHideWatcher() {
+    if (m_hideHook != nullptr) {
+        UnhookWinEvent(m_hideHook);
+        m_hideHook = nullptr;
+    }
+    if (m_fgHook != nullptr) {
+        UnhookWinEvent(m_fgHook);
+        m_fgHook = nullptr;
+    }
+
+    m_watchRun.store(false);
+    if (m_watchEvent != nullptr) {
+        SetEvent(m_watchEvent);   /* sveglia il thread per l'uscita */
+    }
+    if (m_watchThread.joinable()) {
+        m_watchThread.join();
+    }
+    if (m_watchEvent != nullptr) {
+        CloseHandle(m_watchEvent);
+        m_watchEvent = nullptr;
     }
 }
 
@@ -353,19 +455,9 @@ int32_t AppBarService::SetNativeTaskbarHidden(bool hidden) {
 
         m_nativeHidden.store(true);
         DoHideNativeTaskbar();
-
-        if (!m_monitorRun.exchange(true)) {
-            if (m_monitor.joinable()) {
-                m_monitor.join();
-            }
-            m_monitor = std::thread([this] { MonitorLoop(); });
-        }
+        StartHideWatcher();
     } else {
-        if (m_monitorRun.exchange(false)) {
-            if (m_monitor.joinable()) {
-                m_monitor.join();
-            }
-        }
+        StopHideWatcher();
         RestoreNativeTaskbarNow();
     }
 
@@ -373,8 +465,9 @@ int32_t AppBarService::SetNativeTaskbarHidden(bool hidden) {
 }
 
 void AppBarService::ReassertNativeTaskbarHidden() {
-    /* Il monitor a 100 ms copre gia' il caso; questo resta come chiamata
-     * esplicita (eventi della barra) ed e' economico quando non serve. */
+    /* Chiamata esplicita per gli eventi della nostra barra (menu Start,
+     * cambio risoluzione, riavvio della shell): il caso "Explorer la
+     * rimostra da sola" lo coprono gli hook di StartHideWatcher. */
     if (m_nativeHidden.load()) {
         DoHideNativeTaskbar();
     }

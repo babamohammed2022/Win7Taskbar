@@ -16,7 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "ShellMenu.h"\n#include <vector>
+#include "ShellMenu.h"
+#include "Strings.h"
+#include <vector>
 #include <string>
 
 namespace w7t {
@@ -110,17 +112,20 @@ void BuildFallbackWindowMenu(HMENU popup, HWND target) {
         AppendMenuW(popup, flags, id, text);
     };
 
-    /* La voce predefinita e' quella che Windows esegue col doppio clic. */
-    append(SC_RESTORE,  L"&Ripristina",   minimized || maximized, minimized || maximized);
-    append(SC_MOVE,     L"&Sposta",       !minimized,             false);
-    append(SC_SIZE,     L"&Ridimensiona", normal && (style & WS_THICKFRAME) != 0, false);
-    append(SC_MINIMIZE, L"R&iduci a icona",
+    /* v2.59: i testi arrivano dalla tabella unica delle stringhe, nella
+     * lingua scelta dall'utente (prima erano italiani fissi: su un sistema
+     * spagnolo il ripiego appariva in italiano).
+     * La voce predefinita e' quella che Windows esegue col doppio clic. */
+    append(SC_RESTORE,  S(StrId::SysRestore),  minimized || maximized, minimized || maximized);
+    append(SC_MOVE,     S(StrId::SysMove),     !minimized,             false);
+    append(SC_SIZE,     S(StrId::SysSize),     normal && (style & WS_THICKFRAME) != 0, false);
+    append(SC_MINIMIZE, S(StrId::SysMinimize),
            (style & WS_MINIMIZEBOX) != 0 && !minimized, false);
-    append(SC_MAXIMIZE, L"I&ngrandisci",
+    append(SC_MAXIMIZE, S(StrId::SysMaximize),
            (style & WS_MAXIMIZEBOX) != 0 && !maximized, false);
 
     AppendMenuW(popup, MF_SEPARATOR, 0, nullptr);
-    append(SC_CLOSE, L"&Chiudi", true, !(minimized || maximized));
+    append(SC_CLOSE, S(StrId::SysClose), true, !(minimized || maximized));
 }
 
 UINT CommonFlags(bool bottomEdge) {
@@ -278,11 +283,14 @@ int32_t ShellMenu::ShowGroupMenu(HWND ownerHwnd, int32_t x, int32_t y,
         return W7T_ERR_APPBAR;
     }
 
+    /* v2.59: il managed manda le sue stringhe (gia' nella lingua scelta);
+     * se non le manda - o non le ha - il testo viene dalla tabella unica,
+     * che conosce tutte e 11 le lingue: mai italiano per omissione. */
     AppendMenuW(popup, MF_STRING, kGroupMinimizeId,
-                minimizeText != nullptr ? minimizeText : L"Minimize group");
+                minimizeText != nullptr ? minimizeText : S(StrId::GroupMinimize));
     AppendMenuW(popup, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(popup, MF_STRING, kGroupCloseId,
-                closeText != nullptr ? closeText : L"Close group");
+                closeText != nullptr ? closeText : S(StrId::GroupClose));
 
     int32_t chosen = 0;
     {

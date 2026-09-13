@@ -34,6 +34,12 @@
          ne indica la posizione, e non disegna nulla con una sola finestra. -->
     <conv:WindowStackVisibilityConverter x:Key="WindowStackVisibility" />
 
+    <!-- v2.61: sposta di una percentuale della larghezza del pulsante (5%)
+         le linee dell'indicatore "finestre impilate". Proporzionale alla
+         larghezza reale, quindi identico a 100%, 125% e 150% e con pulsanti
+         larghi o stretti: si ricalcola da ActualWidth. -->
+    <conv:WidthRatioConverter x:Key="WidthRatio" />
+
     <!-- ==================================================================
          v2.51: CORNICE DELL'ANTEPRIMA, a griglia 3x3 (9-slice).
 
@@ -235,6 +241,17 @@
                   Visibility="{Binding WindowCount,
                                Converter={StaticResource WindowStackVisibility},
                                ConverterParameter=1}">
+                <!-- v2.61: le tre linee si spostano del 5% della larghezza del
+                     pulsante verso destra, come chiesto (riferimento: il
+                     Windows 11 Taskbar Styler). E' una RenderTransform: non
+                     tocca il layout, quindi l'icona e il pulsante restano
+                     esattamente dove sono, si muovono solo le linee. -->
+                <Grid.RenderTransform>
+                    <TranslateTransform X="{Binding ActualWidth,
+                        RelativeSource={RelativeSource AncestorType=Button},
+                        Converter={StaticResource WidthRatio},
+                        ConverterParameter=0.05}" />
+                </Grid.RenderTransform>
                 <Border Width="3"
                         Height="40"
                         HorizontalAlignment="Left"
@@ -533,5 +550,97 @@
                         Value="{DynamicResource ButtonActiveForeground}" />
             </DataTrigger>
         </Style.Triggers>
+    </Style>
+
+    <!-- ==================================================================
+         v2.60 - Frecce di scorrimento della striscia dei pulsanti.
+
+         Servono quando i programmi aperti sono tanti che nemmeno la
+         larghezza minima li fa entrare: la striscia si scorre invece di
+         disegnare i pulsanti sopra l'orologio e la tray.
+
+         Colori, raggi e frecce sono quelli del tema (Windows7.xaml, che
+         resta intoccato: TaskListScrollArrow, TaskListScrollButtonBorder,
+         TaskListScrollButtonBackground, i raggi Left/Right). Il chrome e'
+         ridisegnato qui perche' i due stili del tema
+         (TaskListScrollUpButton/DownButton) sono disegnati per la barra
+         verticale, con gli angoli arrotondati in alto e in basso: su una
+         barra orizzontale servono gli spigoli arrotondati a sinistra e a
+         destra, come nella barra vera.
+         ================================================================== -->
+    <Style x:Key="TaskListScrollLeftButtonOverride" TargetType="RepeatButton">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border BorderThickness="1,1,0,1"
+                            BorderBrush="{DynamicResource TaskListScrollButtonOuterBorder}"
+                            CornerRadius="{DynamicResource TaskListScrollLeftCornerRadius}"
+                            SnapsToDevicePixels="True">
+                        <Border BorderThickness="1,1,0,1"
+                                BorderBrush="{DynamicResource TaskListScrollButtonBorder}"
+                                Background="{DynamicResource TaskListScrollButtonBackground}">
+                            <Border x:Name="ButtonInnerBorder"
+                                    BorderThickness="1"
+                                    BorderBrush="Transparent">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                        </Border>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ButtonInnerBorder"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource TaskListScrollButtonInnerBorderHover}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="ButtonInnerBorder"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource TaskListScrollButtonInnerBorderPressed}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="TaskListScrollRightButtonOverride" TargetType="RepeatButton">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border BorderThickness="0,1,1,1"
+                            BorderBrush="{DynamicResource TaskListScrollButtonOuterBorder}"
+                            CornerRadius="{DynamicResource TaskListScrollRightCornerRadius}"
+                            SnapsToDevicePixels="True">
+                        <Border BorderThickness="0,1,1,1"
+                                BorderBrush="{DynamicResource TaskListScrollButtonBorder}"
+                                Background="{DynamicResource TaskListScrollButtonBackground}">
+                            <Border x:Name="ButtonInnerBorder"
+                                    BorderThickness="1"
+                                    BorderBrush="Transparent">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                        </Border>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ButtonInnerBorder"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource TaskListScrollButtonInnerBorderHover}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="ButtonInnerBorder"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource TaskListScrollButtonInnerBorderPressed}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 </ResourceDictionary>

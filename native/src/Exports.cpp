@@ -27,6 +27,7 @@
 #include "AppBarService.h"
 #include "ShellMenu.h"
 #include "TrayOverflowWindow.h"
+#include "Win11TrayReader.h"   /* v2.60: flyout vero della tray di Windows 11 */
 #include "AppSearchWindow.h"
 #include "PropertiesDialog.h"
 #include "FlyoutLauncher.h"
@@ -258,6 +259,14 @@ extern "C" W7T_API int32_t W7T_CALL W7T_SendTrayIconClick(uint64_t ownerHwnd, ui
     return TrayService::Instance().SendClick(ownerHwnd, uid, clickType, x, y);
 }
 
+/* v2.62: il frontend dichiara pronto il riquadro di rete di Windows 7
+ * (modulo inizializzato e modo "Windows 7 (ricreato)" attivo). Serve al
+ * core per sapere se il clic su un'icona di rete RICREATA puo' aprire quel
+ * riquadro invece di quello moderno. */
+extern "C" W7T_API void W7T_CALL W7T_SetWin7NetworkFlyout(int32_t ready) {
+    TrayService::Instance().SetWin7NetworkFlyout(ready != 0);
+}
+
 extern "C" W7T_API int32_t W7T_CALL W7T_SetTrayIconPinned(uint64_t ownerHwnd, uint32_t uid,
                                                           int32_t pinned) {
     return TrayService::Instance().SetPinned(ownerHwnd, uid, pinned);
@@ -400,25 +409,28 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ToggleShowDesktop(void) {
  * iniettati, UIPI con foreground elevato). Ispirato al meccanismo
  * storico di Open-Shell/StartIsBack: WM_SYSCOMMAND con SC_TASKLIST
  * mandato DIRETTAMENTE alla Shell_TrayWnd di Explorer (stessa
- * integrita', niente iniezione di input) + broadcast di sicurezza. */
+ * integrita', niente iniezione di input).
+ *
+ * v2.60: via il broadcast HWND_BROADCAST (lo ricevevano anche altre
+ * finestre della shell e su Windows 11 poteva aprire il menu una seconda
+ * volta: era una delle "intermittenze" segnalate) e via il ciclo di
+ * ri-nascondi a 25 ms. Il ri-nascondi della barra nativa e' ora un evento
+ * (vedi AppBarService::HideWatcherProc). */
 extern "C" W7T_API int32_t W7T_CALL W7T_OpenStartFallback(void) {
-    const bool wasHidden = AppBarService::Instance().IsNativeTaskbarHidden();
-
-    HWND tray = FindWindowW(L"Shell_TrayWnd", nullptr);
-    if (tray != nullptr) {
-        PostMessageW(tray, WM_SYSCOMMAND, SC_TASKLIST, 0);
+    const DWORD ourPid = GetCurrentProcessId();
+    HWND tray = nullptr;
+    while ((tray = FindWindowExW(nullptr, tray, L"Shell_TrayWnd", nullptr)) != nullptr) {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(tray, &pid);
+        if (pid != ourPid) {
+            break;
+        }
     }
-    SendMessageTimeoutW(HWND_BROADCAST, WM_SYSCOMMAND, SC_TASKLIST, 0,
-                        SMTO_ABORTIFHUNG, 300, nullptr);
-
-    if (wasHidden) {
-        std::thread([]() {
-            for (int i = 0; i < 20; ++i) {
-                Sleep(25);
-                AppBarService::Instance().ReassertNativeTaskbarHidden();
-            }
-        }).detach();
+    if (tray == nullptr) {
+        return W7T_ERR_NOT_FOUND;
     }
+    PostMessageW(tray, WM_SYSCOMMAND, SC_TASKLIST, 0);
+    AppBarService::Instance().ReassertNativeTaskbarHidden();
     return W7T_OK;
 }
 
@@ -442,15 +454,17 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ShowStartMenu(void) {
     SendInput(2, inputs, sizeof(INPUT));
 
     if (wasHidden) {
-        /* Explorer puo' mostrare nuovamente la taskbar nativa mentre
-         * elabora il tasto Windows. La rinascondiamo senza generare
-         * una seconda apertura di Start. */
-        std::thread([]() {
-            for (int i = 0; i < 20; ++i) {
-                Sleep(25);
-                AppBarService::Instance().ReassertNativeTaskbarHidden();
-            }
-        }).detach();
+        /* v2.60: un solo ri-nascondi, subito. Il caso "Explorer rimostra
+         * la barra mentre apre Start" lo prende l'hook di sistema di
+         * AppBarService (evento SHOW), quindi non serve piu' il ciclo di
+         * 20 ri-tentativi a 25 ms: era quello a far lampeggiare la barra
+         * nativa sotto la nostra a ogni pressione di Start.
+         *
+         * (unione con il ramo main: la richiesta "Start = solo il tasto
+         * Windows, nessun secondo percorso SC_TASKLIST" e' rispettata -
+         * vedi il commento sopra - mentre il ri-nascondi resta quello
+         * event-driven, non il ciclo a 25 ms.) */
+        AppBarService::Instance().ReassertNativeTaskbarHidden();
     }
 
     return W7T_OK;
@@ -470,6 +484,14 @@ extern "C" W7T_API int32_t W7T_CALL W7T_SetVolumeMuted(int32_t muted) {
 
 extern "C" W7T_API int32_t W7T_CALL W7T_ShowClockFlyout(uint64_t taskbarHwnd) {
     return FlyoutLauncher::ShowClockFlyout(ToHwnd(taskbarHwnd));
+}
+
+/* v2.62: chiude il riquadro dell'orologio della shell se e' aperto (non lo
+ * apre mai). Il frontend lo usa su Windows 11, dove il riquadro mostrato e'
+ * sempre quello ricreato: se la shell ha aperto il suo per conto, i due non
+ * devono convivere. */
+extern "C" W7T_API int32_t W7T_CALL W7T_HideClockFlyout(void) {
+    return FlyoutLauncher::HideClockFlyout();
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_ShowVolumeFlyout(uint64_t taskbarHwnd) {
@@ -747,7 +769,70 @@ extern "C" W7T_API int32_t W7T_CALL W7T_OverflowInit(uint64_t ownerTaskbar) {
 extern "C" W7T_API void W7T_CALL W7T_OverflowShow(int32_t left, int32_t top,
                                                   int32_t right, int32_t bottom) {
     RECT rc{ left, top, right, bottom };
+
+    /* v2.61 - Anche su Windows 11 si apre il pannello nostro, e non piu' il
+     * flyout delle icone nascoste della shell.
+     *
+     * La via "shell" (invocare la freccetta vera e riposizionare la sua
+     * isola XAML) si e' rivelata inaffidabile su 24H2: la freccetta non
+     * risponde all'invoke e il clic restava senza effetto. Il pannello
+     * nostro invece non dipende da nessuna isola: si riempie del modello
+     * della tray, che su Windows 11 contiene le icone lette via UI
+     * Automation (comprese quelle che la shell tiene nascoste) piu' le tre
+     * ricreate da noi. Limite dichiarato in docs/Windows11.md: si vedono le
+     * icone che la shell espone, non per forza tutte quelle di Explorer. */
+    (void)rc;
     g_overflowWindow.ShowNear(rc);
+}
+
+/* v2.60: il frontend deve sapere se il clic sulla freccetta apre il flyout
+ * di sistema (nessun pannello nostro da chiudere, nessun rettangolo da
+ * escludere dall'hook dei clic esterni).
+ *
+ * v2.61: sempre 0 - si apre SEMPRE il pannello nostro. Sulle build di
+ * Windows 11 24H2 la freccetta della shell non risponde all'invoke UI
+ * Automation: il flyout di sistema non si apriva e il clic non faceva
+ * nulla. Il pannello nostro e' lo stesso su ogni sistema, si chiude al
+ * clic fuori e mostra tutte le icone che il modello conosce. */
+extern "C" W7T_API int32_t W7T_CALL W7T_OverflowUsesShellFlyout(void) {
+    return 0;
+}
+
+/* v2.61: il frontend deve poter distinguere Windows 11 senza indovinare
+ * dalla versione gestita (il manifest puo' mentire: senza i GUID supportedOS
+ * GetVersionEx riferisce Windows 8.1). Il core lo sa con certezza, perche'
+ * legge RtlGetVersion. */
+extern "C" W7T_API int32_t W7T_CALL W7T_IsWindows11(void) {
+    return w7t::IsWindows11OrBetter() ? 1 : 0;
+}
+
+/* ---------------------------------------------------------------------- */
+/*  v2.63 - Impostazioni dei riquadri: UNA sola pubblicazione             */
+/* ---------------------------------------------------------------------- */
+/*  Il frontend legge la configurazione e la pubblica qui: da questo       */
+/*  momento la decisione "riquadro di Windows 7 oppure della shell" vive    */
+/*  in un posto solo (FlyoutLauncher.cpp) e tutti i percorsi di apertura -  */
+/*  clic sulle icone ricreate, menu della barra, clic sintetici - la        */
+/*  interrogano invece di reinterpretare i propri parametri. E' la cura     */
+/*  del difetto per cui la tendina "Windows 10/11" apriva il riquadro di    */
+/*  Windows 7 e viceversa: la polarita' era replicata in quattro punti.     */
+/*                                                                         */
+/*  0 = Windows 7 (classico/Win32), 1 = Windows 10/11 (shell).             */
+extern "C" W7T_API void W7T_CALL W7T_SetFlyoutPreferences(
+    int32_t clockWin7, int32_t networkWin7, int32_t volumeWin7,
+    int32_t batteryWin7) {
+    w7t::FlyoutPreferences prefs;
+    prefs.clock   = clockWin7   ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    prefs.network = networkWin7 ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    prefs.volume  = volumeWin7  ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    prefs.battery = batteryWin7 ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    w7t::SetFlyoutPreferences(prefs);
+}
+
+/* La porta dei riquadri moderni di questa build. Il frontend la usa per non
+ * duplicare il giudizio sulla versione di Windows. */
+extern "C" W7T_API int32_t W7T_CALL W7T_IsModernFlyoutHostAvailable(void) {
+    return w7t::IsModernFlyoutHostAvailable() ? 1 : 0;
 }
 
 extern "C" W7T_API void W7T_CALL W7T_OverflowHide(void) {

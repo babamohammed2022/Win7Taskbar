@@ -37,6 +37,7 @@
 #include <shellapi.h>
 #include <commctrl.h>
 #include "WinhawkShim.h"
+#include "SehGuard.h"   /* v2.63: lanci protetti (SEH + try/catch) */
 #include <netlistmgr.h>
 #include <process.h>
 // 1.0.0-alpha: NTSTATUS (usato da RtlGetVersion) arriva da <winternl.h>.
@@ -2428,6 +2429,13 @@ static BOOL  g_EthernetHasInternet = FALSE;
 static GUID  g_EthernetAdapterGuid = {0};
 static BOOL  g_HasEthernetAdapterGuid = FALSE;
 
+/* v2.63: quello che dice Windows sulla connessione, chiesto a ogni
+ * aggiornamento. E' l'ultima parola dell'intestazione: se Ethernet e Wi-Fi
+ * non hanno saputo dire niente, questo si'. */
+static BOOL  g_NlmConnected = FALSE;
+static BOOL  g_NlmHasInternet = FALSE;
+static WCHAR g_NlmNetworkName[64] = {0};
+
 struct NetworkStateSnapshot {
     int networkCount;
     WifiNetworkItem networks[50];
@@ -2439,6 +2447,10 @@ struct NetworkStateSnapshot {
     int currentNetworkCategory;
     int lastReliableNetworkCategory;
     DWORD lastReliableNetworkCategoryTick;
+    /* v2.63 */
+    BOOL nlmConnected;
+    BOOL nlmHasInternet;
+    WCHAR nlmNetworkName[64];
 };
 
 static void CaptureNetworkState(NetworkStateSnapshot* snapshot) {
@@ -2470,6 +2482,10 @@ static void CaptureNetworkState(NetworkStateSnapshot* snapshot) {
     snapshot->currentNetworkCategory = g_CurrentNetworkCategory;
     snapshot->lastReliableNetworkCategory = g_LastReliableNetworkCategory;
     snapshot->lastReliableNetworkCategoryTick = g_LastReliableNetworkCategoryTick;
+    snapshot->nlmConnected = g_NlmConnected;
+    snapshot->nlmHasInternet = g_NlmHasInternet;
+    StringCchCopyW(snapshot->nlmNetworkName, ARRAYSIZE(snapshot->nlmNetworkName),
+                   g_NlmNetworkName);
     LeaveCriticalSection(&g_Ctx.csLock);
 }
 
@@ -3161,6 +3177,12 @@ void W7TNetFlyout_SetLanguage(int appLanguageIndex) {
         case 7: internal = 5; break;   /* ru */
         case 8: internal = 1; break;   /* ja -> inglese */
         case 9: internal = 1; break;   /* zh -> inglese */
+        /* v2.59: l'elenco dell'app ha una lingua in piu' (ar). La tabella
+         * della mod non ha un arabo: il flyout di rete ripiega
+         * sull'inglese, come per ja e zh. Proprieta', ricerca e menu di
+         * gruppo, che sono testo di questo progetto, sono tradotti in
+         * tutte e 11 le lingue. */
+        case 10: internal = 1; break;  /* ar -> inglese */
         default: internal = 0; break;
     }
     g_Settings.language = internal;
@@ -3461,6 +3483,73 @@ static void DrawTextWithWrap(HDC hdc, LPCWSTR text, int x, int y, int maxWidth, 
         currentY += lineHeight;
         if (currentY > y + lineHeight * 5) break;
     }
+}
+
+// -------------------------------------------------------
+// Connessione secondo Windows (nlm), chiesta OGNI VOLTA
+// -------------------------------------------------------
+static void SafeSysFreeString(BSTR bstr);   /* definita piu' sotto */
+
+/* v2.63: lanci protetti (SEH + try/catch). Definiti piu' sotto, usati sia
+ * dal menu contestuale sia dal collegamento in fondo al riquadro. */
+static BOOL ShellExecuteInner(HWND hwnd, const WCHAR* file, const WCHAR* params);
+static BOOL SafeShellExecuteOpen(HWND hwnd, const WCHAR* file, const WCHAR* params);
+/*  v2.63 - PERCHE' IL RIQUADRO DICEVA "Non connesso" MENTRE SI ERA CONNESSI.
+ *
+ *  L'intestazione decideva "connesso" solo da due letture nostre: la scheda
+ *  Ethernet rilevata con GetAdaptersAddresses e la prima rete Wi-Fi marcata
+ *  come connessa da WlanGetAvailableNetworkList. Basta che una delle due non
+ *  risponda (servizio WLAN che parte in ritardo, scheda che non rientra nel
+ *  filtro, driver che non marca il flag CONNECTED) perche' l'utente
+ *  connesso veda "Non connesso".
+ *
+ *  La verita' ce l'ha Windows: INetworkListManager::GetConnectivity(). Qui
+ *  la si chiede a OGNI aggiornamento (non una volta all'avvio, come faceva
+ *  la lettura una-tantum) e si tiene anche il nome della rete connessa, per
+ *  l'intestazione quando ne' Ethernet ne' Wi-Fi hanno saputo dirlo. */
+struct NlmConnectivitySnapshot {
+    BOOL  connected;
+    BOOL  hasInternet;
+    WCHAR name[64];
+};
+
+static NlmConnectivitySnapshot QueryNlmConnectivity() {
+    NlmConnectivitySnapshot out = { FALSE, FALSE, L"" };
+
+    INetworkListManager* pNLM = NULL;
+    if (FAILED(CoCreateInstance(CLSID_NetworkListManager, NULL, CLSCTX_INPROC_SERVER,
+                                IID_INetworkListManager, (void**)&pNLM)) || !pNLM) {
+        return out;
+    }
+
+    NLM_CONNECTIVITY connectivity = NLM_CONNECTIVITY_DISCONNECTED;
+    if (SUCCEEDED(pNLM->GetConnectivity(&connectivity))) {
+        out.connected = (connectivity != NLM_CONNECTIVITY_DISCONNECTED);
+        out.hasInternet = (connectivity & NLM_CONNECTIVITY_IPV4_INTERNET) != 0 ||
+                          (connectivity & NLM_CONNECTIVITY_IPV6_INTERNET) != 0;
+    }
+
+    if (out.connected) {
+        IEnumNetworks* pEnum = NULL;
+        if (SUCCEEDED(pNLM->GetNetworks(NLM_ENUM_NETWORK_CONNECTED, &pEnum)) && pEnum) {
+            INetwork* pNet = NULL;
+            ULONG fetched = 0;
+            while (pEnum->Next(1, &pNet, &fetched) == S_OK && pNet) {
+                BSTR bstrName = NULL;
+                if (out.name[0] == L'\0' &&
+                    SUCCEEDED(pNet->GetName(&bstrName)) && bstrName && bstrName[0] != L'\0') {
+                    StringCchCopyW(out.name, ARRAYSIZE(out.name), bstrName);
+                }
+                if (bstrName) SafeSysFreeString(bstrName);
+                pNet->Release();
+                if (out.name[0] != L'\0') break;
+            }
+            pEnum->Release();
+        }
+    }
+
+    pNLM->Release();
+    return out;
 }
 
 // -------------------------------------------------------
@@ -5070,6 +5159,24 @@ void RefreshNetworkData(BOOL forceDetection = FALSE, INetworkListManager* pNLMOv
         LeaveCriticalSection(&g_Ctx.csLock);
     }
     UpdateEthernetStatus(pNLMOverride, useOnlyOverride);
+
+    /* v2.63: la connessione secondo Windows, richiesta ORA (ogni apertura e
+     * ogni tick di aggiornamento). Non e' un valore preso all'avvio: se la
+     * rete cade o torna, il riquadro lo vede al primo aggiornamento. */
+    {
+        const NlmConnectivitySnapshot nlm = QueryNlmConnectivity();
+        EnterCriticalSection(&g_Ctx.csLock);
+        g_NlmConnected = nlm.connected;
+        g_NlmHasInternet = nlm.hasInternet;
+        StringCchCopyW(g_NlmNetworkName, ARRAYSIZE(g_NlmNetworkName), nlm.name);
+        LeaveCriticalSection(&g_Ctx.csLock);
+
+        if (nlm.connected && GetNetworkCountSafe() == 0) {
+            /* Solo quando le letture nostre non hanno visto nulla: e' il caso
+             * in cui l'intestazione diceva "Non connesso" a torto. */
+            Wh_Log(L"connessione: NLM dice connesso ('%s'), le letture locali no", nlm.name);
+        }
+    }
     
     // Detect network location category (Home / Public / Work).
     // Skip the COM query entirely when the feature is disabled, and also
@@ -7346,13 +7453,9 @@ case IDM_PROPERTIES:
     }
 
     if (!launched) {
-        ShellExecuteW(
-            hwnd,
-            L"open",
-            L"shell:::{7007ACC7-3202-11D1-AAD2-00805FC1270E}",
-            NULL,
-            NULL,
-            SW_SHOWNORMAL);
+        /* v2.63: stesso motivo del collegamento in fondo al riquadro. */
+        SafeShellExecuteOpen(
+            hwnd, L"shell:::{7007ACC7-3202-11D1-AAD2-00805FC1270E}", NULL);
     }
 
     ShowWindow(hwnd, SW_HIDE);
@@ -7366,6 +7469,52 @@ break;
 static RECT GetFooterRect() {
     RECT rc = { 0, WINDOW_HEIGHT - FOOTER_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT };
     return rc;
+}
+
+/* ---------------------------------------------------------------------- */
+/*  v2.63 - I LANCI DAL RIQUADRO NON DEVONO FAR CADERE LA BARRA           */
+/* ---------------------------------------------------------------------- */
+/*  "Apri Centro connessioni di rete e condivisione" chiudeva il programma.
+ *  Il lancio e' affidato alla shell, che sotto il cofano carica COM, i
+ *  gestori dei verbi e il pannello di controllo: ogni passo puo' fallire in
+ *  modi che una eccezione C++ non intercetta (violazione di accesso dentro
+ *  un modulo di terze parti, per esempio).
+ *
+ *  Qui si combinano le due protezioni, ognuna nel proprio blocco e senza
+ *  mescolarle nello stesso corpo (regola MSVC: try C++ e __try SEH non
+ *  convivono in una funzione):
+ *    - ShellExecuteInner: guardia SEH sull'API della shell;
+ *    - SafeShellExecuteOpen: try/catch C++ attorno a quella.
+ *  Ogni esito viene scritto nel log: se il pannello non si apre si sa
+ *  perche', e la barra resta viva. */
+static BOOL ShellExecuteInner(HWND hwnd, const WCHAR* file, const WCHAR* params) {
+    BOOL ok = FALSE;
+    W7T_SEH_TRY
+    {
+        const HINSTANCE result =
+            ShellExecuteW(hwnd, L"open", file, params, NULL, SW_SHOWNORMAL);
+        ok = reinterpret_cast<INT_PTR>(result) > 32 ? TRUE : FALSE;
+    }
+    W7T_SEH_CATCH
+    {
+        ok = FALSE;
+    }
+    W7T_SEH_END
+    return ok;
+}
+
+static BOOL SafeShellExecuteOpen(HWND hwnd, const WCHAR* file, const WCHAR* params) {
+    BOOL ok = FALSE;
+    try {
+        ok = ShellExecuteInner(hwnd, file, params);
+    } catch (...) {
+        ok = FALSE;
+    }
+    if (!ok) {
+        Wh_Log(L"lancio non riuscito: %s %s", file != NULL ? file : L"?",
+               params != NULL ? params : L"");
+    }
+    return ok;
 }
 
 void EnsureRowVisible(int index) {
@@ -7756,7 +7905,12 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
 
         BOOL isWifiConnected = (paintNetworkCount > 0 &&
                                 paintState.networks[0].connState == CONN_STATE_CONNECTED);
-        BOOL isAnyConnected = (paintState.ethernetConnected || isWifiConnected);
+        /* v2.63: l'ultima parola e' di Windows. Se le letture nostre non
+         * vedono la connessione ma il sistema dice che c'e' (e' il caso
+         * segnalato: "Non connesso" mentre si era connessi), si mostra
+         * l'intestazione da connessi con il nome che da' Windows. */
+        BOOL isAnyConnected = (paintState.ethernetConnected || isWifiConnected ||
+                               paintState.nlmConnected != FALSE);
         SetBkMode(hdc, TRANSPARENT);
         
         if (isAnyConnected) {
@@ -7767,7 +7921,18 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
             
             WCHAR displayName[64] = {0};
             BOOL showEthernetInHeader = paintState.ethernetConnected;
-            if (showEthernetInHeader) {
+            const BOOL connectedOnlyAccordingToWindows =
+                (!showEthernetInHeader && !isWifiConnected);
+            if (connectedOnlyAccordingToWindows) {
+                /* Connessione riconosciuta solo da Windows: si mostra il nome
+                 * della rete connessa secondo NLM. */
+                StringCchCopyW(displayName, ARRAYSIZE(displayName),
+                               paintState.nlmNetworkName);
+                if (displayName[0] == L'\0') {
+                    StringCchPrintfW(displayName, ARRAYSIZE(displayName),
+                                     LOC(STR_NETWORK_PRIVACY_FMT), 2);
+                }
+            } else if (showEthernetInHeader) {
                 if (g_Settings.privacyMode) {
                     StringCchPrintfW(displayName, ARRAYSIZE(displayName), LOC(STR_NETWORK_PRIVACY_FMT), 1);
                 } else {
@@ -8374,7 +8539,10 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             break;
         }
         if (PtInRect(&rcF,pt)) {
-            ShellExecuteW(NULL,L"open",L"control.exe",L"/name Microsoft.NetworkAndSharingCenter",NULL,SW_SHOWNORMAL);
+            /* v2.63: con la guardia SEH/try-catch: aprire il pannello di
+             * controllo non deve far cadere la barra (difetto segnalato). */
+            SafeShellExecuteOpen(NULL, L"control.exe",
+                                 L"/name Microsoft.NetworkAndSharingCenter");
             ShowWindow(hwnd,SW_HIDE);
             break;
         }

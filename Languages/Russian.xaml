@@ -38,4 +38,17 @@
     <s:String x:Key="lang_about_title">О программе</s:String>
     <s:String x:Key="lang_about_text">Win7Taskbar — это проект категории best-effort, который постоянно улучшается и воссоздаёт панель задач Windows 7 поверх современной: точность будет расти со временем. Известные ограничения: поворот панели задач (вбок/вверх) не поддерживается, поэтому соответствующая опция пока декоративная; системные окна (панели, меню «Пуск») перехватываются и перемещаются, а не воссоздаются.</s:String>
     <s:String x:Key="lang_credits">Благодарности: 3ds за часть графических ресурсов и за вдохновение идеей с XAML.</s:String>
+    <s:String x:Key="lang_menu_toolbars">Панели инструментов</s:String>
+    <s:String x:Key="lang_menu_desktop">Рабочий стол</s:String>
+    <s:String x:Key="lang_menu_links">Ссылки</s:String>
+    <s:String x:Key="lang_menu_address">Адрес</s:String>
+    <s:String x:Key="lang_menu_cascade">Каскадом</s:String>
+    <s:String x:Key="lang_menu_stack">Отображать окна стопкой</s:String>
+    <s:String x:Key="lang_menu_sidebyside">Отображать окна рядом</s:String>
+    <s:String x:Key="lang_menu_lock">Закрепить панель задач</s:String>
+    <s:String x:Key="lang_menu_pin">Закрепить эту программу на панели задач</s:String>
+    <s:String x:Key="lang_menu_unpin">Открепить эту программу от панели задач</s:String>
+    <s:String x:Key="lang_address_tip">Адрес: введите путь или URL и нажмите Enter</s:String>
+    <s:String x:Key="lang_tray_pin_tip">Переместить между областью уведомлений и переполнением (закрепить/открепить)</s:String>
+    <s:String x:Key="lang_close_tip">Закрыть</s:String>
 </ResourceDictionary>

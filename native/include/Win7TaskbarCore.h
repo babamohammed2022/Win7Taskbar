@@ -431,6 +431,35 @@ W7T_API void W7T_CALL W7T_BatteryFlyoutShowAt(int32_t left, int32_t top,
 W7T_API void W7T_CALL W7T_BatteryFlyoutHide(void);
 W7T_API void W7T_CALL W7T_BatteryFlyoutSetLanguage(int32_t lang);
 
+/* ------------------------------------------------------------------ */
+/*  Lingua (v2.59)                                                    */
+/*                                                                    */
+/*  Una sola sorgente per le lingue supportate: l'elenco qui sotto    */
+/*  e' quello che il selettore della finestra Proprieta' scorre e     */
+/*  che il managed usa per parlare al nativo. Indici stabili: le      */
+/*  lingue nuove si aggiungono IN CODA.                               */
+/*                                                                    */
+/*  0=it 1=en 2=es 3=fr 4=de 5=pt 6=pl 7=ru 8=ja 9=zh 10=ar          */
+/*                                                                    */
+/*  Codice fuori elenco -> INGLESE (mai italiano per omissione).      */
+/* ------------------------------------------------------------------ */
+
+/* Cambia la lingua di TUTTO il nativo (stringhe, Proprieta', ricerca,
+ * menu, flyout batteria e rete). Codice a due lettere ("it", "ar"); un
+ * codice sconosciuto vale "en". */
+W7T_API void W7T_CALL W7T_SetLanguage(const char* twoLetterCode);
+
+/* Elenco delle lingue: numero di lingue, codice a due lettere e nome
+ * nativo (il nome mostrato nel selettore, nella lingua stessa). */
+W7T_API int32_t    W7T_CALL W7T_GetLanguageCount(void);
+W7T_API const char* W7T_CALL W7T_GetLanguageCode(int32_t index);
+W7T_API const wchar_t* W7T_CALL W7T_GetLanguageName(int32_t index);
+
+/* Indice della lingua attiva nel core e indice della lingua
+ * dell'interfaccia di Windows (gia' filtrata sulle lingue supportate). */
+W7T_API int32_t W7T_CALL W7T_GetLanguageIndex(void);
+W7T_API int32_t W7T_CALL W7T_DetectSystemLanguageIndex(void);
+
 
 #ifdef __cplusplus
 } /* extern "C" */

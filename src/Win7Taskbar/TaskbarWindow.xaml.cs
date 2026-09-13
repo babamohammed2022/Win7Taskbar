@@ -4,6 +4,7 @@
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 
 using RetroBar.Utilities;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows.Data;
 using System.Globalization;
@@ -207,6 +208,11 @@ namespace Win7Taskbar
             RunStage("overflow-nativo", () =>
             {
                 _useNativeOverflow = _bridge.OverflowInit(helper.Handle);
+                _overflowShellFlyout = _useNativeOverflow && _bridge.OverflowUsesShellFlyout();
+                if (_overflowShellFlyout)
+                {
+                    _bridge.Log("overflow: Windows 11, la freccetta apre il flyout di sistema");
+                }
                 if (_useNativeOverflow)
                 {
                     System.Windows.Data.BindingOperations.ClearBinding(
@@ -291,6 +297,46 @@ namespace Win7Taskbar
                 LocationChanged += (_, _) => { ReportShellRects(); ScheduleIconRectReport(); };
             });
 
+            RunStage("preferenze-riquadri", () =>
+            {
+                /* v2.63 - LA CONFIGURAZIONE LETTA ADESSO DIVENTA LA DECISIONE.
+                 *
+                 * Questa e' la prima cosa che parla con il core: le quattro
+                 * scelte salvate vengono pubblicate (W7T_SetFlyoutPreferences)
+                 * e le tre chiavi ImmersiveShell allineate, cosi' i clic sulle
+                 * icone della tray aprono il riquadro scelto dall'utente e non
+                 * quello imposto dal default. Vedi ApplyShellFlyoutPreferences:
+                 * prima questa applicazione avveniva solo premendo Applica. */
+                ApplyShellFlyoutPreferences();
+            });
+
+            RunStage("riquadro-rete-win7", () =>
+            {
+                /* v2.62 - IL RIQUADRO DI RETE DI WINDOWS 7 SI PREPARA ALL'AVVIO.
+                 *
+                 * Prima veniva inizializzato al primo clic sull'icona di rete, e
+                 * solo se quella icona arrivava dal tray vero di Explorer
+                 * (IsNetworkTrayIcon). Su Windows 11 l'icona di rete la
+                 * disegniamo noi: quel ramo non passava mai, il modulo restava
+                 * spento e il clic finiva sul riquadro della shell - per
+                 * l'utente "si apre quello sbagliato".
+                 *
+                 * Con l'inizializzazione all'avvio il riquadro ricreato e'
+                 * pronto quando serve (nessuna attesa al primo clic) e il core
+                 * sa che puo' usarlo. */
+                ApplyNetworkFlyoutMode();
+            });
+
+            RunStage("riquadro-orologio", () =>
+            {
+                /* v2.61: il calendario di Windows 7 si costruisce ADESSO,
+                 * all'avvio, non al primo clic. Al clic resta solo da
+                 * mostrarlo: nessun lavoro di layout mentre l'utente aspetta
+                 * (ed e' anche il momento in cui il riquadro nativo di
+                 * Windows ci metteva meno a comparire). */
+                EnsureCalendarFlyout();
+            });
+
             RunStage("orologio", () =>
             {
                 ApplyClockSecondsFormat();
@@ -302,6 +348,13 @@ namespace Win7Taskbar
                 // Start menu monitor for 3-state start button (idle/hover/pressed)
                 _startMenuMonitor = new StartMenuMonitor();
                 _startMenuMonitor.StartMenuVisibilityChanged += OnStartMenuVisibilityChanged;
+            });
+
+            RunStage("pulsanti-superbar", () =>
+            {
+                // v2.60: larghezza adattiva dei pulsanti quando i programmi
+                // aperti sono tanti (vedi UpdateTaskButtonLayout).
+                InitTaskButtonLayout();
             });
 
             RunStage("pulsante-start-idle", ArmStartOrb);
@@ -334,6 +387,313 @@ namespace Win7Taskbar
             StartupGuard.Complete();
         }
 
+        // ===============================================================
+        //  v2.60 - Larghezza dei pulsanti della Superbar con molti
+        //  programmi aperti.
+        //
+        //  Il difetto: il pulsante non aveva nessun vincolo di larghezza
+        //  (minimo del tema, poi "quanto chiede il contenuto"). Con molti
+        //  programmi la somma delle larghezze superava lo spazio della
+        //  barra e lo StackPanel continuava a disporli: gli ultimi
+        //  finivano SOPRA l'orologio e la tray, con la cornice Aero tagliata
+        //  dal bordo della finestra (i "bordi disegnati male").
+        //
+        //  Come nella Superbar vera: quando non c'e' spazio i pulsanti si
+        //  stringono TUTTI della stessa misura (i "titoli" qui non esistono,
+        //  il contenuto e' icona + schede delle finestre impilate), restando
+        //  dentro i propri limiti; esaurito anche il minimo, la striscia si
+        //  scorre (Shift + rotellina) invece di sovrapporsi alla tray.
+        //  I due minimi sono quelli del mod di riferimento
+        //  (windows-11-taskbar-styling-guide -> "Taskbar Labels for Windows
+        //  11": minimumTaskbarItemWidth = 40) piu' lo spazio che qui serve
+        //  davvero alle schede delle finestre impilate.
+        // ===============================================================
+
+        private const double TaskButtonMinWidthCompact = 44;   /* icona, senza schede */
+        private const double TaskButtonMinWidthStacked = 52;   /* icona + schede      */
+        private const double TaskButtonSideMargin    = 2;      /* TaskButtonMargin 1+1 */
+
+        private bool   _taskButtonLayoutHooked;
+        private bool   _taskButtonLayoutPending;
+        private double _taskButtonThemeMinWidth = 52;
+        private double _taskButtonAppliedWidth  = double.NaN;
+        private bool   _taskButtonCompactLogged;
+
+        private void InitTaskButtonLayout()
+        {
+            if (_taskButtonLayoutHooked)
+            {
+                return;
+            }
+            _taskButtonLayoutHooked = true;
+
+            _taskButtonThemeMinWidth = TryFindResource("TaskButtonMinWidthOverride") is double d && d > 0
+                                     ? d : 52;
+
+            _viewModel.Groups.CollectionChanged += OnTaskGroupsChanged;
+            foreach (TaskGroup g in _viewModel.Groups)
+            {
+                g.PropertyChanged += OnTaskGroupPropertyChanged;
+            }
+
+            SizeChanged += (_, _) => ScheduleTaskButtonLayout();
+            if (TaskListScroller != null)
+            {
+                TaskListScroller.SizeChanged += (_, _) => ScheduleTaskButtonLayout();
+                TaskListScroller.ScrollChanged += (_, _) => SyncTaskListScrollButtons();
+            }
+
+            ScheduleTaskButtonLayout();
+        }
+
+        private void OnTaskGroupsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (e.OldItems != null)
+            {
+                foreach (TaskGroup g in e.OldItems.OfType<TaskGroup>())
+                {
+                    g.PropertyChanged -= OnTaskGroupPropertyChanged;
+                }
+            }
+            if (e.NewItems != null)
+            {
+                foreach (TaskGroup g in e.NewItems.OfType<TaskGroup>())
+                {
+                    g.PropertyChanged += OnTaskGroupPropertyChanged;
+                }
+            }
+            ScheduleTaskButtonLayout();
+        }
+
+        private void OnTaskGroupPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            // Solo cio' che cambia la larghezza richiesta: il numero di
+            // finestre (schede) e lo stato (l'imbottitura della cornice
+            // cambia fra riposo ed evidenziato).
+            if (e.PropertyName is nameof(TaskGroup.WindowCount)
+                or nameof(TaskGroup.IsRunning)
+                or nameof(TaskGroup.IsActive))
+            {
+                ScheduleTaskButtonLayout();
+            }
+        }
+
+        /* Il calcolo tocca la larghezza dei pulsanti, cioe' fa ripartire il
+         * layout: lo si rimanda alla coda per non rientrare nel layout in
+         * corso (SizeChanged viene consegnato dentro la passata). */
+        private void ScheduleTaskButtonLayout()
+        {
+            if (_taskButtonLayoutPending)
+            {
+                return;
+            }
+            _taskButtonLayoutPending = true;
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                _taskButtonLayoutPending = false;
+                UpdateTaskButtonLayout();
+            }));
+        }
+
+        private double DevicePixelScale()
+        {
+            PresentationSource? source = PresentationSource.FromVisual(this);
+            double scale = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+            return scale > 0 ? scale : 1.0;
+        }
+
+        private void UpdateTaskButtonLayout()
+        {
+            if (TaskListScroller == null || TaskList == null || _viewModel == null)
+            {
+                return;
+            }
+
+            IList<TaskGroup> groups = _viewModel.Groups;
+            int count = groups.Count;
+            if (count == 0)
+            {
+                _taskButtonAppliedWidth = double.NaN;
+                return;
+            }
+
+            // Spazio che la barra lascia ai pulsanti: il ScrollViewer riempie
+            // sempre la sua colonna, anche quando il contenuto e' piu' largo.
+            double available = TaskListScroller.ActualWidth - TaskButtonSideMargin;
+            if (available <= 0)
+            {
+                return;
+            }
+
+            // 1) Nessun vincolo e si misura quanto chiederebbero davvero.
+            foreach (TaskGroup g in groups)
+            {
+                g.ButtonMinWidth = _taskButtonThemeMinWidth;
+                g.ButtonWidth = double.NaN;
+            }
+            TaskListScroller.UpdateLayout();
+
+            double natural = 0;
+            int measured = 0;
+            for (int i = 0; i < count; i++)
+            {
+                if (TaskList.ItemContainerGenerator.ContainerFromIndex(i) is FrameworkElement container)
+                {
+                    natural += container.DesiredSize.Width;
+                    measured++;
+                }
+            }
+
+            if (measured == count && natural <= available)
+            {
+                // C'e' posto: nessun vincolo, esattamente come prima della
+                // v2.60 (larghezza decisa dal contenuto fra minimo e
+                // imbottitura della cornice).
+                if (!double.IsNaN(_taskButtonAppliedWidth))
+                {
+                    _taskButtonAppliedWidth = double.NaN;
+                    _taskButtonCompactLogged = false;
+                    _bridge.Log("superbar: pulsanti a larghezza naturale");
+                }
+                return;
+            }
+
+            // 2) Non ci stanno: larghezza uniforme che li fa entrare tutti,
+            //    mai sotto il minimo per tipo di contenuto.
+            double scale = DevicePixelScale();
+            double SnapDown(double value) => Math.Floor(value * scale) / scale;
+
+            int stacked = 0;
+            foreach (TaskGroup g in groups)
+            {
+                if (g.WindowCount > 1)
+                {
+                    stacked++;
+                }
+            }
+            int single = count - stacked;
+
+            double uniform = SnapDown(available / count) - TaskButtonSideMargin;
+            double applied;
+            if (uniform > TaskButtonMinWidthStacked || stacked == 0)
+            {
+                uniform = Math.Max(TaskButtonMinWidthCompact, uniform);
+                foreach (TaskGroup g in groups)
+                {
+                    g.ButtonWidth = uniform;
+                    g.ButtonMinWidth = uniform;
+                }
+                applied = uniform;
+            }
+            else
+            {
+                /* I gruppi con finestre impilate hanno bisogno di piu'
+                 * spazio (icona + tre schede): si stringono solo quelli con
+                 * una finestra sola, finche' basta. */
+                double stackedWidth = TaskButtonMinWidthStacked;
+                double leftover = available - stacked * (stackedWidth + TaskButtonSideMargin);
+                double singleWidth = single > 0
+                                   ? Math.Max(TaskButtonMinWidthCompact,
+                                              SnapDown(leftover / single) - TaskButtonSideMargin)
+                                   : 0;
+                foreach (TaskGroup g in groups)
+                {
+                    double w = g.WindowCount > 1 ? stackedWidth : singleWidth;
+                    g.ButtonWidth = w;
+                    g.ButtonMinWidth = w;
+                }
+                applied = singleWidth;
+            }
+
+            if (!_taskButtonCompactLogged ||
+                Math.Abs(_taskButtonAppliedWidth - applied) > 0.5)
+            {
+                _taskButtonCompactLogged = true;
+                _bridge.Log($"superbar: pulsanti stretti a {applied:0.#} px ({count} gruppi)");
+            }
+            _taskButtonAppliedWidth = applied;
+
+            TaskListScroller.UpdateLayout();
+            SyncTaskListScrollButtons();
+        }
+
+        /* Le frecce compaiono solo quando c'e' davvero qualcosa da scorrere
+         * (stessa regola della barra vera) e si spengono ai due estremi. */
+        private void SyncTaskListScrollButtons()
+        {
+            if (TaskListScroller == null)
+            {
+                return;
+            }
+
+            double scrollable = TaskListScroller.ExtentWidth - TaskListScroller.ViewportWidth;
+            bool overflow = scrollable > 0.5;
+
+            if (TaskListScrollLeft != null)
+            {
+                TaskListScrollLeft.Visibility = overflow ? Visibility.Visible : Visibility.Collapsed;
+                TaskListScrollLeft.IsEnabled = overflow && TaskListScroller.HorizontalOffset > 0.5;
+            }
+            if (TaskListScrollRight != null)
+            {
+                TaskListScrollRight.Visibility = overflow ? Visibility.Visible : Visibility.Collapsed;
+                TaskListScrollRight.IsEnabled = overflow &&
+                    TaskListScroller.HorizontalOffset < scrollable - 0.5;
+            }
+        }
+
+        private void ScrollTaskList(int direction)
+        {
+            if (TaskListScroller == null)
+            {
+                return;
+            }
+
+            double extent = TaskListScroller.ExtentWidth - TaskListScroller.ViewportWidth;
+            if (extent <= 0)
+            {
+                return;
+            }
+
+            /* Un quarto di barra per scatto: e' il passo che usa anche la
+             * barra vera quando si tiene premuta la freccia. */
+            double step = Math.Max(40, TaskListScroller.ViewportWidth / 4);
+            double target = TaskListScroller.HorizontalOffset + direction * step;
+            TaskListScroller.ScrollToHorizontalOffset(Math.Max(0, Math.Min(extent, target)));
+            SyncTaskListScrollButtons();
+        }
+
+        private void TaskListScrollLeft_Click(object sender, RoutedEventArgs e)
+            => ScrollTaskList(-1);
+
+        private void TaskListScrollRight_Click(object sender, RoutedEventArgs e)
+            => ScrollTaskList(1);
+
+        /* Shift + rotellina: scorre la striscia quando nemmeno la larghezza
+         * minima basta (la rotellina da sola resta il comando di Windows 7
+         * per passare fra le finestre del gruppo). */
+        private void TaskListScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (TaskListScroller == null ||
+                (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
+            {
+                return;
+            }
+
+            double extent = TaskListScroller.ExtentWidth - TaskListScroller.ViewportWidth;
+            if (extent <= 0)
+            {
+                return;
+            }
+
+            double step = Math.Max(40, TaskListScroller.ViewportWidth / 4);
+            double target = TaskListScroller.HorizontalOffset - Math.Sign(e.Delta) * step;
+            TaskListScroller.ScrollToHorizontalOffset(
+                Math.Max(0, Math.Min(extent, target)));
+            SyncTaskListScrollButtons();
+            e.Handled = true;
+        }
+
         private void OnProcessExitRestoreTaskbar(object? sender, EventArgs e)
         {
             try
@@ -348,6 +708,53 @@ namespace Win7Taskbar
             if (e.PropertyName == nameof(Settings.ShowClockSeconds))
             {
                 Dispatcher.BeginInvoke(new Action(ApplyClockSecondsFormat));
+            }
+            else if (e.PropertyName == nameof(Settings.NetworkFlyoutMode))
+            {
+                /* v2.62: la scelta del riquadro di rete si puo' cambiare
+                 * mentre la barra e' aperta (finestra Proprieta'): il core
+                 * deve sapere subito quale usare per le icone ricreate. */
+                Dispatcher.BeginInvoke(new Action(ApplyNetworkFlyoutMode));
+            }
+        }
+
+        /// <summary>
+        /// v2.62 - Il riquadro di rete di Windows 7 si prepara ADESSO.
+        ///
+        /// Prima veniva inizializzato al primo clic sull'icona di rete, e solo
+        /// se quella icona arrivava dal tray vero di Explorer
+        /// (IsNetworkTrayIcon): su Windows 11 l'icona di rete la disegniamo
+        /// noi, quel ramo non passava mai, il modulo restava spento e il clic
+        /// finiva sul riquadro della shell - per l'utente "si apre quello
+        /// sbagliato". Con la preparazione all'avvio il riquadro ricreato e'
+        /// pronto quando serve (nessuna attesa al primo clic) e il core sa
+        /// che puo' usarlo.
+        /// </summary>
+        private void ApplyNetworkFlyoutMode()
+        {
+            try
+            {
+                if (RetroBar.Utilities.Settings.Instance.NetworkFlyoutMode == 0)
+                {
+                    if (!_netFlyoutInit)
+                    {
+                        _netFlyoutInit = _bridge.NetFlyoutInit();
+                    }
+                    _bridge.SetWin7NetworkFlyout(_netFlyoutInit);
+                    _bridge.Log(_netFlyoutInit
+                        ? "rete: riquadro Windows 7 pronto"
+                        : "rete: riquadro Windows 7 non disponibile");
+                }
+                else
+                {
+                    /* Scelta dell'utente: il riquadro di sistema. Il core
+                     * apre quello (nessun modulo nostro da preparare). */
+                    _bridge.SetWin7NetworkFlyout(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log($"rete: preparazione del riquadro fallita: {ex.Message}");
             }
         }
 
@@ -419,6 +826,16 @@ namespace Win7Taskbar
             {
                 return;
             }
+
+            /* v2.62: lo stato appena scritto dal core non torna indietro.
+             * Rimandarlo significava salvarlo come preferenza dell'utente,
+             * congelando per sempre la disposizione letta da Explorer e
+             * svuotando l'overflow. */
+            if (_viewModel.ApplyingTrayState)
+            {
+                return;
+            }
+
             try
             {
                 _bridge.SetTrayIconPinned(icon.OwnerHwnd, icon.Uid, icon.IsPinned);
@@ -431,7 +848,25 @@ namespace Win7Taskbar
 
         private void UpdateOverflowState()
         {
-            HasOverflowIcons = _viewModel.NotificationArea.UnpinnedIcons.Count > 0;
+            /* v2.62 - LA FRECCETTA C'E' SE LA TRAY RAGGRUPPA, NON "SE ADESSO
+             * C'E' QUALCOSA DENTRO".
+             *
+             * Prima la freccetta spariva quando il modello non aveva icone
+             * nell'overflow in quell'istante: bastava una lettura della tray
+             * in ritardo (o tutte le icone di sistema della shell filtrate
+             * via) e la freccetta si nascondeva. L'utente la cliccava e non
+             * si apriva niente, perche' non c'era piu' niente da cliccare.
+             * In Windows 7 la freccetta fa parte della tray: c'e' quando il
+             * raggruppamento e' attivo, e il pannello puo' anche essere
+             * vuoto (contiene comunque "Personalizza...").
+             *
+             * Il raggruppamento e' spento quando l'utente sceglie "mostra
+             * tutte le icone": in quel caso la freccetta non serve. */
+            bool collapse = true;
+            try { collapse = RetroBar.Utilities.Settings.Instance.CollapseNotifyIcons; }
+            catch (Exception) { /* impostazioni non disponibili: si mostra */ }
+
+            HasOverflowIcons = collapse || _viewModel.NotificationArea.UnpinnedIcons.Count > 0;
 
             // La freccetta che appare o scompare cambia la larghezza della
             // riga: le icone si spostano e i loro rettangoli vanno riferiti
@@ -635,8 +1070,6 @@ namespace Win7Taskbar
             try
             {
                 CancelStartWatchdog();
-                _taskbarGuardTimer?.Stop();
-                _taskbarGuardTimer = null;
                 CloseTaskPreview();
                 _previewShowTimer?.Dispose();
                 _previewShowTimer = null;
@@ -693,6 +1126,7 @@ namespace Win7Taskbar
             try
             {
                 try { _bridge.NetFlyoutUninit(); } catch { }
+                try { _bridge.SetWin7NetworkFlyout(false); } catch { }
 
                 if (_appBarRegistered && _hwndSource != null)
                 {
@@ -781,10 +1215,14 @@ namespace Win7Taskbar
             public IntPtr lpData;
         }
 
-        /// <summary>Ordini della combo lingua in Proprietà: devono
-        /// coincidere con PropertiesDialog.cpp (0=it, 1=en, poi le altre).</summary>
-        private static readonly string[] kLangCodes =
-            { "it", "en", "es", "fr", "de", "pt", "pl", "ru", "ja", "zh" };
+        /// <summary>
+        /// Ordine della combo lingua in Proprietà: e' l'elenco del CORE
+        /// NATIVO (Strings.cpp: 0=it, 1=en, ... 10=ar), letto una volta
+        /// all'avvio. Non e' piu' una copia scritta a mano: prima l'arabo
+        /// mancava, "IndexOf" rispondeva -1 e il nativo apriva le Proprieta'
+        /// in italiano su un sistema arabo (vedi NativeLanguageRegistry).
+        /// </summary>
+        private static readonly string[] kLangCodes = NativeLanguageRegistry.Codes;
 
         private bool HandlePropsCopyData(IntPtr lParam)
         {
@@ -834,8 +1272,9 @@ namespace Win7Taskbar
                 st.ShowClockSeconds   = seconds == 1;
                 st.UseNativeClockFlyout = nativeFlyout == 1;
                 st.EnableAppSearch    = enableSearch == 1;
+                /* Indice fuori elenco: inglese, mai italiano per omissione. */
                 string newLang = (lang >= 0 && lang < kLangCodes.Length)
-                    ? kLangCodes[lang] : "it";
+                    ? kLangCodes[lang] : RetroBar.Utilities.Settings.DefaultLanguageCode;
                 if (newLang != st.Language)
                 {
                     st.Language = newLang;
@@ -855,8 +1294,11 @@ namespace Win7Taskbar
                      * barra: qui si applica e si salva la scelta. */
                     SetToolbarStates(tbDesktop == 1, tbLinks == 1, tbAddress == 1);
                 }
-                /* v2.42: approccio ExplorerPatcher al flyout batteria. */
-                EnsureWin32BatteryFlyoutReg(st.UseBatteryFlyout);
+                /* v2.63: le quattro scelte dei riquadri, applicate qui come
+                 * all'avvio (registro di sistema + core): prima si scriveva
+                 * solo la chiave della batteria, e solo se l'utente premeva
+                 * OK/Applica. */
+                ApplyShellFlyoutPreferences();
                 UpdateSearchButtonVisibility();
                 if (openSearch == 1)
                 {
@@ -1133,8 +1575,13 @@ namespace Win7Taskbar
         /// <summary>Finestra di tolleranza fra due click sull'orb.</summary>
         private const int StartToggleDebounceMs = 300;
 
-        /// <summary>Ritardo del controllo di apertura del menu Start.</summary>
-        private const int StartWatchdogMs = 700;
+        /// <summary>
+        /// Ritardo del controllo di apertura del menu Start.
+        /// v2.60: 700 -> 1200 ms. A 700 ms un menu Start di Windows 11 che
+        /// sta ancora comparendo veniva giudicato "non aperto" e il ripiego
+        /// lo apriva una seconda volta: era l'altra intermittenza segnalata.
+        /// </summary>
+        private const int StartWatchdogMs = 1200;
 
         private DateTime _lastStartToggleUtc;
         private TimerLease? _startWatchdog;
@@ -1206,8 +1653,6 @@ namespace Win7Taskbar
         }
 
         // Guard against Explorer taskbar reappearing
-        private DispatcherTimer? _taskbarGuardTimer;
-        private int _taskbarGuardTicks;
 
         private int _importFailures;
 
@@ -1232,6 +1677,15 @@ namespace Win7Taskbar
             }
         }
 
+        /// <summary>
+        /// v2.60: il ritorno della barra nativa non si insegue piu' con un
+        /// DispatcherTimer a 100 ms per tre secondi. Quella raffica di
+        /// ri-nascondi era una delle cause del lampeggio visto premendo
+        /// Start: Explorer rimostra la sua barra e il ciclo la rinascondeva
+        /// a ripetizione. Adesso il ri-nascondi vive nel core come EVENTO
+        /// (AppBarService::HideWatcherProc), quindi qui basta una richiesta
+        /// singola, subito dopo l'apertura del menu.
+        /// </summary>
         private void StartTaskbarGuard()
         {
             if (!_bridge.IsNativeTaskbarHidden())
@@ -1239,27 +1693,7 @@ namespace Win7Taskbar
                 return;
             }
 
-            _taskbarGuardTicks = 0;
-
-            if (_taskbarGuardTimer == null)
-            {
-                _taskbarGuardTimer = new DispatcherTimer(DispatcherPriority.Background)
-                {
-                    Interval = TimeSpan.FromMilliseconds(100)
-                };
-
-                _taskbarGuardTimer.Tick += (_, _) =>
-                {
-                    _bridge.ReassertNativeTaskbarHidden();
-
-                    if (++_taskbarGuardTicks >= 30)
-                    {
-                        _taskbarGuardTimer!.Stop();
-                    }
-                };
-            }
-
-            _taskbarGuardTimer.Start();
+            _bridge.ReassertNativeTaskbarHidden();
         }
 
         private void ShowDesktopButton_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
@@ -1272,8 +1706,8 @@ namespace Win7Taskbar
                 (int)Math.Round(origin.X),
                 (int)Math.Round(origin.Y),
                 bottomEdge: true,
-                "Mostra desktop",
-                "Visualizza desktop");
+                L("lang_show_desktop", "Show desktop"),
+                L("lang_peek_desktop", "Peek at desktop"));
 
             switch (choice)
             {
@@ -2041,9 +2475,13 @@ namespace Win7Taskbar
             {
                 // Pin non avviato: avvia / fissa-rimuovi.
                 string pinText = group.IsPinned
-                    ? "Rimuovi questo programma dalla barra delle applicazioni"
-                    : "Fissa questo programma alla barra delle applicazioni";
-                int choice = _bridge.ShowContextMenu(x, y, bottomEdge: true, "Avvia", pinText);
+                    ? L("lang_menu_unpin",
+                        "Unpin this program from taskbar")
+                    : L("lang_menu_pin",
+                        "Pin this program to taskbar");
+                int choice = _bridge.ShowContextMenu(
+                    x, y, bottomEdge: true,
+                    L("lang_start_tip", "Start"), pinText);
                 switch (choice)
                 {
                     case 1:
@@ -2065,7 +2503,8 @@ namespace Win7Taskbar
             {
                 // Piu' finestre: menu di gruppo (riduci a icona / chiudi tutte).
                 int r = _bridge.ShowGroupMenu(group.Windows[0].Hwnd, x, y,
-                    "Riduci a icona il gruppo", "Chiudi tutte le finestre", bottomEdge: true);
+                    L("lang_minimize_group", "Minimize group"),
+                    L("lang_close_group", "Close group"), bottomEdge: true);
                 if (r == 1) _viewModel.MinimizeGroup(group);
                 else if (r == 2) _viewModel.CloseGroup(group);
             }
@@ -2225,7 +2664,7 @@ namespace Win7Taskbar
                 uint[]? icon = ExtractBgra32(group.Icon, out int iconW, out int iconH);
 
                 int lang = Math.Max(0, Array.IndexOf(kLangCodes,
-                    RetroBar.Utilities.Settings.Instance.Language ?? "it"));
+                    RetroBar.Utilities.Settings.Instance.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode));
 
                 _bridge.JumpListShow(left, top, right, bottom, title,
                     launchPath, pinnedLnk, group.IsPinned, icon, iconW, iconH, lang);
@@ -2234,6 +2673,37 @@ namespace Win7Taskbar
             {
                 _bridge.Log($"jump list: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// v2.61 - Testo di menu localizzato.
+        ///
+        /// Le voci dei menu che costruiamo qui (barra, orologio, gruppo di
+        /// finestre) erano scritte in italiano nel codice: su un sistema
+        /// inglese, tedesco o giapponese il menu restava italiano. Ora ogni
+        /// voce arriva dai dizionari Languages/*.xaml - una traduzione per
+        /// lingua, con l'inglese come ripiego - e il cambio di lingua si
+        /// vede subito, perche' il testo si ricostruisce a ogni apertura.
+        ///
+        /// Il secondo argomento e' il ripiego inglese: serve solo se il
+        /// dizionario della lingua non e' ancora caricato.
+        /// </summary>
+        private string L(string key, string fallback)
+        {
+            try
+            {
+                if (Application.Current?.TryFindResource(key) is string text &&
+                    !string.IsNullOrEmpty(text))
+                {
+                    return text;
+                }
+            }
+            catch
+            {
+                /* risorsa non disponibile: si usa il ripiego inglese */
+            }
+
+            return fallback;
         }
 
         private static MenuItem CreateMenuItem(string header, Action action, bool enabled = true)
@@ -2361,11 +2831,26 @@ namespace Win7Taskbar
                 _trayDragCandidate = icon;
                 _trayDragElement = element;
 
+                /* v2.62 - IL MODELLO NON SI TOCCA MENTRE SI TRASCINA.
+                 *
+                 * Un aggiornamento della tray in questo momento ricrea i
+                 * contenitori delle icone: il mouse perde la cattura, gli
+                 * handler muoiono con l'elemento e il trascinamento si
+                 * interrompe da solo ("non riesco a spostare le icone").
+                 * Le letture riprendono al rilascio, con una passata sola. */
+                _viewModel.SuspendTrayRefresh();
+
                 // Cattura subito sull'elemento: niente ciclo OLE, il tracking
                 // del mouse resta sul thread UI come in TrayUI::WndProc reale.
+                //
+                // v2.62: la cattura resta sull'elemento (e' cosi' che il clic
+                // continua a funzionare quando NON si trascina). Il
+                // trascinamento non si perde piu' perche' adesso il modello
+                // non viene piu' aggiornato mentre il pulsante e' premuto.
                 element.CaptureMouse();
-                element.PreviewMouseMove += TrayIcon_CapturedMouseMove;
-                element.PreviewMouseLeftButtonUp += TrayIcon_CapturedMouseUp;
+                PreviewMouseMove += TrayIcon_CapturedMouseMove;
+                PreviewMouseLeftButtonUp += TrayIcon_CapturedMouseUp;
+                element.LostMouseCapture += TrayIcon_LostCapture;
             }
         }
 
@@ -2400,25 +2885,74 @@ namespace Win7Taskbar
 
         private void TrayIcon_CapturedMouseUp(object sender, MouseButtonEventArgs e)
         {
-            if (sender is FrameworkElement element)
-            {
-                element.ReleaseMouseCapture();
-                element.PreviewMouseMove -= TrayIcon_CapturedMouseMove;
-                element.PreviewMouseLeftButtonUp -= TrayIcon_CapturedMouseUp;
-            }
-
-            if (_trayDragging && _trayDragCandidate != null)
-            {
-                CommitTrayDrag();
-                _trayDragJustFinished = true;
-            }
-
-            _trayDragging = false;
-            _trayDragCandidate = null;
-            _trayDragElement = null;
-            HideTrayDragGhost();   // v3.1
-            ClearTrayDropAdorner();
+            EndTrayDrag(commit: true);
         }
+
+        /// <summary>La cattura del mouse e' finita per conto suo (alt-tab,
+        /// finestra disattivata): il trascinamento si annulla, ma lo stato non
+        /// resta appeso — altrimenti la tray smetterebbe di aggiornarsi.</summary>
+        private void TrayIcon_LostCapture(object sender, MouseEventArgs e)
+        {
+            EndTrayDrag(commit: false);
+        }
+
+        private void EndTrayDrag(bool commit)
+        {
+            if (_trayDragElement == null && _trayDragCandidate == null)
+            {
+                return;   /* gia' concluso: EndTrayDrag puo' arrivare due volte */
+            }
+
+            /* Il rilascio della cattura fa scattare LostMouseCapture, che
+             * richiama questa funzione: senza il guardiano il secondo giro
+             * azzererebbe lo stato e il trascinamento non verrebbe mai
+             * applicato (l'icona tornerebbe al suo posto da sola). */
+            if (_trayDragEnding)
+            {
+                return;
+            }
+            _trayDragEnding = true;
+            try
+            {
+                try
+                {
+                    _trayDragElement?.ReleaseMouseCapture();
+                    ReleaseMouseCapture();
+                }
+                catch (Exception) { /* ignora */ }
+
+                PreviewMouseMove -= TrayIcon_CapturedMouseMove;
+                PreviewMouseLeftButtonUp -= TrayIcon_CapturedMouseUp;
+                if (_trayDragElement != null)
+                {
+                    _trayDragElement.LostMouseCapture -= TrayIcon_LostCapture;
+                }
+                LostMouseCapture -= TrayIcon_LostCapture;
+
+                if (commit && _trayDragging && _trayDragCandidate != null)
+                {
+                    CommitTrayDrag();
+                    _trayDragJustFinished = true;
+                }
+
+                _trayDragging = false;
+                _trayDragCandidate = null;
+                _trayDragElement = null;
+                HideTrayDragGhost();   // v3.1
+                ClearTrayDropAdorner();
+
+                /* Le letture riprendono adesso, con una passata sola se
+                 * qualcosa e' cambiato nel frattempo. */
+                _viewModel.ResumeTrayRefresh();
+            }
+            finally
+            {
+                _trayDragEnding = false;
+            }
+        }
+
+        /// <summary>Guardiano di rientranza di <see cref="EndTrayDrag"/>.</summary>
+        private bool _trayDragEnding;
 
         /// <summary>
         /// Hit-test a mano contro TrayIcons/OverflowIcons/OverflowToggle,
@@ -2624,6 +3158,17 @@ namespace Win7Taskbar
 
         private bool _useNativeOverflow;
 
+        /// <summary>Il ripristino della freccetta dopo l'apertura del flyout
+        /// di sistema non deve essere interpretato come "l'utente ha chiuso
+        /// il pannello".</summary>
+        private bool _overflowToggleResetting;
+
+        /// <summary>v2.60: la freccetta non apre il nostro pannello ma il
+        /// flyout vero della shell (Windows 11, dove le icone nascoste non
+        /// sono pulsanti di una toolbar e quindi non si possono disegnare
+        /// nel pannello nostrano).</summary>
+        private bool _overflowShellFlyout;
+
         /// <summary>v2.7: punto unico di instradamento dell'apertura del
         /// pannello: finestra nativa con vetro Aero se disponibile,
         /// altrimenti il Popup WPF (fallback raro).</summary>
@@ -2650,6 +3195,11 @@ namespace Win7Taskbar
                 return;
             }
 
+            // v2.60: rivalutato a ogni clic, non una volta sola all'avvio:
+            // il servizio della tray puo' aver riconosciuto Windows 11 piu'
+            // tardi (isola XAML creata dopo di noi).
+            _overflowShellFlyout = _bridge.OverflowUsesShellFlyout();
+
             if (OverflowToggle != null)
             {
                 Point tl = OverflowToggle.PointToScreen(new Point(0, 0));
@@ -2657,6 +3207,44 @@ namespace Win7Taskbar
                     new Point(OverflowToggle.ActualWidth, OverflowToggle.ActualHeight));
                 _bridge.OverflowShow((int)tl.X, (int)tl.Y, (int)br.X, (int)br.Y);
             }
+
+            if (_overflowShellFlyout)
+            {
+                // Il flyout e' quello di Windows: si chiude da solo al primo
+                // clic fuori o con Esc, e non manda nessun evento a noi.
+                // La freccetta quindi non resta "premuta": torna subito su,
+                // senza far passare nulla dal ramo Unchecked.
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (OverflowToggle != null)
+                    {
+                        _overflowToggleResetting = true;
+                        OverflowToggle.IsChecked = false;
+                        _overflowToggleResetting = false;
+                    }
+                }));
+                return;
+            }
+
+            /* v2.62 - IL PANNELLO NATIVO DEVE ESSERE DAVVERO COMPARSO.
+             *
+             * ShowNear non puo' fallire in modo visibile: se la finestra non
+             * esiste (creazione rifiutata, sessione ristretta) la chiamata
+             * non fa niente e per l'utente la freccetta e' morta - "il menu
+             * di overflow non si apre". Qui si controlla e, se il pannello
+             * nostro non c'e', si apre quello WPF (lo stesso contenuto, lo
+             * stesso elenco di icone). Il clic non resta mai senza effetto. */
+            bool nativeVisible = false;
+            try { nativeVisible = _bridge.OverflowIsVisible(); } catch { nativeVisible = false; }
+
+            if (!nativeVisible)
+            {
+                _bridge.Log("overflow: il pannello nativo non e' visibile, apro quello WPF");
+                OverflowPopup.IsOpen = true;
+                StartOverflowOutsideClose();
+                return;
+            }
+
             StartNativeOverflowOutsideClose();
         }
 
@@ -2666,6 +3254,25 @@ namespace Win7Taskbar
             {
                 OverflowPopup.IsOpen = false;
                 return;
+            }
+
+            if (_overflowShellFlyout)
+            {
+                // Nessun pannello nostro da chiudere: il flyout di sistema
+                // non e' nostro e non si comanda da qui.
+                if (!_overflowToggleResetting)
+                {
+                    StopOverflowOutsideClose();
+                }
+                return;
+            }
+
+            /* v2.62: puo' essere aperto il pannello WPF (rete di sicurezza di
+             * OverflowToggle_Checked) invece di quello nativo: si chiude
+             * quello che c'e' davvero. */
+            if (OverflowPopup != null && OverflowPopup.IsOpen)
+            {
+                OverflowPopup.IsOpen = false;
             }
 
             _bridge.OverflowHide();
@@ -2694,9 +3301,16 @@ namespace Win7Taskbar
                     {
                         scale = ct.TransformToDevice.M11;
                     }
+                    /* v2.62: origine gia' in pixel fisici (vedi
+                     * StartOverflowOutsideClose): solo le dimensioni vanno
+                     * convertite. Con l'origine moltiplicata, su uno schermo
+                     * al 125% il rettangolo della freccetta finiva fuori
+                     * posto e il clic sulla freccetta - quello che deve
+                     * CHIUDERE il pannello - veniva trattato come un clic
+                     * esterno. */
                     Point ttl = OverflowToggle.PointToScreen(new Point(0, 0));
                     _overflowMouseHook.ExcludeRect2 = new Rect(
-                        ttl.X * scale, ttl.Y * scale,
+                        ttl.X, ttl.Y,
                         OverflowToggle.ActualWidth * scale, OverflowToggle.ActualHeight * scale);
                 }
                 _overflowMouseHook.MouseDownOutside -= OnOverflowMouseDownOutside;
@@ -2819,8 +3433,16 @@ namespace Win7Taskbar
                     scale = ct2.TransformToDevice.M11;
                 }
 
+                /* v2.62 - ORIGINE IN PIXEL FISICI, DIMENSIONE CONVERTITA.
+                 *
+                 * PointToScreen restituisce gia' pixel dello schermo: moltiplicare
+                 * anche l'origine per il fattore DPI spostava il rettangolo
+                 * (e lo ingrandiva) su ogni schermo scalato, cosi' i clic
+                 * dentro il pannello venivano letti come "fuori" e il pannello
+                 * si chiudeva da solo. Le dimensioni, invece, arrivano dal
+                 * layout in unita' indipendenti e vanno convertite. */
                 Point tl = child.PointToScreen(new Point(0, 0));
-                Rect popupRect = new Rect(tl.X * scale, tl.Y * scale,
+                Rect popupRect = new Rect(tl.X, tl.Y,
                                           child.ActualWidth * scale,
                                           child.ActualHeight * scale);
 
@@ -2828,7 +3450,7 @@ namespace Win7Taskbar
                 if (OverflowToggle != null)
                 {
                     Point ttl = OverflowToggle.PointToScreen(new Point(0, 0));
-                    toggleRect = new Rect(ttl.X * scale, ttl.Y * scale,
+                    toggleRect = new Rect(ttl.X, ttl.Y,
                                           OverflowToggle.ActualWidth * scale,
                                           OverflowToggle.ActualHeight * scale);
                 }
@@ -2991,6 +3613,11 @@ namespace Win7Taskbar
             // Italiano: Invia click alla finestra proprietaria, che aprirà il flyout
             _trayDownUtc = DateTime.MinValue;
 
+            // v2.61: il rettangolo corrente dell'icona prima del clic (vedi
+            // ReportClickedIconRect): il riquadro si ancora dove l'icona sta
+            // adesso, non dove stava quando e' stata importata.
+            ReportClickedIconRect(element, icon);
+
             // v2.2: come in Windows 7, il click su un'icona del pannello
             // overflow avvia l'app e chiude il pannello.
             CloseOverflowPopup();
@@ -3007,6 +3634,9 @@ namespace Win7Taskbar
                 if (!_netFlyoutInit)
                 {
                     _netFlyoutInit = _bridge.NetFlyoutInit();
+                    /* v2.62: il core deve saperlo, perche' il clic sulle
+                     * icone di rete RICREATE lo gestisce lui. */
+                    try { _bridge.SetWin7NetworkFlyout(_netFlyoutInit); } catch { }
                 }
                 if (_netFlyoutInit)
                 {
@@ -3016,7 +3646,7 @@ namespace Win7Taskbar
                     {
                         var stLang = RetroBar.Utilities.Settings.Instance;
                         int langIdx = Math.Max(0,
-                            Array.IndexOf(kLangCodes, stLang.Language ?? "it"));
+                            Array.IndexOf(kLangCodes, stLang.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode));
                         _bridge.NetFlyoutSetLanguage(langIdx);
                     }
                     catch { }
@@ -3086,6 +3716,43 @@ namespace Win7Taskbar
             _trayDownUtc = DateTime.UtcNow;
         }
 
+        /// <summary>
+        /// v2.61: riporta al core il rettangolo ATTUALE dell'icona cliccata,
+        /// un attimo prima del clic.
+        ///
+        /// Serve al core per ancorare il riquadro di sistema che sta per
+        /// aprire: quel rettangolo viene letto ADESSO dall'elemento vero, con
+        /// lo schermo e il DPI di adesso. Cosi' il flyout segue l'icona se la
+        /// barra si e' spostata, il DPI e' cambiato, le icone sono state
+        /// riordinate, l'overflow e' stato aperto/chiuso o Explorer e'
+        /// ripartito: mai una coordinata ricordata dall'importazione.
+        /// Vale anche per le icone che stanno nel pannello di overflow, che
+        /// il rapporto periodico dei rettangoli non copre.
+        /// </summary>
+        private void ReportClickedIconRect(FrameworkElement element, TrayIconModel icon)
+        {
+            try
+            {
+                double scale = _hwndSource?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                if (scale <= 0)
+                {
+                    scale = 1.0;
+                }
+
+                Point origin = element.PointToScreen(new Point(0, 0));
+                _bridge.SetIconRect(
+                    icon.OwnerHwnd, icon.Uid,
+                    (int)origin.X, (int)origin.Y,
+                    (int)(origin.X + element.ActualWidth * scale),
+                    (int)(origin.Y + element.ActualHeight * scale));
+            }
+            catch
+            {
+                /* cosmetico: se il rapporto non riesce, il core usa il
+                 * rettangolo della barra (ripiego dichiarato). */
+            }
+        }
+
         private void TrayIcon_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             if (sender is not FrameworkElement element ||
@@ -3094,6 +3761,7 @@ namespace Win7Taskbar
                 return;
             }
 
+            ReportClickedIconRect(element, icon);
             Point screen = element.PointToScreen(e.GetPosition(element));
             _viewModel.SendTrayClick(icon, TrayClick.Right, (int)screen.X, (int)screen.Y);
             e.Handled = true;
@@ -3164,7 +3832,8 @@ namespace Win7Taskbar
                 if (_calendarPopup != null)
                 {
                     _calendarPopup.IsOpen = false;
-                    _calendarPopup = null;
+                    /* v2.61: l'istanza resta in memoria, pronta per il
+                     * prossimo clic (prima si buttava via per ricostruirla). */
                 }
                 _globalMouseHook?.Stop();
             }
@@ -3300,23 +3969,27 @@ namespace Win7Taskbar
                 // consumano indici: 1-3 barre, 4 data/ora, 5 icone notifica,
                 // 6 sovrapponi, 7 pila, 8 affiancate, 9 desktop, 10 gest.
                 // attivita', 11 blocca, 12 proprieta'.
-                ">Barre degli strumenti\n" +
-                (DesktopBandHost.Visibility == Visibility.Visible ? "*" : "") + "Desktop\n" +
-                (LinksBandHost.Visibility == Visibility.Visible ? "*" : "") + "Collegamenti\n" +
-                (AddressBandHost.Visibility == Visibility.Visible ? "*" : "") + "Indirizzo\n" +
+                ">" + L("lang_menu_toolbars", "Toolbars") + "\n" +
+                (DesktopBandHost.Visibility == Visibility.Visible ? "*" : "") +
+                    L("lang_menu_desktop", "Desktop") + "\n" +
+                (LinksBandHost.Visibility == Visibility.Visible ? "*" : "") +
+                    L("lang_menu_links", "Links") + "\n" +
+                (AddressBandHost.Visibility == Visibility.Visible ? "*" : "") +
+                    L("lang_menu_address", "Address") + "\n" +
                 "<\n" +
-                "Modifica data/ora\n" +
-                "Personalizza icone di notifica\n" +
+                L("lang_edit_datetime", "Adjust date/time") + "\n" +
+                L("lang_customize_notify", "Customize notification area...") + "\n" +
                 "-\n" +
-                "Sovrapponi le finestre\n" +
-                "Mostra le finestre in pila\n" +
-                "Mostra le finestre affiancate\n" +
-                "Mostra desktop\n" +
+                L("lang_menu_cascade", "Cascade windows") + "\n" +
+                L("lang_menu_stack", "Show windows stacked") + "\n" +
+                L("lang_menu_sidebyside", "Show windows side by side") + "\n" +
+                L("lang_show_desktop", "Show desktop") + "\n" +
                 "-\n" +
-                "Avvia Gestione attività\n" +
+                L("lang_task_manager", "Start Task Manager") + "\n" +
                 "-\n" +
-                (_taskbarLocked ? "*" : "") + "Blocca la barra delle applicazioni\n" +
-                "Proprietà",
+                (_taskbarLocked ? "*" : "") +
+                    L("lang_menu_lock", "Lock the taskbar") + "\n" +
+                L("lang_properties", "Properties"),
                 // v2.43: il menu dell'orologio si apre DOVE STA IL CURSORE
                 // (come un menu contestuale normale), non ancorato alla
                 // barra: e' la stessa richiesta fatta per il menu semplice
@@ -3386,6 +4059,16 @@ namespace Win7Taskbar
         {
             e.Handled = true;
 
+            /* v2.63 - LA SCELTA DELL'UTENTE VALE ANCHE SU WINDOWS 11.
+             *
+             * Con "Windows 7" selezionato il clic deve aprire il calendario di
+             * Windows 7, non quello ricreato: e' il difetto segnalato. Il core
+             * ora prova il riquadro classico (finestra ClockFlyoutWindow, la
+             * stessa che Windows 7 usa) e risponde si' solo quando quella
+             * finestra compare davvero: se compare, il calendario ricreato non
+             * si apre sopra, se non compare si apre il nostro come ripiego
+             * dichiarato. La logica sta nel core, che conosce la build con
+             * certezza; qui non si decide piu' nulla. */
             if (Settings.Instance.UseNativeClockFlyout)
             {
                 IntPtr handle = _hwndSource?.Handle ?? IntPtr.Zero;
@@ -3394,6 +4077,19 @@ namespace Win7Taskbar
                 {
                     return;
                 }
+            }
+
+            /* v2.62 - UN RIQUADRO SOLO, SEMPRE.
+             *
+             * Su Windows 11 il riquadro e' SEMPRE il nostro. Se la shell ha
+             * aperto il suo per conto (il clic puo' arrivare anche alla barra
+             * nativa, che su alcune build resta dietro la nostra) va chiuso
+             * PRIMA di mostrare il nostro: senza questa riga i due convivono.
+             * La chiamata chiude e basta, non apre nulla, e se il riquadro
+             * non c'e' non ha effetto. */
+            if (IsWindows11Host())
+            {
+                _bridge.HideClockFlyout();
             }
 
             ShowClassicCalendarFlyout(sender as FrameworkElement);
@@ -3633,14 +4329,59 @@ namespace Win7Taskbar
         }
 
         private Popup? _calendarPopup;
+        private TextBlock? _calendarHeader;
+        private bool _calendarFlyoutReady;
 
-        private void ShowClassicCalendarFlyout(FrameworkElement? target)
+        /// <summary>
+        /// Vero se il sistema che ci ospita e' Windows 11 (build >= 22000).
+        /// Letto una volta sola dal core, che lo sa con certezza: il manifest
+        /// dell'app non dichiara Windows 10 e quindi la versione gestita
+        /// mentirebbe.
+        /// </summary>
+        private bool IsWindows11Host()
         {
-            if (_calendarPopup is { IsOpen: true })
+            if (_isWindows11Host == null)
             {
-                _calendarPopup.IsOpen = false;
-                _calendarPopup = null;
-                _globalMouseHook?.Stop();
+                try
+                {
+                    _isWindows11Host = _bridge.IsWindows11();
+                }
+                catch
+                {
+                    /* v2.62 - IN CASO DI DUBBIO SI USA IL RIQUADRO NOSTRO.
+                     *
+                     * Prima un errore qui valeva "non e' Windows 11", e con
+                     * quel "no" il percorso nativo tornava attivo: la shell
+                     * accettava di mostrare il suo riquadro, l'isola XAML
+                     * compariva piu' tardi del tempo che possiamo aspettare, e
+                     * l'utente vedeva prima il calendario di sistema e poi il
+                     * nostro. Il comportamento giusto e' l'opposto: si usa il
+                     * riquadro nativo solo se sappiamo CON CERTEZZA che questo
+                     * non e' Windows 11. */
+                    _isWindows11Host = true;
+                }
+            }
+
+            return _isWindows11Host.Value;
+        }
+
+        private bool? _isWindows11Host;
+
+        /// <summary>
+        /// v2.61: crea UNA VOLTA il riquadro del calendario di Windows 7 e lo
+        /// tiene in memoria.
+        ///
+        /// Prima veniva costruito a ogni clic e distrutto alla chiusura: il
+        /// primo clic pagava la costruzione dell'albero visuale del
+        /// calendario mentre l'utente guardava lo schermo, ed era il momento
+        /// in cui il riquadro nativo trovava il tempo di comparire.
+        /// Ora l'istanza e' pronta da prima (viene costruita all'avvio) e
+        /// mostrarla e' solo IsOpen = true.
+        /// </summary>
+        private void EnsureCalendarFlyout()
+        {
+            if (_calendarFlyoutReady && _calendarPopup != null)
+            {
                 return;
             }
 
@@ -3651,7 +4392,7 @@ namespace Win7Taskbar
                 Margin = new Thickness(4)
             };
 
-            var header = new TextBlock
+            _calendarHeader = new TextBlock
             {
                 Text = DateTime.Now.ToString("dddd d MMMM yyyy"),
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -3663,20 +4404,24 @@ namespace Win7Taskbar
             };
 
             var stack = new StackPanel();
-            stack.Children.Add(header);
+            stack.Children.Add(_calendarHeader);
             stack.Children.Add(calendar);
 
             _calendarPopup = new Popup
             {
-                PlacementTarget = target ?? (UIElement)this,
-                Placement = PlacementMode.Custom,
-                CustomPopupPlacementCallback = (size, targetSize, _) =>
-                    new[]
-                    {
-                        new CustomPopupPlacement(
-                            new Point(targetSize.Width - size.Width, -size.Height),
-                            PopupPrimaryAxis.None)
-                    },
+                /* v2.62 - POSIZIONE CALCOLATA, NON DELEGATA AL LAYOUT.
+                 *
+                 * Prima il riquadro si agganciava all'elemento con
+                 * Placement=Custom e un callback che lo metteva "sopra, a
+                 * filo con la destra": nessuno teneva conto del monitor, dei
+                 * bordi dello schermo ne' del DPI, e con la barra spostata o a
+                 * DPI diversi il riquadro finiva fuori posto (o fuori dallo
+                 * schermo). Ora la posizione la calcola PlaceCalendarFlyout:
+                 * rettangolo reale dell'orologio, area di lavoro del monitor
+                 * su cui l'orologio si trova, e correzione dopo l'apertura se
+                 * il risultato non e' quello richiesto. */
+                PlacementTarget = (UIElement)this,
+                Placement = PlacementMode.Absolute,
                 StaysOpen = true,
                 AllowsTransparency = true,
                 PopupAnimation = PopupAnimation.Fade,
@@ -3696,11 +4441,325 @@ namespace Win7Taskbar
             _calendarPopup.MouseLeave += CalendarPopup_MouseLeave;
             _calendarPopup.Opened += CalendarPopup_Opened;
             _calendarPopup.Closed += CalendarPopup_Closed;
+            _calendarFlyoutReady = true;
+        }
+
+        private void ShowClassicCalendarFlyout(FrameworkElement? target)
+        {
+            /* Riquadro gia' pronto: mostrarlo o nasconderlo non costruisce
+             * niente. La data si riallinea al momento dell'apertura. */
+            EnsureCalendarFlyout();
+
+            if (_calendarPopup == null)
+            {
+                return;
+            }
+
+            if (_calendarPopup.IsOpen)
+            {
+                _calendarPopup.IsOpen = false;
+                _globalMouseHook?.Stop();
+                return;
+            }
+
+            if (_calendarHeader != null)
+            {
+                _calendarHeader.Text = DateTime.Now.ToString("dddd d MMMM yyyy");
+            }
+
+            /* La mira e' l'orologio di ADESSO: se la barra si e' spostata o
+             * il DPI e' cambiato, il riquadro compare comunque attaccato
+             * all'orologio. */
+            _calendarPopup.PlacementTarget = target ?? (UIElement)this;
+
+            /* Misura prima di aprire: serve la dimensione del riquadro per
+             * calcolarne la posizione, e chiederla qui evita che il primo
+             * disegno avvenga nella posizione sbagliata. */
+            try
+            {
+                if (_calendarPopup.Child is FrameworkElement child)
+                {
+                    child.Measure(new Size(double.PositiveInfinity,
+                                           double.PositiveInfinity));
+                }
+            }
+            catch { }
+
+            PlaceCalendarFlyout();
             _calendarPopup.IsOpen = true;
+        }
+
+        /* ------------------------------------------------------------------ */
+        /*  v2.62 - Posizione del riquadro dell'orologio                      */
+        /*                                                                    */
+        /*  Regole, nell'ordine:                                              */
+        /*   1. il riquadro e' agganciato all'orologio VERO, sul monitor in    */
+        /*      cui l'orologio si trova adesso (barra spostata, monitor        */
+        /*      diverso, DPI diverso: si ricalcola ogni volta);                */
+        /*   2. come Windows 7: a filo con la destra dell'orologio e subito    */
+        /*      sopra la barra, con un piccolo distacco;                       */
+        /*   3. se sopra non c'e' spazio (barra in alto, schermo piccolo) si   */
+        /*      passa sotto l'orologio;                                        */
+        /*   4. il riquadro resta sempre dentro l'area di lavoro del monitor.  */
+        /*                                                                    */
+        /*  Le coordinate sono pixel fisici; gli offset del Popup sono in      */
+        /* unita' indipendenti dal DPI, quindi si dividono per la scala del    */
+        /* monitor. La conversione viene poi verificata (vedi                */
+        /* CorrectCalendarPlacement) perche' un riquadro sbagliato di 200 px  */
+        /* e' peggio di nessun riquadro.                                      */
+        /* ------------------------------------------------------------------ */
+
+        private const int CalendarFlyoutGap = 2;
+
+        /// <summary>Scala DPI dell'albero a cui appartiene l'elemento.</summary>
+        private static double GetDpiScale(Visual visual)
+        {
+            try
+            {
+                double scale = VisualTreeHelper.GetDpi(visual).DpiScaleX;
+                return scale > 0 ? scale : 1.0;
+            }
+            catch
+            {
+                return 1.0;
+            }
+        }
+
+        /// <summary>Rettangolo fisico (pixel) dell'orologio.</summary>
+        private bool TryGetClockScreenRect(out int left, out int top,
+                                           out int right, out int bottom)
+        {
+            left = top = right = bottom = 0;
+
+            FrameworkElement anchor = ClockHost;
+            if (anchor == null)
+            {
+                anchor = this;
+            }
+
+            try
+            {
+                Point a = anchor.PointToScreen(new Point(0, 0));
+                Point b = anchor.PointToScreen(
+                    new Point(anchor.ActualWidth, anchor.ActualHeight));
+                left = (int)Math.Round(Math.Min(a.X, b.X));
+                top = (int)Math.Round(Math.Min(a.Y, b.Y));
+                right = (int)Math.Round(Math.Max(a.X, b.X));
+                bottom = (int)Math.Round(Math.Max(a.Y, b.Y));
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+
+            return right > left && bottom > top;
+        }
+
+        /// <summary>
+        /// Misura in pixel fisici del riquadro (0 se non e' ancora disegnato).
+        /// </summary>
+        private bool TryGetFlyoutSize(out int width, out int height)
+        {
+            width = height = 0;
+
+            if (_calendarPopup?.Child is not FrameworkElement child)
+            {
+                return false;
+            }
+
+            double scale = GetDpiScale(child);
+            double w = child.ActualWidth > 0 ? child.ActualWidth : child.DesiredSize.Width;
+            double h = child.ActualHeight > 0 ? child.ActualHeight : child.DesiredSize.Height;
+            if (w <= 0 || h <= 0)
+            {
+                return false;
+            }
+
+            width = (int)Math.Ceiling(w * scale);
+            height = (int)Math.Ceiling(h * scale);
+            return true;
+        }
+
+        /// <summary>Posizione fisica voluta per il riquadro.</summary>
+        private bool TryGetCalendarFlyoutTarget(out int x, out int y)
+        {
+            x = y = 0;
+
+            if (!TryGetClockScreenRect(out int clockLeft, out int clockTop,
+                                       out int clockRight, out int clockBottom) ||
+                !TryGetFlyoutSize(out int width, out int height))
+            {
+                return false;
+            }
+
+            var center = new NativeMethods.POINT
+            {
+                x = (clockLeft + clockRight) / 2,
+                y = (clockTop + clockBottom) / 2
+            };
+            IntPtr monitor = NativeMethods.MonitorFromPoint(
+                center, NativeMethods.MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            var info = new NativeMethods.MONITORINFO
+            {
+                cbSize = System.Runtime.InteropServices.Marshal
+                    .SizeOf<NativeMethods.MONITORINFO>()
+            };
+            if (!NativeMethods.GetMonitorInfoW(monitor, ref info))
+            {
+                return false;
+            }
+
+            NativeMethods.RECT work = info.rcWork;
+
+            /* Come Windows 7: a filo con la destra dell'orologio, sopra la
+             * barra. Se sopra non c'e' spazio si passa sotto. */
+            x = clockRight - width;
+            y = clockTop - height - CalendarFlyoutGap;
+            if (y < work.Top)
+            {
+                y = clockBottom + CalendarFlyoutGap;
+            }
+
+            /* Mai fuori dall'area di lavoro del monitor. */
+            int maxX = work.Right - width;
+            int maxY = work.Bottom - height;
+            x = Math.Max(work.Left, Math.Min(x, Math.Max(work.Left, maxX)));
+            y = Math.Max(work.Top, Math.Min(y, Math.Max(work.Top, maxY)));
+            return true;
+        }
+
+        /// <summary>
+        /// Quanti pixel fisici vale una unita' di offset del Popup.
+        ///
+        /// Non si presume: si MISURA. Con l'app consapevole del DPI per
+        /// monitor, la conversione dipende dal monitor su cui la finestra del
+        /// riquadro viene creata, e sbagliarla di un fattore 1.5 lascia il
+        /// riquadro a meta' strada. Alla prima apertura si parte dalla scala
+        /// DPI dell'elemento, poi il valore si calibra sullo spostamento
+        /// realmente ottenuto.
+        /// </summary>
+        private double _calendarOffsetScale;
+
+        /// <summary>Applica la posizione voluta (in unita' del Popup).</summary>
+        private void PlaceCalendarFlyout()
+        {
+            if (_calendarPopup == null ||
+                !TryGetCalendarFlyoutTarget(out int x, out int y))
+            {
+                return;
+            }
+
+            if (_calendarOffsetScale <= 0)
+            {
+                _calendarOffsetScale = GetDpiScale(_calendarPopup.Child);
+            }
+
+            _calendarPopup.HorizontalOffset = x / _calendarOffsetScale;
+            _calendarPopup.VerticalOffset = y / _calendarOffsetScale;
+        }
+
+        /// <summary>Posizione fisica attuale del riquadro (NaN se non c'e').</summary>
+        private bool TryGetFlyoutOrigin(out double x, out double y)
+        {
+            x = y = double.NaN;
+            if (_calendarPopup?.Child is not FrameworkElement child)
+            {
+                return false;
+            }
+            try
+            {
+                Point screen = child.PointToScreen(new Point(0, 0));
+                x = screen.X;
+                y = screen.Y;
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// v2.62: dopo l'apertura si controlla DOVE il riquadro e' finito
+        /// davvero e, se non e' dove deve stare, lo si sposta della differenza.
+        /// La conversione fra unita' del Popup e pixel si misura dallo
+        /// spostamento ottenuto (vedi _calendarOffsetScale): cosi' anche il
+        /// caso peggiore, un monitor con DPI diverso da quello su cui il
+        /// riquadro crede di stare, converge in un paio di passaggi invece di
+        /// restare sbagliato. Dopo tre tentativi si lascia stare: meglio un
+        /// riquadro fuori posto di un riquadro che continua a saltare.
+        /// </summary>
+        private void CorrectCalendarPlacement(int attempt = 0)
+        {
+            if (_calendarPopup == null || !_calendarPopup.IsOpen ||
+                !TryGetCalendarFlyoutTarget(out int wantedX, out int wantedY) ||
+                !TryGetFlyoutOrigin(out double actualX, out double actualY))
+            {
+                return;
+            }
+
+            double dx = wantedX - actualX;
+            double dy = wantedY - actualY;
+            if (Math.Abs(dx) < 1 && Math.Abs(dy) < 1)
+            {
+                return;
+            }
+
+            if (_calendarOffsetScale <= 0)
+            {
+                _calendarOffsetScale = GetDpiScale(_calendarPopup.Child);
+            }
+
+            double appliedX = dx / _calendarOffsetScale;
+            double appliedY = dy / _calendarOffsetScale;
+            _calendarPopup.HorizontalOffset += appliedX;
+            _calendarPopup.VerticalOffset += appliedY;
+
+            if (attempt >= 3)
+            {
+                return;
+            }
+
+            /* Secondo tempo: si guarda di quanto si e' spostato davvero e si
+             * corregge il fattore di conversione, poi si riprova. */
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                if (!TryGetFlyoutOrigin(out double movedX, out double movedY))
+                {
+                    return;
+                }
+
+                double movedBy = Math.Abs(movedX - actualX) > Math.Abs(movedY - actualY)
+                    ? movedX - actualX
+                    : movedY - actualY;
+                double asked = Math.Abs(appliedX) > Math.Abs(appliedY)
+                    ? appliedX
+                    : appliedY;
+
+                if (Math.Abs(asked) > 1 && Math.Abs(movedBy) > 1)
+                {
+                    double measured = movedBy / asked;
+                    if (measured > 0.2 && measured < 5)
+                    {
+                        _calendarOffsetScale = measured;
+                    }
+                }
+
+                CorrectCalendarPlacement(attempt + 1);
+            }));
         }
 
         private void CalendarPopup_Opened(object? sender, EventArgs e)
         {
+            /* v2.62: dove e' finito davvero il riquadro? Se non e' attaccato
+             * all'orologio lo si sposta (DPI, monitor, barra spostata). */
+            CorrectCalendarPlacement();
+
             // Start global mouse hook to detect clicks outside flyout
             // Requirement: If clock flyout open and click other parts of screen outside flyout, it must close
             try
@@ -3751,7 +4810,8 @@ namespace Win7Taskbar
                 if (_calendarPopup != null && _calendarPopup.IsOpen)
                 {
                     _calendarPopup.IsOpen = false;
-                    _calendarPopup = null;
+                    /* v2.61: l'istanza resta in memoria, pronta per il
+                     * prossimo clic (prima si buttava via per ricostruirla). */
                     _globalMouseHook?.Stop();
                 }
             }));
@@ -3777,7 +4837,8 @@ namespace Win7Taskbar
                 if (_calendarPopup != null)
                 {
                     _calendarPopup.IsOpen = false;
-                    _calendarPopup = null;
+                    /* v2.61: l'istanza resta in memoria, pronta per il
+                     * prossimo clic (prima si buttava via per ricostruirla). */
                     _globalMouseHook?.Stop();
                 }
             };
@@ -3823,21 +4884,25 @@ namespace Win7Taskbar
             {
                 // Spunte: tre barre visibili + "Blocca la barra" quando bloccata.
                 string items =
-                    ">Barre degli strumenti\n" +
-                    (DesktopBandHost.Visibility == Visibility.Visible ? "*" : "") + "Desktop\n" +
-                    (LinksBandHost.Visibility == Visibility.Visible ? "*" : "") + "Collegamenti\n" +
-                    (AddressBandHost.Visibility == Visibility.Visible ? "*" : "") + "Indirizzo\n" +
+                    ">" + L("lang_menu_toolbars", "Toolbars") + "\n" +
+                    (DesktopBandHost.Visibility == Visibility.Visible ? "*" : "") +
+                        L("lang_menu_desktop", "Desktop") + "\n" +
+                    (LinksBandHost.Visibility == Visibility.Visible ? "*" : "") +
+                        L("lang_menu_links", "Links") + "\n" +
+                    (AddressBandHost.Visibility == Visibility.Visible ? "*" : "") +
+                        L("lang_menu_address", "Address") + "\n" +
                     "<\n" +
                     "-\n" +
-                    "Sovrapponi le finestre\n" +
-                    "Mostra le finestre in pila\n" +
-                    "Mostra le finestre affiancate\n" +
-                    "Mostra desktop\n" +
+                    L("lang_menu_cascade", "Cascade windows") + "\n" +
+                    L("lang_menu_stack", "Show windows stacked") + "\n" +
+                    L("lang_menu_sidebyside", "Show windows side by side") + "\n" +
+                    L("lang_show_desktop", "Show desktop") + "\n" +
                     "-\n" +
-                    "Avvia Gestione attività\n" +
+                    L("lang_task_manager", "Start Task Manager") + "\n" +
                     "-\n" +
-                    (_taskbarLocked ? "*" : "") + "Blocca la barra delle applicazioni\n" +
-                    "Proprietà";
+                    (_taskbarLocked ? "*" : "") +
+                        L("lang_menu_lock", "Lock the taskbar") + "\n" +
+                    L("lang_properties", "Properties");
 
                 // v2.43: anche il menu semplice della barra (Proprieta',
                 // Avvia Gestione attivita'...) si apre dove sta il cursore,
@@ -4141,15 +5206,99 @@ namespace Win7Taskbar
         /// quello XAML. La scriviamo in HKCU quando l'opzione e' attiva e
         /// la riportiamo a 0 quando viene disattivata.</summary>
         internal static void EnsureWin32BatteryFlyoutReg(bool enable)
+            => WriteImmersiveShellValue("UseWin32BatteryFlyout", enable ? 1 : 0);
+
+        /// <summary>
+        /// v2.63 - Una chiave della shell, scritta in un posto solo.
+        ///
+        /// Sono le stesse tre che usa ExplorerPatcher per far scegliere a
+        /// Windows il riquadro di Windows 7 o quello moderno:
+        ///   UseWin32TrayClockExperience  1 = orologio classico (Aero)
+        ///   UseWin32BatteryFlyout        1 = riquadro batteria Win32 di Win7
+        ///   EnableMtcUvc                 0 = mixer volume classico
+        /// Explorer le legge quando disegna i SUOI riquadri: scriverle tiene
+        /// d'accordo la barra nativa con la nostra scelta (e' anche il modo
+        /// in cui il clic sulla batteria ricreata puo' aprire il riquadro
+        /// VERO di Windows 7, come chiesto).
+        /// </summary>
+        internal static void WriteImmersiveShellValue(string name, int value)
         {
             try
             {
                 using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
                     @"SOFTWARE\Microsoft\Windows\CurrentVersion\ImmersiveShell");
-                key?.SetValue("UseWin32BatteryFlyout", enable ? 1 : 0,
-                              Microsoft.Win32.RegistryValueKind.DWord);
+                key?.SetValue(name, value, Microsoft.Win32.RegistryValueKind.DWord);
+                _lastShellPrefsError = null;
             }
-            catch (Exception) { /* senza registro: nessun flyout classico */ }
+            catch (Exception ex)
+            {
+                _lastShellPrefsError = ex.Message;
+            }
+        }
+
+        private static string? _lastShellPrefsError;
+
+        /// <summary>
+        /// v2.63 - LE QUATTRO SCELTE, APPLICATE ALL'AVVIO E A OGNI APPLICA.
+        ///
+        /// Era qui il difetto di fondo della segnalazione "il programma non
+        /// legge bene le impostazioni all'avvio": la scelta dei riquadri
+        /// veniva scritta nel registro (e comunicata al core) SOLO quando
+        /// l'utente premeva OK o Applica nella finestra Proprieta'. Se la
+        /// barra partiva con le impostazioni gia' salvate, il registro
+        /// restava com'era e il core non sapeva nulla: il clic apriva il
+        /// riquadro sbagliato anche con l'opzione giusta selezionata.
+        ///
+        /// Ora la lettura della configurazione produce QUESTA chiamata, una
+        /// volta sola, all'avvio e a ogni applicazione. Le quattro decisioni
+        /// arrivano al core con W7T_SetFlyoutPreferences e le tre chiavi di
+        /// sistema vengono allineate: da qui in poi ogni percorso di apertura
+        /// (icone ricreate, menu della barra, clic sintetici) usa la stessa
+        /// decisione, quindi la tendina "Windows 7" apre il riquadro di
+        /// Windows 7 e quella "Windows 10/11" apre quello della shell.
+        /// </summary>
+        internal void ApplyShellFlyoutPreferences()
+        {
+            try
+            {
+                var st = RetroBar.Utilities.Settings.Instance;
+
+                /* Significato di ogni scelta (le stesse parole delle tendine):
+                 *   Windows 7       = 1  -> orologio: Aero (ClockFlyoutWindow)
+                 *                           rete: riquadro ricreato
+                 *                           volume: SndVol
+                 *                           batteria: riquadro Win32 di Windows
+                 *   Windows 10/11   = 0  -> riquadro della shell               */
+                bool clockWin7   = st.UseNativeClockFlyout;      /* tendina: "Windows 7" */
+                bool networkWin7 = st.NetworkFlyoutMode == 0;    /* "Windows 7 (ricreato)" */
+                bool volumeWin7  = st.UseClassicVolumeMixer;     /* tendina: "Windows 7" */
+                bool batteryWin7 = st.UseBatteryFlyout;          /* tendina: "Windows 7" */
+
+                WriteImmersiveShellValue("UseWin32TrayClockExperience", clockWin7 ? 1 : 0);
+                WriteImmersiveShellValue("UseWin32BatteryFlyout", batteryWin7 ? 1 : 0);
+                WriteImmersiveShellValue("EnableMtcUvc", volumeWin7 ? 0 : 1);
+
+                _bridge.SetFlyoutPreferences(clockWin7, networkWin7, volumeWin7, batteryWin7);
+
+                string modern = "?";
+                try { modern = _bridge.IsModernFlyoutHostAvailable() ? "si" : "no"; }
+                catch { }
+
+                _bridge.Log(
+                    "SETTINGS: orologio=" + (clockWin7 ? "Windows7" : "Windows10/11") +
+                    " rete=" + (networkWin7 ? "Windows7" : "Windows10/11") +
+                    " volume=" + (volumeWin7 ? "Windows7" : "Windows10/11") +
+                    " batteria=" + (batteryWin7 ? "Windows7" : "Windows10/11") +
+                    " lingua=" + (st.Language ?? Settings.DefaultLanguageCode) +
+                    " secondi=" + (st.ShowClockSeconds ? 1 : 0) +
+                    " ricerca=" + (st.EnableAppSearch ? 1 : 0) +
+                    " riquadri-moderni=" + modern +
+                    (_lastShellPrefsError != null ? " registro-errore=" + _lastShellPrefsError : ""));
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log("SETTINGS: applicazione preferenze riquadri fallita: " + ex.Message);
+            }
         }
 
         private void UpdateSearchButtonVisibility()
@@ -4226,7 +5375,8 @@ namespace Win7Taskbar
                 var st = RetroBar.Utilities.Settings.Instance;
                 GetToolbarStates(out bool tbDesktop, out bool tbLinks, out bool tbAddress);
                 _bridge.PropertiesShow(hwnd,
-                    Math.Max(0, Array.IndexOf(kLangCodes, st.Language ?? "it")),
+                    Math.Max(0, Array.IndexOf(kLangCodes,
+                        st.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode)),
                     st.ShowClockSeconds ? 1 : 0,
                     st.UseNativeClockFlyout ? 1 : 0,
                     st.EnableAppSearch ? 1 : 0,

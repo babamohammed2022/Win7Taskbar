@@ -10,13 +10,13 @@ rem  summary when the build finishes.
 rem ===========================================================================
 chcp 65001 >nul 2>nul
 setlocal
-cd /d "%~dp0.."
+cd /d "%~dp0"
 
-set "SCRIPT=%~dp0..\build\Compila-Release.ps1"
+set "SCRIPT=%~dp0build-release.ps1"
 if not exist "%SCRIPT%" (
   echo.
-  echo ERROR: build\Compila-Release.ps1 was not found.
-  echo Make sure compile.bat is inside the docs folder.
+  echo ERROR: build-release.ps1 was not found next to this file.
+  echo Run build.bat from the "compilation files" folder of the repository.
   echo.
   pause
   exit /b 1

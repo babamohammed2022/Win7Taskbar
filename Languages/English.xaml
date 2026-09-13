@@ -38,4 +38,17 @@
     <s:String x:Key="lang_about_title">About</s:String>
     <s:String x:Key="lang_about_text">Win7Taskbar is a best-effort project in constant improvement that recreates the Windows 7 taskbar on top of the modern one: precision will improve over time. Known limitations: taskbar rotation (side/top) is not supported, so the related option is currently decorative; system windows (flyouts, start menu) are hooked and repositioned, not recreated.</s:String>
     <s:String x:Key="lang_credits">Credits: 3ds for some of the graphic resources and for the inspiration behind the XAML idea.</s:String>
+    <s:String x:Key="lang_menu_toolbars">Toolbars</s:String>
+    <s:String x:Key="lang_menu_desktop">Desktop</s:String>
+    <s:String x:Key="lang_menu_links">Links</s:String>
+    <s:String x:Key="lang_menu_address">Address</s:String>
+    <s:String x:Key="lang_menu_cascade">Cascade windows</s:String>
+    <s:String x:Key="lang_menu_stack">Show windows stacked</s:String>
+    <s:String x:Key="lang_menu_sidebyside">Show windows side by side</s:String>
+    <s:String x:Key="lang_menu_lock">Lock the taskbar</s:String>
+    <s:String x:Key="lang_menu_pin">Pin this program to taskbar</s:String>
+    <s:String x:Key="lang_menu_unpin">Unpin this program from taskbar</s:String>
+    <s:String x:Key="lang_address_tip">Address: type a path or URL and press Enter</s:String>
+    <s:String x:Key="lang_tray_pin_tip">Move between tray and overflow (pin/unpin)</s:String>
+    <s:String x:Key="lang_close_tip">Close</s:String>
 </ResourceDictionary>

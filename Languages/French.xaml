@@ -38,4 +38,17 @@
     <s:String x:Key="lang_about_title">À propos</s:String>
     <s:String x:Key="lang_about_text">Win7Taskbar est un projet best-effort en amélioration constante qui recrée la barre des tâches de Windows 7 par-dessus la barre moderne : la précision s'améliorera avec le temps. Limitations connues : la rotation de la barre des tâches (côtés/haut) n'est pas prise en charge, l'option correspondante est donc actuellement décorative ; les fenêtres système (panneaux, menu Démarrer) sont accrochées et repositionnées, pas recréées.</s:String>
     <s:String x:Key="lang_credits">Crédits : 3ds pour certaines ressources graphiques et pour l'inspiration de l'idée XAML.</s:String>
+    <s:String x:Key="lang_menu_toolbars">Barres d'outils</s:String>
+    <s:String x:Key="lang_menu_desktop">Bureau</s:String>
+    <s:String x:Key="lang_menu_links">Liens</s:String>
+    <s:String x:Key="lang_menu_address">Adresse</s:String>
+    <s:String x:Key="lang_menu_cascade">Fenêtres en cascade</s:String>
+    <s:String x:Key="lang_menu_stack">Afficher les fenêtres empilées</s:String>
+    <s:String x:Key="lang_menu_sidebyside">Afficher les fenêtres côte à côte</s:String>
+    <s:String x:Key="lang_menu_lock">Verrouiller la barre des tâches</s:String>
+    <s:String x:Key="lang_menu_pin">Épingler ce programme à la barre des tâches</s:String>
+    <s:String x:Key="lang_menu_unpin">Détacher ce programme de la barre des tâches</s:String>
+    <s:String x:Key="lang_address_tip">Adresse : tapez un chemin ou une URL puis Entrée</s:String>
+    <s:String x:Key="lang_tray_pin_tip">Déplacer entre la zone de notification et le débordement (épingler/détacher)</s:String>
+    <s:String x:Key="lang_close_tip">Fermer</s:String>
 </ResourceDictionary>

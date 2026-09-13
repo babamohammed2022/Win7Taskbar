@@ -1,8 +1,8 @@
 // Win7Taskbar - pannello overflow nativo con vetro Aero
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 
-#include "DiagnosticLogger.h"
 #include "TrayOverflowWindow.h"
+#include "Strings.h"
 #include "TrayService.h"
 #include "FlyoutLauncher.h"   /* ApplyAeroFlyoutStyle: bordi Aero */
 #include <dwmapi.h>
@@ -197,9 +197,8 @@ void TrayOverflowWindow::RepositionAtAnchor() {
 }
 
 void TrayOverflowWindow::ShowNear(RECT btnScreen) {
-    if (!m_hWnd) { W7T_LOG("OVERFLOW", "stage=chevron-click;model=window-missing;result=event-lost-before-instantiation"); return; }
+    if (!m_hWnd) return;
     RefreshIcons();
-    W7T_LOG("OVERFLOW", std::string("stage=chevron-click;model-count=") + std::to_string(m_icons.size()) + ";result=instantiated-and-refreshed");
     Layout();
 
     m_anchor = btnScreen;   /* v2.27: ricorda l'ancora per i resize */
@@ -377,7 +376,10 @@ void TrayOverflowWindow::OnPaint(HDC hdcWindow) {
     HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, font));
     RECT textRc = m_footerRect;
     // v3.2: centrato orizzontalmente, come il link vero di Win7.
-    DrawTextW(hdc, L"Personalizza...", -1, &textRc,
+    // v2.62: il testo arriva dalla tabella delle stringhe native (undici
+    // lingue, ripiego inglese): prima era italiano fisso nel codice, quindi
+    // su un sistema inglese o tedesco il pannello restava italiano.
+    DrawTextW(hdc, w7t::S(w7t::StrId::OverflowCustomize), -1, &textRc,
               DT_SINGLELINE | DT_VCENTER | DT_CENTER);
     SelectObject(hdc, oldFont);
     DeleteObject(font);
@@ -410,7 +412,6 @@ LRESULT CALLBACK TrayOverflowWindow::WndProc(HWND hWnd, UINT msg,
     case kMsgOverflowRefresh:
         // v3.1: la tray e' cambiata (pin/unpin/aggiunta/rimozione): ricarica
         // conservativamente l'elenco sul thread della finestra.
-        W7T_LOG("OVERFLOW", "stage=refresh-event;result=received");
         self->RefreshIcons();
         return 0;
     case WM_LBUTTONDOWN: {
@@ -548,7 +549,6 @@ LRESULT CALLBACK TrayOverflowWindow::WndProc(HWND hWnd, UINT msg,
 /* v3.0 drag&drop: icona fantasma semitrasparente che segue il cursore.
  * Finestra layered disegnata a mano (niente dipendenze extra). */
 void TrayOverflowWindow::ShowDragImage(POINT pt) {
-    W7T_LOG("DRAG", "stage=overflow-drag;owned=false;uiAutomation=false;technicallyPossible=no;result=ui-owned-model-drag");
     try {
     if (m_dragIdx < 0 || m_dragIdx >= static_cast<int>(m_icons.size())) return;
     HICON icon = m_icons[m_dragIdx].icon;

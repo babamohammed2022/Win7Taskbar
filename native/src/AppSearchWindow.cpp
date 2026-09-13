@@ -11,7 +11,6 @@
 // sulle sottocartelle di Start Menu\Programs (come Open-Shell): ora
 // trova Blocco note, Paint, ecc.
 
-#include "DiagnosticLogger.h"
 #include "AppSearchWindow.h"
 #include "AeroGlass.h"
 #include "FlyoutLauncher.h"
@@ -111,10 +110,18 @@ void SafeDrawIconMask(HDC hdc, int x, int y, HICON icon, int w, int h,
  * dell'alpha sopra il gradiente alpha esistente. Ritorna false per le
  * icone non-32bpp (basate su maschera): li' DrawIconEx funziona bene. */
 bool BlitIcon32(uint32_t* bits, int W, int H, HICON icon,
-                int x, int y, bool mask) {
+                int x, int y, bool mask, UINT dpi) {
     if (bits == nullptr || icon == nullptr) return false;
     ICONINFO ii{};
     if (!GetIconInfo(icon, &ii)) return false;
+    /* v2.60: la scena e' in pixel REALI (W,H sono la taglia logica: la
+     * conversione e' qui). L'icona e' gia' della taglia giusta per il
+     * monitor (chi la carica chiede Px(32) ecc.), quindi si copia 1:1 e si
+     * sposta soltanto la posizione. */
+    const int DW = MulDiv(W, dpi, 96);
+    const int DH = MulDiv(H, dpi, 96);
+    const int ox = MulDiv(x, dpi, 96);
+    const int oy = MulDiv(y, dpi, 96);
     bool done = false;
     W7T_SEH_TRY {
         BITMAP bm{};
@@ -137,13 +144,13 @@ bool BlitIcon32(uint32_t* bits, int W, int H, HICON icon,
             ReleaseDC(nullptr, scr);
             if (got == ih) {
                 for (int j = 0; j < ih; ++j) {
-                    const int dy = y + j;
-                    if (dy < 0 || dy >= H) continue;
+                    const int dy = oy + j;
+                    if (dy < 0 || dy >= DH) continue;
                     const uint32_t* row = &px[static_cast<size_t>(j) * iw];
-                    uint32_t* drow = &bits[static_cast<size_t>(dy) * W];
+                    uint32_t* drow = &bits[static_cast<size_t>(dy) * DW];
                     for (int i = 0; i < iw; ++i) {
-                        const int dx = x + i;
-                        if (dx < 0 || dx >= W) continue;
+                        const int dx = ox + i;
+                        if (dx < 0 || dx >= DW) continue;
                         const uint32_t src = row[i];      /* 0xAARRGGBB */
                         const uint32_t a = (src >> 24) & 0xFF;
                         if (a == 0) continue;
@@ -206,19 +213,32 @@ struct IconGuard {
 };
 
 /* Blit di pixel ARGB ad alpha DRITTO dentro le scene (stessa
- * composizione premoltiplicata di BlitIcon32). */
+ * composizione premoltiplicata di BlitIcon32).
+ *
+ * v2.60: W,H sono la taglia LOGICA della scena: i pixel reali sono
+ * W*dpi/96. L'immagine (sw x sh pixel d'origine) viene portata alla
+ * taglia del monitor con lo stesso campionamento nearest usato dalla
+ * variante scalata; a 96 dpi il risultato e' identico a prima. */
 void BlitArgb(uint32_t* bits, int W, int H, const uint32_t* src,
-              int sw, int sh, int x, int y, bool mask) {
+              int sw, int sh, int x, int y, bool mask, UINT dpi) {
     if (!bits || !src || sw <= 0 || sh <= 0) return;
-    for (int j = 0; j < sh; ++j) {
-        const int dy = y + j;
-        if (dy < 0 || dy >= H) continue;
-        const uint32_t* row = &src[static_cast<size_t>(j) * sw];
-        uint32_t* drow = &bits[static_cast<size_t>(dy) * W];
-        for (int i = 0; i < sw; ++i) {
-            const int dx = x + i;
-            if (dx < 0 || dx >= W) continue;
-            const uint32_t s = row[i];      /* 0xAARRGGBB */
+    const int DW = MulDiv(W, dpi, 96);
+    const int DH = MulDiv(H, dpi, 96);
+    const int dw = MulDiv(sw, dpi, 96) > 0 ? MulDiv(sw, dpi, 96) : 1;
+    const int dh = MulDiv(sh, dpi, 96) > 0 ? MulDiv(sh, dpi, 96) : 1;
+    const int ox = MulDiv(x, dpi, 96);
+    const int oy = MulDiv(y, dpi, 96);
+    for (int j = 0; j < dh; ++j) {
+        const int sy = j * sh / dh;
+        const int dy = oy + j;
+        if (dy < 0 || dy >= DH) continue;
+        const uint32_t* row = &src[static_cast<size_t>(sy) * sw];
+        uint32_t* drow = &bits[static_cast<size_t>(dy) * DW];
+        for (int i = 0; i < dw; ++i) {
+            const int sx = i * sw / dw;
+            const int dx = ox + i;
+            if (dx < 0 || dx >= DW) continue;
+            const uint32_t s = row[sx];     /* 0xAARRGGBB */
             const uint32_t a = (s >> 24) & 0xFF;
             if (a == 0) continue;
             if (!mask) {
@@ -245,20 +265,29 @@ void BlitArgb(uint32_t* bits, int W, int H, const uint32_t* src,
 }
 
 /* Variante scalata (nearest): usata solo per lo scudo UAC grande
- * qualora la taglia di disegno superasse i 16 px. */
+ * qualora la taglia di disegno superasse i 16 px.
+ * v2.60: coordinate e taglia di destinazione sono logiche, la scena e'
+ * in pixel reali. */
 void BlitArgbScaled(uint32_t* bits, int W, int H, const uint32_t* src,
-                    int sw, int sh, int x, int y, int dw, int dh, bool mask) {
+                    int sw, int sh, int x, int y, int dw, int dh, bool mask,
+                    UINT dpi) {
     if (!bits || !src || sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+    const int DW = MulDiv(W, dpi, 96);
+    const int DH = MulDiv(H, dpi, 96);
+    dw = MulDiv(dw, dpi, 96) > 0 ? MulDiv(dw, dpi, 96) : 1;
+    dh = MulDiv(dh, dpi, 96) > 0 ? MulDiv(dh, dpi, 96) : 1;
+    const int ox = MulDiv(x, dpi, 96);
+    const int oy = MulDiv(y, dpi, 96);
     for (int j = 0; j < dh; ++j) {
         const int sy = j * sh / dh;
-        const int dy = y + j;
-        if (dy < 0 || dy >= H) continue;
+        const int dy = oy + j;
+        if (dy < 0 || dy >= DH) continue;
         const uint32_t* row = &src[static_cast<size_t>(sy) * sw];
-        uint32_t* drow = &bits[static_cast<size_t>(dy) * W];
+        uint32_t* drow = &bits[static_cast<size_t>(dy) * DW];
         for (int i = 0; i < dw; ++i) {
             const int sx = i * sw / dw;
-            const int dx = x + i;
-            if (dx < 0 || dx >= W) continue;
+            const int dx = ox + i;
+            if (dx < 0 || dx >= DW) continue;
             const uint32_t s = row[sx];
             const uint32_t a = (s >> 24) & 0xFF;
             if (a == 0) continue;
@@ -286,9 +315,9 @@ void BlitArgbScaled(uint32_t* bits, int W, int H, const uint32_t* src,
 
 /* DPI per-finestra come la mod di riferimento (riga ~649/3806):
  * GetDpiForWindow caricato dinamicamente, ripiego GetDeviceCaps,
- * guardia >= 96. Usato per la REGOLA di scelta della variante dello
- * scudo; il disegno resta alla taglia fissa del layout (finestra non
- * scalata). */
+ * guardia >= 96. Dalla v2.60 non serve piu' solo alla scelta della
+ * variante dello scudo: e' la scala con cui la finestra e il suo
+ * contenuto seguono il monitor (a 125% il pannello non resta piccolo). */
 UINT GetSearchWindowDpi(HWND hwnd) {
     UINT dpi = 0;
     typedef UINT (WINAPI* GetDpiForWindowFn)(HWND);
@@ -428,6 +457,11 @@ HICON SafeGetIcon(const wchar_t* path, DWORD flags) {
 #define ILD_IMAGE 0x0020
 #endif
 
+/* px = taglia NOMINALE (96 DPI): 16, 32 o 48. Serve a scegliere la lista
+ * della shell, non a scalare: la shell restituisce l'icona gia' alla taglia
+ * del monitor (per un processo DPI-aware SHIL_LARGE e' 40 px a 125%). Passare
+ * qui una taglia gia' scalata col DPI fa scegliere la lista sbagliata e
+ * l'icona esce troppo grande per il suo riquadro. */
 HICON ShellItemIcon(const std::wstring& path, int px) {
     HICON out = nullptr;
     W7T_SEH_TRY {
@@ -460,10 +494,17 @@ bool HasBestOf(const std::wstring& q, size_t filtered) {
 /* v2.35: Windows 7 mostra i risultati di ricerca con la parte del nome
  * corrispondente alla query IN GRASSETTO. Disegna il nome in tre
  * segmenti (prima / corrispondenza / dopo) con la stessa dimensione di
- * font; se il nome non ci sta, ripiega sul testo intero con puntini. */
+ * font; se il nome non ci sta, ripiega sul testo intero con puntini.
+ * v2.60: rettangolo in ingresso in pixel logici, disegno in pixel reali. */
 void DrawNameWithMatch(HDC hdc, const std::wstring& name,
                        const std::wstring& query, RECT* r,
-                       HFONT fntNormal, HFONT fntBold) {
+                       HFONT fntNormal, HFONT fntBold, UINT dpi) {
+    /* v2.60: il rettangolo arriva in pixel logici e i font sono creati
+     * alla taglia reale del monitor: qui si lavora direttamente in pixel
+     * reali, cosi' le misure di GetTextExtentPoint32W sono coerenti. */
+    RECT d{ MulDiv(r->left, dpi, 96), MulDiv(r->top, dpi, 96),
+            MulDiv(r->right, dpi, 96), MulDiv(r->bottom, dpi, 96) };
+    r = &d;
     size_t pos = std::wstring::npos;
     const std::wstring lq = Lower(query);
     if (!lq.empty()) pos = Lower(name).find(lq);
@@ -523,7 +564,7 @@ AppSearchWindow::~AppSearchWindow() {
 bool AppSearchWindow::Create(HINSTANCE hInstance, HWND owner,
                              const uint32_t* argbPixels,
                              int32_t iconW, int32_t iconH) {
-    if (m_hWnd) { W7T_LOG("SEARCH", "create=already-exists"); return true; }
+    if (m_hWnd) return true;
 
     WNDCLASSEXW wc{};
     wc.cbSize        = sizeof(wc);
@@ -534,12 +575,15 @@ bool AppSearchWindow::Create(HINSTANCE hInstance, HWND owner,
     wc.hbrBackground = nullptr;
     RegisterClassExW(&wc);
 
+    m_dpi = GetSearchWindowDpi(owner);
+    if (m_dpi < 96) m_dpi = 96;
+
     m_hWnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED,
         kClassName, L"App Search",
-        WS_POPUP, 0, 0, kTotalWidth, kTotalHeight,
+        WS_POPUP, 0, 0, Px(kTotalWidth), Px(kTotalHeight),
         owner, nullptr, hInstance, nullptr);
-    if (!m_hWnd) { W7T_LOG("SEARCH", "create=failed"); return false; }
+    if (!m_hWnd) return false;
     SetWindowLongPtrW(m_hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 
     // Niente frame DWM ne' AdjustWindowRect: su una finestra LAYERED il
@@ -613,7 +657,6 @@ bool AppSearchWindow::Create(HINSTANCE hInstance, HWND owner,
         m_scanDone = true;
         if (m_hWnd) PostMessageW(m_hWnd, WM_APP + 1, 0, 0);
     });
-    W7T_LOG("SEARCH", "create=ok;scan=started");
     return true;
 }
 
@@ -713,7 +756,6 @@ void AppSearchWindow::MaybeRescanIfStale() {
  * Strumenti di sistema...) cosi' Blocco note/Paint/Calcolatrice
  * compaiono. */
 void AppSearchWindow::ScanInstalledApps() {
-    W7T_LOG("SEARCH", "stage=scan-start;result=started;error=");
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     std::vector<AppEntry> local;
     /* v2.37 bug #3: dedupe O(log n) per chiave normalizzata (vedi sotto). */
@@ -789,6 +831,15 @@ void AppSearchWindow::ScanInstalledApps() {
                  * fallita); blocco SEH perche' tocchiamo risorse esterne
                  * (shell/COM). */
                 W7T_SEH_TRY {
+                    /* v2.60: qui si chiede la taglia NOMINALE (32/16/48),
+                     * mai quella scalata col DPI. ShellItemIcon sceglie la
+                     * lista di immagini in base a quella taglia (16 ->
+                     * SHIL_SMALL, 32 -> SHIL_LARGE, 48 -> SHIL_EXTRALARGE),
+                     * e per un processo DPI-aware la shell restituisce gia'
+                     * l'icona della taglia giusta per il monitor. Chiedere
+                     * Px(32)=40 faceva scegliere la lista EXTRALARGE (48)
+                     * e l'icona arrivava nel riquadro da 40 px: era questo
+                     * a farle sembrare giganti. */
                     IconGuard gLarge(ShellItemIcon(lnkPath, 32));
                     if (!gLarge.h) {
                         gLarge.h = ResolveAppIcon(lnkPath.c_str(),
@@ -846,16 +897,12 @@ void AppSearchWindow::ScanInstalledApps() {
             if (a.iconPreview) DestroyIcon(a.iconPreview);
         }
         m_allApps = std::move(local);
-        W7T_LOG("SEARCH", std::string("stage=scan-complete;result=results=") + std::to_string(m_allApps.size()));
-    } else {
-        W7T_LOG("SEARCH", "stage=scan-complete;result=cancelled;error=stop-requested");
     }
     CoUninitialize();
 }
 
 void AppSearchWindow::ApplyFilter(const std::wstring& query) {
     m_query = query;
-    W7T_LOG("SEARCH", std::string("stage=filter;result=query-len=") + std::to_string(query.size()));
     m_filtered.clear();
     m_scroll = 0;
     const std::wstring q = Lower(query);
@@ -930,7 +977,6 @@ void AppSearchWindow::ApplyFilter(const std::wstring& query) {
     for (const Hit& h : exact) m_filtered.push_back(h.idx);
     for (const Hit& h : fuzzy) m_filtered.push_back(h.idx);
     m_selectedRow = m_filtered.empty() ? -1 : 0;
-    W7T_LOG("SEARCH", std::string("stage=filter-result;result=results=") + std::to_string(m_filtered.size()));
 }
 
 void AppSearchWindow::SelectRow(int index) {
@@ -998,7 +1044,7 @@ void AppSearchWindow::AddRecentFile(int appIndex) {
 }
 
 void AppSearchWindow::Show(int anchorX, int anchorY) {
-    if (!m_hWnd) { W7T_LOG_SEARCH("show", "rejected", "window-not-created"); return; }
+    if (!m_hWnd) return;
     /* v2.43: se l'indice ha piu' di kRescanInterval si riscansiona in
      * background: il pannello si apre SUBITO con i risultati vecchi (non
      * si aspetta nulla) e si aggiorna da solo quando arriva WM_APP + 1. */
@@ -1008,11 +1054,13 @@ void AppSearchWindow::Show(int anchorX, int anchorY) {
     m_hoverMag = false;
     m_hoverClear = false;
     m_scrollDragging = false;
+    /* v2.60: l'ancora arriva in pixel reali (dalla barra), la taglia del
+     * pannello e' quella del monitor. */
     SetWindowPos(m_hWnd, HWND_TOPMOST,
-                 anchorX, anchorY - kTotalHeight - 6,
-                 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+                 anchorX, anchorY - Px(kTotalHeight) - Px(6),
+                 Px(kTotalWidth), Px(kTotalHeight),
+                 SWP_SHOWWINDOW | SWP_NOACTIVATE);
     ApplyFilter(L"");
-    W7T_LOG_SEARCH("show", "opened", "");
     InvalidateRect(m_hWnd, nullptr, TRUE);
     SetFocus(m_hWnd);
     SetTimer(m_hWnd, 1, 538, nullptr);
@@ -1139,6 +1187,39 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         return mask ? RGB(0xFF, 0xFF, 0xFF) : c;
     };
 
+    /* v2.60 - DPI. Tutto il corpo di questa funzione continua a ragionare
+     * in PIXEL LOGICI (96 dpi): sono questi piccoli sostituti locali delle
+     * funzioni GDI a convertire in pixel reali al momento della chiamata.
+     * I font invece nascono gia' alla taglia reale, quindi il testo resta
+     * nitido invece di essere ingrandito a posteriori. */
+    auto FillRect = [&](HDC h, const RECT* r, HBRUSH b) {
+        RECT d = PxRect(*r); ::FillRect(h, &d, b);
+    };
+    auto FrameRect = [&](HDC h, const RECT* r, HBRUSH b) {
+        RECT d = PxRect(*r); ::FrameRect(h, &d, b);
+    };
+    auto DrawTextW = [&](HDC h, const wchar_t* t, int n, const RECT* r, UINT f) {
+        RECT d = PxRect(*r); return ::DrawTextW(h, t, n, &d, f);
+    };
+    auto MoveToEx = [&](HDC h, int x, int y, LPPOINT p) {
+        return ::MoveToEx(h, Px(x), Px(y), p);
+    };
+    auto LineTo = [&](HDC h, int x, int y) {
+        return ::LineTo(h, Px(x), Px(y));
+    };
+    auto Polygon = [&](HDC h, const POINT* pts, int n) {
+        std::vector<POINT> d(static_cast<size_t>(n));
+        for (int i = 0; i < n; ++i) d[i] = POINT{ Px(pts[i].x), Px(pts[i].y) };
+        return ::Polygon(h, d.data(), n);
+    };
+    auto GradientFill = [&](HDC h, TRIVERTEX* v, ULONG nv,
+                            GRADIENT_RECT* g, ULONG ng, ULONG mode) {
+        std::vector<TRIVERTEX> d(v, v + nv);
+        for (ULONG i = 0; i < nv; ++i) { d[i].x = Px(d[i].x); d[i].y = Px(d[i].y); }
+        return ::GradientFill(h, d.data(), nv, g, ng, mode);
+    };
+
+
     // sfondo: gradiente blu (colori) o gradiente di alpha (maschera)
     {
         TRIVERTEX vtx[2] = {};
@@ -1171,9 +1252,10 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         DeleteObject(hb);
     }
     SetBkMode(hdc, TRANSPARENT);
-    HFONT font     = MakeFont(13, false);
-    HFONT fontBold = MakeFont(12, true);
-    HFONT fontMatch = MakeFont(13, true);   /* grassetto stessa taglia */
+
+    HFONT font     = MakeFont(Px(13), false);
+    HFONT fontBold = MakeFont(Px(12), true);
+    HFONT fontMatch = MakeFont(Px(13), true);   /* grassetto stessa taglia */
     HFONT oldFont  = static_cast<HFONT>(SelectObject(hdc, font));
 
     const bool best = HasBestOf(m_query, m_filtered.size());
@@ -1209,15 +1291,15 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
          * su memory DC produce rettangoli bianchi). Il blit disegna
          * alla taglia nativa dell'icona (16/32/48 richieste alla shell). */
         if (sceneBits != nullptr &&
-            BlitIcon32(sceneBits, W, H, ic, x, y, mask)) {
+            BlitIcon32(sceneBits, W, H, ic, x, y, mask, m_dpi)) {
             return;
         }
         if (mask) {
             const int gy = y + h / 2;
             const int g = grayAt(gy > H - 1 ? H - 1 : gy);
-            SafeDrawIconMask(hdc, x, y, ic, w, h, RGB(g, g, g));
+            SafeDrawIconMask(hdc, Px(x), Px(y), ic, Px(w), Px(h), RGB(g, g, g));
         } else {
-            SafeDrawIconEx(hdc, x, y, ic, w, h);
+            SafeDrawIconEx(hdc, Px(x), Px(y), ic, Px(w), Px(h));
         }
     };
 
@@ -1225,7 +1307,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
     int yCur = kListTop;
 
     if (best) {
-        drawHeader(L"Corrispondenza migliore", yCur);
+        drawHeader(S(StrId::BestMatch), yCur);
         yCur += 22;
         const AppEntry& app = m_allApps[m_filtered[0]];
         RECT selR{ 10, yCur, kLeftWidth - 10, yCur + 46 };
@@ -1260,19 +1342,19 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         SelectObject(hdc, ob);
         RECT sr{ 56, yCur + 25, kLeftWidth - 12, yCur + 43 };
         SetTextColor(hdc, col(kTextDim));
-        DrawTextW(hdc, L"App", -1, &sr, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+        DrawTextW(hdc, S(StrId::AppItem), -1, &sr, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
         yCur += 46;
     }
 
     if (!m_scanDone && m_allApps.empty() && m_query.empty()) {
         SetTextColor(hdc, col(kTextDim));
         RECT lr{ 10, kListTop + 60, kLeftWidth - 10, kListTop + 140 };
-        DrawTextW(hdc, L"Scansione applicazioni...", -1, &lr,
+        DrawTextW(hdc, S(StrId::ScanningApplications), -1, &lr,
                   DT_SINGLELINE | DT_VCENTER | DT_CENTER);
         yCur += 26;
     }
     if (!m_filtered.empty() || m_query.empty()) {
-        drawHeader(L"Programmi", yCur);
+        drawHeader(S(StrId::Programs), yCur);
     }
     yCur += 22;
     const int rowsTop = yCur;
@@ -1296,12 +1378,12 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         if (app.iconLarge) drawIcon(14, yy + 3, app.iconLarge, 32, 32);
         else if (app.iconSmall) drawIcon(22, yy + 11, app.iconSmall, 16, 16);
         RECT tr{ 56, yy, kLeftWidth - 14, yy + kRowHeight };
-        DrawNameWithMatch(hdc, app.name, m_query, &tr, font, fontMatch);
+        DrawNameWithMatch(hdc, app.name, m_query, &tr, font, fontMatch, m_dpi);
     }
     if (m_filtered.empty() && !m_query.empty()) {
         SetTextColor(hdc, col(kTextDim));
         RECT nr{ 14, rowsTop + 6, kLeftWidth - 14, rowsTop + 66 };
-        DrawTextW(hdc, L"Nessun elemento corrisponde alla ricerca.", -1,
+        DrawTextW(hdc, S(StrId::NoSearchResults), -1,
                   &nr, DT_WORDBREAK | DT_LEFT);
     }
 
@@ -1365,14 +1447,16 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         SelectObject(hdc, ob);
         RECT ar{ kLeftWidth + 10, 88, W - 10, 102 };
         SetTextColor(hdc, col(kTextDim));
-        DrawTextW(hdc, L"App", -1, &ar, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
+        DrawTextW(hdc, S(StrId::AppItem), -1, &ar, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
 
         hline(kHeaderH + 2, kLeftWidth + 14, W - 14);
 
+        /* v2.59: tre stringhe generate dall'app: lingua scelta, non
+         * letterali italiani (vedi Strings.cpp). */
         const wchar_t* labels[3] = {
-            L"Apri",
-            L"Esegui come amministratore",
-            L"Apri percorso file"
+            S(StrId::Open),
+            S(StrId::RunAsAdministrator),
+            S(StrId::OpenFileLocation)
         };
         int oy = kHeaderH + 8;
         for (int i = 0; i < 3; ++i) {
@@ -1397,11 +1481,12 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
                 const int sy = oy + (kOptionHeight - iconSize) / 2;
                 if (iconSize <= 16 && !m_shieldSmall.empty() && sceneBits) {
                     BlitArgb(sceneBits, W, H, m_shieldSmall.data(),
-                             m_shieldSmallW, m_shieldSmallH, sx, sy, mask);
+                             m_shieldSmallW, m_shieldSmallH, sx, sy, mask,
+                             m_dpi);
                 } else if (!m_shieldLarge.empty() && sceneBits) {
                     BlitArgbScaled(sceneBits, W, H, m_shieldLarge.data(),
                                    m_shieldLargeW, m_shieldLargeH,
-                                   sx, sy, iconSize, iconSize, mask);
+                                   sx, sy, iconSize, iconSize, mask, m_dpi);
                 }
                 textRc.left += iconSize + 6;
             } else if ((i == 0 || i == 2) && sceneBits) {
@@ -1417,7 +1502,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
                     const int sx = kLeftWidth + 12;
                     const int sy = oy + (kOptionHeight - iconSize) / 2;
                     BlitArgbScaled(sceneBits, W, H, px.data(), pw, ph,
-                                   sx, sy, iconSize, iconSize, mask);
+                                   sx, sy, iconSize, iconSize, mask, m_dpi);
                     textRc.left += iconSize + 6;
                 }
             }
@@ -1433,7 +1518,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
             RECT fr{ kLeftWidth + 10, oy + 12, W - 10, oy + 30 };
             HFONT ob2 = static_cast<HFONT>(SelectObject(hdc, fontBold));
             SetTextColor(hdc, col(kTextDim));
-            DrawTextW(hdc, L"File recenti", -1, &fr, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+            DrawTextW(hdc, S(StrId::RecentFiles), -1, &fr, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
             SelectObject(hdc, ob2);
             int ry = oy + 32;
             for (int idxApp : m_recentFiles) {
@@ -1473,7 +1558,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         const int mx = editR.left + 8 + (16 - m_magW) / 2;
         const int my = eTop + 7 + (16 - m_magH) / 2;
         BlitArgb(sceneBits, W, H, m_magPixels.data(), m_magW, m_magH,
-                 mx, my, mask);
+                 mx, my, mask, m_dpi);
     } else if (m_searchIcon) {
         /* ripiego: icona-finestra ricevuta da C# */
         drawIcon(editR.left + 7, eTop + 7, m_searchIcon, 16, 16);
@@ -1484,6 +1569,8 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
     /* v2.37 punto 7: evidenzia la selezione (Ctrl+A) come un vero
      * controllo EDIT: fondo blu e testo bianco. */
     RECT txR{ editR.left + 28, eTop, editR.right - 26, eTop + 30 };
+    /* ts e' misurato col font reale: riportato in unita' logiche. */
+    ts.cx = Dip(ts.cx);
     if (m_hasSelection && !m_query.empty()) {
         RECT selR{ txR.left - 2, eTop + 4,
                    std::min<int>(txR.left + ts.cx + 2, editR.right - 4),
@@ -1534,8 +1621,11 @@ void AppSearchWindow::OnPaint(HDC hdcWindow) {
     (void)hdcWindow;
     RECT rc{};
     GetClientRect(m_hWnd, &rc);
-    const int W = rc.right, H = rc.bottom;
+    const int W = rc.right, H = rc.bottom;      /* pixel reali */
     if (W <= 0 || H <= 0) return;
+    /* v2.60: la scena si disegna in unita' logiche (96 dpi), i buffer
+     * sono della taglia reale del monitor. */
+    const int lw = Dip(W), lh = Dip(H);
 
     void* colorBits = nullptr;
     void* maskBits = nullptr;
@@ -1553,8 +1643,8 @@ void AppSearchWindow::OnPaint(HDC hdcWindow) {
     HBITMAP obC = static_cast<HBITMAP>(SelectObject(dcC, colorBmp));
     HBITMAP obM = static_cast<HBITMAP>(SelectObject(dcM, maskBmp));
 
-    RenderScene(dcC, static_cast<uint32_t*>(colorBits), W, H, false);
-    RenderScene(dcM, static_cast<uint32_t*>(maskBits), W, H, true);
+    RenderScene(dcC, static_cast<uint32_t*>(colorBits), lw, lh, false);
+    RenderScene(dcM, static_cast<uint32_t*>(maskBits), lw, lh, true);
 
     // composizione: alpha dalla maschera, colori dalla scena, premultiply
     uint32_t* c = static_cast<uint32_t*>(colorBits);
@@ -1708,8 +1798,22 @@ LRESULT CALLBACK AppSearchWindow::WndProc(HWND hWnd, UINT msg,
         InvalidateRect(hWnd, nullptr, FALSE);
         return 0;
     }
+    case WM_DPICHANGED: {
+        /* v2.60: il pannello segue il monitor (125%, 150%...). La
+         * dimensione logica resta quella: cambia la taglia reale. */
+        self->m_dpi = LOWORD(wParam) >= 96 ? LOWORD(wParam) : 96;
+        const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
+        SetWindowPos(hWnd, nullptr,
+                     suggested ? suggested->left : 0,
+                     suggested ? suggested->top : 0,
+                     self->Px(self->kTotalWidth), self->Px(self->kTotalHeight),
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        InvalidateRect(hWnd, nullptr, TRUE);
+        return 0;
+    }
     case WM_MOUSEMOVE: {
         POINT p{ static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)) };
+        p = self->ToLogical(p);   /* v2.60: qui si ragiona in pixel logici */
         /* v2.37 punto 12: trascinamento del cursore della scrollbar. */
         if (self->m_scrollDragging) {
             const ScrollGeom sg = self->ComputeScrollGeom();
@@ -1742,6 +1846,7 @@ LRESULT CALLBACK AppSearchWindow::WndProc(HWND hWnd, UINT msg,
     }
     case WM_LBUTTONDOWN: {
         POINT p{ static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)) };
+        p = self->ToLogical(p);   /* v2.60: qui si ragiona in pixel logici */
         /* v2.37 punto 12: click sulla scrollbar disegnata (frecce,
          * cursore, binario). */
         {

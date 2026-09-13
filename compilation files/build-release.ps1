@@ -10,18 +10,18 @@
       2. se CMake e' disponibile compila anche la parte nativa C++; altrimenti
          usa la DLL nativa gia' inclusa nel repository (dist\Win7TaskbarCore.dll),
          quindi la build riesce anche senza Visual Studio;
-      3. chiama lo script ufficiale del progetto (build/publish.ps1) in modalita'
+      3. chiama lo script ufficiale del progetto (compilation files/publish.ps1) in modalita'
          self-contained, cioe' con il runtime .NET incluso nel pacchetto:
          l'utente finale non dovra' installare nessuna versione di .NET;
       4. crea l'archivio Win7Taskbar-<versione>-win-x64.zip.
 
-    Per avviarlo basta fare doppio clic su COMPILA.bat nella cartella principale
+    Per avviarlo basta fare doppio clic su build.bat nella cartella 'compilation files'
     del repository.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File build\Compila-Release.ps1
+    powershell -ExecutionPolicy Bypass -File "compilation files\build-release.ps1"
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File build\Compila-Release.ps1 -SkipNative -NoZip
+    powershell -ExecutionPolicy Bypass -File "compilation files\build-release.ps1" -SkipNative -NoZip
 #>
 [CmdletBinding()]
 param(
@@ -81,7 +81,7 @@ function Install-DotNetSdk {
     }
 
     # Rende il SDK visibile per questa sessione (e quindi al processo figlio
-    # che esegue build\publish.ps1): niente modifiche permanenti al sistema.
+    # che esegue compilation files\publish.ps1): niente modifiche permanenti al sistema.
     $env:PATH = "$dir;$env:PATH"
 }
 

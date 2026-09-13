@@ -79,4 +79,36 @@ namespace Win7Taskbar.Converters
             return Binding.DoNothing;
         }
     }
+    /// <summary>
+    /// v2.61: percentuale di una lunghezza. Serve a spostare le linee
+    /// dell'indicatore "finestre impilate" del 5% della larghezza del
+    /// pulsante: il valore resta la stessa percentuale a qualunque DPI e con
+    /// qualunque larghezza del pulsante, perche' si ricalcola da ActualWidth.
+    /// </summary>
+    [ValueConversion(typeof(double), typeof(double))]
+    public sealed class WidthRatioConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter,
+                              CultureInfo culture)
+        {
+            double width = value is double d ? d : 0.0;
+            double ratio = 0.05;
+            if (parameter is string text && double.TryParse(
+                    text, NumberStyles.Float, CultureInfo.InvariantCulture,
+                    out double parsed))
+            {
+                ratio = parsed;
+            }
+            else if (parameter is double pd)
+            {
+                ratio = pd;
+            }
+
+            return width * ratio;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter,
+                                  CultureInfo culture)
+            => Binding.DoNothing;
+    }
 }

@@ -9,6 +9,7 @@
 
 #include "BatteryFlyout.h"
 #include "BatteryAssets.inc"
+#include "Strings.h"
 #include "FlyoutLauncher.h"
 #include "SehGuard.h"
 #include "Common.h"
@@ -130,93 +131,11 @@ static bool GdipDrawHQ(HDC hdc, void* bmp, int x, int y, int w, int h) {
     return st == 0;
 }
 
-/* Traduzioni minime (stesse lingue dell'app): solo le stringhe del flyout. */
-struct BattStr {
-    const wchar_t* remaining;   /* "%d%% di carica rimanente" */
-    const wchar_t* timeLeft;    /* "Tempo restante: %d h %02d min (%d%%)" */
-    const wchar_t* charging;    /* "In carica (%d%%)" */
-    const wchar_t* full;        /* "Carica completa" */
-    const wchar_t* noBattery;   /* "Batteria non rilevata" */
-    const wchar_t* link;        /* "Altre opzioni di risparmio energia" */
-};
-const BattStr& Str(int lang) {
-    static const BattStr kIt = {
-        L"%d%% di carica rimanente",
-        L"Tempo restante: %d h %02d min (%d%%)",
-        L"In carica (%d%%)",
-        L"Carica completa",
-        L"Batteria non rilevata",
-        L"Altre opzioni di risparmio energia" };
-    static const BattStr kEn = {
-        L"%d%% battery remaining",
-        L"Time remaining: %d h %02d min (%d%%)",
-        L"Charging (%d%%)",
-        L"Fully charged",
-        L"No battery detected",
-        L"More power options" };
-    static const BattStr kEs = {
-        L"%d%% de batería restante",
-        L"Tiempo restante: %d h %02d min (%d%%)",
-        L"Cargando (%d%%)",
-        L"Batería cargada",
-        L"Batería no detectada",
-        L"Más opciones de energía" };
-    static const BattStr kFr = {
-        L"%d%% de batterie restante",
-        L"Temps restant : %d h %02d min (%d%%)",
-        L"En charge (%d%%)",
-        L"Batterie chargée",
-        L"Aucune batterie détectée",
-        L"Plus d'options d'alimentation" };
-    static const BattStr kDe = {
-        L"%d%% Akkuladung verbleibend",
-        L"Verbleibend: %d h %02d min (%d%%)",
-        L"Wird aufgeladen (%d%%)",
-        L"Voll aufgeladen",
-        L"Kein Akku erkannt",
-        L"Weitere Energieoptionen" };
-    static const BattStr kPt = {
-        L"%d%% de bateria restante",
-        L"Tempo restante: %d h %02d min (%d%%)",
-        L"Carregando (%d%%)",
-        L"Bateria carregada",
-        L"Nenhuma bateria detectada",
-        L"Mais opções de energia" };
-    static const BattStr kPl = {
-        L"Pozostało %d%% baterii",
-        L"Pozostały czas: %d h %02d min (%d%%)",
-        L"Ładowanie (%d%%)",
-        L"W pełni naładowana",
-        L"Nie wykryto baterii",
-        L"Więcej opcji zasilania" };
-    static const BattStr kRu = {
-        L"Осталось %d%% заряда",
-        L"Осталось: %d ч %02d мин (%d%%)",
-        L"Зарядка (%d%%)",
-        L"Батарея заряжена",
-        L"Батарея не обнаружена",
-        L"Дополнительные параметры питания" };
-    static const BattStr kJa = {
-        L"残り %d%%",
-        L"残り時間: %d 時間 %02d 分 (%d%%)",
-        L"充電中 (%d%%)",
-        L"満充電",
-        L"バッテリーが見つかりません",
-        L"その他の電源オプション" };
-    static const BattStr kZh = {
-        L"剩余 %d%%",
-        L"剩余时间: %d 小时 %02d 分钟 (%d%%)",
-        L"正在充电 (%d%%)",
-        L"电量已满",
-        L"未检测到电池",
-        L"更多电源选项" };
-    switch (lang) {
-        case 1: return kEn; case 2: return kEs; case 3: return kFr;
-        case 4: return kDe; case 5: return kPt; case 6: return kPl;
-        case 7: return kRu; case 8: return kJa; case 9: return kZh;
-        default: return kIt;
-    }
-}
+/* v2.59: LE TRADUZIONI DI QUESTO FLYOUT NON STANNO PIU' QUI.
+ * Vivono nella tabella unica del core (Strings.cpp, BattStrings), che
+ * copre TUTTE e 11 le lingue supportate: l'arabo, che prima non aveva
+ * una tabella e ripiegava sull'inglese, ora c'e'. L'accesso e'
+ * BattStringsFor(LangFromIndex(m_lang)). */
 
 /* HBITMAP/AlphaBlend condivisi: vedi Common.cpp (MakeHBitmapFromArgb,
  * DrawBitmapScaled). */
@@ -228,7 +147,9 @@ BatteryFlyout& BatteryFlyout::Instance() {
 }
 
 void BatteryFlyout::SetLanguage(int appLang) {
-    m_lang = (appLang >= 0 && appLang <= 9) ? appLang : 0;
+    /* v2.59: l'indice e' quello dell'elenco unico delle lingue (0=it ...
+     * 10=ar); fuori elenco si mostra inglese, mai italiano per omissione. */
+    m_lang = (appLang >= 0 && appLang < kLangCount) ? appLang : LangIndex(Lang::En);
     if (m_hwnd && IsWindow(m_hwnd)) InvalidateRect(m_hwnd, nullptr, TRUE);
 }
 
@@ -335,13 +256,16 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
     const int  percent  = (sps.BatteryLifePercent <= 100)
                           ? static_cast<int>(sps.BatteryLifePercent) : -1;
 
-    /* scegli il glifo: colore per soglia, livello per decile */
+    /* scegli il glifo: livello per decile, serie per stato. La striscia del
+     * progetto disegna la batteria con la spina quando il PC e' collegato
+     * alla rete elettrica, quindi la spina non si sovrappone piu': e' gia'
+     * dentro il glifo della serie giusta. */
     int idx = battassets::IdxEmpty;
     if (noBatt) idx = battassets::IdxNoBatt;
     else if (percent >= 0) {
-        int base = battassets::IdxGreenBase, maxLvl = 10;
-        if (percent <= 15)      { base = battassets::IdxRedBase;    maxLvl = 6; }
-        else if (percent <= 35) { base = battassets::IdxYellowBase; maxLvl = 10; }
+        int base = battassets::IdxLevelBase, maxLvl = 10;
+        if (charging)           { base = battassets::IdxChargingBase; maxLvl = 10; }
+        else if (percent <= 15) { base = battassets::IdxLowBase;      maxLvl = 6;  }
         int lvl = (percent + 9) / 10;
         if (lvl < 1) lvl = 1;
         if (lvl > maxLvl) lvl = maxLvl;
@@ -365,12 +289,6 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
         /* v2.41: prima GDI+ alta qualita', ripiego GDI identico. */
         if (!(m_gdip[idx] && GdipDrawHQ(hdc, m_gdip[idx], 20, iy, dw, dh)))
             DrawBitmapScaled(hdc, m_icons[idx], dw, dh, 20, iy);
-        if (charging && (m_icons[battassets::IdxPlug] ||
-                         m_gdip[battassets::IdxPlug])) {
-            if (!(m_gdip[battassets::IdxPlug] &&
-                  GdipDrawHQ(hdc, m_gdip[battassets::IdxPlug], 8, iy + 10, 12, 26)))
-                DrawBitmapScaled(hdc, m_icons[battassets::IdxPlug], 12, 26, 8, iy + 10);
-        }
     }
 
     SetBkMode(hdc, TRANSPARENT);
@@ -379,7 +297,7 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
         CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     HGDIOBJ oldFont = SelectObject(hdc, font);
 
-    const BattStr& S = Str(m_lang);
+    const BattStrings& S = BattStringsFor(LangFromIndex(m_lang));
     wchar_t line[160] = {};
     if (noBatt) {
         wcscpy_s(line, S.noBattery);

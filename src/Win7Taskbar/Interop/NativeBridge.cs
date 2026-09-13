@@ -460,6 +460,29 @@ namespace Win7Taskbar.Interop
         public bool OverflowGetRect(out int l, out int t, out int r, out int b)
             => NativeMethods.W7T_OverflowGetRect(out l, out t, out r, out b) == 1;
 
+        /// <summary>v2.60: su Windows 11 il clic sulla freccetta apre il flyout
+        /// di sistema. Non c'e' nessun pannello nostro da nascondere e nessun
+        /// rettangolo da escludere dall'hook dei clic esterni.</summary>
+        public bool OverflowUsesShellFlyout() => NativeMethods.W7T_OverflowUsesShellFlyout() == 1;
+
+        /// <summary>v2.61: Windows 11 secondo il core (RtlGetVersion).</summary>
+        public bool IsWindows11() => NativeMethods.W7T_IsWindows11() == 1;
+
+        /// <summary>v2.62: chiude il riquadro dell'orologio della shell se
+        /// e' aperto (non lo apre mai).</summary>
+        public void HideClockFlyout()
+        {
+            try
+            {
+                NativeMethods.W7T_HideClockFlyout();
+            }
+            catch
+            {
+                /* La chiusura e' una precauzione: se il core non risponde si
+                 * prosegue e il riquadro nostro si apre comunque. */
+            }
+        }
+
         // v3.0: ricerca app opzionale.
         public bool AppSearchInit(IntPtr taskbarHwnd, byte[]? argbPixels, int iconW, int iconH)
             => NativeMethods.W7T_AppSearchInit((ulong)taskbarHwnd, argbPixels, iconW, iconH) == 1;
@@ -473,6 +496,23 @@ namespace Win7Taskbar.Interop
         /// <summary>v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).</summary>
         public bool NetFlyoutInit() => NativeMethods.W7T_NetFlyoutInit() == 1;
         public void NetFlyoutUninit() => NativeMethods.W7T_NetFlyoutUninit();
+
+        /// <summary>v2.62: dichiara al core se il riquadro di rete di
+        /// Windows 7 e' pronto all'uso (vedi W7T_NetFlyoutInit).</summary>
+        public void SetWin7NetworkFlyout(bool ready)
+            => NativeMethods.W7T_SetWin7NetworkFlyout(ready ? 1 : 0);
+
+        /// <summary>v2.63: pubblica le preferenze dei quattro riquadri al
+        /// core, che da solo decide quale percorso usare per ognuno.</summary>
+        public void SetFlyoutPreferences(bool clockWin7, bool networkWin7,
+                                         bool volumeWin7, bool batteryWin7)
+            => NativeMethods.W7T_SetFlyoutPreferences(clockWin7 ? 1 : 0,
+                networkWin7 ? 1 : 0, volumeWin7 ? 1 : 0, batteryWin7 ? 1 : 0);
+
+        /// <summary>v2.63: vero se questa build ha i riquadri moderni della
+        /// shell (Windows 11 con l'infrastruttura immersiva presente).</summary>
+        public bool IsModernFlyoutHostAvailable()
+            => NativeMethods.W7T_IsModernFlyoutHostAvailable() == 1;
         public void NetFlyoutToggleAt(int left, int top, int right, int bottom)
         {
             var rc = new NativeMethods.RECT { Left = left, Top = top, Right = right, Bottom = bottom };

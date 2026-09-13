@@ -374,6 +374,50 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_OverflowGetRect(out int left, out int top, out int right, out int bottom);
 
+        // v2.61: sempre 0 - la freccetta apre il pannello nostro su ogni
+        // sistema. Sulle build di Windows 11 24H2 la freccetta della shell
+        // non risponde all'invoke UI Automation, quindi il flyout di sistema
+        // non si apriva e il clic non faceva nulla.
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_OverflowUsesShellFlyout();
+
+        /// <summary>
+        /// v2.61: vero se il sistema e' Windows 11 (build >= 22000). Letto
+        /// dal core con RtlGetVersion: la versione gestita non e'
+        /// affidabile, perche' il manifest dell'app non dichiara Windows 10.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_IsWindows11();
+
+        /// <summary>
+        /// v2.63: pubblica al core la scelta dei quattro riquadri. Da questo
+        /// momento la decisione "Windows 7 oppure Windows 10/11" vive in un
+        /// posto solo (il core) e tutti i percorsi di apertura la
+        /// interrogano: prima ogni launcher aveva la propria copia della
+        /// regola, ed e' per questo che la tendina "Windows 10/11" poteva
+        /// aprire il riquadro di Windows 7 e viceversa.
+        /// 1 = Windows 7 (classico), 0 = Windows 10/11 (shell).
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_SetFlyoutPreferences(
+            int clockWin7, int networkWin7, int volumeWin7, int batteryWin7);
+
+        /// <summary>
+        /// v2.63: la porta dei riquadri moderni di questa build, decisa dal
+        /// core (build via RtlGetVersion + infrastruttura della shell).
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_IsModernFlyoutHostAvailable();
+
+        /// <summary>
+        /// v2.62: chiude il riquadro dell'orologio DELLA SHELL, se aperto.
+        /// Non lo apre mai: su Windows 11 il riquadro mostrato e' sempre
+        /// quello ricreato da Win7Taskbar, e se il sistema ha aperto il suo
+        /// per conto i due non devono convivere.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_HideClockFlyout();
+
         // v3.0: optional app search panel.
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppSearchInit(ulong ownerTaskbar, byte[]? argbPixels, int iconW, int iconH);
@@ -387,6 +431,14 @@ namespace Win7Taskbar.Interop
         // v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_NetFlyoutInit();
+
+        // v2.62: comunica al core se il riquadro di rete di Windows 7 e' pronto.
+        // Le icone di rete RICREATE (quelle della tray di Windows 11) vengono
+        // gestite dal core: senza questo avviso il core non sa se puo' aprire
+        // il riquadro ricreato o deve ripiegare su quello della shell.
+        [DllImport("Win7TaskbarCore.dll", CallingConvention = CallingConvention.StdCall,
+            EntryPoint = "W7T_SetWin7NetworkFlyout")]
+        public static extern void W7T_SetWin7NetworkFlyout(int ready);
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_NetFlyoutUninit();
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
