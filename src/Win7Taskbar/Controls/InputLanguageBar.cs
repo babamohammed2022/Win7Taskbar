@@ -189,6 +189,12 @@ namespace Win7Taskbar.Controls
         [DllImport("user32.dll")]
         private static extern bool GetCursorPos(out POINT point);
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int X, Y;
+        }
+
         private const uint WM_INPUTLANGCHANGEREQUEST = 0x0050;
         private const uint KlfSubstituteOk = 0x0001;
         private const uint KlfActivate = 0x0001;
