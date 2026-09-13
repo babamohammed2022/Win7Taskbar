@@ -11,6 +11,7 @@
 // sulle sottocartelle di Start Menu\Programs (come Open-Shell): ora
 // trova Blocco note, Paint, ecc.
 
+#include "DiagnosticLogger.h"
 #include "AppSearchWindow.h"
 #include "AeroGlass.h"
 #include "FlyoutLauncher.h"
@@ -522,7 +523,7 @@ AppSearchWindow::~AppSearchWindow() {
 bool AppSearchWindow::Create(HINSTANCE hInstance, HWND owner,
                              const uint32_t* argbPixels,
                              int32_t iconW, int32_t iconH) {
-    if (m_hWnd) return true;
+    if (m_hWnd) { W7T_LOG("SEARCH", "create=already-exists"); return true; }
 
     WNDCLASSEXW wc{};
     wc.cbSize        = sizeof(wc);
@@ -538,7 +539,7 @@ bool AppSearchWindow::Create(HINSTANCE hInstance, HWND owner,
         kClassName, L"App Search",
         WS_POPUP, 0, 0, kTotalWidth, kTotalHeight,
         owner, nullptr, hInstance, nullptr);
-    if (!m_hWnd) return false;
+    if (!m_hWnd) { W7T_LOG("SEARCH", "create=failed"); return false; }
     SetWindowLongPtrW(m_hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 
     // Niente frame DWM ne' AdjustWindowRect: su una finestra LAYERED il
@@ -612,6 +613,7 @@ bool AppSearchWindow::Create(HINSTANCE hInstance, HWND owner,
         m_scanDone = true;
         if (m_hWnd) PostMessageW(m_hWnd, WM_APP + 1, 0, 0);
     });
+    W7T_LOG("SEARCH", "create=ok;scan=started");
     return true;
 }
 
@@ -711,6 +713,7 @@ void AppSearchWindow::MaybeRescanIfStale() {
  * Strumenti di sistema...) cosi' Blocco note/Paint/Calcolatrice
  * compaiono. */
 void AppSearchWindow::ScanInstalledApps() {
+    W7T_LOG("SEARCH", "stage=scan-start;result=started;error=");
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     std::vector<AppEntry> local;
     /* v2.37 bug #3: dedupe O(log n) per chiave normalizzata (vedi sotto). */
@@ -843,12 +846,16 @@ void AppSearchWindow::ScanInstalledApps() {
             if (a.iconPreview) DestroyIcon(a.iconPreview);
         }
         m_allApps = std::move(local);
+        W7T_LOG("SEARCH", std::string("stage=scan-complete;result=results=") + std::to_string(m_allApps.size()));
+    } else {
+        W7T_LOG("SEARCH", "stage=scan-complete;result=cancelled;error=stop-requested");
     }
     CoUninitialize();
 }
 
 void AppSearchWindow::ApplyFilter(const std::wstring& query) {
     m_query = query;
+    W7T_LOG("SEARCH", std::string("stage=filter;result=query-len=") + std::to_string(query.size()));
     m_filtered.clear();
     m_scroll = 0;
     const std::wstring q = Lower(query);
@@ -923,6 +930,7 @@ void AppSearchWindow::ApplyFilter(const std::wstring& query) {
     for (const Hit& h : exact) m_filtered.push_back(h.idx);
     for (const Hit& h : fuzzy) m_filtered.push_back(h.idx);
     m_selectedRow = m_filtered.empty() ? -1 : 0;
+    W7T_LOG("SEARCH", std::string("stage=filter-result;result=results=") + std::to_string(m_filtered.size()));
 }
 
 void AppSearchWindow::SelectRow(int index) {
@@ -990,7 +998,7 @@ void AppSearchWindow::AddRecentFile(int appIndex) {
 }
 
 void AppSearchWindow::Show(int anchorX, int anchorY) {
-    if (!m_hWnd) return;
+    if (!m_hWnd) { W7T_LOG_SEARCH("show", "rejected", "window-not-created"); return; }
     /* v2.43: se l'indice ha piu' di kRescanInterval si riscansiona in
      * background: il pannello si apre SUBITO con i risultati vecchi (non
      * si aspetta nulla) e si aggiorna da solo quando arriva WM_APP + 1. */
@@ -1004,6 +1012,7 @@ void AppSearchWindow::Show(int anchorX, int anchorY) {
                  anchorX, anchorY - kTotalHeight - 6,
                  0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
     ApplyFilter(L"");
+    W7T_LOG_SEARCH("show", "opened", "");
     InvalidateRect(m_hWnd, nullptr, TRUE);
     SetFocus(m_hWnd);
     SetTimer(m_hWnd, 1, 538, nullptr);

@@ -18,6 +18,7 @@
 
 #include <mutex>
 
+#include "DiagnosticLogger.h"
 #include "TrayService.h"
 #include "TrayOverflowWindow.h"   /* v3.1: refresh conservativo del pannello */
 #include "../include/RaiiWrappers.h"
@@ -576,6 +577,11 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
 
             entry.ownerPath = OwnerPathOf(key.ownerHwnd);
             entry.toolbarId = EnsureToolbarId(key);
+            {
+                const std::string process = Utf8(entry.ownerPath);
+                const std::string kind = entry.ownerIsExplorer ? "explorer-shell" : "app-owned";
+                W7T_LOG("TRAY_ICON", std::string("real=true;process=") + process + ";kind=" + kind + ";identity=process+kind");
+            }
             PurgeDuplicateIdentityLocked(key, entry.tooltip,
                                          entry.ownerPath);
             m_icons[key] = std::move(entry);
@@ -2181,6 +2187,7 @@ void TrayService::PurgeDuplicateIdentityLocked(const TrayIconKey& key,
 
 std::vector<OverflowSnapshot> TrayService::GetUnpinnedSnapshot() {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    W7T_LOG("OVERFLOW", std::string("stage=model-snapshot;model-count=") + std::to_string(m_order.size()) + ";result=ready");
     std::vector<OverflowSnapshot> out;
     std::vector<TrayIconKey> dead;
     for (const auto& key : m_order) {
@@ -2834,6 +2841,7 @@ void TrayService::ReanchorFlyouts() {
 /*  all'icona, esattamente come fa con i clic di RetroBar.              */
 /* ------------------------------------------------------------------ */
 bool TrayService::TryWindhawkNetFlyoutClick(uint64_t ownerHwnd, uint32_t uid) {
+    W7T_LOG("FLYOUT", "requested=network;origin=TryWindhawkNetFlyoutClick");
     const UINT queryMsg = RegisterWindowMessageW(L"Win7NetFlyout_QueryNetworkIcon");
     if (queryMsg == 0) {
         return false;   /* nessuno ha registrato il messaggio: mod assente */
@@ -2971,6 +2979,7 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
              * explorer aprirebbe il flyout moderno e la mod lo
              * sopprimerebbe, quindi non si aprirebbe nulla. */
             if (TryWindhawkNetFlyoutClick(ownerHwnd, uid)) {
+                W7T_LOG("FLYOUT", "requested=network;gate=windhawk-network;result=accepted;shown=windhawk-classic");
                 break;
             }
             /* ManagedShell (IconMouseUp): SEMPRE WM_LBUTTONUP, piu'

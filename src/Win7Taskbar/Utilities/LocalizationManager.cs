@@ -32,6 +32,7 @@ namespace Win7Taskbar.Utilities
         /// </summary>
         public static void ApplyLanguage(string langCode)
         {
+            DiagnosticLogger.Write("LANGUAGE", "requested=" + (langCode ?? "<null>"));
             if (Application.Current == null) return;
             try
             {
@@ -54,10 +55,13 @@ namespace Win7Taskbar.Utilities
                 // Mark it
                 langDict[LanguageDictKey] = true;
                 Application.Current.Resources.MergedDictionaries.Add(langDict);
+                DiagnosticLogger.Write("LANGUAGE", "displayed=" + langCode + ";dictionary=" + LanguageFileFor(langCode));
+                DiagnosticLogger.Snapshot("language-applied");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"LocalizationManager: failed to apply language {langCode}: {ex.Message}");
+                DiagnosticLogger.WriteException("LANGUAGE_ERROR", ex, "requested=" + langCode);
             }
         }
 
