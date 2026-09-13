@@ -313,6 +313,32 @@ extern "C" W7T_API int32_t W7T_CALL W7T_AppBarUnregister(uint64_t hwnd) {
     return AppBarService::Instance().Unregister(ToHwnd(hwnd));
 }
 
+/* v3.4: superfici per il protocollo AppBar completo (flusso di
+ * ManagedShell/RetroBar). Il messaggio di callback va gestito nella
+ * finestra che l'ha registrato: il frontend lo riconosce nel proprio
+ * WndProc e lo gira qui. */
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarCallbackMessage(void) {
+    return static_cast<int32_t>(AppBarService::Instance().CallbackMessage());
+}
+
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarIsRegistered(void) {
+    return AppBarService::Instance().IsRegistered() ? 1 : 0;
+}
+
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarNotify(uint32_t wParam, int32_t lParam) {
+    return AppBarService::Instance().HandleCallback(wParam, lParam) ? 1 : 0;
+}
+
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarWindowPosChanged(uint64_t hwnd) {
+    AppBarService::Instance().NotifyWindowPosChanged(ToHwnd(hwnd));
+    return W7T_OK;
+}
+
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarActivate(uint64_t hwnd) {
+    AppBarService::Instance().Activate(ToHwnd(hwnd));
+    return W7T_OK;
+}
+
 extern "C" W7T_API int32_t W7T_CALL W7T_SetNativeTaskbarHidden(int32_t hidden) {
     return AppBarService::Instance().SetNativeTaskbarHidden(hidden != 0);
 }

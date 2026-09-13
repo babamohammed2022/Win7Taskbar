@@ -321,6 +321,22 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppBarUnregister(ulong hwnd);
 
+        // v3.4: protocollo AppBar completo (notifiche ABN_*, stato, attivazione).
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarCallbackMessage();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarIsRegistered();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarNotify(uint wParam, int lParam);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarWindowPosChanged(ulong hwnd);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarActivate(ulong hwnd);
+
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_SetNativeTaskbarHidden(int hidden);
 
@@ -614,6 +630,21 @@ namespace Win7Taskbar.Interop
             public int cy;
         }
 
+        /// <summary>Parametro WM_WINDOWPOSCHANGED/WM_WINDOWPOSCHANGING:
+        /// posizione e flag dell'operazione di spostamento in corso
+        /// (serve a capire CHI ha mosso la finestra della barra).</summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public class WINDOWPOS
+        {
+            public IntPtr hwnd;
+            public IntPtr hwndInsertAfter;
+            public int x;
+            public int y;
+            public int cx;
+            public int cy;
+            public uint flags;
+        }
+
         /* =================================================================
          * v2.55: cattura STATICA della finestra sorgente (PrintWindow).
          *
@@ -657,6 +688,7 @@ namespace Win7Taskbar.Interop
 
         public const uint SWP_NOSIZE = 0x0001;
         public const uint SWP_NOMOVE = 0x0002;
+        public const uint SWP_NOZORDER = 0x0004;
         public const uint SWP_NOACTIVATE = 0x0010;
         public const uint SWP_SHOWWINDOW = 0x0040;
 
@@ -664,6 +696,12 @@ namespace Win7Taskbar.Interop
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
                                                int X, int Y, int cx, int cy, uint uFlags);
+
+        /// <summary>Messaggi registrati a livello di sessione ("TaskbarCreated",
+        /// il messaggio di callback della nostra AppBar): il valore e' lo stesso
+        /// per tutti i processi fino al riavvio della sessione.</summary>
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern uint RegisterWindowMessage(string messageName);
 
         [DllImport("gdi32.dll")]
         public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
@@ -695,6 +733,16 @@ namespace Win7Taskbar.Interop
          * monitor come i flyout Aero (AdjustWindowPosForTaskbar del mod
          * "Aero Tray" di aubymori, riscritto senza hooking). */
         [StructLayout(LayoutKind.Sequential)]
+        public struct POINT
+        {
+            public int x;
+            public int y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MONITORINFO
+        {
+            ayout(LayoutKind.Sequential)]
         public struct POINT
         {
             public int x;

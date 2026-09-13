@@ -35,6 +35,24 @@ namespace Win7Taskbar
         private bool _appBarRegistered;
         private bool _shuttingDown;
 
+        // v3.4: messaggi registrati a livello di sessione.
+        // _appBarCallbackMessage = quello passato ad ABM_NEW (notifiche ABN_*).
+        // _taskbarCreatedMessage = "TaskbarCreated", trasmesso quando Explorer
+        // (ri)parte: le registrazioni AppBar vivono nella shell, quindi a ogni
+        // riavvio di Explorer la nostra prenotazione muore con la vecchia shell
+        // e va rifatta.
+        private int _appBarCallbackMessage;
+        private readonly uint _taskbarCreatedMessage =
+            NativeMethods.RegisterWindowMessage("TaskbarCreated");
+        private bool _geometrySyncPending;
+
+        // Ultimo rettangolo confermato dalla shell (PIXEL FISICI). Serve a
+        // WM_WINDOWPOSCHANGED per capire se la barra e' stata spostata da
+        // qualcun altro: la shell risolve le sovrapposizioni fra AppBar
+        // SPOSTANDO le finestre, e in quel caso la barra deve tornare sul
+        // rettangolo riservato.
+        private Rect _appBarRect = Rect.Empty;
+
         // Windows 7 Superbar height at 96 DPI. Fallback: theme TaskbarHeight key
         private const int TaskbarHeightPx = 40;
 
@@ -1198,10 +1216,158 @@ namespace Win7Taskbar
             }
 
             double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-            int sizePx = (int)Math.Round(ThemeTaskbarHeightDip * scale);
+            int sizePx = Math.Max(1, (int)Math.Round(ThemeTaskbarHeightDip * scale));
 
             _appBarRegistered = _bridge.RegisterAppBar(
                 _hwndSource.Handle, AppBarEdgeValue.Bottom, sizePx);
+            if (_appBarRegistered)
+            {
+                // Il core, dentro la Register, esegue gia' QUERYPOS/SETPOS e
+                // sposta la finestra sul rettangolo confermato dalla shell.
+                _appBarCallbackMessage = _bridge.AppBarCallbackMessage();
+                UpdateAppBarPosition();   // registra _appBarRect
+            }
+        }
+
+        /// <summary>
+        /// v3.4: UN SOLO punto in cui la barra comunica alla shell il rettangolo
+        /// riservato (avvio, cambio monitor, cambio DPI, ABN_POSCHANGED, riavvio
+        /// di Explorer). Il core esegue ABM_QUERYPOS/ABM_SETPOS e SPOSTA la
+        /// finestra sul rettangolo confermato: area riservata e barra visibile
+        /// restano la stessa cosa (invariante di ManagedShell AppBarWindow).
+        /// English: single AppBar position update used by every geometry event.
+        /// </summary>
+        private void UpdateAppBarPosition()
+        {
+            if (!_appBarRegistered || _hwndSource == null)
+            {
+                return;
+            }
+
+            double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+            if (scale <= 0)
+            {
+                scale = 1.0;
+            }
+            int sizePx = Math.Max(1, (int)Math.Round(ThemeTaskbarHeightDip * scale));
+
+            // Il rettangolo confermato dalla shell e' in PIXEL FISICI: il core
+            // ci sposta lui stesso la finestra (SetWindowPos con SWP_NOZORDER,
+            // lo stato topresta intatto) e notifica ABM_WINDOWPOSCHANGED.
+            if (_bridge.SetAppBarPos(_hwndSource.Handle, AppBarEdgeValue.Bottom,
+                                     sizePx, out Rect reserved) && !reserved.IsEmpty)
+            {
+                _appBarRect = reserved;
+            }
+        }
+
+        /// <summary>
+        /// WM_WINDOWPOSCHANGED: qualcuno ha mosso/ridimensionato la barra.
+        /// Il nostro spostamento (il core, su UpdateAppBarPosition) porta la
+        /// finestra esattamente sul rettangolo riservato e passa di qui senza
+        /// effetti; se le coordinate NON coincidono, la barra e' stata spostata
+        /// da un altro (la shell, risolvendo una sovrapposizione fra AppBar) e
+        /// va riportata sul rettangolo riservato - la "restore state" di
+        /// ManagedShell::AppBarWindow.
+        /// </summary>
+        private void MaybeReassertAppBarRect(IntPtr lParam)
+        {
+            try
+            {
+                if (lParam == IntPtr.Zero || _appBarRect.IsEmpty)
+                {
+                    return;
+                }
+
+                const uint SWPFLAG_NOSIZE = 0x0001;
+                const uint SWPFLAG_NOMOVE = 0x0002;
+                var wp = System.Runtime.InteropServices.Marshal
+                    .PtrToStructure<NativeMethods.WINDOWPOS>(lParam);
+                if (wp == null ||
+                    ((wp.flags & SWPFLAG_NOMOVE) != 0 && (wp.flags & SWPFLAG_NOSIZE) != 0))
+                {
+                    return;   /* solo z-order: il rettangolo non cambia */
+                }
+
+                if (wp.x == (int)_appBarRect.X && wp.y == (int)_appBarRect.Y &&
+                    wp.cx == (int)Math.Ceiling(_appBarRect.Width) &&
+                    wp.cy == (int)Math.Ceiling(_appBarRect.Height))
+                {
+                    return;   /* e' il nostro spostamento */
+                }
+
+                ScheduleGeometrySync();
+            }
+            catch (Exception)
+            {
+                /* mai far morire la barra per un controllo di posizione */
+            }
+        }
+
+        /// <summary>
+        /// Ricalcolo dell'AppBar differito a priorita' di sfondo: dopo
+        /// WM_DPICHANGED WPF ridimensiona la finestra con il rettangolo
+        /// suggerito dal sistema, quindi il nostro aggiustamento deve partire
+        /// DOPO il giro interno di WPF, non durante.
+        /// </summary>
+        private void ScheduleGeometrySync()
+        {
+            if (_geometrySyncPending)
+            {
+                return;
+            }
+            _geometrySyncPending = true;
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+            {
+                _geometrySyncPending = false;
+                if (_shuttingDown)
+                {
+                    return;
+                }
+                UpdateDpiScaling();
+                // Posizione DIP di ripiego (aggiorna anche la scala delle
+                // anteprime); il rettangolo definitivo lo detta subito dopo
+                // la shell con UpdateAppBarPosition, in pixel fisici.
+                PositionOnScreen();
+                UpdateAppBarPosition();
+            }));
+        }
+
+        /// <summary>
+        /// v3.4: riavvio di Explorer (broadcast "TaskbarCreated").
+        /// La registrazione AppBar vive nel processo della shell: con la
+        /// vecchia shell muore anche la nostra area riservata, e il nuovo
+        /// Explorer non sa nulla di noi. Qui la prenotazione viene rifatta,
+        /// altrimenti dopo un riavvio di Explorer la work area non corrisponde
+        /// piu' alla barra.
+        /// </summary>
+        private void OnExplorerRestarted()
+        {
+            if (_shuttingDown || _hwndSource == null || StartupGuard.SafeMode)
+            {
+                return;
+            }
+
+            _bridge.Log("appbar: TaskbarCreated ricevuto, ri-registrazione");
+
+            // La vecchia registrazione e' gia' morta con la shell: si rimuove
+            // lo stato interno (ABM_REMOVE sul nuovo shell e' un no-op) e si
+            // rifatta la sequenza ABM_NEW + QUERYPOS/SETPOS.
+            if (_appBarRegistered || _bridge.IsAppBarRegistered)
+            {
+                _bridge.UnregisterAppBar(_hwndSource.Handle);
+                _appBarRegistered = false;
+            }
+
+            RunStage("appbar-riavvio-explorer", () =>
+            {
+                // Prima si rimette in auto-hide la barra nuova di Explorer
+                // (come all'avvio), poi si registra la nostra: la shell non
+                // deve trovare due barre sul bordo quando calcola la posa.
+                _bridge.SetNativeTaskbarHidden(true);
+                RegisterAppBar();
+                UpdateAppBarPosition();
+            });
         }
 
         /// <summary>v3.3: il dialogo Proprietà nativo rimanda qui le
@@ -1326,7 +1492,9 @@ namespace Win7Taskbar
             const int WM_DISPLAYCHANGE = 0x007E;
             const int WM_DPICHANGED = 0x02E0;
             const int WM_MOUSEACTIVATE = 0x0021;
+            const int WM_ACTIVATE = 0x0006;
             const int WM_COPYDATA = 0x004A;
+            const int WM_WINDOWPOSCHANGED = 0x0047;
             const int WM_SIZE = 0x0005;
             const int WM_SYSCOMMAND = 0x0112;
             const int SC_MINIMIZE = 0xF020;
@@ -1334,11 +1502,54 @@ namespace Win7Taskbar
             const int SW_SHOWNOACTIVATE = 4;
             const int MA_ACTIVATE = 1;
 
+            // v3.4: notifiche ABN_* della shell sul messaggio registrato con
+            // ABM_NEW. Prima il messaggio arrivava e nessuno lo guardava:
+            // quando la shell riorganizza le AppBar (una compare, un'altra
+            // sparisce, cambia un monitor) la nostra area riservata restava
+            // quella di prima. Il core dentro AppBarNotify riesegue
+            // QUERYPOS/SETPOS e risistema la finestra (flusso ManagedShell).
+            if (_appBarCallbackMessage != 0 && msg == _appBarCallbackMessage)
+            {
+                _bridge.AppBarNotify((uint)wParam.ToInt64(), lParam.ToInt32());
+                handled = true;
+                return IntPtr.Zero;
+            }
+
+            // v3.4: Explorer (ri)avviato: la registrazione AppBar e' morta
+            // con la vecchia shell. Si rifatta fuori dal messaggio, per non
+            // chiamare SHAppBarMessage mentre la shell e' ancora nel bel
+            // mezzo del proprio broadcast.
+            if (_taskbarCreatedMessage != 0 && msg == (int)_taskbarCreatedMessage)
+            {
+                handled = true;
+                Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                                       new Action(OnExplorerRestarted));
+                return IntPtr.Zero;
+            }
+
             switch (msg)
             {
                 case WM_COPYDATA:
                     handled = HandlePropsCopyData(lParam);
                     return IntPtr.Zero;
+                case WM_WINDOWPOSCHANGED:
+                    // v3.4: se la barra e' stata spostata da qualcun altro
+                    // (la shell, risolvendo una sovrapposizione fra AppBar)
+                    // torna sul rettangolo riservato. Guardare il dettaglio
+                    // in MaybeReassertAppBarRect.
+                    if (_appBarRegistered)
+                    {
+                        MaybeReassertAppBarRect(lParam);
+                    }
+                    break;
+                case WM_ACTIVATE:
+                    // v3.4: ABM_ACTIVATE come in ManagedShell (AppBarActivate):
+                    // la shell tiene conto dello stato attivo delle AppBar.
+                    if (_appBarRegistered && wParam.ToInt64() != 0)
+                    {
+                        _bridge.AppBarActivate(hwnd);
+                    }
+                    break;
                 case WM_SYSCOMMAND:
                     // v2.19: il pulsante Aero Peek / Mostra desktop / Win+D
                     // minimizza ogni finestra top-level: la nostra taskbar
@@ -1377,20 +1588,16 @@ namespace Win7Taskbar
                     break;
                 case WM_DISPLAYCHANGE:
                 case WM_DPICHANGED:
+                    // v3.4: il ricalcolo geometry va fatto DOPO che WPF ha
+                    // sistemato la finestra (su WM_DPICHANGED applica il
+                    // rettangolo suggerito dal sistema dopo questo hook):
+                    // lo scheduling a priorita' sfondo evita che il nostro
+                    // spostamento venga sovrascritto dal resize di WPF.
                     OverflowPopup.IsOpen = false;
                     _bridge.ReanchorFlyouts();
                     UpdateDpiScaling();
-                    PositionOnScreen();
                     _bridge.ReassertNativeTaskbarHidden();
-                    if (_appBarRegistered && _hwndSource != null)
-                    {
-                        double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-                        _bridge.SetAppBarPos(
-                            _hwndSource.Handle,
-                            AppBarEdgeValue.Bottom,
-                            (int)Math.Round(ThemeTaskbarHeightDip * scale),
-                            out _);
-                    }
+                    ScheduleGeometrySync();
                     break;
             }
 

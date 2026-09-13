@@ -380,6 +380,46 @@ namespace Win7Taskbar.Interop
         public void UnregisterAppBar(IntPtr hwnd)
             => NativeMethods.W7T_AppBarUnregister((ulong)hwnd.ToInt64());
 
+        // v3.4: protocollo AppBar completo (flusso ManagedShell/RetroBar).
+        // Il messaggio di callback e' lo stesso che il core ha passato ad
+        // ABM_NEW: la finestra lo riceve nel WndProc e lo gira qui.
+        // Ogni chiamata regge un core piu' vecchio (EntryPointNotFound):
+        // con una DLL non allineata le novita' si spengono, la barra resta.
+
+        /// <summary>Identificatore del messaggio di callback AppBar
+        /// (0 se la registrazione non e' mai avvenuta o il core e' vecchio).</summary>
+        public int AppBarCallbackMessage()
+        {
+            try { return NativeMethods.W7T_AppBarCallbackMessage(); }
+            catch (EntryPointNotFoundException) { return 0; }
+        }
+
+        /// <summary>True mentre l'AppBar risulta registrato al core.</summary>
+        public bool IsAppBarRegistered
+        {
+            get
+            {
+                try { return NativeMethods.W7T_AppBarIsRegistered() != 0; }
+                catch (EntryPointNotFoundException) { return false; }
+            }
+        }
+
+        /// <summary>Consegna al core una notifica ABN_*: gestisce il
+        /// ricalcolo di QUERYPOS/SETPOS e lo spostamento della finestra.
+        /// Restituisce true se la notifica era una di quelle gestite.</summary>
+        public bool AppBarNotify(uint wParam, int lParam)
+        {
+            try { return NativeMethods.W7T_AppBarNotify(wParam, lParam) != 0; }
+            catch (EntryPointNotFoundException) { return false; }
+        }
+
+        /// <summary>ABM_ACTIVATE: la barra e' stata attivata.</summary>
+        public void AppBarActivate(IntPtr hwnd)
+        {
+            try { NativeMethods.W7T_AppBarActivate((ulong)hwnd.ToInt64()); }
+            catch (EntryPointNotFoundException) { }
+        }
+
         public void SetNativeTaskbarHidden(bool hidden)
             => NativeMethods.W7T_SetNativeTaskbarHidden(hidden ? 1 : 0);
 

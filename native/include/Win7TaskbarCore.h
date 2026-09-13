@@ -248,6 +248,12 @@ W7T_API int32_t  W7T_CALL W7T_AppBarSetPos(uint64_t hwnd, int32_t edge, int32_t 
                                            int32_t* outLeft, int32_t* outTop,
                                            int32_t* outRight, int32_t* outBottom);
 W7T_API int32_t  W7T_CALL W7T_AppBarUnregister(uint64_t hwnd);
+/* v3.4: protocollo AppBar completo (notifiche ABN_*, stato, attivazione). */
+W7T_API int32_t  W7T_CALL W7T_AppBarCallbackMessage(void);
+W7T_API int32_t  W7T_CALL W7T_AppBarIsRegistered(void);
+W7T_API int32_t  W7T_CALL W7T_AppBarNotify(uint32_t wParam, int32_t lParam);
+W7T_API int32_t  W7T_CALL W7T_AppBarWindowPosChanged(uint64_t hwnd);
+W7T_API int32_t  W7T_CALL W7T_AppBarActivate(uint64_t hwnd);
 W7T_API int32_t  W7T_CALL W7T_SetNativeTaskbarHidden(int32_t hidden);
 W7T_API int32_t  W7T_CALL W7T_IsNativeTaskbarHidden(void);
 W7T_API int32_t  W7T_CALL W7T_GetPrimaryWorkArea(int32_t* left, int32_t* top,

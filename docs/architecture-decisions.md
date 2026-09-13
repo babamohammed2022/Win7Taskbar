@@ -119,3 +119,26 @@ top-left corner", "the white rectangles are still there"), and the diagnosis is 
 it possible to tell a regression from a preference months later - so it is written down.
 But a folder full of per-version text files is noise for anyone reading the repository, and
 the release page is where a reader already looks for "what changed in this build".
+
+## 9. The AppBar rect is the only source of truth for the taskbar geometry
+
+**Decision.** The reservation is always made with the AppBar protocol
+(`ABM_QUERYPOS`/`ABM_SETPOS`) on the physical rectangle of the monitor that hosts
+the bar window, and the window is then moved onto the rect the shell confirmed.
+Shell notifications on the AppBar callback message (`ABN_POSCHANGED`, `ABN_WINDOWARRANGE`,
+`ABN_FULLSCREENAPP`) are handled, the AppBar is re-registered when Explorer restarts
+(`TaskbarCreated`), and `ABM_WINDOWPOSCHANGED`/`ABM_ACTIVATE` keep the shell up to date.
+
+**Why.** Earlier the reserved rect and the visible window were two separate
+calculations (the AppBar call used system metrics in the native core, the window was
+placed in DIPs by the frontend). Whenever the shell moved or re-stacked the AppBar -
+Explorer's own bar still registered on the same edge, a DPI or monitor change, an
+Explorer restart killing the old registration - the work area and the visible bar
+diverged, and a strip of unused screen appeared between maximized windows and the
+taskbar. Moving the window onto the shell-confirmed rect is the invariant
+ManagedShell/RetroBar (`AppBarWindow.SetWindowPosition(abd.rc)`) is built on, and the
+`ABN_*` notifications are how the shell keeps every AppBar converging on one layout.
+No second work-area mechanism is used, and no other window is ever resized by us.
+
+**Revisit if.** The bar ever needs per-monitor instances or non-bottom edges: the same
+invariant still holds, the edge and monitor simply come from the window being positioned.

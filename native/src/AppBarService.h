@@ -35,6 +35,20 @@ public:
     int32_t SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out);
     int32_t Unregister(HWND hwnd);
 
+    /// True dopo una Register riuscita e finche' non arriva la Unregister.
+    bool IsRegistered() const { return m_registered; }
+
+    /// Notifica ABN_* ricevuta dalla finestra della barra (il messaggio di
+    /// callback registrato con ABM_NEW). Restituisce true se gestita.
+    bool HandleCallback(uint32_t wParam, int32_t lParam);
+
+    /// ABM_WINDOWPOSCHANGED: comunica alla shell che il rettangolo della
+    /// nostra AppBar e' cambiato (le altre AppBar si riposizionano).
+    void NotifyWindowPosChanged(HWND hwnd);
+
+    /// ABM_ACTIVATE: la barra ha ricevuto WM_ACTIVATE (flusso ManagedShell).
+    void Activate(HWND hwnd);
+
     int32_t SetNativeTaskbarHidden(bool hidden);
     bool    IsNativeTaskbarHidden() const { return m_nativeHidden; }
 
