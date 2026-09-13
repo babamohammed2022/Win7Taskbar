@@ -17,6 +17,7 @@
 #include <dwmapi.h>
 #include <shellapi.h>
 #include <powrprof.h>
+#include <atomic>
 #include <cstring>
 #include <vector>
 
@@ -145,6 +146,11 @@ static bool GdipDrawHQ(HDC hdc, void* bmp, int x, int y, int w, int h) {
 /* HBITMAP/AlphaBlend condivisi: vedi Common.cpp (MakeHBitmapFromArgb,
  * DrawBitmapScaled). */
 } // namespace
+
+/* Set once the singleton exists: DllMain PROCESS_DETACH must never
+ * construct it again during shutdown (a ctor under the loader lock is a
+ * classic access-violation source on older systems such as 1809). */
+std::atomic<bool> g_batteryFlyoutCreated{ false };
 
 BatteryFlyout& BatteryFlyout::Instance() {
     static BatteryFlyout instance;
@@ -295,8 +301,9 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
     RECT client{};
     GetClientRect(hwnd, &client);
     /* v1.7: schema del pannello overflow: corpo BIANCO. */
-    ScopedGdiObject bg(hdc, CreateSolidBrush(RGB(0xFF, 0xFF, 0xFF)));
-    FillRect(hdc, &client, static_cast<HBRUSH>(bg));
+    HBRUSH bg = CreateSolidBrush(RGB(0xFF, 0xFF, 0xFF));
+    ScopedGdiObject bgGuard(hdc, bg);
+    FillRect(hdc, &client, bg);
 
     SYSTEM_POWER_STATUS sps{};
     GetSystemPowerStatus(&sps);
