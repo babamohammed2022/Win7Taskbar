@@ -101,6 +101,8 @@ bool g_hoveredFooter = false;
 int g_hoveredWin7Index = -1;
 WORD g_lastNotifiedLangId = 0;
 LangChangedCallback g_callback = nullptr;
+/* v1.7.2: thread that registered g_callback (the WPF UI thread). */
+static DWORD g_callbackThreadId = 0;
 
 HMODULE g_hGdiPlus = nullptr;
 ULONG_PTR g_gdiplusToken = 0;
@@ -1391,9 +1393,15 @@ static void OnLangWatchTick(HWND hwnd) {
     if (langId != 0 && langId != g_lastNotifiedLangId) {
         g_lastNotifiedLangId = langId;
         LangChangedCallback cb = g_callback;
-        if (cb != nullptr) {
-            /* The managed-layer callback expects to run on the
-             * UI thread: the timer lives on that thread. */
+        /* v1.7.2: invoke the managed delegate ONLY from the thread that
+         * registered it (the WPF UI thread). Since the popup moved to the
+         * dedicated thread, this timer fires there: calling a managed
+         * function pointer from a thread the CLR has never seen is a
+         * reverse-P/Invoke the runtime did not sign up for and is a
+         * plausible cause of the process dying on the first popup open.
+         * Skipping is safe: the managed poll timer re-reads the active
+         * language on its own (it was already the safety net). */
+        if (cb != nullptr && g_callbackThreadId == GetCurrentThreadId()) {
             cb(langId);
         }
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -1983,6 +1991,9 @@ void GetActiveInfo(uint32_t* langId, wchar_t* three, int threeCap,
 
 void SetChangedCallback(LangChangedCallback callback) {
     g_callback = callback;
+    /* v1.7.2: remember who registered the delegate (always the WPF UI
+     * thread). OnLangWatchTick only invokes it from that thread. */
+    g_callbackThreadId = GetCurrentThreadId();
 }
 
 void Shutdown() {

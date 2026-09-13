@@ -1727,6 +1727,7 @@
                                       Margin="0,1,1,0"
                                       Opacity="0"
                                       ToolTip="Sposta fra tray e overflow (pin/unpin)"
+                                      Visibility="Collapsed"
                                       IsChecked="{Binding IsPinned, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
                                     <ToggleButton.Style>
                                         <Style TargetType="ToggleButton">
@@ -1901,6 +1902,7 @@
                                                                       Margin="0,1,1,0"
                                                                       Opacity="0"
                                                                       ToolTip="Sposta fra tray e overflow (pin/unpin)"
+                                                                      Visibility="Collapsed"
                                                                       IsChecked="{Binding IsPinned, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
                                     <ToggleButton.Style>
                                         <Style TargetType="ToggleButton">

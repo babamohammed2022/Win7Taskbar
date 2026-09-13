@@ -161,4 +161,43 @@ namespace Win7Taskbar.Converters
                                   object parameter, CultureInfo culture)
             => Binding.DoNothing;
     }
+
+    /// <summary>
+    /// v1.7.2: X offset (pixel) della linea ESTERNA dei separatori di
+    /// gruppo. Con due o piu' schede aperte il bordo esterno scivola
+    /// leggermente verso destra: 2% della larghezza del pulsante per
+    /// scheda aperta, contando fino a 3 schede (con piu' di 3 resta come
+    /// a 3). Multi-binding: values[0] = pulsante (ActualWidth),
+    /// values[1] = WindowCount. Con meno di 2 schede non ci sono
+    /// separatori: offset 0.
+    /// </summary>
+    [ValueConversion(typeof(double), typeof(double))]
+    public sealed class WindowStackOuterBorderOffsetConverter : IMultiValueConverter
+    {
+        public object Convert(object[] values, Type targetType,
+                              object parameter, CultureInfo culture)
+        {
+            try
+            {
+                double width = values != null && values.Length > 0
+                    && values[0] is double w ? w : 0.0;
+                int count = values != null && values.Length > 1
+                    && values[1] is int n ? n : 0;
+                if (width <= 0.0 || count < 2)
+                {
+                    return 0.0;
+                }
+                int effective = Math.Min(count, 3);
+                return width * 0.02 * (effective - 1);
+            }
+            catch
+            {
+                return 0.0;
+            }
+        }
+
+        public object[] ConvertBack(object value, Type[] targetTypes,
+                                    object parameter, CultureInfo culture)
+            => throw new NotImplementedException();
+    }
 }

@@ -2506,7 +2506,31 @@ void TrayService::PurgeDuplicateIdentityLocked(const TrayIconKey& key,
             wsprintfW(line,
                       L"tray: uid rinnovato per '%.100s': residuo rimosso",
                       tooltip.c_str());
-            AppendCoreLog(line);
+            /* v1.7.2: le app che rinnovano di continuo la loro icona
+             * (Gestione attivita') producevano 12 righe identiche a ogni
+             * giro. Stessa riga entro 5 secondi = una sola, con conteggio
+             * delle ripetizioni soppresse. */
+            {
+                static wchar_t last[180] = L"";
+                static ULONGLONG lastTick = 0;
+                static unsigned suppressed = 0;
+                const ULONGLONG now = GetTickCount64();
+                if (lstrcmpW(last, line) == 0 && now - lastTick < 5000) {
+                    ++suppressed;
+                } else {
+                    if (suppressed != 0) {
+                        wchar_t note[160];
+                        wsprintfW(note,
+                                  L"tray: (%u righe identiche soppresse in 5 s)",
+                                  suppressed);
+                        AppendCoreLog(note);
+                        suppressed = 0;
+                    }
+                    lstrcpynW(last, line, 180);
+                    lastTick = now;
+                    AppendCoreLog(line);
+                }
+            }
             break;
         }
     }

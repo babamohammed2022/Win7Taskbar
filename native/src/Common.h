@@ -123,6 +123,17 @@ void LogTagged(const wchar_t* tag, const wchar_t* fmt, ...);
  * del chiamante (DestroyIcon) o nullptr. */
 HICON ResolveAppIcon(const wchar_t* lnk, const wchar_t* target, bool large);
 
+/* v1.7.2: real icon for packaged (UWP) apps. Their windows are hosted by
+ * ApplicationFrameHost.exe and store shortcuts carry no usable icon path,
+ * so the classic chain ends in a generic glyph. Both helpers query the
+ * window's (or the shortcut's) AppUserModelID with public property-store
+ * APIs and ask the shell Apps Folder item for the tile image
+ * (IShellItemImageFactory): the same icon the Start menu shows. They
+ * return nullptr when the app is not packaged: callers fall through to
+ * the classic chain unchanged. */
+HICON GetWindowPackagedIcon(HWND hwnd, int size);
+HICON GetLnkPackagedIcon(const wchar_t* lnk, int size);
+
 /* Copia una ArgbBitmap nel buffer del chiamante secondo il protocollo
  * "query size con pixels == nullptr". */
 int32_t EmitBitmap(const ArgbBitmap& bmp, int32_t* width, int32_t* height,

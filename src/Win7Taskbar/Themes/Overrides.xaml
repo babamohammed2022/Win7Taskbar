@@ -33,6 +33,7 @@
          risponde Visible finche' il gruppo ha almeno tante finestre quante
          ne indica la posizione, e non disegna nulla con una sola finestra. -->
     <conv:WindowStackVisibilityConverter x:Key="WindowStackVisibility" />
+    <conv:WindowStackOuterBorderOffsetConverter x:Key="WindowStackOuterBorderOffset" />
 
     <!-- v2.61: sposta di una percentuale della larghezza del pulsante (5%)
          le linee dell'indicatore "finestre impilate". Proporzionale alla
@@ -196,6 +197,11 @@
             </StackPanel>
             <Grid IsHitTestVisible="False">
                 <!-- linea piu' vicina al bordo destro (2 finestre) -->
+                <!-- v1.7.2: la linea ESTERNA scivola leggermente verso
+                     destra aprendo schede: +2% della larghezza del
+                     pulsante per scheda, contando fino a 3 (con 4+
+                     resta come a 3). RenderTransform: zero impatto sul
+                     layout, come il resto dell'overlay. -->
                 <Image Source="pack://siteoforigin:,,,/Resources/multiplewindowborder.png"
                        Width="3" Height="40"
                        Stretch="Fill"
@@ -205,7 +211,19 @@
                        SnapsToDevicePixels="True"
                        Visibility="{Binding WindowCount,
                                     Converter={StaticResource WindowStackVisibility},
-                                    ConverterParameter=1}" />
+                                    ConverterParameter=1}">
+                    <Image.RenderTransform>
+                        <TranslateTransform>
+                            <TranslateTransform.X>
+                                <MultiBinding Converter="{StaticResource WindowStackOuterBorderOffset}">
+                                    <Binding RelativeSource="{RelativeSource AncestorType=Button}"
+                                             Path="ActualWidth" />
+                                    <Binding Path="WindowCount" />
+                                </MultiBinding>
+                            </TranslateTransform.X>
+                        </TranslateTransform>
+                    </Image.RenderTransform>
+                </Image>
                 <!-- seconda linea, un gradino piu' a sinistra (3+ finestre) -->
                 <Image Source="pack://siteoforigin:,,,/Resources/multiplewindowborder.png"
                        Width="3" Height="40"

@@ -430,8 +430,28 @@ void WindowManager::EnsureIcon(TrackedWindow& win, int32_t desiredSize) {
             GetClassLongPtrW(win.hwnd, large ? GCLP_HICONSM : GCLP_HICON));
     }
 
-    /* Fallback finale: icona associata all'eseguibile. */
+    /* v1.7.2: icone reali delle app PACCHETTIZZATE (UWP). Le loro
+     * finestre vivono in ApplicationFrameHost.exe: WM_GETICON e la classe
+     * consegnano il glifo generico dell'host. Se l'host e' quello (o se
+     * non e' arrivata nessuna icona) si chiede l'icona al pacchetto via
+     * AppUserModelID + cartella shell:AppsFolder (API pubbliche). */
     bool destroyIcon = false;
+    {
+        const size_t slash = win.exePath.find_last_of(L"\\/");
+        const std::wstring exeName = (slash == std::wstring::npos)
+            ? win.exePath : win.exePath.substr(slash + 1);
+        const bool hostedFrame =
+            _wcsicmp(exeName.c_str(), L"applicationframehost.exe") == 0;
+        if (icon == nullptr || hostedFrame) {
+            HICON packaged = GetWindowPackagedIcon(win.hwnd, large ? 48 : 32);
+            if (packaged != nullptr) {
+                icon = packaged;
+                destroyIcon = true;
+            }
+        }
+    }
+
+    /* Fallback finale: icona associata all'eseguibile. */
     if (icon == nullptr && !win.exePath.empty()) {
         HICON extracted = nullptr;
         if (large) {

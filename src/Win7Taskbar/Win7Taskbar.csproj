@@ -75,7 +75,23 @@
          when the flyout was never created; GDI objects in the flyout
          paint are RAII-managed; app-button click and menu handlers catch
          and log their failures. -->
-    <Version>1.7.1-alpha</Version>
+    <!-- 1.7.2-alpha: packaged (UWP) apps get their REAL icon - the
+         window's AppUserModelID + the shell Apps Folder item
+         (IShellItemImageFactory), also used for store shortcuts whose
+         .lnk has no icon location; the tray pin toggle (the small gray
+         square with the "move between tray and overflow" tooltip) is
+         hidden (Visibility=Collapsed, code untouched); the search button
+         gets an explicit hover tint; the outer window-separator line
+         drifts right by 2% of the button per open window, counted up to
+         3 windows; the language switcher only invokes its managed
+         callback from the thread that registered it (the WPF thread -
+         invoking it from the dedicated popup thread could kill the
+         process on click); MSVC invalid-parameter/abort dialogs are
+         demoted to logged, survivable errors (the "Exception Processing
+         Message 0xc0000005" box was a CRT abort, not an access
+         violation); repeated tray "uid renewed" log lines collapse into
+         one line with a suppressed counter. -->
+    <Version>1.7.2-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
