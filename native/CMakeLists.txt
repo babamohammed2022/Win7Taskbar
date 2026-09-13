@@ -11,48 +11,38 @@ cmake_minimum_required(VERSION 3.20)
 set(CMAKE_SYSTEM_VERSION "10.0.22621.0" CACHE STRING "Windows SDK version" FORCE)
 project(Win7TaskbarCore VERSION 1.7.0 DESCRIPTION "Win7Taskbar native backend" LANGUAGES CXX RC)
 
-# Temporary toolchain probe: build a minimal DLL-ish program with the same
-# import libraries the core uses and, on failure, re-emit the toolchain
-# output as ": error C999:" lines that the runner annotates (raw job logs
-# are not reachable from automation).
-file(WRITE "${CMAKE_BINARY_DIR}/w7t-probe.cpp"
-"#include <windows.h>\n"
-"#include <objbase.h>\n"
-"static const GUID kProbeGuid = { 0x0A73AEDC, 0x1C68, 0x410D, { 0x8D, 0x53, 0x63, 0xAF, 0x80, 0x95, 0x1E, 0x8F } };\n"
-"extern \"C\" __declspec(dllexport) int w7tProbe(void) {\n"
-"    TRIVERTEX v[2] = {};\n"
-"    GRADIENT_RECT g = { 0, 1 };\n"
-"    BOOL ok = GradientFill(GetDC(0), v, 2, &g, 1, GRADIENT_FILL_RECT_V);\n"
-"    return ok ? (int)(kProbeGuid.Data1 & 0xFF) : 1;\n"
-"}\n"
-"int main(void) { return w7tProbe(); }\n")
-try_compile(W7T_PROBE_RESULT "${CMAKE_BINARY_DIR}/probe-build"
-    SOURCES "${CMAKE_BINARY_DIR}/w7t-probe.cpp"
-    LINK_LIBRARIES user32 gdi32 shell32 ole32 oleaut32 comctl32 wtsapi32 dwmapi uxtheme msimg32 propsys shlwapi advapi32 powrprof wlanapi iphlpapi uuid psapi windowscodecs
-    OUTPUT_VARIABLE W7T_PROBE_OUTPUT)
-# The configure-phase message() output is not matched by the runner's
-# problem matcher, so stash the probe's interesting lines and re-echo them
-# during the build phase (where error-shaped lines DO get annotated).
-set(W7T_PROBE_DIAG "${CMAKE_BINARY_DIR}/probe-diag.txt")
-if(W7T_PROBE_RESULT)
-    file(WRITE "${W7T_PROBE_DIAG}" "PROBE OK (toolchain links the core's import libraries)\n")
-else()
-    set(W7T_PROBE_DIAG_TEXT "")
-    foreach(W7T_LINE ${W7T_PROBE_OUTPUT})
-        if(W7T_LINE MATCHES "error|LNK|cl : Command line|LINK : fatal")
-            string(APPEND W7T_PROBE_DIAG_TEXT "${W7T_LINE}\n")
+# Temporary full-project probe: configure+build the whole native project in
+# a subdirectory and re-emit its error lines as ": error C999:" text during
+# the outer build phase (the only phase the runner's problem matcher
+# annotates; raw job logs are not reachable from automation). The guard
+# keeps the inner build from recursing into the probe.
+if(NOT W7T_INNER)
+    set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
+    try_compile(W7T_FULL_RESULT "${CMAKE_BINARY_DIR}/full-probe"
+        "${CMAKE_SOURCE_DIR}" "CMakeLists.txt"
+        CMAKE_FLAGS -DW7T_INNER:BOOL=ON
+        OUTPUT_VARIABLE W7T_FULL_OUTPUT)
+    set(W7T_DIAG_TEXT "")
+    foreach(W7T_LINE ${W7T_FULL_OUTPUT})
+        if(W7T_LINE MATCHES "error|LNK|MANCANTE|C999")
+            string(APPEND W7T_DIAG_TEXT "${W7T_LINE}\n")
         endif()
     endforeach()
-    file(WRITE "${W7T_PROBE_DIAG}" "PROBE FAILED:\n${W7T_PROBE_DIAG_TEXT}")
-endif()
-file(WRITE "${CMAKE_BINARY_DIR}/echo-probe.cmake"
-"file(STRINGS \"${W7T_PROBE_DIAG}\" lines)\n"
+    if(W7T_FULL_RESULT)
+        string(PREPEND W7T_DIAG_TEXT "FULL PROBE OK\n")
+    else()
+        string(PREPEND W7T_DIAG_TEXT "FULL PROBE FAILED:\n")
+    endif()
+    file(WRITE "${CMAKE_BINARY_DIR}/full-probe-diag.txt" "${W7T_DIAG_TEXT}")
+    file(WRITE "${CMAKE_BINARY_DIR}/echo-probe.cmake"
+"file(STRINGS \"${CMAKE_BINARY_DIR}/full-probe-diag.txt\" lines)\n"
 "foreach(l IN LISTS lines)\n"
 "    message(\"native/src/probe.cmake(1): error C999: PROBE: \${l}\")\n"
 "endforeach()\n")
-add_custom_target(w7tProbeDiag ALL
-    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_BINARY_DIR}/echo-probe.cmake"
-    COMMENT "Echo toolchain probe result" VERBATIM)
+    add_custom_target(w7tProbeDiag ALL
+        COMMAND ${CMAKE_COMMAND} -P "${CMAKE_BINARY_DIR}/echo-probe.cmake"
+        COMMENT "Echo full-project probe result" VERBATIM)
+endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
