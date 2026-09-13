@@ -297,6 +297,19 @@ namespace Win7Taskbar
                 LocationChanged += (_, _) => { ReportShellRects(); ScheduleIconRectReport(); };
             });
 
+            RunStage("preferenze-riquadri", () =>
+            {
+                /* v2.63 - LA CONFIGURAZIONE LETTA ADESSO DIVENTA LA DECISIONE.
+                 *
+                 * Questa e' la prima cosa che parla con il core: le quattro
+                 * scelte salvate vengono pubblicate (W7T_SetFlyoutPreferences)
+                 * e le tre chiavi ImmersiveShell allineate, cosi' i clic sulle
+                 * icone della tray aprono il riquadro scelto dall'utente e non
+                 * quello imposto dal default. Vedi ApplyShellFlyoutPreferences:
+                 * prima questa applicazione avveniva solo premendo Applica. */
+                ApplyShellFlyoutPreferences();
+            });
+
             RunStage("riquadro-rete-win7", () =>
             {
                 /* v2.62 - IL RIQUADRO DI RETE DI WINDOWS 7 SI PREPARA ALL'AVVIO.
@@ -1281,8 +1294,11 @@ namespace Win7Taskbar
                      * barra: qui si applica e si salva la scelta. */
                     SetToolbarStates(tbDesktop == 1, tbLinks == 1, tbAddress == 1);
                 }
-                /* v2.42: approccio ExplorerPatcher al flyout batteria. */
-                EnsureWin32BatteryFlyoutReg(st.UseBatteryFlyout);
+                /* v2.63: le quattro scelte dei riquadri, applicate qui come
+                 * all'avvio (registro di sistema + core): prima si scriveva
+                 * solo la chiave della batteria, e solo se l'utente premeva
+                 * OK/Applica. */
+                ApplyShellFlyoutPreferences();
                 UpdateSearchButtonVisibility();
                 if (openSearch == 1)
                 {
@@ -4043,17 +4059,17 @@ namespace Win7Taskbar
         {
             e.Handled = true;
 
-            /* v2.61 - UN SOLO RIQUADRO, E QUELLO DI WINDOWS 7.
+            /* v2.63 - LA SCELTA DELL'UTENTE VALE ANCHE SU WINDOWS 11.
              *
-             * Su Windows 11 il riquadro nativo del calendario e' un'isola
-             * XAML che la shell apre quando decide lei: chiedendolo, il
-             * nativo compariva prima del nostro e i due si sovrapponevano.
-             * Li' quindi il percorso nativo non si usa piu': il calendario
-             * di Windows 7 (gia' creato e tenuto in memoria, vedi
-             * EnsureCalendarFlyout) si limita a comparire. Su Windows 10 e
-             * precedenti l'impostazione "riquadro nativo" resta valida e
-             * funzionante. */
-            if (Settings.Instance.UseNativeClockFlyout && !IsWindows11Host())
+             * Con "Windows 7" selezionato il clic deve aprire il calendario di
+             * Windows 7, non quello ricreato: e' il difetto segnalato. Il core
+             * ora prova il riquadro classico (finestra ClockFlyoutWindow, la
+             * stessa che Windows 7 usa) e risponde si' solo quando quella
+             * finestra compare davvero: se compare, il calendario ricreato non
+             * si apre sopra, se non compare si apre il nostro come ripiego
+             * dichiarato. La logica sta nel core, che conosce la build con
+             * certezza; qui non si decide piu' nulla. */
+            if (Settings.Instance.UseNativeClockFlyout)
             {
                 IntPtr handle = _hwndSource?.Handle ?? IntPtr.Zero;
 
@@ -5190,15 +5206,99 @@ namespace Win7Taskbar
         /// quello XAML. La scriviamo in HKCU quando l'opzione e' attiva e
         /// la riportiamo a 0 quando viene disattivata.</summary>
         internal static void EnsureWin32BatteryFlyoutReg(bool enable)
+            => WriteImmersiveShellValue("UseWin32BatteryFlyout", enable ? 1 : 0);
+
+        /// <summary>
+        /// v2.63 - Una chiave della shell, scritta in un posto solo.
+        ///
+        /// Sono le stesse tre che usa ExplorerPatcher per far scegliere a
+        /// Windows il riquadro di Windows 7 o quello moderno:
+        ///   UseWin32TrayClockExperience  1 = orologio classico (Aero)
+        ///   UseWin32BatteryFlyout        1 = riquadro batteria Win32 di Win7
+        ///   EnableMtcUvc                 0 = mixer volume classico
+        /// Explorer le legge quando disegna i SUOI riquadri: scriverle tiene
+        /// d'accordo la barra nativa con la nostra scelta (e' anche il modo
+        /// in cui il clic sulla batteria ricreata puo' aprire il riquadro
+        /// VERO di Windows 7, come chiesto).
+        /// </summary>
+        internal static void WriteImmersiveShellValue(string name, int value)
         {
             try
             {
                 using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
                     @"SOFTWARE\Microsoft\Windows\CurrentVersion\ImmersiveShell");
-                key?.SetValue("UseWin32BatteryFlyout", enable ? 1 : 0,
-                              Microsoft.Win32.RegistryValueKind.DWord);
+                key?.SetValue(name, value, Microsoft.Win32.RegistryValueKind.DWord);
+                _lastShellPrefsError = null;
             }
-            catch (Exception) { /* senza registro: nessun flyout classico */ }
+            catch (Exception ex)
+            {
+                _lastShellPrefsError = ex.Message;
+            }
+        }
+
+        private static string? _lastShellPrefsError;
+
+        /// <summary>
+        /// v2.63 - LE QUATTRO SCELTE, APPLICATE ALL'AVVIO E A OGNI APPLICA.
+        ///
+        /// Era qui il difetto di fondo della segnalazione "il programma non
+        /// legge bene le impostazioni all'avvio": la scelta dei riquadri
+        /// veniva scritta nel registro (e comunicata al core) SOLO quando
+        /// l'utente premeva OK o Applica nella finestra Proprieta'. Se la
+        /// barra partiva con le impostazioni gia' salvate, il registro
+        /// restava com'era e il core non sapeva nulla: il clic apriva il
+        /// riquadro sbagliato anche con l'opzione giusta selezionata.
+        ///
+        /// Ora la lettura della configurazione produce QUESTA chiamata, una
+        /// volta sola, all'avvio e a ogni applicazione. Le quattro decisioni
+        /// arrivano al core con W7T_SetFlyoutPreferences e le tre chiavi di
+        /// sistema vengono allineate: da qui in poi ogni percorso di apertura
+        /// (icone ricreate, menu della barra, clic sintetici) usa la stessa
+        /// decisione, quindi la tendina "Windows 7" apre il riquadro di
+        /// Windows 7 e quella "Windows 10/11" apre quello della shell.
+        /// </summary>
+        internal void ApplyShellFlyoutPreferences()
+        {
+            try
+            {
+                var st = RetroBar.Utilities.Settings.Instance;
+
+                /* Significato di ogni scelta (le stesse parole delle tendine):
+                 *   Windows 7       = 1  -> orologio: Aero (ClockFlyoutWindow)
+                 *                           rete: riquadro ricreato
+                 *                           volume: SndVol
+                 *                           batteria: riquadro Win32 di Windows
+                 *   Windows 10/11   = 0  -> riquadro della shell               */
+                bool clockWin7   = st.UseNativeClockFlyout;      /* tendina: "Windows 7" */
+                bool networkWin7 = st.NetworkFlyoutMode == 0;    /* "Windows 7 (ricreato)" */
+                bool volumeWin7  = st.UseClassicVolumeMixer;     /* tendina: "Windows 7" */
+                bool batteryWin7 = st.UseBatteryFlyout;          /* tendina: "Windows 7" */
+
+                WriteImmersiveShellValue("UseWin32TrayClockExperience", clockWin7 ? 1 : 0);
+                WriteImmersiveShellValue("UseWin32BatteryFlyout", batteryWin7 ? 1 : 0);
+                WriteImmersiveShellValue("EnableMtcUvc", volumeWin7 ? 0 : 1);
+
+                _bridge.SetFlyoutPreferences(clockWin7, networkWin7, volumeWin7, batteryWin7);
+
+                string modern = "?";
+                try { modern = _bridge.IsModernFlyoutHostAvailable() ? "si" : "no"; }
+                catch { }
+
+                _bridge.Log(
+                    "SETTINGS: orologio=" + (clockWin7 ? "Windows7" : "Windows10/11") +
+                    " rete=" + (networkWin7 ? "Windows7" : "Windows10/11") +
+                    " volume=" + (volumeWin7 ? "Windows7" : "Windows10/11") +
+                    " batteria=" + (batteryWin7 ? "Windows7" : "Windows10/11") +
+                    " lingua=" + (st.Language ?? Settings.DefaultLanguageCode) +
+                    " secondi=" + (st.ShowClockSeconds ? 1 : 0) +
+                    " ricerca=" + (st.EnableAppSearch ? 1 : 0) +
+                    " riquadri-moderni=" + modern +
+                    (_lastShellPrefsError != null ? " registro-errore=" + _lastShellPrefsError : ""));
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log("SETTINGS: applicazione preferenze riquadri fallita: " + ex.Message);
+            }
         }
 
         private void UpdateSearchButtonVisibility()

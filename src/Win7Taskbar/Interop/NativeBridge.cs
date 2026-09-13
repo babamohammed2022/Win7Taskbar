@@ -501,6 +501,18 @@ namespace Win7Taskbar.Interop
         /// Windows 7 e' pronto all'uso (vedi W7T_NetFlyoutInit).</summary>
         public void SetWin7NetworkFlyout(bool ready)
             => NativeMethods.W7T_SetWin7NetworkFlyout(ready ? 1 : 0);
+
+        /// <summary>v2.63: pubblica le preferenze dei quattro riquadri al
+        /// core, che da solo decide quale percorso usare per ognuno.</summary>
+        public void SetFlyoutPreferences(bool clockWin7, bool networkWin7,
+                                         bool volumeWin7, bool batteryWin7)
+            => NativeMethods.W7T_SetFlyoutPreferences(clockWin7 ? 1 : 0,
+                networkWin7 ? 1 : 0, volumeWin7 ? 1 : 0, batteryWin7 ? 1 : 0);
+
+        /// <summary>v2.63: vero se questa build ha i riquadri moderni della
+        /// shell (Windows 11 con l'infrastruttura immersiva presente).</summary>
+        public bool IsModernFlyoutHostAvailable()
+            => NativeMethods.W7T_IsModernFlyoutHostAvailable() == 1;
         public void NetFlyoutToggleAt(int left, int top, int right, int bottom)
         {
             var rc = new NativeMethods.RECT { Left = left, Top = top, Right = right, Bottom = bottom };

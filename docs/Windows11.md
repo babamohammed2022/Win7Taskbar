@@ -91,13 +91,13 @@ like Windows 7:
   model takes only the icons of applications. Without this rule a machine whose
   shell draws its own battery shows two battery icons side by side: ours and
   Windows'.
-- A click on one of ours opens **our** flyout of that type, anchored to the
-  rectangle the icon has at that moment: the classic volume flyout
-  (`SndVol -f`, the Windows 7 volume popup), the recreated Windows 7 network
-  flyout, the recreated battery flyout. The shell's immersive flyouts are never
-  opened from these icons: they are the Windows 10/11 look, and opening them
-  from an icon drawn to look like Windows 7 is exactly the mismatch this
-  project exists to remove.
+- A click on one of ours opens the flyout **the settings ask for**, anchored to
+  the rectangle the icon has at that moment. With *Windows 7* selected these are
+  the Windows 7 ones: the classic volume flyout (`SndVol -f`), the Win32
+  Windows 7 battery flyout requested from the shell, the recreated Windows 7
+  network flyout, the Aero clock. With *Windows 10/11* selected the shell's
+  immersive flyout of that type is requested (`ImmersiveFlyouts.cpp`), and the
+  recreated one is the fallback when the shell cannot be used at all.
 
 If a piece is missing - the recreated network flyout could not be initialised,
 `SndVol` refused to start - the click falls back to the shell's flyout of that
@@ -145,36 +145,101 @@ The link at the bottom of the panel is localized through the native string
 table (eleven languages, English fallback) like every other string the program
 draws itself.
 
-## Clock: one flyout only, and it is ours
+## Settings: read at startup, applied in one place
 
-The clock flyout of Windows 10/11 is an immersive experience, and on Windows 11
-it is a XAML island that the shell materialises when it feels like it. Asking
-for it and then waiting for it to show up was a lost cause: the call succeeds,
-the window can appear well after any timeout we are willing to wait, we
-conclude "it did not open", we show the Windows 7 calendar - and *then* the
-system one appears on top. That is why the user saw the native flyout and ours.
+The flyout options used to reach the system only when the user pressed **OK** or
+**Apply** in the Properties window. Starting the bar with settings already saved
+therefore left the registry and the native core untouched: the click opened the
+flyout that the *defaults* implied, not the one that was selected. That is the
+"the program does not read the settings at startup" report, and it also explains
+why the choice looked inverted - for the volume the recreated tray icon always
+launched the classic mixer (SndVol), for the battery it always opened the
+recreated flyout, whatever the two combo boxes said.
 
-On Windows 11 the shell flyout is therefore **never requested**: not by the
-frontend (the native path is only taken when the core positively says the system
-is not Windows 11, and an unreadable answer counts as Windows 11) and not by the
-core (`ShowClockFlyout` returns "not available" on build 22000+ even if it is
-called). The Windows 7 calendar is the only flyout, and to make sure nothing can
-leave a second one on screen, opening it first asks the core to close the
-shell's clock flyout if it happens to be open - a close-only call that opens
-nothing and is a no-op when there is nothing to close.
+Reading the configuration now produces a single call, at startup and on every
+apply:
 
-On Windows 10 and earlier nothing changes: the "native flyout" option still
-works and the shell flyout is the one shown.
+- `ApplyShellFlyoutPreferences()` publishes the four decisions to the core with
+  `W7T_SetFlyoutPreferences` (1 = Windows 7, 0 = Windows 10/11);
+- the three `HKCU\...\ImmersiveShell` values that Windows itself reads are kept
+  in sync: `UseWin32TrayClockExperience`, `UseWin32BatteryFlyout` and
+  `EnableMtcUvc` (the same switches ExplorerPatcher writes);
+- the resulting state is written to `log-core.txt` as one `SETTINGS:` line, so
+  "what did the program actually load" is a fact and not a guess.
 
-The flyout is anchored to the clock of the moment. Its position is computed at
-every open from the clock's real screen rectangle and the work area of the
-monitor the clock is on: right edge aligned with the clock and just above the
-taskbar (Windows 7 style), below the clock when there is no room above, and
-always inside the work area. After opening, the real position is measured and
-corrected if it is not the requested one, which covers per-monitor DPI and a
-taskbar that moved. A flyout placed from import-time coordinates - or one left
-to the default WPF placement - ended up in the wrong place as soon as the DPI or
-the monitor changed.
+The four decisions are then consumed from one place only: `ChooseFlyoutRoute()`
+in `FlyoutLauncher.cpp`. No launcher carries its own copy of the rule any more -
+the synthetic tray clicks, the taskbar menu and the frontend all ask the same
+function, so the "Windows 7" entry opens the Windows 7 flyout and the
+"Windows 10/11" entry opens the shell's one, by construction.
+
+## Clock: Windows 7 means Windows 7
+
+The clock combo offers the recreated classic theme and **Windows 7**. The second
+one used to end in the recreated calendar on Windows 11, because the whole
+native route was refused there with the reasoning of the previous round (the
+shell's clock flyout is a XAML island that appears whenever it likes).
+
+The refusal was too broad: it also blocked the **classic Aero clock**
+(`CLSID_AeroClock`, window class `ClockFlyoutWindow`), which is the Windows 7
+calendar and still exists on Windows 11. The route is now:
+
+1. preference *Windows 7* -> request the Aero clock, wait (bounded) for the
+   `ClockFlyoutWindow` window and reposition it like Windows 7 does. Only if
+   that window really appears is the answer "opened": a success code is not
+   enough, because on Windows 11 the shell answers success while opening its own
+   XAML island. If it does not appear, the recreated calendar is shown - the
+   declared fallback, not a silent failure.
+2. preference *Classic theme (recreated)* -> the recreated calendar, no shell
+   involvement.
+3. On Windows 8/10 the previous behaviour is untouched: the shell accepting the
+   request still counts as success even when the window is slower than the wait.
+
+The "the immersive host is missing" flag is no longer permanent either: a
+transient failure after logon retried after thirty seconds instead of disabling
+the native route for the whole session.
+
+## Battery: the Windows 7 flyout, ExplorerPatcher style
+
+With the battery set to **Windows 7** the click no longer opens the recreated
+flyout. It is forwarded to the shell's real battery button (the UIA element the
+Windows 11 tray exposes), with `UseWin32BatteryFlyout=1` in place - the same
+mechanism ExplorerPatcher uses - so Windows itself shows the Win32 Windows 7
+battery flyout, anchored to the tray.
+
+Because that route depends on the shell answering, it is verified: 900 ms after
+the click the number of visible foreign popups is compared with the number
+before it. If nothing appeared, the recreated flyout is shown at the icon's
+rectangle. A click therefore always has an effect; what changes is which of the
+two flyouts you get, and the log says which (`[GATE] battery: ...`).
+
+With **Windows 10/11** selected the shell's immersive battery flyout is tried
+first, and the recreated one is the fallback.
+
+## Network: the connection is whatever Windows says
+
+The recreated network flyout could say *Not connected* to a machine that was
+connected: the header trusted only our two reads (a physical Ethernet adapter
+from `GetAdaptersAddresses`, the first Wi-Fi network flagged connected by
+`WlanGetAvailableNetworkList`), and either of them can come back empty - a
+WLAN service that starts late, an adapter the filter does not recognise, a
+driver that does not set the `CONNECTED` flag.
+
+`INetworkListManager::GetConnectivity()` is now queried **on every refresh**,
+never cached from startup, and it is the last word of the header: if it says
+connected, the flyout shows the connected layout with the network name Windows
+reports, even when neither of our own reads saw anything.
+
+## Opening the Network and Sharing Center cannot take the bar down
+
+The link at the bottom of the flyout launches `control.exe /name
+Microsoft.NetworkAndSharingCenter`, which used to close the program. Every shell
+launch from the flyout now goes through a guarded helper: a SEH block around the
+`ShellExecuteW` call and a C++ `try`/`catch` around that block (in separate
+functions - MSVC does not allow the two in one body), with the outcome written
+to the log. A failure is a log line, not a crash.
+
+## Clock flyout placement
 
 ## Search window
 

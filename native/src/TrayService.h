@@ -356,7 +356,14 @@ private:
 
     /* v2.62: il riquadro di rete di Windows 7 e' pronto all'uso (modulo
      * inizializzato dal frontend). */
+    void StartBatteryOpenWatch(const RECT& anchor);
+    void FinishBatteryOpenWatch();
+
     bool                                 m_win7NetworkFlyoutReady = false;
+
+    /* v2.63: batteria - stato della verifica differita. */
+    RECT                                 m_pendingBatteryAnchor = {};
+    int                                  m_pendingBatteryPopups = 0;
     std::vector<TrayIconKey>        m_order;
 
     /* Indice GUID -> chiave, per il riaggancio delle re-registrazioni:
@@ -394,6 +401,10 @@ private:
      * corrente, cosi' il livello del volume si aggiorna anche senza eventi
      * della tray. */
     static constexpr UINT kTimerSynthetic   = 0xB3;
+    /* v2.63: verifica differita dell'apertura del riquadro batteria di
+     * Windows (vedi SendClick). Un solo colpo: se la shell non ha aperto
+     * nulla, il riquadro ricreato compare lo stesso. */
+    static constexpr UINT kTimerBatteryFallback = 0xB4;
 
     std::atomic<uint32_t> m_pendingSources{ 0 };
     std::atomic<bool>     m_importDone{ false };

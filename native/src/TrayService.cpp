@@ -315,6 +315,93 @@ std::wstring GuidToString(const GUID& guid) {
 
 } /* namespace */
 
+/* v2.63 - Quanti popup visibili ha aperto qualcun altro adesso.
+ *
+ * Serve alla verifica differita del riquadro batteria: quando il clic viene
+ * inoltrato al pulsante vero della shell, Windows apre il riquadro Win32 di
+ * Windows 7 (chiave UseWin32BatteryFlyout). Se non lo apre - puo' succedere
+ * su una build in cui quel percorso non risponde - l'utente non deve restare
+ * con un clic senza effetto: si confronta questo numero prima e dopo e, se
+ * non e' comparso nulla, si mostra il riquadro ricreato. Le finestre nostre
+ * non contano: il confronto e' fra "prima del clic" e "dopo il clic". */
+struct PopupCountContext { int count; };
+
+static BOOL CALLBACK CountPopupEnumProc(HWND hwnd, LPARAM param) {
+    PopupCountContext* ctx = reinterpret_cast<PopupCountContext*>(param);
+    if (ctx == nullptr) {
+        return FALSE;
+    }
+    if (!IsWindowVisible(hwnd)) {
+        return TRUE;
+    }
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == 0 || pid == GetCurrentProcessId()) {
+        return TRUE;   /* le nostre finestre non sono il riquadro di Windows */
+    }
+    const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+    if ((style & WS_POPUP) != 0 || (style & WS_DLGFRAME) != 0) {
+        ++ctx->count;
+    }
+    return TRUE;
+}
+
+int CountVisibleForeignPopups() {
+    PopupCountContext ctx{ 0 };
+    EnumWindows(CountPopupEnumProc, reinterpret_cast<LPARAM>(&ctx));
+    return ctx.count;
+}
+
+namespace {
+HINSTANCE s_hInjectDll = nullptr;
+HHOOK     s_hFreezeHook = nullptr;
+HWND      s_frozenFlyout = nullptr;
+
+HHOOK s_hFreezeHookProbe() { return s_hFreezeHook; }
+
+void UninstallFlyoutFreeze() {
+    if (s_frozenFlyout != nullptr && IsWindow(s_frozenFlyout)) {
+        const UINT u = RegisterWindowMessageW(L"W7T_UnfreezeSize");
+        if (u != 0) {
+            SendMessageW(s_frozenFlyout, u, 0, 0);  /* rimuove il subclass nel bersaglio */
+        }
+    }
+    if (s_hFreezeHook != nullptr) {
+        UnhookWindowsHookEx(s_hFreezeHook);
+        s_hFreezeHook = nullptr;
+    }
+    s_frozenFlyout = nullptr;
+}
+
+void InstallFlyoutFreeze(HWND flyout);   /* fwd decl */
+
+void RetryFlyoutFreeze(HWND flyout) {
+    extern HHOOK s_hFreezeHookProbe();
+    /* probe dichiarato sotto: evita di esporre lo stato */
+    if (s_hFreezeHookProbe() == nullptr) {
+        InstallFlyoutFreeze(flyout);
+    }
+}
+
+void InstallFlyoutFreeze(HWND flyout) {
+    if (flyout == nullptr || s_frozenFlyout == flyout) return;
+    UninstallFlyoutFreeze();
+    SetPropW(flyout, L"W7T_FreezeSize", reinterpret_cast<HANDLE>(1));
+    if (s_hInjectDll == nullptr) {
+        s_hInjectDll = LoadLibraryW(L"W7TInject.dll");
+    }
+    if (s_hInjectDll == nullptr) return;   /* ripiego: snap-back del watcher */
+    auto proc = reinterpret_cast<HOOKPROC>(
+        GetProcAddress(s_hInjectDll, "W7TInject_CallWndProc"));
+    if (proc == nullptr) return;
+    const DWORD tid = GetWindowThreadProcessId(flyout, nullptr);
+    if (tid == 0) return;
+    s_hFreezeHook = SetWindowsHookExW(WH_CALLWNDPROC, proc, s_hInjectDll, tid);
+    s_frozenFlyout = flyout;
+}
+} /* namespace */
+
+
 TrayService& TrayService::Instance() {
     static TrayService instance;
     return instance;
@@ -1584,6 +1671,7 @@ void TrayService::DestroyWindows() {
         KillTimer(m_trayWnd, kTimerBackstop);
         KillTimer(m_trayWnd, kTimerDebounce);
         KillTimer(m_trayWnd, kTimerSynthetic);
+        KillTimer(m_trayWnd, kTimerBatteryFallback);
     }
 
     // Unregister power notifications (RAII handles will auto-unregister)
@@ -1670,6 +1758,11 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
                     TrayOverflowWindow::NotifyTrayChanged();
                 }
             }
+            return 0;
+        }
+        if (static_cast<UINT_PTR>(wParam) == kTimerBatteryFallback) {
+            /* v2.63: un solo colpo (il timer non viene riarmato). */
+            self.FinishBatteryOpenWatch();
             return 0;
         }
         if (static_cast<UINT_PTR>(wParam) == kTimerBackstop) {
@@ -2983,6 +3076,29 @@ int32_t TrayService::GetIconBitmap(uint64_t ownerHwnd, uint32_t uid,
     return EmitBitmap(it->second.bitmap, width, height, pixels, pixelsBytes);
 }
 
+/* v2.63 - batteria: verifica differita dell'apertura del riquadro Win32. */
+void TrayService::StartBatteryOpenWatch(const RECT& anchor) {
+    if (m_trayWnd == nullptr) {
+        return;
+    }
+    m_pendingBatteryAnchor = anchor;
+    m_pendingBatteryPopups = CountVisibleForeignPopups();
+    SetTimer(m_trayWnd, kTimerBatteryFallback, 900, nullptr);
+}
+
+void TrayService::FinishBatteryOpenWatch() {
+    if (m_trayWnd != nullptr) {
+        KillTimer(m_trayWnd, kTimerBatteryFallback);
+    }
+    const int now = CountVisibleForeignPopups();
+    if (now > m_pendingBatteryPopups) {
+        LogTagged(L"GATE", L"batteria: riquadro di Windows aperto dalla shell");
+        return;
+    }
+    LogTagged(L"GATE", L"batteria: la shell non ha aperto il riquadro, uso il ricreato");
+    BatteryFlyout::Instance().ShowAt(m_pendingBatteryAnchor);
+}
+
 void TrayService::SetWin7NetworkFlyout(bool ready) {
     /* v2.62: il frontend avvisa che il riquadro di rete di Windows 7 e'
      * pronto (modulo inizializzato e modo "Windows 7 (ricreato)" scelto).
@@ -3079,55 +3195,6 @@ namespace {
  * li' dentro, applica SetWindowSubclass e risponde HTBORDER ai lati in
  * WM_NCHITTEST: bordi Aero conservati, resize disattivato. Se la DLL non
  * si carica resta comunque lo snap-back del watcher come ripiego. */
-namespace {
-HINSTANCE s_hInjectDll = nullptr;
-HHOOK     s_hFreezeHook = nullptr;
-HWND      s_frozenFlyout = nullptr;
-
-HHOOK s_hFreezeHookProbe() { return s_hFreezeHook; }
-
-void UninstallFlyoutFreeze() {
-    if (s_frozenFlyout != nullptr && IsWindow(s_frozenFlyout)) {
-        const UINT u = RegisterWindowMessageW(L"W7T_UnfreezeSize");
-        if (u != 0) {
-            SendMessageW(s_frozenFlyout, u, 0, 0);  /* rimuove il subclass nel bersaglio */
-        }
-    }
-    if (s_hFreezeHook != nullptr) {
-        UnhookWindowsHookEx(s_hFreezeHook);
-        s_hFreezeHook = nullptr;
-    }
-    s_frozenFlyout = nullptr;
-}
-
-void InstallFlyoutFreeze(HWND flyout);   /* fwd decl */
-
-void RetryFlyoutFreeze(HWND flyout) {
-    extern HHOOK s_hFreezeHookProbe();
-    /* probe dichiarato sotto: evita di esporre lo stato */
-    if (s_hFreezeHookProbe() == nullptr) {
-        InstallFlyoutFreeze(flyout);
-    }
-}
-
-void InstallFlyoutFreeze(HWND flyout) {
-    if (flyout == nullptr || s_frozenFlyout == flyout) return;
-    UninstallFlyoutFreeze();
-    SetPropW(flyout, L"W7T_FreezeSize", reinterpret_cast<HANDLE>(1));
-    if (s_hInjectDll == nullptr) {
-        s_hInjectDll = LoadLibraryW(L"W7TInject.dll");
-    }
-    if (s_hInjectDll == nullptr) return;   /* ripiego: snap-back del watcher */
-    auto proc = reinterpret_cast<HOOKPROC>(
-        GetProcAddress(s_hInjectDll, "W7TInject_CallWndProc"));
-    if (proc == nullptr) return;
-    const DWORD tid = GetWindowThreadProcessId(flyout, nullptr);
-    if (tid == 0) return;
-    s_hFreezeHook = SetWindowsHookExW(WH_CALLWNDPROC, proc, s_hInjectDll, tid);
-    s_frozenFlyout = flyout;
-}
-} /* namespace */
-
 bool IsFlyoutProcess(HWND hwnd) {
     DWORD pid = 0;
     GetWindowThreadProcessId(hwnd, &pid);
@@ -3699,30 +3766,42 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
 
         const int centreX = (anchor.left + anchor.right) / 2;
 
+        /* v2.63 - CHI APRE IL RIQUADRO NON LO DECIDE PIU' QUESTO SWITCH.
+         *
+         * La scelta "Windows 7" / "Windows 10/11" delle Proprieta' arriva
+         * qui dal frontend (W7T_SetFlyoutPreferences) e vive in un posto
+         * solo (FlyoutLauncher.cpp). Prima ogni ramo aveva la propria copia
+         * della regola: il volume apriva SEMPRE il mixer classico anche con
+         * "Windows 10/11" selezionato, la batteria apriva SEMPRE il riquadro
+         * ricreato anche con "Windows 10/11" selezionato, la rete il
+         * ricreato o il ripiego moderno a seconda di un flag. Da qui
+         * l'impressione - giusta - che le due voci fossero scambiate. */
+        const w7t::FlyoutKind routeKind =
+            (syntheticKind == SystemIconKind::Volume)  ? w7t::FlyoutKind::Sound
+          : (syntheticKind == SystemIconKind::Network) ? w7t::FlyoutKind::Network
+                                                       : w7t::FlyoutKind::Battery;
+        const w7t::FlyoutRoute route = w7t::ChooseFlyoutRoute(routeKind);
+
         switch (syntheticKind) {
             case SystemIconKind::Volume:
-                /* Riquadro classico del volume (SndVol -f), ancorato sopra
+                /* "Windows 7": il mixer classico (SndVol -f), ancorato sopra
                  * l'icona: e' quello che Windows 7 mostrava al clic
-                 * sull'icona del volume.
-                 *
-                 * Se il lancio non riesce (SndVol assente o rifiutato dal
-                 * sistema) si usa il riquadro del volume della shell: meglio
-                 * del clic senza effetto. Non e' il primo tentativo, e' il
-                 * ripiego dichiarato. */
-                if (W7T_LaunchClassicVolume(centreX, anchor.top) != 0) {
-                    return W7T_OK;
+                 * sull'icona del volume. Se il lancio non riesce (SndVol
+                 * assente o rifiutato dal sistema) si usa il riquadro del
+                 * volume della shell: meglio del clic senza effetto. */
+                if (route == w7t::FlyoutRoute::Classic) {
+                    if (W7T_LaunchClassicVolume(centreX, anchor.top) != 0) {
+                        return W7T_OK;
+                    }
+                    LogTagged(L"GATE", L"volume: SndVol non disponibile, uso il riquadro della shell");
                 }
                 return FlyoutLauncher::ShowVolumeFlyoutAt(anchor);
 
             case SystemIconKind::Network:
-                /* Riquadro di rete di Windows 7 (ricreato), ma solo quando
-                 * il frontend lo ha preparato e l'utente non ha scelto il
-                 * riquadro di sistema: la preparazione (g_ctx, hook) la fa
-                 * il frontend una volta sola, quindi qui non si tocca. */
-                if (m_win7NetworkFlyoutReady) {
-                    /* La preparazione (init del modulo) l'ha fatta il
-                     * frontend; qui si usa la stessa funzione che apre il
-                     * riquadro dal menu della barra. */
+                /* "Windows 7": il riquadro di rete ricreato, ma solo quando il
+                 * frontend lo ha preparato (NetFlyoutInit); la preparazione
+                 * (g_ctx, hook) la fa il frontend una volta sola. */
+                if (route == w7t::FlyoutRoute::Classic && m_win7NetworkFlyoutReady) {
                     w7tnet::W7TNetFlyout_SetAnchorRect(&anchor);
                     w7tnet::W7TNetFlyout_Toggle();
                     return W7T_OK;
@@ -3731,6 +3810,38 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                                                       FlyoutAction::Show, anchor);
 
             case SystemIconKind::Battery:
+                /* v2.63 - IL RIQUADRO BATTERIA DI WINDOWS 7, come chiesto.
+                 *
+                 * Con la preferenza "Windows 7" il clic va al pulsante
+                 * batteria VERO della shell (lo stesso che la shell disegna
+                 * nella sua tray): il frontend ha gia' messo in
+                 * HKCU\...\ImmersiveShell la chiave che ExplorerPatcher usa
+                 * per questa scelta (UseWin32BatteryFlyout=1), quindi e'
+                 * Windows a mostrare il riquadro Win32 di Windows 7,
+                 * ancorato alla sua icona. Se il pulsante vero non e'
+                 * raggiungibile si usa il riquadro ricreato, ancorato
+                 * all'icona nostra: meglio del clic senza effetto. */
+                if (route == w7t::FlyoutRoute::Classic) {
+                    const uint32_t shellBatteryUid =
+                        Win11TrayReader::Instance().UidOfKind(SystemIconKind::Battery);
+                    if (shellBatteryUid != 0 &&
+                        Win11TrayReader::Instance().RequestClick(shellBatteryUid, false)) {
+                        /* Verifica differita (900 ms): se Windows non apre il
+                         * riquadro Win32, compare il ricreato. Cosi' il clic
+                         * non resta mai senza effetto, qualunque cosa faccia
+                         * la shell su questa build. */
+                        StartBatteryOpenWatch(anchor);
+                        return W7T_OK;
+                    }
+                    BatteryFlyout::Instance().ShowAt(anchor);
+                    return W7T_OK;
+                }
+                /* "Windows 10/11": prima il riquadro della shell, come per
+                 * gli altri tipi; il ricreato resta il ripiego. */
+                if (FlyoutLauncher::InvokeFlyoutAt(FlyoutKind::Battery,
+                                                   FlyoutAction::Show, anchor) == W7T_OK) {
+                    return W7T_OK;
+                }
                 BatteryFlyout::Instance().ShowAt(anchor);
                 return W7T_OK;
 

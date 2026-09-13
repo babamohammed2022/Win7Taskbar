@@ -806,6 +806,35 @@ extern "C" W7T_API int32_t W7T_CALL W7T_IsWindows11(void) {
     return w7t::IsWindows11OrBetter() ? 1 : 0;
 }
 
+/* ---------------------------------------------------------------------- */
+/*  v2.63 - Impostazioni dei riquadri: UNA sola pubblicazione             */
+/* ---------------------------------------------------------------------- */
+/*  Il frontend legge la configurazione e la pubblica qui: da questo       */
+/*  momento la decisione "riquadro di Windows 7 oppure della shell" vive    */
+/*  in un posto solo (FlyoutLauncher.cpp) e tutti i percorsi di apertura -  */
+/*  clic sulle icone ricreate, menu della barra, clic sintetici - la        */
+/*  interrogano invece di reinterpretare i propri parametri. E' la cura     */
+/*  del difetto per cui la tendina "Windows 10/11" apriva il riquadro di    */
+/*  Windows 7 e viceversa: la polarita' era replicata in quattro punti.     */
+/*                                                                         */
+/*  0 = Windows 7 (classico/Win32), 1 = Windows 10/11 (shell).             */
+extern "C" W7T_API void W7T_CALL W7T_SetFlyoutPreferences(
+    int32_t clockWin7, int32_t networkWin7, int32_t volumeWin7,
+    int32_t batteryWin7) {
+    w7t::FlyoutPreferences prefs;
+    prefs.clock   = clockWin7   ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    prefs.network = networkWin7 ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    prefs.volume  = volumeWin7  ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    prefs.battery = batteryWin7 ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    w7t::SetFlyoutPreferences(prefs);
+}
+
+/* La porta dei riquadri moderni di questa build. Il frontend la usa per non
+ * duplicare il giudizio sulla versione di Windows. */
+extern "C" W7T_API int32_t W7T_CALL W7T_IsModernFlyoutHostAvailable(void) {
+    return w7t::IsModernFlyoutHostAvailable() ? 1 : 0;
+}
+
 extern "C" W7T_API void W7T_CALL W7T_OverflowHide(void) {
     g_overflowWindow.Hide();
 }

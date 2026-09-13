@@ -19,6 +19,7 @@
 #include "Common.h"
 #include "SehGuard.h"
 
+#include <cstdarg>      /* v2.63: LogTagged */
 #include <string>
 #include <cstring>
 #include <vector>
@@ -945,6 +946,24 @@ void w7t::AppendCoreLog(const wchar_t* line) {
         WriteFile(file, buffer, static_cast<DWORD>(written) * sizeof(wchar_t), &done, nullptr);
     }
     CloseHandle(file);
+}
+
+/* v2.63: log con etichetta fissa. Serve a isolare classi di problemi
+ * (impostazioni, porta dei riquadri, clic della tray) dal resto del file:
+ * l'utente allega log-core.txt e si legge solo quello che serve. */
+void w7t::LogTagged(const wchar_t* tag, const wchar_t* fmt, ...) {
+    if (tag == nullptr || fmt == nullptr) {
+        return;
+    }
+    wchar_t body[512] = {};
+    va_list args;
+    va_start(args, fmt);
+    const int written = wvsprintfW(body, fmt, args);
+    va_end(args);
+
+    wchar_t line[640] = {};
+    wsprintfW(line, L"[%s] %s", tag, body);
+    AppendCoreLog(line);
 }
 
 

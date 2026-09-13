@@ -390,6 +390,26 @@ namespace Win7Taskbar.Interop
         public static extern int W7T_IsWindows11();
 
         /// <summary>
+        /// v2.63: pubblica al core la scelta dei quattro riquadri. Da questo
+        /// momento la decisione "Windows 7 oppure Windows 10/11" vive in un
+        /// posto solo (il core) e tutti i percorsi di apertura la
+        /// interrogano: prima ogni launcher aveva la propria copia della
+        /// regola, ed e' per questo che la tendina "Windows 10/11" poteva
+        /// aprire il riquadro di Windows 7 e viceversa.
+        /// 1 = Windows 7 (classico), 0 = Windows 10/11 (shell).
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_SetFlyoutPreferences(
+            int clockWin7, int networkWin7, int volumeWin7, int batteryWin7);
+
+        /// <summary>
+        /// v2.63: la porta dei riquadri moderni di questa build, decisa dal
+        /// core (build via RtlGetVersion + infrastruttura della shell).
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_IsModernFlyoutHostAvailable();
+
+        /// <summary>
         /// v2.62: chiude il riquadro dell'orologio DELLA SHELL, se aperto.
         /// Non lo apre mai: su Windows 11 il riquadro mostrato e' sempre
         /// quello ricreato da Win7Taskbar, e se il sistema ha aperto il suo
