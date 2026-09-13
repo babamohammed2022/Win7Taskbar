@@ -17,8 +17,9 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Pinned applications | ✅ | Pinned taskbar applications are supported. |
 | Application grouping | ✅ | Grouped task buttons are supported as part of the Windows 7-style Superbar behavior. |
 | Application icons | ✅ | The general appearance is accurate, but icon accuracy is not yet complete for every application and system icon. |
-| Open-application indicators | ✅ | Windows 7-style indicators are present and can be refined further. |
+| Open-application indicators | ⚠️ | Active/running-state indicators work, but the multi-window "stacked" separator lines (the vertical bars shown when a group has 2+ windows) are not visible yet: the visibility/offset logic (`WindowStackVisibilityConverter`, `WindowStackOuterBorderOffsetConverter`, `WidthRatioConverter`) is implemented and registered as a resource in `Overrides.xaml`, but no XAML element in the task button template is actually bound to it. Needs the missing `Border`/`Rectangle` elements added to the button template. |
 | Application tooltips | ✅ | Application-name tooltips are available. |
+| File drag & drop onto taskbar buttons | ⚠️ | Dropping a file onto a pinned/running app button to open it with that app (hover-to-activate + drop) has an initial implementation: standard WPF drag&drop (no COM `IDropTarget` needed, since this isn't injected into explorer.exe), with a fallback to `ShellExecute` when the known executable can't be launched directly, and an extension check (via registry `SupportedTypes`, permissive when unknown) driving the allowed/forbidden cursor feedback. Needs real-world testing (multi-file drops, apps without declared `SupportedTypes`, mixed-extension drops). |
 | Thumbnail previews | ❌ | Windows 7-style taskbar thumbnail previews are not currently implemented; the previous preview implementations were disabled because they were not reliable on real systems. |
 | Jump Lists | ❌ | Jump Lists are not implemented yet. |
 | Windows 7 toolbars | ✅ | The three Windows 7-style toolbars are present. |
@@ -27,6 +28,7 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Tray overflow | ✅ | The overflow experience is reasonably close to Windows 7, although further refinement is possible. |
 | Battery indicator | ⚠️ | Battery status is implemented with a recreated taskbar icon, but the implementation is still partial rather than a complete native Windows 7 battery implementation. |
 | Clock and date display | ✅ | The taskbar clock and date are present. |
+| Language switcher (input language flyout) | ❌ | Windows 7/8.1-style keyboard layout switcher (tray abbreviation + popup, ported from the "Windows 7/8.1 Language Switcher Restorer" Windhawk mod) is implemented in source (`LanguageSwitcher.cpp`, dedicated native thread, SEH-guarded popup), but currently broken in shipped alpha builds: the `Win7TaskbarCore.dll` export table is missing `W7T_LangSwitcherShow`/`Hide`/`GetActive`/`SetChangedCallback` (stale/mismatched native build vs. managed code), so clicking the language indicator fails. Needs a clean rebuild of the native core (and a passing run of `native/tools/check-exports.py`) before repackaging. |
 | System flyouts | ✅ | The main flyouts work, but positioning and some Windows-version-specific behavior still need improvement. |
 | Clock flyout | ✅ | The Windows 7-style clock flyout is now considered complete. |
 | Aero Peek / Show Desktop | ⚠️ | Windows 7-style Aero Peek and the Show Desktop area are represented, but the implementation is not yet a complete recreation of the original shell behavior. |
@@ -61,6 +63,14 @@ The remaining work includes improving reliability, handling all shell states and
 ### Battery indicator
 
 The battery indicator is implemented using a recreated taskbar icon. Further work is still needed for complete Windows 7 parity and robust handling of every battery state.
+
+### Multi-window stacked indicator bars
+
+The vertical separator lines that Windows 7 draws next to a grouped task button's icon when it holds 2 or more windows are not visible yet. The rendering logic itself (how many separators to show, and where to offset them based on button width and window count) is fully implemented as WPF value converters, but the actual visual elements referencing those converters were never added to the task button's control template. This is a missing-markup issue, not a missing-asset issue — no icon or image is involved in this feature.
+
+### Language switcher
+
+The Windows 7/8.1-style input language switcher (tray abbreviation such as "ITA"/"ENG" plus the native popup for picking a keyboard layout) is implemented in the native core and wired up on the managed side, but the currently shipped `Win7TaskbarCore.dll` in alpha builds does not export the four functions this feature depends on. This points to a stale native build that predates the language-switcher code being added, not a logic bug in the feature itself. Rebuilding the native core and verifying the export table before packaging should resolve it.
 
 ## Areas that are already in good shape
 
