@@ -157,14 +157,6 @@ add_custom_command(TARGET W7TInject POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:W7TInject> "${W7T_DIST_DIR}/"
     COMMAND ${CMAKE_COMMAND} -DGATE_TEXT="STAGE inject copy done" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
     COMMENT "Copy W7TInject.dll to dist/")
-file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
-"message(\"native/src/stage.txt(1): error C999: \\${GATE_TEXT}\")\n")
-file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/tools/final-gate.cmake"
-"if(EXISTS \"\\${GATE_DLL}\")\n"
-"    message(\"native/src/stage.txt(1): error C999: STAGE final gate dll present\")\n"
-"else()\n"
-"    message(\"native/src/stage.txt(1): error C999: STAGE final gate DLL MISSING\")\n"
-"endif()\n")
 add_custom_target(w7tFinalGate ALL
     COMMAND ${CMAKE_COMMAND} -DGATE_DLL="${W7T_DIST_DIR}/Win7TaskbarCore.dll" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/final-gate.cmake"
     DEPENDS Win7TaskbarCore W7TInject
