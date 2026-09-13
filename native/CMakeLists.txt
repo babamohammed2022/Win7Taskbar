@@ -10,6 +10,36 @@ cmake_minimum_required(VERSION 3.20)
 # the newest SDK that links cleanly on this project.
 set(CMAKE_SYSTEM_VERSION "10.0.22621.0" CACHE STRING "Windows SDK version" FORCE)
 project(Win7TaskbarCore VERSION 1.7.0 DESCRIPTION "Win7Taskbar native backend" LANGUAGES CXX RC)
+
+# Temporary toolchain probe: build a minimal DLL-ish program with the same
+# import libraries the core uses and, on failure, re-emit the toolchain
+# output as ": error C999:" lines that the runner annotates (raw job logs
+# are not reachable from automation).
+file(WRITE "${CMAKE_BINARY_DIR}/w7t-probe.cpp"
+"#include <windows.h>\n"
+"#include <objbase.h>\n"
+"static const GUID kProbeGuid = { 0x0A73AEDC, 0x1C68, 0x410D, { 0x8D, 0x53, 0x63, 0xAF, 0x80, 0x95, 0x1E, 0x8F } };\n"
+"extern \"C\" __declspec(dllexport) int w7tProbe(void) {\n"
+"    TRIVERTEX v[2] = {};\n"
+"    GRADIENT_RECT g = { 0, 1 };\n"
+"    BOOL ok = GradientFill(GetDC(0), v, 2, &g, 1, GRADIENT_FILL_RECT_V);\n"
+"    return ok ? (int)(kProbeGuid.Data1 & 0xFF) : 1;\n"
+"}\n"
+"int main(void) { return w7tProbe(); }\n")
+try_compile(W7T_PROBE_RESULT "${CMAKE_BINARY_DIR}/probe-build"
+    SOURCES "${CMAKE_BINARY_DIR}/w7t-probe.cpp"
+    LINK_LIBRARIES user32 gdi32 shell32 ole32 oleaut32 comctl32 wtsapi32 dwmapi uxtheme msimg32 propsys shlwapi advapi32 powrprof wlanapi iphlpapi uuid psapi windowscodecs
+    OUTPUT_VARIABLE W7T_PROBE_OUTPUT)
+if(W7T_PROBE_RESULT)
+    message(STATUS "native/src/CMakeLists.txt(1): error C999: PROBE OK (toolchain links the core's import libraries)")
+else()
+    message(STATUS "native/src/CMakeLists.txt(2): error C999: PROBE FAILED - toolchain output follows")
+    foreach(W7T_LINE ${W7T_PROBE_OUTPUT})
+        if(W7T_LINE MATCHES "error|LNK|cl : Command line|LINK : fatal")
+            message(STATUS "native/src/CMakeLists.txt(3): error C999: PROBE: ${W7T_LINE}")
+        endif()
+    endforeach()
+endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
