@@ -4,6 +4,11 @@
 # version 3 or later (see the LICENSE file).
 
 cmake_minimum_required(VERSION 3.20)
+# Pin the Windows SDK before project(): the current runner image defaults to
+# the 10.0.26100 SDK whose import libraries are broken (uuid.lib not found;
+# actions/runner-images #13310), so the link step fails there. 10.0.22621 is
+# the newest SDK that links cleanly on this project.
+set(CMAKE_SYSTEM_VERSION "10.0.22621.0" CACHE STRING "Windows SDK version" FORCE)
 project(Win7TaskbarCore VERSION 1.7.0 DESCRIPTION "Win7Taskbar native backend" LANGUAGES CXX RC)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
