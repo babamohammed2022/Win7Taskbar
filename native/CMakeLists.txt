@@ -42,7 +42,13 @@ else()
     target_link_options(Win7TaskbarCore PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 set(W7T_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../dist" CACHE PATH "Folder for the compiled DLL")
+# Stage markers (temporary diagnostics): plain echos shaped like compiler
+# errors so the runner annotates which build stages actually ran.
+add_custom_command(TARGET Win7TaskbarCore PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E echo "native/src/CMakeLists.txt(1): error C999: MARKER pre-build reached"
+    COMMENT "Marker: pre-build" VERBATIM)
 add_custom_command(TARGET Win7TaskbarCore POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E echo "native/src/CMakeLists.txt(2): error C999: MARKER post-build reached (link OK)"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Win7TaskbarCore> "${W7T_DIST_DIR}/"
     COMMENT "Copy Win7TaskbarCore.dll to dist/")
