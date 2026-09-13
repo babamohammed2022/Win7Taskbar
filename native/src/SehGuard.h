@@ -66,8 +66,8 @@ inline void SehInstallOnce() {
  * e' uscito da CATCH/END (gia' staccato) o via longjmp (staccato dal
  * ramo CATCH), qui il top e' diverso e non tocca nulla. */
 struct SehAutoPop {
-    SehFrame** top;
-    SehFrame* frame;
+    ::w7t::SehFrame** top;
+    ::w7t::SehFrame* frame;
     ~SehAutoPop() {
         if (*top == frame) {
             *top = frame->previous;
