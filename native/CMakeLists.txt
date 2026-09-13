@@ -11,81 +11,6 @@ cmake_minimum_required(VERSION 3.20)
 set(CMAKE_SYSTEM_VERSION "10.0.22621.0" CACHE STRING "Windows SDK version" FORCE)
 project(Win7TaskbarCore VERSION 1.7.0 DESCRIPTION "Win7Taskbar native backend" LANGUAGES CXX RC)
 
-# Temporary full-project probe: configure+build the whole native project in
-# a subdirectory and re-emit the lines around its first toolchain error as
-# ": error C999:" / ": warning C999:" text during the outer build phase (the
-# only phase the runner's problem matcher annotates; raw job logs are not
-# reachable from automation). The guard keeps the inner build from
-# recursing into the probe.
-if(NOT W7T_INNER)
-    set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
-    try_compile(W7T_FULL_RESULT "${CMAKE_BINARY_DIR}/full-probe"
-        "${CMAKE_SOURCE_DIR}" "CMakeLists.txt"
-        CMAKE_FLAGS -DW7T_INNER:BOOL=ON
-        OUTPUT_VARIABLE W7T_FULL_OUTPUT)
-    set(W7T_ALL "")
-    string(REPLACE ";" "\\;" W7T_PROBE_ESCAPED "${W7T_FULL_OUTPUT}")
-    string(REPLACE "\n" ";" W7T_PROBE_LINES_KEEP "${W7T_PROBE_ESCAPED}")
-    string(REPLACE "\n\n" "\n \n" W7T_PROBE_LINES_KEEP "${W7T_PROBE_LINES_KEEP}")
-    foreach(W7T_LINE ${W7T_PROBE_LINES_KEEP})
-        list(APPEND W7T_ALL "${W7T_LINE}")
-    endforeach()
-    set(W7T_HIT -1)
-    set(W7T_IDX 0)
-    foreach(W7T_LINE ${W7T_ALL})
-        if(W7T_HIT EQUAL -1 AND W7T_LINE MATCHES "MSB[0-9]|LNK[0-9]|fatal error|MANCANTE")
-            set(W7T_HIT ${W7T_IDX})
-        endif()
-        math(EXPR W7T_IDX "${W7T_IDX} + 1")
-    endforeach()
-    set(W7T_DIAG_TEXT "")
-    list(LENGTH W7T_ALL W7T_N)
-    math(EXPR W7T_LAST "${W7T_N} - 1")
-    if(W7T_HIT GREATER -1)
-        math(EXPR W7T_START "${W7T_HIT} - 12")
-        if(W7T_START LESS 0)
-            set(W7T_START 0)
-        endif()
-        math(EXPR W7T_END "${W7T_HIT} + 3")
-        if(W7T_END GREATER ${W7T_LAST})
-            set(W7T_END ${W7T_LAST})
-        endif()
-        foreach(W7T_I RANGE ${W7T_START} ${W7T_END})
-            list(GET W7T_ALL ${W7T_I} W7T_L)
-            string(APPEND W7T_DIAG_TEXT "${W7T_L}\n")
-        endforeach()
-    elseif(W7T_N GREATER 0)
-        if(W7T_LAST GREATER 15)
-            set(W7T_LAST 15)
-        endif()
-        foreach(W7T_I RANGE 0 ${W7T_LAST})
-            list(GET W7T_ALL ${W7T_I} W7T_L)
-            string(APPEND W7T_DIAG_TEXT "${W7T_L}\n")
-        endforeach()
-    endif()
-    if(W7T_FULL_RESULT)
-        # Keep the success output to one line: annotations are capped and
-        # the outer build's own errors need the budget.
-        set(W7T_DIAG_TEXT "FULL PROBE OK")
-    else()
-        string(PREPEND W7T_DIAG_TEXT "FULL PROBE FAILED\n")
-    endif()
-    file(WRITE "${CMAKE_BINARY_DIR}/full-probe-diag.txt" "${W7T_DIAG_TEXT}")
-    file(WRITE "${CMAKE_BINARY_DIR}/echo-probe.cmake"
-"file(STRINGS \"${CMAKE_BINARY_DIR}/full-probe-diag.txt\" lines)\n"
-"set(i 0)\n"
-"foreach(l IN LISTS lines)\n"
-"    if(i LESS 9)\n"
-"        message(\"native/src/probe.cmake(1): warning C999: P\${i}: \${l}\")\n"
-"    else()\n"
-"        message(\"native/src/probe.cmake(1): warning C999: P\${i}: \${l}\")\n"
-"    endif()\n"
-"    math(EXPR i \"\${i} + 1\")\n"
-"endforeach()\n")
-    add_custom_target(w7tProbeDiag ALL
-        COMMAND ${CMAKE_COMMAND} -P "${CMAKE_BINARY_DIR}/echo-probe.cmake"
-        COMMENT "Echo full-project probe result" VERBATIM)
-endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -121,12 +46,9 @@ else()
     target_link_options(Win7TaskbarCore PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 set(W7T_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../dist" CACHE PATH "Folder for the compiled DLL")
-# Temporary stage echoes: the last one visible in the check annotations
-# tells which POST_BUILD step the failing run actually reached.
 add_custom_command(TARGET Win7TaskbarCore POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Win7TaskbarCore> "${W7T_DIST_DIR}/"
-    COMMAND ${CMAKE_COMMAND} -DGATE_TEXT=stage1_dist_copy_done -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
     COMMENT "Copy Win7TaskbarCore.dll to dist/")
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
@@ -135,7 +57,6 @@ if(Python3_Interpreter_FOUND)
     # problem matcher turns into a check annotation naming the failed check.
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-com-interfaces.py $<TARGET_FILE:Win7TaskbarCore>
-        COMMAND ${CMAKE_COMMAND} -DGATE_TEXT=stage2_check_com_done -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
         COMMENT "Check COM interfaces in binary" VERBATIM)
     # v2.62: la tabella degli export deve contenere TUTTE le funzioni che il
     # livello gestito richiama. Una build che ne perde qualcuna compila, si
@@ -143,7 +64,6 @@ if(Python3_Interpreter_FOUND)
     # successo davvero, con nove funzioni mancanti in dist/.
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-exports.py $<TARGET_FILE:Win7TaskbarCore>
-        COMMAND ${CMAKE_COMMAND} -DGATE_TEXT=stage3_check_exports_done -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
         COMMENT "Check exported functions in binary" VERBATIM)
 endif()
 add_library(W7TInject SHARED src/InjectHook.cpp)
@@ -155,11 +75,6 @@ endif()
 add_custom_command(TARGET W7TInject POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:W7TInject> "${W7T_DIST_DIR}/"
-    COMMAND ${CMAKE_COMMAND} -DGATE_TEXT=stage4_inject_copy_done -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
     COMMENT "Copy W7TInject.dll to dist/")
-add_custom_target(w7tFinalGate ALL
-    COMMAND ${CMAKE_COMMAND} -DGATE_DLL=${W7T_DIST_DIR}/Win7TaskbarCore.dll -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/final-gate.cmake"
-    DEPENDS Win7TaskbarCore W7TInject
-    VERBATIM)
 install(TARGETS Win7TaskbarCore W7TInject RUNTIME DESTINATION bin)
 install(FILES include/Win7TaskbarCore.h DESTINATION include)
