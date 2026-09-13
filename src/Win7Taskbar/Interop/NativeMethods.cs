@@ -435,6 +435,16 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppSearchInit(ulong ownerTaskbar, byte[]? argbPixels, int iconW, int iconH);
 
+        // v3.6: indicatore della lingua di input (port completo delle tre
+        // mod): il lato gestito passa il rettangolo fisico, il core nativo
+        // crea le finestre TrayInputIndicatorWClass/InputIndicatorButton.
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_LangBarPlace(ulong ownerHwnd, int mode,
+            int x, int y, int width, int height);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_LangBarShutdown();
+
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_PropertiesShow(ulong ownerTaskbar, int lang,
             int seconds, int nativeFlyout, int enableSearch, int netFlyout,

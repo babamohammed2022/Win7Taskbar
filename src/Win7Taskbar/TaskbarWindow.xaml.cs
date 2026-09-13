@@ -5554,8 +5554,9 @@ namespace Win7Taskbar
         {
             try
             {
-                LanguageBar.ContextMenuShower = (x, y, items)
-                    => _bridge.ShowContextMenuEx(x, y, true, items, true);
+                /* v3.6: il menu di scelta lingue lo apre il porting nativo
+                 * (ShellMenu del core): al livello gestito resta solo
+                 * l'ingombro e il rettangolo da passare al core. */
                 LanguageBar.Mode =
                     RetroBar.Utilities.Settings.Instance.InputLanguageMode;
             }

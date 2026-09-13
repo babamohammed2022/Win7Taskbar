@@ -467,6 +467,12 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
     msg.openSearch = openSearch ? 1 : 0;
     msg.closeApp = closeApp ? 1 : 0;
 
+    /* v3.6: le stringhe del NATIVO (menu della tray, jump list, ecc.)
+     * seguono subito la scelta del dialogo, senza aspettare il giro
+     * COPYDATA -> gestito -> W7T_SetLanguage: se quel giro non parte (o
+     * arriva tardi), i menu restavano nella lingua precedente. */
+    w7t::SetLanguageByIndex(msg.lang);
+
     COPYDATASTRUCT cds{};
     cds.dwData = kPropsCopyDataId;
     cds.cbData = sizeof(msg);

@@ -195,9 +195,6 @@ namespace RetroBar.Utilities
         /// 0 = hidden, 1 = Windows 7 style (two-letter code, default),
         /// 2 = Windows 8.1 style (two-line tile), 3 = Windows 10/11 style
         /// (three-letter code, a bit larger than the native one).
-        /// Italiano: indicatore della lingua di input nell'area di notifica.
-        /// 0 = nascosta, 1 = stile Windows 7 (default), 2 = stile
-        /// Windows 8.1, 3 = stile Windows 10/11 (un po' piu' grande).
         /// </summary>
         public int InputLanguageMode
         {

@@ -431,6 +431,18 @@ W7T_API void W7T_CALL W7T_JumpListShow(const RECT* buttonRect,
 W7T_API void W7T_CALL W7T_JumpListHide(void);
 
 /* ------------------------------------------------------------------ */
+/*  v3.6: indicatore della lingua di input (port completo delle tre   */
+/*  mod: TrayInputIndicatorWClass/InputIndicatorButton, minimo 32 px, */
+/*  layout-control a 4 modi, testo in stile fix-legacy). mode:        */
+/*  0 nascosta, 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11.          */
+/*  Le coordinate sono fisiche, client della finestra owner (la       */
+/*  barra). Va richiamato a ogni riposizionamento della barra.        */
+/* ------------------------------------------------------------------ */
+W7T_API void W7T_CALL W7T_LangBarPlace(uint64_t ownerHwnd, int32_t mode,
+        int32_t x, int32_t y, int32_t width, int32_t height);
+W7T_API void W7T_CALL W7T_LangBarShutdown(void);
+
+/* ------------------------------------------------------------------ */
 /*  v2.38: flyout batteria ricreato (stile Windows 7).                */
 /* ------------------------------------------------------------------ */
 W7T_API void W7T_CALL W7T_BatteryFlyoutShowAt(int32_t left, int32_t top,

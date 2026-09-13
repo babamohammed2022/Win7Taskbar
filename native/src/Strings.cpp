@@ -690,6 +690,12 @@ struct ShortStrings {
     const wchar_t* ctxNetCenter;
     const wchar_t* ctxMobility;
     const wchar_t* ctxPower;
+
+    /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+    const wchar_t* langBarKeepLayout;
+    const wchar_t* langBarHide;
+    const wchar_t* langBarShow;
+    const wchar_t* langBarWindowsDefault;
 };
 
 /* it: "Apri", "Esegui come amministratore", "Apri percorso file",
@@ -710,6 +716,9 @@ constexpr ShortStrings kShortIt = {
     L"Risoluzione dei problemi",
     L"Apri Centro connessioni di rete e condivisione",
     L"Centro mobility Windows", L"Opzioni risparmio energia",
+
+    /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+    L"Visibile, layout fisso", L"Nascondi sempre", L"Mostra sempre", L"Lascia gestire a Windows",
 };
 
 constexpr ShortStrings kShortEn = {
@@ -726,6 +735,9 @@ constexpr ShortStrings kShortEn = {
     L"Troubleshoot problems",
     L"Open Network and Sharing Center",
     L"Windows Mobility Center", L"Power Options",
+
+    /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+    L"Visible, fixed layout", L"Hide always", L"Show always", L"Let Windows manage",
 };
 
 constexpr ShortStrings kShortEs = {
@@ -741,6 +753,9 @@ constexpr ShortStrings kShortEs = {
     L"Solucionar problemas",
     L"Abrir Centro de redes y recursos compartidos",
     L"Centro de movilidad de Windows", L"Opciones de energía",
+
+    /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+    L"Visible, diseño fijo", L"Ocultar siempre", L"Mostrar siempre", L"Dejar que Windows lo gestione",
 };
 
 constexpr ShortStrings kShortFr = {
@@ -756,6 +771,9 @@ constexpr ShortStrings kShortFr = {
     L"Résoudre les problèmes",
     L"Ouvrir le Centre Réseau et partage",
     L"Centre de mobilité Windows", L"Options d'alimentation",
+
+    /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+    L"Visible, disposition fixe", L"Toujours masquer", L"Toujours afficher", L"Laisser Windows gérer",
 };
 
 constexpr ShortStrings kShortDe = {
@@ -772,6 +790,9 @@ constexpr ShortStrings kShortDe = {
     L"Problembehandlung",
     L"Netzwerk- und Freigabecenter öffnen",
     L"Windows-Mobilitätscenter", L"Energieoptionen",
+
+    /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+    L"Sichtbar, festes Layout", L"Immer ausblenden", L"Immer einblenden", L"Von Windows verwalten lassen",
 };
 
 constexpr ShortStrings kShortPt = {
@@ -787,6 +808,9 @@ constexpr ShortStrings kShortPt = {
     L"Solucionar problemas",
     L"Abrir Central de Rede e Compartilhamento",
     L"Central de Mobilidade do Windows", L"Opções de Energia",
+
+    /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+    L"Visível, layout fixo", L"Ocultar sempre", L"Mostrar sempre", L"Deixar o Windows gerenciar",
 };
 
 constexpr ShortStrings kShortPl = {
@@ -803,6 +827,9 @@ constexpr ShortStrings kShortPl = {
     L"Rozwiąż problemy",
     L"Otwórz Centrum sieci i udostępniania",
     L"Centrum mobilności Windows", L"Opcje zasilania",
+
+    /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+    L"Widoczny, stały układ", L"Zawsze ukrywaj", L"Zawsze pokazuj", L"Zarządzanie systemu Windows",
 };
 
 constexpr ShortStrings kShortRu = {
@@ -819,6 +846,9 @@ constexpr ShortStrings kShortRu = {
     L"Устранение неполадок",
     L"Открыть Центр управления сетями и общим доступом",
     L"Центр мобильности Windows", L"Электропитание",
+
+    /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+    L"Видимый, фиксированный макет", L"Всегда скрывать", L"Всегда показывать", L"Управление Windows",
 };
 
 constexpr ShortStrings kShortJa = {
@@ -835,6 +865,9 @@ constexpr ShortStrings kShortJa = {
     L"問題のトラブルシューティング",
     L"ネットワークと共有センターを開く",
     L"Windows モビリティ センター", L"電源オプション",
+
+    /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+    L"表示、レイアウト固定", L"常に隠す", L"常に表示", L"Windowsに任せる",
 };
 
 constexpr ShortStrings kShortZh = {
@@ -851,6 +884,9 @@ constexpr ShortStrings kShortZh = {
     L"疑难解答",
     L"打开网络和共享中心",
     L"Windows 移动中心", L"电源选项",
+
+    /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+    L"可见，固定布局", L"始终隐藏", L"始终显示", L"由 Windows 管理",
 };
 
 /* Arabic - contributed by mahmogamer (see CREDITS.txt). */
@@ -868,6 +904,9 @@ constexpr ShortStrings kShortAr = {
     L"استكشاف الأخطاء وإصلاحها",
     L"فتح مركز الشبكة والمشاركة",
     L"مركز تنقل Windows", L"خيارات الطاقة",
+
+    /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+    L"مرئي بتخطيط ثابت", L"إخفاء دائماً", L"إظهار دائماً", L"إدارة بواسطة Windows",
 };
 
 const PropStrings& PickProp(Lang lang) {
@@ -947,6 +986,11 @@ const wchar_t* PickShortId(const ShortStrings& s, StrId id) {
         case StrId::CtxNetCenter:         return s.ctxNetCenter;
         case StrId::CtxMobility:          return s.ctxMobility;
         case StrId::CtxPower:             return s.ctxPower;
+        /* v3.6: le 4 scelte del layout-control dell'indicatore. */
+        case StrId::LangBarKeepLayout:    return s.langBarKeepLayout;
+        case StrId::LangBarHide:          return s.langBarHide;
+        case StrId::LangBarShow:          return s.langBarShow;
+        case StrId::LangBarWindowsDefault: return s.langBarWindowsDefault;
     }
     return L"";
 }

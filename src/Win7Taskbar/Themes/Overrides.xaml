@@ -40,6 +40,10 @@
          larghi o stretti: si ricalcola da ActualWidth. -->
     <conv:WidthRatioConverter x:Key="WidthRatio" />
 
+    <!-- v3.6: spessore delle linee dei separatori dipendente dal numero
+         di finestre (2 -> 4 px, 3+ -> 3 px). Solo grafica. -->
+    <conv:WindowStackLineWidthConverter x:Key="WindowStackLineWidth" />
+
     <!-- ==================================================================
          v2.51: CORNICE DELL'ANTEPRIMA, a griglia 3x3 (9-slice).
 
@@ -240,12 +244,11 @@
                  Colore richiesto dall'utente: #1F314F. Il rettangolo resta
                  quello esistente (3 px, intera altezza): cambia solo il
                  colore e il numero massimo di linee. -->
-            <!-- v2.61: le due linee si spostano del 9% della larghezza del
-                 pulsante verso destra: erano al 5% (v2.61) e la richiesta
-                 e' di altre 4 punti percentuali a destra (v3.5). E' una
-                 RenderTransform: non tocca il layout, quindi l'icona e il
-                 pulsante restano esattamente dove sono, si muovono solo le
-                 linee. -->
+            <!-- v3.6: le linee si spostano del 13% della larghezza del
+                 pulsante verso destra: erano al 9% (v3.5) e la richiesta
+                 e' di ANCORA piu' a destra. E' una RenderTransform: non
+                 tocca il layout, quindi l'icona e il pulsante restano
+                 esattamente dove sono, si muovono solo le linee. -->
             <Grid Width="12"
                   Height="40"
                   Margin="1,0,0,0"
@@ -258,9 +261,12 @@
                     <TranslateTransform X="{Binding ActualWidth,
                         RelativeSource={RelativeSource AncestorType=Button},
                         Converter={StaticResource WidthRatio},
-                        ConverterParameter=0.09}" />
+                        ConverterParameter=0.13}" />
                 </Grid.RenderTransform>
-                <Border Width="3"
+                <!-- v3.6: la larghezza della linea dipende da quante
+                     finestre ha il gruppo (2 -> 4 px, 3+ -> 3 px). -->
+                <Border Width="{Binding WindowCount,
+                                Converter={StaticResource WindowStackLineWidth}}"
                         Height="40"
                         HorizontalAlignment="Left"
                         CornerRadius="1"
@@ -271,7 +277,8 @@
                         Visibility="{Binding WindowCount,
                                      Converter={StaticResource WindowStackVisibility},
                                      ConverterParameter=1}" />
-                <Border Width="3"
+                <Border Width="{Binding WindowCount,
+                                Converter={StaticResource WindowStackLineWidth}}"
                         Height="40"
                         Margin="4,0,0,0"
                         HorizontalAlignment="Left"

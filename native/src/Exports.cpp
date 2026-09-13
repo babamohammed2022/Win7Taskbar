@@ -33,6 +33,7 @@
 #include "FlyoutLauncher.h"
 #include "AudioService.h"
 #include "JumpListWindow.h"     /* v2.38 */
+#include "LanguageBar.h"        /* v3.6: indicatore della lingua */
 #include "BatteryFlyout.h"      /* v2.38 */
 #include <thread>
 #include <atomic>
@@ -137,7 +138,13 @@ extern "C" W7T_API int32_t W7T_CALL W7T_GetWindowCount(void) {
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_GetWindows(W7T_WindowInfo* buffer, int32_t capacity) {
-    return WindowManager::Instance().CopyTo(buffer, capacity);
+    /* v3.6: anche questo percorso passa dalla cinghia: e' la via con cui
+     * il gestito scopre le finestre, e il crash del Centro connessioni
+     * arrivava proprio mentre questa lista si faceva. */
+    W7T_SEH_TRY {
+        return WindowManager::Instance().CopyTo(buffer, capacity);
+    } W7T_SEH_CATCH {} W7T_SEH_END
+    return 0;
 }
 
 /* v2.25: Pinned Application Model - sorgente autoritativa dei pin. */
@@ -900,9 +907,13 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t toolbarAddress, int32_t toolbarLinks,
         int32_t inputLanguageMode) {
     try {
+        /* v3.6: l'ordine DEVE essere quello della firma Show(): nativeFlyout,
+         * enableSearch, netFlyout. Prima erano invertiti (netFlyout al posto
+         * di enableSearch e viceversa): la spunta "ricerca" accendeva il
+         * flyout di rete e il selettore flyout di rete accendeva la ricerca. */
         g_properties.Show(reinterpret_cast<HWND>(ownerTaskbar), lang,
-                          seconds, nativeFlyout, netFlyout,
-                          enableSearch, classicVolume, batteryFlyout, aeroPeek,
+                          seconds, nativeFlyout, enableSearch,
+                          netFlyout, classicVolume, batteryFlyout, aeroPeek,
                           toolbarDesktop, toolbarAddress, toolbarLinks,
                           inputLanguageMode);
     } catch (...) { /* mai propagare */ }
@@ -946,6 +957,22 @@ extern "C" W7T_API void W7T_CALL W7T_JumpListShow(
             pinnedLnk ? pinnedLnk : L"",
             isPinned == 1,
             iconArgb, iconW, iconH, lang);
+    } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+/* ------------------------------------------------------------------ */
+/* v3.6: indicatore della lingua di input (port delle tre mod).       */
+/* ------------------------------------------------------------------ */
+extern "C" W7T_API void W7T_CALL W7T_LangBarPlace(uint64_t ownerHwnd,
+        int32_t mode, int32_t x, int32_t y, int32_t width, int32_t height) {
+    W7T_SEH_TRY {
+        w7t::langbar::Place(ownerHwnd, mode, x, y, width, height);
+    } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_LangBarShutdown(void) {
+    W7T_SEH_TRY {
+        w7t::langbar::Shutdown();
     } W7T_SEH_CATCH {} W7T_SEH_END
 }
 

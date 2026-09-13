@@ -1795,6 +1795,44 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
             self.FinishBatteryOpenWatch();
             return 0;
         }
+        if (static_cast<UINT_PTR>(wParam) == kTimerBatteryUiARetry) {
+            /* v3.6: riprova il clic sul pulsante batteria vero della tray
+             * di Windows 11. Il valore atteso e' che una rilettura UIA
+             * (ordine in StartBatteryUiARetry) riporti l'elemento nel
+             * modello. Fino a 5 tentativi, poi il ricreato: il clic resta
+             * sempre con un effetto. */
+            const uint32_t uid = Win11TrayReader::Instance()
+                                     .UidOfKind(SystemIconKind::Battery);
+            if (uid != 0) {
+                self.StopBatteryUiARetry();
+                if (Win11TrayReader::Instance().RequestClick(uid, false)) {
+                    self.StartBatteryOpenWatch(self.m_batteryUiARetryAnchor);
+                    /* Il riquadro vero che la shell apre va ancorato sopra
+                     * la NOstra icona (altrimenti compare in alto a
+                     * sinistra, com'e' successo all'utente col clic
+                     * sull'icona vera importata). */
+                    self.StartFlyoutWatcher(TrayIconKey{ 0, 0x7F000000u |
+                        static_cast<uint32_t>(SystemIconKind::Battery) });
+                    LogTagged(L"GATE",
+                              L"batteria: clic consegnato al pulsante vero della shell (UIA)");
+                } else {
+                    LogTagged(L"GATE",
+                              L"batteria: pulsante vero non cliccabile, uso il ricreato");
+                    BatteryFlyout::Instance().ShowAt(self.m_batteryUiARetryAnchor);
+                }
+                return 0;
+            }
+            ++self.m_batteryUiARetryTicks;
+            if (self.m_batteryUiARetryTicks >= 5) {
+                self.StopBatteryUiARetry();
+                LogTagged(L"GATE",
+                          L"batteria: pulsante vero mai comparso dopo 5 tentativi, uso il ricreato");
+                BatteryFlyout::Instance().ShowAt(self.m_batteryUiARetryAnchor);
+                return 0;
+            }
+            Win11TrayReader::Instance().RequestRead();
+            return 0;
+        }
         if (static_cast<UINT_PTR>(wParam) == kTimerBackstop) {
             self.WatchdogLoop();
             return 0;
@@ -2651,7 +2689,32 @@ void TrayService::EnsureSyntheticSystemIcons(
                 }
             };
 
+            /* v3.6: se una batteria VERA (importata dalla shell) e' nel
+             * modello, quella sintetica non va creata: l'utente la vedeva
+             * DOPPIA (la nostra accanto a quella vera, che tra l'altro
+             * apriva il riquadro Win32 di Windows 7). La vera ha sempre la
+             * precedenza: e' lei che parla con la shell. */
+            auto realKindExists = [&](SystemIconKind kind) {
+                for (const auto& pair : m_icons) {
+                    const TrayIconEntry& e = pair.second;
+                    if (e.fromExplorer && !e.fromWin11Uia
+                        && e.systemKind == kind) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            bool realBatteryLogged = false;
+
             for (SystemIconKind kind : kSyntheticKinds) {
+                if (kind == SystemIconKind::Battery && realKindExists(kind)) {
+                    if (!realBatteryLogged) {
+                        realBatteryLogged = true;
+                        LogTagged(L"GATE",
+                                  L"batteria: icona vera presente nel modello, la sintetica non si crea");
+                    }
+                    continue;
+                }
                 if (shellExposed != nullptr && shellExposed->count(kind) != 0) {
                     /* La shell espone questo tipo.
                      *
@@ -3193,6 +3256,32 @@ void TrayService::FinishBatteryOpenWatch() {
     }
     LogTagged(L"GATE", L"batteria: la shell non ha aperto il riquadro, uso il ricreato");
     BatteryFlyout::Instance().ShowAt(m_pendingBatteryAnchor);
+}
+
+/* v3.6 - Tentativi UIA del clic sul pulsante batteria vero di Windows 11.
+ *
+ * Questo e' il reindirizzamento all'ExplorerPatcher: con la chiave
+ * UseWin32BatteryFlyout=1, il clic sul pulsante VERO della shell apre il
+ * riquadro Win32 di Windows 7 (lo conferma la macchina dell'utente). Ma
+ * lo snapshot della lettura UIA oscilla (0 <-> 3 icone) e al momento del
+ * clic spesso e' vuoto: prima del tentativo 1.2.0-alpha si rinunciava
+ * subito e partiva il ricreato. Ora si ordina una rilettura e si riprova
+ * col timer: 5 tentativi ogni 250 ms, poi (solo allora) il ricreato. */
+void TrayService::StartBatteryUiARetry(const RECT& anchor) {
+    if (m_trayWnd == nullptr) {
+        return;
+    }
+    m_batteryUiARetryAnchor = anchor;
+    m_batteryUiARetryTicks = 0;
+    Win11TrayReader::Instance().RequestRead();
+    SetTimer(m_trayWnd, kTimerBatteryUiARetry, 250, nullptr);
+}
+
+void TrayService::StopBatteryUiARetry() {
+    if (m_trayWnd != nullptr) {
+        KillTimer(m_trayWnd, kTimerBatteryUiARetry);
+    }
+    m_batteryUiARetryTicks = 0;
 }
 
 void TrayService::SetWin7NetworkFlyout(bool ready) {
@@ -3874,13 +3963,21 @@ static void ForwardStandardTrayClick(HWND owner, uint32_t callbackMessage,
 /* ------------------------------------------------------------------ */
 
 /* Lancia un pannello di sistema (mixer, mmsys.cpl, Centri...). Il
- * resto della barra non apre finestre di errore: se il
- * pannello non esiste su quella build, il clic resta senza effetto. */
+ * resto della barra non apre finestre di errore: se il pannello non
+ * esiste su quella build, il clic resta senza effetto.
+ * v3.6: ShellExecuteExW con SEE_MASK_NOASYNC | SEE_MASK_FLAG_DDEWAIT -
+ * i pannelli del Pannello di controllo parlano DDE e il lancio avviene
+ * dal thread della barra: senza quei flag il lancio poteva fallire (o
+ * peggio, restare impantanato nel DDE della shell). */
 static void RunSystemPanel(const wchar_t* file, const wchar_t* params) {
-    HINSTANCE result = ShellExecuteW(nullptr, L"open", file, params,
-                                     nullptr, SW_SHOWNORMAL);
-    /* ShellExecuteW ritorna > 32 in caso di successo. */
-    if (reinterpret_cast<intptr_t>(result) <= 32) {
+    SHELLEXECUTEINFOW exec{};
+    exec.cbSize = sizeof(exec);
+    exec.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_DDEWAIT;
+    exec.lpVerb = L"open";
+    exec.lpFile = file;
+    exec.lpParameters = params;
+    exec.nShow = SW_SHOWNORMAL;
+    if (!ShellExecuteExW(&exec)) {
         LogTagged(L"GATE", L"menu tray: lancio non riuscito per %s", file);
     }
 }
@@ -4115,6 +4212,11 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                                                      uid, version,
                                                      W7T_TRAY_CLICK_LEFT,
                                                      x, y);
+                            /* Il riquadro Win32 che Windows apre parte
+                             * dall'ancora della tray VERA (spesso l'origine
+                             * dello schermo): il watcher lo riaggancia
+                             * sopra la NOstra icona. */
+                            StartFlyoutWatcher(TrayIconKey{ ownerHwnd, uid });
                             LogTagged(L"GATE",
                                       L"batteria: clic standard sull'icona vera (stobject.dll)");
                             return W7T_OK;
@@ -4137,28 +4239,38 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                                                      fwdVer,
                                                      W7T_TRAY_CLICK_LEFT,
                                                      x, y);
-                            StartBatteryOpenWatch(anchor);
+                            StartFlyoutWatcher(TrayIconKey{ ownerHwnd, uid });
                             LogTagged(L"GATE",
                                       L"batteria: clic inoltrato all'icona vera (stobject.dll)");
                             return W7T_OK;
                         }
                     }
 
-                    /* 3. pulsante batteria della tray di Windows 11. */
+                    /* 3. pulsante batteria della tray di Windows 11. Se lo
+                     * snapshot UIA e' vuoto in questo momento (oscilla fra
+                     * 0 e 3 icone), NON si rinuncia: riprova col timer
+                     * (StartBatteryUiARetry) e solo dopo 5 tentativi parte
+                     * il ricreato. Il riquadro che la shell apre, con la
+                     * chiave UseWin32BatteryFlyout, e' quello Win32 di
+                     * Windows 7: e' il reindirizzamento richiesto. */
                     const uint32_t shellBatteryUid =
                         Win11TrayReader::Instance().UidOfKind(SystemIconKind::Battery);
-                    if (shellBatteryUid != 0 &&
-                        Win11TrayReader::Instance().RequestClick(shellBatteryUid, false)) {
-                        /* Verifica differita (1200 ms): se Windows non apre
-                         * il riquadro Win32, compare il ricreato. Cosi' il
-                         * clic non resta mai senza effetto, qualunque cosa
-                         * faccia la shell su questa build. */
-                        StartBatteryOpenWatch(anchor);
+                    if (shellBatteryUid != 0) {
+                        if (Win11TrayReader::Instance().RequestClick(shellBatteryUid, false)) {
+                            StartBatteryOpenWatch(anchor);
+                            StartFlyoutWatcher(TrayIconKey{ ownerHwnd, uid });
+                            LogTagged(L"GATE",
+                                      L"batteria: clic sul pulsante vero della shell (UIA)");
+                            return W7T_OK;
+                        }
+                        LogTagged(L"GATE",
+                                  L"batteria: pulsante shell non cliccabile, riprovo");
+                        StartBatteryUiARetry(anchor);
                         return W7T_OK;
                     }
-                    /* 4. ricreato: ultimo ripiego. */
-                    LogTagged(L"GATE", L"batteria: nessun riquadro vero raggiungibile, uso il ricreato");
-                    BatteryFlyout::Instance().ShowAt(anchor);
+                    LogTagged(L"GATE",
+                              L"batteria: pulsante shell assente dallo snapshot, riprovo");
+                    StartBatteryUiARetry(anchor);
                     return W7T_OK;
                 }
                 /* "Windows 10/11": prima il riquadro della shell, come per
@@ -4221,6 +4333,17 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                                static_cast<LPARAM>(mouseMsg));
         }
     };
+
+    /* v3.6 - IL DESTRO SULLA BATTERIA VERA APRE IL NOSTRO MENU.
+     * L'icona vera di stobject.dll (quella che l'utente vedeva comparire
+     * in ritardo accanto alla ricreata) inoltrava il menu a Windows, che
+     * lo disegna nella lingua DI WINDOWS: con l'app in francese il menu
+     * usciva in italiano. Il destro ora apre il menu di Windows 7
+     * tradotto, come per le icone ricreate. */
+    if (clickType == W7T_TRAY_CLICK_RIGHT
+        && OwnerModuleIs(owner, L"stobject.dll")) {
+        return ShowSyntheticContextMenu(SystemIconKind::Battery, x, y);
+    }
 
     switch (clickType) {
         case W7T_TRAY_CLICK_LEFT_DOWN: {

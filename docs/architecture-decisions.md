@@ -193,3 +193,39 @@ fallback was chosen although the real surface was reachable.
 **Revisit if.** Windows removes the Win32 battery flyout entirely (it is
 already absent from the newest Windows 11 Insider builds): then the battery
 entry keeps the chain but always lands on the recreated panel.
+
+## 11. v1.3.0-alpha: the input indicator is a full port, hosted by a thin managed slot
+
+**Decision (proposed fix, batch C).** The input language indicator stops
+being a WPF control that draws its own text. The three Windhawk mods that
+shaped the indicator on Windows (layout control, more space, fix rotated
+text) are ported one-to-one into the native core (`LanguageBar.cpp`), which
+creates the same window structure Windows uses: a `TrayInputIndicatorWClass`
+frame containing an `InputIndicatorButton` text child (recursive child
+search and cache, as in the reference port). The managed side keeps only the
+layout slot and forwards the on-screen rectangle (`W7T_LangBarPlace`).
+
+Ported behaviours: the four layout-control modes (keepLayoutOnly / hide /
+show / windowsDefault) with the inverted `SPI_GETSYSTEMLANGUAGEBAR` reading
+and the BOOL-cast-to-`PVOID` `SPI_SETSYSTEMLANGUAGEBAR` write; the temporary
+hide (Remote Desktop in the foreground) is redirected to the text child so
+the tray never jumps; frame height never goes below 32 px (the DeferWindowPos
+rule of the more-space mod, enforced in `WM_WINDOWPOSCHANGING`); the code is
+drawn straight, centred with `DrawTextW(DT_CENTER|DT_VCENTER|DT_SINGLELINE|
+DT_NOPREFIX)`, only when it is a 2-4 letter alphabetic code, on a background
+sampled from the taskbar corner pixel with a `COLOR_BTNFACE` fallback (the
+fix-legacy mod's drawing rule). The ManagedShell mechanics stay: a 200 ms
+poll of the foreground thread's `HKL` and layout switching via
+`LoadKeyboardLayout(KLF_SUBSTITUTE_OK|KLF_ACTIVATE)` plus a
+`WM_INPUTLANGCHANGEREQUEST` broadcast; the picker menu lists installed
+layouts plus the four layout-control choices, translated from the core
+tables (all 11 languages).
+
+**Why.** A recreated indicator drawn by WPF could not reproduce the mods'
+behaviours (they depend on the real window structure and on the system
+setting). The user required a complete port, with only the on-taskbar text
+drawn by our port.
+
+**Revisit if.** Windows changes the indicator classes again or removes the
+`SPI_SETSYSTEMLANGUAGEBAR` effect: the policy engine is isolated in
+`LanguageBar.cpp` and can follow.

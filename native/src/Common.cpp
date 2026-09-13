@@ -444,7 +444,51 @@ std::wstring ComputeAppId(HWND hwnd, DWORD pid, const std::wstring& exePath) {
         store->Release();
     }
 
-    /* 2) Fallback: percorso dell'eseguibile, normalizzato in minuscolo. */
+    /* 2) v3.6 - IL PANNELLO DI CONTROLLO NON E' EXPLORER.
+     *
+     * Su Windows 10/11 le pagine del Pannello di controllo (anche quelle
+     * aperte dai nostri menu, come il Centro connessioni) sono finestre
+     * CabinetWClass DENTRO explorer.exe: senza questa regola finivano nel
+     * gruppo di Esplora file, con il nome e l'icona di explorer. La
+     * Superbar vera le tiene separate: qui basta riconoscere il titolo
+     * localizzato ("Pannello di controllo\...") e dare alla finestra una
+     * identita' sua. */
+    if (hwnd != nullptr && !exePath.empty()) {
+        const size_t slash = exePath.find_last_of(L"\\/");
+        const std::wstring exeName =
+            (slash == std::wstring::npos)
+                ? exePath : exePath.substr(slash + 1);
+        if (_wcsicmp(exeName.c_str(), L"explorer.exe") == 0) {
+            wchar_t cls[64] = {};
+            if (GetClassNameW(hwnd, cls, 64) != 0
+                && _wcsicmp(cls, L"CabinetWClass") == 0) {
+                wchar_t title[W7T_MAX_TITLE] = {};
+                GetWindowTextW(hwnd, title, W7T_MAX_TITLE);
+                static const wchar_t* const kControlPanelNames[] = {
+                    L"Pannello di controllo",     /* it */
+                    L"Control Panel",             /* en */
+                    L"Panel de control",          /* es */
+                    L"Panneau de configuration",  /* fr */
+                    L"Systemsteuerung",           /* de */
+                    L"Painel de Controle",        /* pt-br */
+                    L"Painel de Controlo",        /* pt */
+                    L"Panel sterowania",          /* pl */
+                    L"\x041F\x0430\x043D\x0435\x043B\x044C \x0443\x043F\x0440\x0430\x0432\x043B\x0435\x043D\x0438\x044F", /* ru */
+                    L"\x30B3\x30F3\x30C8\x30ED\x30FC\x30EB \x30D1\x30CD\x30EB", /* ja */
+                    L"\x63A7\x5236\x9762\x677F",  /* zh */
+                    L"\x0644\x0648\x062D\x0629 \x0627\x0644\x062A\x062D\x0643\x0645", /* ar */
+                };
+                for (const wchar_t* name : kControlPanelNames) {
+                    const size_t len = wcslen(name);
+                    if (wcsncmp(title, name, len) == 0) {
+                        return std::wstring(L"w7t:control-panel");
+                    }
+                }
+            }
+        }
+    }
+
+    /* 3) Fallback: percorso dell'eseguibile, normalizzato in minuscolo. */
     if (!exePath.empty()) {
         std::wstring id = exePath;
         std::transform(id.begin(), id.end(), id.begin(),

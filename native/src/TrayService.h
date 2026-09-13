@@ -363,6 +363,14 @@ private:
      * parametri quando la trova. */
     bool FindRealStobjectIcon(uint64_t* owner, uint32_t* uid,
                               uint32_t* callback, uint32_t* version);
+    /* v3.6: il pulsante batteria della tray di Windows 11 via UI
+     * Automation. A volte lo snapshot della lettura e' vuoto proprio al
+     * momento del clic (le letture oscillano 0<->3 icone): invece di
+     * rinunciare subito, si ordina una rilettura e si riprova con un
+     * timer finche' il pulsante compare (o finiscono i tentativi: solo
+     * allora parte il riquadro ricreato). */
+    void StartBatteryUiARetry(const RECT& anchor);
+    void StopBatteryUiARetry();
 
     bool                                 m_win7NetworkFlyoutReady = false;
 
@@ -376,6 +384,10 @@ private:
      * faceva credere che la shell non avesse aperto niente e il riquadro
      * ricreato si impilava sopra quello vero. */
     std::set<uint64_t>                   m_pendingBatteryWindows;
+    /* v3.6: tentativi del timer UIA per la batteria (vedi
+     * StartBatteryUiARetry). */
+    RECT                                 m_batteryUiARetryAnchor = {};
+    int                                  m_batteryUiARetryTicks = 0;
     std::vector<TrayIconKey>        m_order;
 
     /* Indice GUID -> chiave, per il riaggancio delle re-registrazioni:
@@ -417,6 +429,8 @@ private:
      * Windows (vedi SendClick). Un solo colpo: se la shell non ha aperto
      * nulla, il riquadro ricreato compare lo stesso. */
     static constexpr UINT kTimerBatteryFallback = 0xB4;
+    /* v3.6: tentativi UIA del clic sul pulsante batteria di Windows 11. */
+    static constexpr UINT kTimerBatteryUiARetry = 0xB5;
 
     std::atomic<uint32_t> m_pendingSources{ 0 };
     std::atomic<bool>     m_importDone{ false };
