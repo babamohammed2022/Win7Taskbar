@@ -117,6 +117,12 @@
                  UriSource="../Resources/Win7_Tray_TileHover.png" />
     <BitmapImage x:Key="TrayTilePressedImage"
                  UriSource="../Resources/Win7_Tray_TilePressed.png" />
+    <!-- v1.7.2: the soft-edged vertical strip the user shipped for the
+         window-count separators (3x43, feathered alpha). Same relative
+         UriSource mechanism as the tile images above: those render
+         correctly on real machines, pack://siteoforigin did not. -->
+    <BitmapImage x:Key="Win7_WindowStackBorderImage"
+                 UriSource="../Resources/multiplewindowborder.png" />
     <BitmapImage x:Key="ClockTileHoverImage"
                  UriSource="../Resources/Win7_Clock_TileHover.png" />
     <BitmapImage x:Key="ClockTilePressedImage"

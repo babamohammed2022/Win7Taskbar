@@ -949,9 +949,37 @@ namespace Win7Taskbar
 
         private void TaskButton_DragOver(object sender, DragEventArgs e)
         {
-            e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
-                ? DragDropEffects.Link
-                : DragDropEffects.None;
+            // v1.7.3: the cursor shows "forbidden" when the target
+            // executable declares (via the registry) that it cannot open
+            // the dragged file type - exactly like the real taskbar.
+            try
+            {
+                if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+                {
+                    e.Effects = DragDropEffects.None;
+                    e.Handled = true;
+                    return;
+                }
+
+                string? exePath = null;
+                if (sender is FrameworkElement element &&
+                    element.DataContext is Models.TaskGroup group)
+                {
+                    exePath = !string.IsNullOrEmpty(group.ExePath)
+                        ? group.ExePath : group.LaunchPath;
+                }
+
+                var files = e.Data.GetData(DataFormats.FileDrop) as string[];
+                e.Effects = Controls.TaskButtonDropTarget.AllLikelyOpen(
+                    exePath, files)
+                    ? DragDropEffects.Link
+                    : DragDropEffects.None;
+            }
+            catch (Exception)
+            {
+                // Any error in the capability check stays permissive.
+                e.Effects = DragDropEffects.Link;
+            }
             e.Handled = true;
         }
 
@@ -973,6 +1001,19 @@ namespace Win7Taskbar
                 {
                     return;
                 }
+
+                // v1.7.3: launch only the files the executable most likely
+                // opens; unsupported ones are skipped instead of aborting
+                // the whole drop (permissive, never blocking).
+                var launchable = files
+                    .Where(f => Controls.TaskButtonDropTarget.CanLikelyOpen(
+                        group.ExePath, f))
+                    .ToList();
+                if (launchable.Count == 0)
+                {
+                    return;
+                }
+                files = launchable.ToArray();
 
                 string args = string.Join(" ",
                     files.Select(f => "\"" + f + "\""));

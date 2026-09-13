@@ -91,7 +91,18 @@
          Message 0xc0000005" box was a CRT abort, not an access
          violation); repeated tray "uid renewed" log lines collapse into
          one line with a suppressed counter. -->
-    <Version>1.7.2-alpha</Version>
+    <!-- 1.7.3-alpha: the window-separator strip now loads with the same
+         relative BitmapImage mechanism as every other theme PNG
+         (pack://siteoforigin did not render on real machines, so the
+         separators were invisible); the language-change delegate gets a
+         process-wide GC root and the popup tick/thread bodies are SEH
+         guarded (another attempt at the ITA-click process exit), with a
+         LANGSW export probe in the diagnostics log to settle whether the
+         core DLL next to the exe really exports the switcher; the
+         taskbar buttons show the "forbidden" cursor and skip unsupported
+         files when an executable declares SupportedTypes in the
+         registry. -->
+    <Version>1.7.3-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

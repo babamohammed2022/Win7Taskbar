@@ -1388,7 +1388,23 @@ static void PositionWindowNearTray(HWND hwnd) {
 /*  The language timer: refreshes the tray and fires the callback       */
 /* ------------------------------------------------------------------ */
 
+static void OnLangWatchTickInner(HWND hwnd);
+
 static void OnLangWatchTick(HWND hwnd) {
+    /* v1.7.3: the whole tick is guarded: a fault here (a stale managed
+     * thunk, a hook that faults inside our calls) must never take the
+     * process down - the taskbar would close with the popup's own timer
+     * as the only witness. */
+    W7T_SEH_TRY {
+        OnLangWatchTickInner(hwnd);
+    } W7T_SEH_CATCH {
+        CsHealAfterFault();
+        LogTagged(L"LANGSW",
+                  L"tick: swallowed an exception; the popup keeps going");
+    } W7T_SEH_END
+}
+
+static void OnLangWatchTickInner(HWND hwnd) {
     const WORD langId = ActiveLangIdWord();
     if (langId != 0 && langId != g_lastNotifiedLangId) {
         g_lastNotifiedLangId = langId;
@@ -1860,7 +1876,24 @@ static LRESULT CALLBACK SwitcherCtlWndProc(HWND hwnd, UINT msg,
     return result;
 }
 
+static DWORD WINAPI SwitcherThreadProcInner();
+
 static DWORD WINAPI SwitcherThreadProc(LPVOID /*unused*/) {
+    /* v1.7.3: the whole thread body is guarded: this thread had no SEH
+     * frame outside the control window proc, so a fault in the setup or
+     * in the loop-exit path ended the process unguarded. */
+    W7T_SEH_TRY {
+        SwitcherThreadProcInner();
+    } W7T_SEH_CATCH {
+        CsHealAfterFault();
+        LogTagged(L"LANGSW",
+                  L"thread: swallowed an exception; thread ending");
+        g_ctlWnd.store(nullptr, std::memory_order_release);
+    } W7T_SEH_END
+    return 0;
+}
+
+static DWORD WINAPI SwitcherThreadProcInner() {
     const wchar_t kCtlClass[] = L"W7T_LangSwitcherCtl";
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);

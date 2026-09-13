@@ -202,7 +202,7 @@
                      pulsante per scheda, contando fino a 3 (con 4+
                      resta come a 3). RenderTransform: zero impatto sul
                      layout, come il resto dell'overlay. -->
-                <Image Source="pack://siteoforigin:,,,/Resources/multiplewindowborder.png"
+                <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
                        Width="3" Height="40"
                        Stretch="Fill"
                        HorizontalAlignment="Right"
@@ -225,7 +225,7 @@
                     </Image.RenderTransform>
                 </Image>
                 <!-- seconda linea, un gradino piu' a sinistra (3+ finestre) -->
-                <Image Source="pack://siteoforigin:,,,/Resources/multiplewindowborder.png"
+                <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
                        Width="3" Height="40"
                        Stretch="Fill"
                        HorizontalAlignment="Right"

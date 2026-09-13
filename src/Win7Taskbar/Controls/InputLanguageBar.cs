@@ -196,11 +196,15 @@ namespace Win7Taskbar.Controls
 
             try
             {
+                Utilities.DiagnosticLogger.Write("LANGSW",
+                    $"show requested; mode={Mode}");
                 IntPtr fg = NativeMethods.GetForegroundWindow();
                 var source = PresentationSource.FromVisual(this) as HwndSource;
                 ulong owner = source != null ? (ulong)source.Handle : 0;
                 NativeMethods.W7T_LangSwitcherShow(
                     owner, fg != IntPtr.Zero ? (ulong)fg : 0, Mode);
+                Utilities.DiagnosticLogger.Write("LANGSW",
+                    "show call returned normally");
             }
             catch (DllNotFoundException) { }
             catch (EntryPointNotFoundException) { }
@@ -217,6 +221,14 @@ namespace Win7Taskbar.Controls
 
         private bool _callbackRegistered;
 
+        /* v1.7.3: process-wide root for the delegate the native side keeps.
+         * If the taskbar window is recreated, the instance field dies with
+         * the old control: without a static root the GC can collect the
+         * old marshaled thunk while the native global still points at it,
+         * and the next invocation is a jump into freed memory (a plausible
+         * cause of the whole program closing on the ITA click). */
+        private static NativeMethods.W7TLangChangedCallback? s_nativeKeepAlive;
+
         private void RegisterCallbackOnce()
         {
             if (_callbackRegistered)
@@ -226,6 +238,7 @@ namespace Win7Taskbar.Controls
             try
             {
                 _callbackKeepAlive = OnLangChanged;
+                s_nativeKeepAlive = OnLangChanged;
                 NativeMethods.W7T_LangSwitcherSetChangedCallback(
                     _callbackKeepAlive);
                 _callbackRegistered = true;
@@ -243,6 +256,8 @@ namespace Win7Taskbar.Controls
                 DispatcherPriority.Background);
         }
 
+        private bool _exportProbeLogged;
+
         private void RefreshFromNative()
         {
             try
@@ -252,8 +267,24 @@ namespace Win7Taskbar.Controls
                 char[] two = new char[8];
                 NativeMethods.W7T_LangSwitcherGetActive(
                     ref langId, three, three.Length, two, two.Length);
+                if (!_exportProbeLogged)
+                {
+                    _exportProbeLogged = true;
+                    Utilities.DiagnosticLogger.Write("LANGSW",
+                        "core exports present (GetActive ok)");
+                }
                 ApplyLang(langId, new string(three).TrimEnd('\0'),
                     new string(two).TrimEnd('\0'));
+            }
+            catch (EntryPointNotFoundException)
+            {
+                if (!_exportProbeLogged)
+                {
+                    _exportProbeLogged = true;
+                    Utilities.DiagnosticLogger.Write("LANGSW",
+                        "core exports MISSING (old Win7TaskbarCore.dll " +
+                        "loaded next to the exe?)");
+                }
             }
             catch (DllNotFoundException) { }
             catch (EntryPointNotFoundException) { }
