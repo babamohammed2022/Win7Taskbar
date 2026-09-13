@@ -76,7 +76,7 @@ if(NOT W7T_INNER)
 "set(i 0)\n"
 "foreach(l IN LISTS lines)\n"
 "    if(i LESS 9)\n"
-"        message(\"native/src/probe.cmake(1): error C999: P\${i}: \${l}\")\n"
+"        message(\"native/src/probe.cmake(1): warning C999: P\${i}: \${l}\")\n"
 "    else()\n"
 "        message(\"native/src/probe.cmake(1): warning C999: P\${i}: \${l}\")\n"
 "    endif()\n"
