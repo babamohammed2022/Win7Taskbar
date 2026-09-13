@@ -226,3 +226,28 @@ in-process would require undocumented RVAs into C++ objects with no stable
 contract — strictly more fragile than the sanctioned in-memory key plus a
 physically delivered click on the real button. Revisit only if a Windows
 build removes the legacy flyout path from explorer's own `stobject.dll`.
+
+## 12. v1.6: our own windows swallow hardware faults (anti-mod hardening)
+
+**Decision.** The language-switcher popup's window procedure and the public
+entry points of its module run under the portable `W7T_SEH_*` guard: a
+hardware exception raised inside them (typically a third-party Windhawk mod
+hooking the same system APIs we call, and faulting) is logged and swallowed.
+Because swallowing skips the `Enter`/`Leave` pairs, every critical-section
+acquisition in the module goes through depth-counting helpers and the catch
+path releases whatever is left open; an interrupted paint validates its
+update region so Windows does not spin in an endless repaint. The entry
+points are guarded twice (here and at the C exports) on purpose.
+
+**Why.** A field crash happened with the language popup open: an unhandled
+exception from a window procedure kills the process that hosts it, and the
+taskbar must survive third-party software it does not control. The tray
+window procedure already had this shape (its `Inner` split dates from v2.6).
+
+**Limits.** Swallowing skips C++ unwinding: objects alive at the fault point
+leak once, and a `std::mutex` held across the fault would stay locked - that
+is why the guarded module uses raw critical sections with heal-on-fault and
+no locks are taken across the guarded boundary elsewhere.
+
+**Revisit if.** A fault repeats in one spot: the log line names the module
+phase, and the guard can then be narrowed to the exact call.

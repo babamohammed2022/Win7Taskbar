@@ -48,18 +48,19 @@
     <Description>Taskbar in stile Windows 7 per Windows 10/11</Description>
     <Copyright>Copyright (c) 2026 Win7Taskbar contributors</Copyright>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
-    <!-- 1.5.0-alpha: la voce della lingua torna VISIBILE in ogni caso
-         (ApplyMode incondizionata: un valore uguale al precedente non fa
-         scattare il callback della DependencyProperty ed era il caso che
-         teneva la voce Collapsed per sempre); il click sulla batteria
-         ("Windows 10") ora arriva DAVVERO al pulsante di explorer: se i
-         pattern di accessibilita' sono muti, le nostre finestre sul punto
-         diventano trasparenti al mouse per l'istante del clic e un timer
-         ripristina stili e cursore (prima il caso "coperto da noi" veniva
-         saltato e partiva sempre il ricreato). -->
-    <Version>1.5.0-alpha</Version>
-    <AssemblyVersion>1.5.0.0</AssemblyVersion>
-    <FileVersion>1.5.0.0</FileVersion>
+    <!-- 1.6.0-alpha: hardening anti-mod (le eccezioni hardware dentro il
+         WndProc del popup lingue e nei punti d'ingresso vengono ingoiate,
+         con rilascio della sezione critica rimasta aperta: la barra non
+         muore e il popup si apre comunque); i separatori di gruppo sono
+         ridisegnati come nel Win7 vero (linea incisa di due pixel
+         #0F5282/#166497 invece del rettangolo pieno) e ristretti al 7%
+         della larghezza del pulsante; il glifo dentro il flyout batteria
+         ricreato torna proporzionato (11x16 a scala 3x esatta invece del
+         rettangolo fisso che lo stirava); cambio tema = repaint immediato
+         del popup (pattern portato da StartAllBack). -->
+    <Version>1.6.0-alpha</Version>
+    <AssemblyVersion>1.6.0.0</AssemblyVersion>
+    <FileVersion>1.6.0.0</FileVersion>
   
     <!-- v2.57: application icon (the classic Windows 7 flag in a single azure
          blue). Setting ApplicationIcon gives the executable the icon and, in

@@ -10,6 +10,7 @@
 #include "LanguageSwitcher.h"
 
 #include "Common.h"
+#include "SehGuard.h"
 #include "Strings.h"
 
 #include <windows.h>
@@ -62,6 +63,35 @@ std::atomic<HWND> g_hClickedTaskbar{ nullptr };
 
 CRITICAL_SECTION g_cs;
 bool g_csInit = false;
+
+/* v1.6 - PROTEZIONE ANTI-MOD. Un mod iniettato puo' hookare le API di
+ * sistema che anche noi chiamiamo (UxTheme, DWM, GDI): se una di quelle
+ * chiamate faulta DENTRO il nostro WndProc, un'eccezione non gestita
+ * ucciderebbe la barra. Il WndProc del popup e i punti d'ingresso pubblici
+ * ingoiano l'eccezione e proseguono (il popup si apre comunque). Perche'
+ * l'ingoiare non lasci la sezione critica bloccata (il longjmp salta le
+ * coppie Enter/Leave), ogni Enter/Leave passa da questi aiutanti che
+ * contano la profondita' sul thread; il ramo di ripristino rilascia tutto
+ * quello che e' rimasto aperto. */
+static thread_local int g_csDepth = 0;
+
+static void CsEnter() {
+    EnterCriticalSection(&g_cs);
+    ++g_csDepth;
+}
+
+static void CsLeave() {
+    --g_csDepth;
+    LeaveCriticalSection(&g_cs);
+}
+
+/* Rilascia le sezioni critiche rimaste aperte dopo un'eccezione ingoiata. */
+static void CsHealAfterFault() {
+    while (g_csDepth > 0) {
+        g_csDepth--;
+        LeaveCriticalSection(&g_cs);
+    }
+}
 SwitcherStyle g_style = SwitcherStyle::Win8;
 int g_styleMode = 1;                 /* Properties mode (1/2/3)           */
 std::vector<KeyboardLayoutItem> g_layouts;
@@ -662,10 +692,10 @@ static void RefreshKeyboardLayouts() {
         }
     }
 
-    EnterCriticalSection(&g_cs);
+    CsEnter();
     g_layouts = std::move(newLayouts);
     g_selectedIndex = (foundActiveIndex < g_layouts.size()) ? foundActiveIndex : 0;
-    LeaveCriticalSection(&g_cs);
+    CsLeave();
 }
 
 /* The layout-switch target: the window that had keyboard focus
@@ -705,9 +735,9 @@ static void SwitchToLayout(size_t index) {
     HKL targetHkl = nullptr;
     HWND hTarget = nullptr;
 
-    EnterCriticalSection(&g_cs);
+    CsEnter();
     if (index >= g_layouts.size()) {
-        LeaveCriticalSection(&g_cs);
+        CsLeave();
         return;
     }
     targetHkl = g_layouts[index].hkl;
@@ -715,7 +745,7 @@ static void SwitchToLayout(size_t index) {
     for (size_t i = 0; i < g_layouts.size(); ++i) {
         g_layouts[i].isCurrent = (i == index);
     }
-    LeaveCriticalSection(&g_cs);
+    CsLeave();
 
     if (!targetHkl) return;
 
@@ -911,11 +941,11 @@ static void PaintWin7Menu(HWND hwnd, HDC hdc) {
     std::vector<KeyboardLayoutItem> layoutsCopy;
     size_t activeIdx = 0;
     int hovIdx = -1;
-    EnterCriticalSection(&g_cs);
+    CsEnter();
     layoutsCopy = g_layouts;
     activeIdx = g_selectedIndex;
     hovIdx = g_hoveredWin7Index;
-    LeaveCriticalSection(&g_cs);
+    CsLeave();
 
     int currentY = ScaleForDpi(3, dpi);
 
@@ -1094,11 +1124,11 @@ static void PaintWin8Flyout(HWND hwnd, HDC hdc) {
     std::vector<KeyboardLayoutItem> layoutsCopy;
     size_t selIndex = 0;
     int hovIndex = -1;
-    EnterCriticalSection(&g_cs);
+    CsEnter();
     layoutsCopy = g_layouts;
     selIndex = g_selectedIndex;
     hovIndex = g_hoveredIndex;
-    LeaveCriticalSection(&g_cs);
+    CsLeave();
 
     int currentY = 0;
     for (size_t i = 0; i < layoutsCopy.size(); ++i) {
@@ -1260,10 +1290,10 @@ static void PositionWindowNearTray(HWND hwnd) {
 
     size_t count = 0;
     std::vector<KeyboardLayoutItem> layoutsCopy;
-    EnterCriticalSection(&g_cs);
+    CsEnter();
     count = g_layouts.size();
     layoutsCopy = g_layouts;
-    LeaveCriticalSection(&g_cs);
+    CsLeave();
 
     if (count == 0) return;
 
@@ -1374,8 +1404,38 @@ static void OnLangWatchTick(HWND hwnd) {
 /*  Popup window procedure (port)                                      */
 /* ------------------------------------------------------------------ */
 
+static LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg,
+                                           WPARAM wParam, LPARAM lParam);
+
+/* v1.6 - PROTEZIONE ANTI-MOD. Il dispatch vero vive in FlyoutWndProcInner;
+ * qui qualsiasi eccezione hardware (hook di terze parti che faultano
+ * dentro le API che anche noi chiamiamo) viene ingoiata: la sezione
+ * critica rimasta aperta viene rilasciata, un paint interrotto viene
+ * validato (altrimenti Windows ripeterebbe il paint all'infinito) e il
+ * popup resta vivo e apribile. */
 static LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
                                       LPARAM lParam) {
+    LRESULT result = 0;
+    W7T_SEH_TRY {
+        result = FlyoutWndProcInner(hwnd, uMsg, wParam, lParam);
+    } W7T_SEH_CATCH {
+        CsHealAfterFault();
+        LogTagged(L"LANGSW",
+                  L"popup: swallowed an exception (third-party hook?); "
+                  L"the popup keeps going");
+        if (uMsg == WM_PAINT) {
+            /* The interrupted paint may not have validated the region. */
+            ValidateRect(hwnd, nullptr);
+            result = 0;
+        } else {
+            result = DefWindowProcW(hwnd, uMsg, wParam, lParam);
+        }
+    } W7T_SEH_END
+    return result;
+}
+
+static LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg,
+                                           WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
         case WM_CREATE: {
             InitGdiPlusRendering();
@@ -1388,6 +1448,18 @@ static LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             if (wParam == kLangWatchTimerId) {
                 OnLangWatchTick(hwnd);
                 return 0;
+            }
+            break;
+
+        case WM_SETTINGCHANGE:
+            /* v1.6 (pattern portato da StartAllBack): un cambio tema
+             * scuro/chiaro arriva come WM_SETTINGCHANGE "ImmersiveColorSet";
+             * il popup ridipinge SUBITO (i colori sono riletti a ogni
+             * paint), senza polling. */
+            if (lParam != 0 &&
+                lstrcmpiW(reinterpret_cast<LPCWSTR>(lParam),
+                          L"ImmersiveColorSet") == 0) {
+                InvalidateRect(hwnd, nullptr, TRUE);
             }
             break;
 
@@ -1410,9 +1482,9 @@ static LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             UINT dpi = GetWindowDpi(hwnd);
 
             size_t count = 0;
-            EnterCriticalSection(&g_cs);
+            CsEnter();
             count = g_layouts.size();
-            LeaveCriticalSection(&g_cs);
+            CsLeave();
 
             bool needsRepaint = false;
 
@@ -1433,12 +1505,12 @@ static LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
                     else if (fIndex == 1) newHov = static_cast<int>(count) + 1;
                 }
 
-                EnterCriticalSection(&g_cs);
+                CsEnter();
                 if (newHov != g_hoveredWin7Index) {
                     g_hoveredWin7Index = newHov;
                     needsRepaint = true;
                 }
-                LeaveCriticalSection(&g_cs);
+                CsLeave();
             } else {
                 const int itemHeight = ScaleForDpi(58, dpi);
                 const int paddingX = ScaleForDpi(16, dpi);
@@ -1460,14 +1532,14 @@ static LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
                     }
                 }
 
-                EnterCriticalSection(&g_cs);
+                CsEnter();
                 if (newHoveredIndex != g_hoveredIndex ||
                     newHoveredFooter != g_hoveredFooter) {
                     g_hoveredIndex = newHoveredIndex;
                     g_hoveredFooter = newHoveredFooter;
                     needsRepaint = true;
                 }
-                LeaveCriticalSection(&g_cs);
+                CsLeave();
             }
 
             if (needsRepaint && IsWindow(hwnd)) {
@@ -1483,11 +1555,11 @@ static LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
         }
 
         case WM_MOUSELEAVE:
-            EnterCriticalSection(&g_cs);
+            CsEnter();
             g_hoveredIndex = -1;
             g_hoveredFooter = false;
             g_hoveredWin7Index = -1;
-            LeaveCriticalSection(&g_cs);
+            CsLeave();
             if (IsWindow(hwnd)) {
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
@@ -1495,9 +1567,9 @@ static LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 
         case WM_SETCURSOR: {
             bool isFooter = false;
-            EnterCriticalSection(&g_cs);
+            CsEnter();
             isFooter = g_hoveredFooter;
-            LeaveCriticalSection(&g_cs);
+            CsLeave();
 
             if (isFooter && g_style != SwitcherStyle::Win7) {
                 SetCursor(LoadCursor(nullptr, IDC_HAND));
@@ -1512,9 +1584,9 @@ static LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
             UINT dpi = GetWindowDpi(hwnd);
 
             size_t count = 0;
-            EnterCriticalSection(&g_cs);
+            CsEnter();
             count = g_layouts.size();
-            LeaveCriticalSection(&g_cs);
+            CsLeave();
 
             if (g_style == SwitcherStyle::Win7) {
                 const int itemHeight = ScaleForDpi(26, dpi);
@@ -1580,9 +1652,9 @@ static LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
 
         case WM_KEYDOWN: {
             size_t count = 0;
-            EnterCriticalSection(&g_cs);
+            CsEnter();
             count = g_layouts.size();
-            LeaveCriticalSection(&g_cs);
+            CsLeave();
 
             if (count == 0) break;
 
@@ -1590,22 +1662,22 @@ static LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
                 ShowWindow(hwnd, SW_HIDE);
                 return 0;
             } else if (wParam == VK_DOWN || wParam == VK_TAB) {
-                EnterCriticalSection(&g_cs);
+                CsEnter();
                 g_selectedIndex = (g_selectedIndex + 1) % count;
-                LeaveCriticalSection(&g_cs);
+                CsLeave();
                 InvalidateRect(hwnd, nullptr, FALSE);
                 return 0;
             } else if (wParam == VK_UP) {
-                EnterCriticalSection(&g_cs);
+                CsEnter();
                 g_selectedIndex = (g_selectedIndex + count - 1) % count;
-                LeaveCriticalSection(&g_cs);
+                CsLeave();
                 InvalidateRect(hwnd, nullptr, FALSE);
                 return 0;
             } else if (wParam == VK_RETURN || wParam == VK_SPACE) {
                 size_t sel = 0;
-                EnterCriticalSection(&g_cs);
+                CsEnter();
                 sel = g_selectedIndex;
-                LeaveCriticalSection(&g_cs);
+                CsLeave();
                 SwitchToLayout(sel);
                 ShowWindow(hwnd, SW_HIDE);
                 return 0;
@@ -1648,7 +1720,8 @@ HINSTANCE ThisModule() {
 
 } // namespace
 
-void Show(uint64_t ownerHwnd, uint64_t foregroundHwnd, int styleMode) {
+static void ShowInner(uint64_t ownerHwnd, uint64_t foregroundHwnd,
+                      int styleMode) {
     HWND owner = reinterpret_cast<HWND>(static_cast<uintptr_t>(ownerHwnd));
     if (owner == nullptr || !IsWindow(owner)) {
         return;
@@ -1710,11 +1783,33 @@ void Show(uint64_t ownerHwnd, uint64_t foregroundHwnd, int styleMode) {
     }
 }
 
-void Hide() {
+static void HideInner() {
     HWND hFlyout = AtomicLoadHwnd(g_hFlyoutWnd);
     if (hFlyout && IsWindow(hFlyout)) {
         ShowWindow(hFlyout, SW_HIDE);
     }
+}
+
+/* v1.6: public entry points guarded like the exports do (double belt):
+ * an exception swallowed here also releases any critical section left
+ * open, so the taskbar never hangs on the next popup interaction. */
+void Show(uint64_t ownerHwnd, uint64_t foregroundHwnd, int styleMode) {
+    W7T_SEH_TRY {
+        ShowInner(ownerHwnd, foregroundHwnd, styleMode);
+    } W7T_SEH_CATCH {
+        CsHealAfterFault();
+        LogTagged(L"LANGSW",
+                  L"show: swallowed an exception; the popup was not opened "
+                  L"this time");
+    } W7T_SEH_END
+}
+
+void Hide() {
+    W7T_SEH_TRY {
+        HideInner();
+    } W7T_SEH_CATCH {
+        CsHealAfterFault();
+    } W7T_SEH_END
 }
 
 void GetActiveInfo(uint32_t* langId, wchar_t* three, int threeCap,

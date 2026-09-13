@@ -231,22 +231,18 @@
                  il layout (Collapsed), non solo per i pixel: il pulsante si
                  stringe di 10 px e l'icona resta al centro esatto. La regola
                  e' quella di Windows 7 e la stessa del converter. -->
-            <!-- v3.5: SEPARATORI DI GRUPPO in stile Superbar di Windows 7.
-                 Le linee verticali sottili fra le finestre dello stesso
-                 gruppo. La regola visiva e' quella della Superbar:
+            <!-- v1.6: SEPARATORI DI GRUPPO come nel Win7 VERO. Non piu' un
+                 rettangolo pieno scuro: una linea incisa di DUE pixel, il
+                 primo scuro (#0F5282) e il secondo chiaro (#166497), il
+                 classico effetto "incisione" di Aero (ombra + luce). Le
+                 regole restano quelle della Superbar:
                    1 finestra  -> 0 separatori
                    2 finestre  -> 1 separatore
                    3+ finestre -> 2 separatori (massimo, sempre)
-                 Colore richiesto dall'utente: #1F314F. Il rettangolo resta
-                 quello esistente (3 px, intera altezza): cambia solo il
-                 colore e il numero massimo di linee. -->
-            <!-- v1.4: le linee tornano piu' VICINE all'icona (dal 13% al
-                 9% della larghezza del pulsante: la richiesta e' di
-                 stringere da destra verso sinistra) e lo spessore torna
-                 UNIFORME a 3 px, sia con due finestre che con tre o piu'.
-                 E' una RenderTransform: non tocca il layout, quindi
-                 l'icona e il pulsante restano esattamente dove sono, si
-                 muovono solo le linee. -->
+                 Le linee sono anche ristrette verso l'icona: il fattore di
+                 posizione scende dal 9% al 7% della larghezza del pulsante
+                 (per 2 e 3+ finestre). E' una RenderTransform: non tocca
+                 il layout, si muovono solo le linee. -->
             <Grid Width="12"
                   Height="40"
                   Margin="1,0,0,0"
@@ -259,31 +255,28 @@
                     <TranslateTransform X="{Binding ActualWidth,
                         RelativeSource={RelativeSource AncestorType=Button},
                         Converter={StaticResource WidthRatio},
-                        ConverterParameter=0.09}" />
+                        ConverterParameter=0.07}" />
                 </Grid.RenderTransform>
-                <Border Width="3"
-                        Height="40"
-                        HorizontalAlignment="Left"
-                        CornerRadius="1"
-                        Background="#1F314F"
-                        BorderBrush="#1F314F"
-                        BorderThickness="1"
-                        SnapsToDevicePixels="True"
-                        Visibility="{Binding WindowCount,
-                                     Converter={StaticResource WindowStackVisibility},
-                                     ConverterParameter=1}" />
-                <Border Width="3"
-                        Height="40"
-                        Margin="4,0,0,0"
-                        HorizontalAlignment="Left"
-                        CornerRadius="1"
-                        Background="#1F314F"
-                        BorderBrush="#1F314F"
-                        BorderThickness="1"
-                        SnapsToDevicePixels="True"
-                        Visibility="{Binding WindowCount,
-                                     Converter={StaticResource WindowStackVisibility},
-                                     ConverterParameter=2}" />
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Left"
+                            SnapsToDevicePixels="True"
+                            Visibility="{Binding WindowCount,
+                                         Converter={StaticResource WindowStackVisibility},
+                                         ConverterParameter=1}">
+                    <!-- Effetto incisione: 1 px scuro + 1 px chiaro. -->
+                    <Rectangle Width="1" Height="40" Fill="#0F5282" />
+                    <Rectangle Width="1" Height="40" Fill="#166497" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal"
+                            Margin="4,0,0,0"
+                            HorizontalAlignment="Left"
+                            SnapsToDevicePixels="True"
+                            Visibility="{Binding WindowCount,
+                                         Converter={StaticResource WindowStackVisibility},
+                                         ConverterParameter=2}">
+                    <Rectangle Width="1" Height="40" Fill="#0F5282" />
+                    <Rectangle Width="1" Height="40" Fill="#166497" />
+                </StackPanel>
             </Grid>
         </StackPanel>
     </DataTemplate>

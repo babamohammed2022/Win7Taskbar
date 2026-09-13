@@ -284,8 +284,24 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
     DeleteObject(sep);
 
     if (m_icons[idx] || m_gdip[idx]) {
-        const int dw = 34, dh = 45;
+        /* v1.6: il rapporto d'aspetto della sorgente ora si rispetta. I
+         * glifi della striscia sono 11x16: il rettangolo fisso 34x45 li
+         * stirava del ~10% in orizzontale oltre a sfocarli (ingrandimento
+         * 3,1x non intero). Con il riquadro 34x48 la scala e' ESATTAMENTE
+         * 3x (33x48) e il glifo resta proporzionato. */
+        const int srcW = (m_iconW[idx] > 0) ? m_iconW[idx] : 11;
+        const int srcH = (m_iconH[idx] > 0) ? m_iconH[idx] : 16;
+        const int boxW = 34, boxH = 48;
+        double scale = static_cast<double>(boxW) / srcW;
+        const double byH = static_cast<double>(boxH) / srcH;
+        if (byH < scale) scale = byH;
+        int dw = static_cast<int>(srcW * scale + 0.5);
+        int dh = static_cast<int>(srcH * scale + 0.5);
+        if (dw < 1) dw = 1;
+        if (dh < 1) dh = 1;
+        if (dh > kLinkTop - 6) dh = kLinkTop - 6;
         int iy = (kLinkTop - dh) / 2;
+        if (iy < 2) iy = 2;
         /* v2.41: prima GDI+ alta qualita', ripiego GDI identico. */
         if (!(m_gdip[idx] && GdipDrawHQ(hdc, m_gdip[idx], 20, iy, dw, dh)))
             DrawBitmapScaled(hdc, m_icons[idx], dw, dh, 20, iy);
