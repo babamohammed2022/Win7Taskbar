@@ -4415,6 +4415,18 @@ namespace Win7Taskbar
             return true;
         }
 
+        /// <summary>
+        /// Quanti pixel fisici vale una unita' di offset del Popup.
+        ///
+        /// Non si presume: si MISURA. Con l'app consapevole del DPI per
+        /// monitor, la conversione dipende dal monitor su cui la finestra del
+        /// riquadro viene creata, e sbagliarla di un fattore 1.5 lascia il
+        /// riquadro a meta' strada. Alla prima apertura si parte dalla scala
+        /// DPI dell'elemento, poi il valore si calibra sullo spostamento
+        /// realmente ottenuto.
+        /// </summary>
+        private double _calendarOffsetScale;
+
         /// <summary>Applica la posizione voluta (in unita' del Popup).</summary>
         private void PlaceCalendarFlyout()
         {
@@ -4424,36 +4436,51 @@ namespace Win7Taskbar
                 return;
             }
 
-            double scale = GetDpiScale(_calendarPopup.Child);
-            _calendarPopup.HorizontalOffset = x / scale;
-            _calendarPopup.VerticalOffset = y / scale;
+            if (_calendarOffsetScale <= 0)
+            {
+                _calendarOffsetScale = GetDpiScale(_calendarPopup.Child);
+            }
+
+            _calendarPopup.HorizontalOffset = x / _calendarOffsetScale;
+            _calendarPopup.VerticalOffset = y / _calendarOffsetScale;
+        }
+
+        /// <summary>Posizione fisica attuale del riquadro (NaN se non c'e').</summary>
+        private bool TryGetFlyoutOrigin(out double x, out double y)
+        {
+            x = y = double.NaN;
+            if (_calendarPopup?.Child is not FrameworkElement child)
+            {
+                return false;
+            }
+            try
+            {
+                Point screen = child.PointToScreen(new Point(0, 0));
+                x = screen.X;
+                y = screen.Y;
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
         }
 
         /// <summary>
         /// v2.62: dopo l'apertura si controlla DOVE il riquadro e' finito
-        /// davvero e, se non e' dove deve stare, lo si sposta della
-        /// differenza. Serve perche' la conversione fra unita' del Popup e
-        /// pixel dipende dal DPI del monitor e dal contesto in cui la finestra
-        /// del riquadro viene creata: misurarlo e' piu' affidabile che
-        /// calcolarlo. Si ripete al massimo due volte, poi si lascia stare.
+        /// davvero e, se non e' dove deve stare, lo si sposta della differenza.
+        /// La conversione fra unita' del Popup e pixel si misura dallo
+        /// spostamento ottenuto (vedi _calendarOffsetScale): cosi' anche il
+        /// caso peggiore, un monitor con DPI diverso da quello su cui il
+        /// riquadro crede di stare, converge in un paio di passaggi invece di
+        /// restare sbagliato. Dopo tre tentativi si lascia stare: meglio un
+        /// riquadro fuori posto di un riquadro che continua a saltare.
         /// </summary>
         private void CorrectCalendarPlacement(int attempt = 0)
         {
-            if (_calendarPopup?.Child is not FrameworkElement child ||
-                !_calendarPopup.IsOpen ||
-                !TryGetCalendarFlyoutTarget(out int wantedX, out int wantedY))
-            {
-                return;
-            }
-
-            double actualX, actualY;
-            try
-            {
-                Point screen = child.PointToScreen(new Point(0, 0));
-                actualX = screen.X;
-                actualY = screen.Y;
-            }
-            catch (InvalidOperationException)
+            if (_calendarPopup == null || !_calendarPopup.IsOpen ||
+                !TryGetCalendarFlyoutTarget(out int wantedX, out int wantedY) ||
+                !TryGetFlyoutOrigin(out double actualX, out double actualY))
             {
                 return;
             }
@@ -4465,15 +4492,48 @@ namespace Win7Taskbar
                 return;
             }
 
-            double scale = GetDpiScale(child);
-            _calendarPopup.HorizontalOffset += dx / scale;
-            _calendarPopup.VerticalOffset += dy / scale;
-
-            if (attempt < 2)
+            if (_calendarOffsetScale <= 0)
             {
-                Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
-                    new Action(() => CorrectCalendarPlacement(attempt + 1)));
+                _calendarOffsetScale = GetDpiScale(_calendarPopup.Child);
             }
+
+            double appliedX = dx / _calendarOffsetScale;
+            double appliedY = dy / _calendarOffsetScale;
+            _calendarPopup.HorizontalOffset += appliedX;
+            _calendarPopup.VerticalOffset += appliedY;
+
+            if (attempt >= 3)
+            {
+                return;
+            }
+
+            /* Secondo tempo: si guarda di quanto si e' spostato davvero e si
+             * corregge il fattore di conversione, poi si riprova. */
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                if (!TryGetFlyoutOrigin(out double movedX, out double movedY))
+                {
+                    return;
+                }
+
+                double movedBy = Math.Abs(movedX - actualX) > Math.Abs(movedY - actualY)
+                    ? movedX - actualX
+                    : movedY - actualY;
+                double asked = Math.Abs(appliedX) > Math.Abs(appliedY)
+                    ? appliedX
+                    : appliedY;
+
+                if (Math.Abs(asked) > 1 && Math.Abs(movedBy) > 1)
+                {
+                    double measured = movedBy / asked;
+                    if (measured > 0.2 && measured < 5)
+                    {
+                        _calendarOffsetScale = measured;
+                    }
+                }
+
+                CorrectCalendarPlacement(attempt + 1);
+            }));
         }
 
         private void CalendarPopup_Opened(object? sender, EventArgs e)
