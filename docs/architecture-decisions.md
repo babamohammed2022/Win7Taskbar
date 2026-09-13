@@ -194,38 +194,35 @@ fallback was chosen although the real surface was reachable.
 already absent from the newest Windows 11 Insider builds): then the battery
 entry keeps the chain but always lands on the recreated panel.
 
-## 11. v1.3.0-alpha: the input indicator is a full port, hosted by a thin managed slot
+## 11. v1.4/1.5: the language entry is the switcher port; the battery click is physically delivered
 
-**Decision (proposed fix, batch C).** The input language indicator stops
-being a WPF control that draws its own text. The three Windhawk mods that
-shaped the indicator on Windows (layout control, more space, fix rotated
-text) are ported one-to-one into the native core (`LanguageBar.cpp`), which
-creates the same window structure Windows uses: a `TrayInputIndicatorWClass`
-frame containing an `InputIndicatorButton` text child (recursive child
-search and cache, as in the reference port). The managed side keeps only the
-layout slot and forwards the on-screen rectangle (`W7T_LangBarPlace`).
+**Language entry.** The v1.3 native indicator slot (`LanguageBar.cpp`) is gone.
+The tray entry is a thin WPF `Border` (`InputLanguageBar`) that draws the active
+abbreviation and opens the core's native popup — the full port of the
+"Windows 7/8.1 Language Switcher Restorer" mod in `LanguageSwitcher.cpp`
+(GDI/GDI+ Win32 window, Win7 menu or Win8.1 card, layout switching for the
+window that had focus). One lesson is encoded twice: a `DependencyProperty`
+ignores no-op writes, so the mode is applied through an unconditional
+`ApplyMode()` that re-syncs visibility even when the value did not change —
+that exact case kept the entry collapsed forever with the default mode.
 
-Ported behaviours: the four layout-control modes (keepLayoutOnly / hide /
-show / windowsDefault) with the inverted `SPI_GETSYSTEMLANGUAGEBAR` reading
-and the BOOL-cast-to-`PVOID` `SPI_SETSYSTEMLANGUAGEBAR` write; the temporary
-hide (Remote Desktop in the foreground) is redirected to the text child so
-the tray never jumps; frame height never goes below 32 px (the DeferWindowPos
-rule of the more-space mod, enforced in `WM_WINDOWPOSCHANGING`); the code is
-drawn straight, centred with `DrawTextW(DT_CENTER|DT_VCENTER|DT_SINGLELINE|
-DT_NOPREFIX)`, only when it is a 2-4 letter alphabetic code, on a background
-sampled from the taskbar corner pixel with a `COLOR_BTNFACE` fallback (the
-fix-legacy mod's drawing rule). The ManagedShell mechanics stay: a 200 ms
-poll of the foreground thread's `HKL` and layout switching via
-`LoadKeyboardLayout(KLF_SUBSTITUTE_OK|KLF_ACTIVATE)` plus a
-`WM_INPUTLANGCHANGEREQUEST` broadcast; the picker menu lists installed
-layouts plus the four layout-control choices, translated from the core
-tables (all 11 languages).
+**Battery ("Windows 10" option).** The real Windows-10-style Win32 battery
+flyout still lives in explorer's own `stobject.dll` and is reachable with the
+`UseWin32BatteryFlyout` legacy value, which we assert ONLY around the open
+attempt and restore afterwards (the registry is left untouched between
+attempts; a purely in-memory override cannot work here, because the reader of
+that value is explorer's process, not ours). The missing piece was delivery:
+the accessibility patterns of the Windows 11 battery button are silent, and a
+synthetic click at the button's coordinates hit OUR taskbar, which covers the
+native one. v1.5 makes our windows at that point mouse-transparent for the
+instant of the click (`WS_EX_TRANSPARENT` + opaque layered style, restored by
+a reader-thread timer together with the cursor), so the click lands on the
+real button.
 
-**Why.** A recreated indicator drawn by WPF could not reproduce the mods'
-behaviours (they depend on the real window structure and on the system
-setting). The user required a complete port, with only the on-taskbar text
-drawn by our port.
-
-**Revisit if.** Windows changes the indicator classes again or removes the
-`SPI_SETSYSTEMLANGUAGEBAR` effect: the policy engine is isolated in
-`LanguageBar.cpp` and can follow.
+**Why not a downloaded Windows 10 `stobject.dll`.** Evaluated and rejected for
+now: `stobject.dll` exports only the standard COM surface
+(`DllGetClassObject`/`DllRegisterServer`/...), so hosting the Win10 binary
+in-process would require undocumented RVAs into C++ objects with no stable
+contract — strictly more fragile than the sanctioned in-memory key plus a
+physically delivered click on the real button. Revisit only if a Windows
+build removes the legacy flyout path from explorer's own `stobject.dll`.

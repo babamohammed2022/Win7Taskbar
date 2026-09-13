@@ -1805,6 +1805,11 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
                                      .UidOfKind(SystemIconKind::Battery);
             if (uid != 0) {
                 self.StopBatteryUiARetry();
+                /* v1.5: StopBatteryUiARetry ripristina la chiave legacy
+                 * (transitoria): prima di consegnare un ALTRO clic la
+                 * chiave va riasserita, altrimenti explorer leggerebbe il
+                 * valore vecchio proprio per il clic che conta. */
+                EnsureWin32BatteryFlyoutValue();
                 if (Win11TrayReader::Instance().RequestClick(uid, false)) {
                     self.StartBatteryOpenWatch(self.m_batteryUiARetryAnchor);
                     /* Il riquadro vero che la shell apre va ancorato sopra

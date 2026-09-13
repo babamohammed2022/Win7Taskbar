@@ -84,6 +84,12 @@ namespace Win7Taskbar.Controls
             _pollTimer.Tick += (sender, args) => RefreshFromNative();
             Loaded += (sender, args) =>
             {
+                /* v1.5: the visibility is enforced here too. The XAML starts
+                 * the control Collapsed, and a mode equal to the current
+                 * value never fires OnModeChanged (a DependencyProperty
+                 * ignores no-op writes), so without this explicit sync the
+                 * entry stayed invisible forever with the default mode. */
+                SyncModeVisuals();
                 RegisterCallbackOnce();
                 RefreshFromNative();
                 _pollTimer.Start();
@@ -94,10 +100,28 @@ namespace Win7Taskbar.Controls
         private static void OnModeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             var bar = (InputLanguageBar)d;
-            bar.Visibility = bar.Mode == ModeHidden
+            bar.SyncModeVisuals();
+        }
+
+        /// <summary>Applies the mode unconditionally: visibility and layout
+        /// are refreshed even when the value did not change (the exact case
+        /// that kept the entry hidden with the default Windows 7 mode).</summary>
+        public void ApplyMode(int mode)
+        {
+            if (mode < ModeHidden || mode > ModeWin10 || mode == Mode)
+            {
+                SyncModeVisuals();
+                return;
+            }
+            Mode = mode;   /* OnModeChanged syncs the visuals. */
+        }
+
+        private void SyncModeVisuals()
+        {
+            Visibility = Mode == ModeHidden
                 ? Visibility.Collapsed
                 : Visibility.Visible;
-            bar.RefreshLayout();
+            RefreshLayout();
         }
 
         private UIElement BuildContent(out StackPanel? tile)

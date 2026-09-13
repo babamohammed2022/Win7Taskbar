@@ -5554,11 +5554,14 @@ namespace Win7Taskbar
         {
             try
             {
-                /* v1.4: la sigla e' disegnata dal controllo (che interroga
-                 * il core nativo); il click apre il popup nativo del
-                 * selettore (port del mod), non un menu WPF. */
-                LanguageBar.Mode =
-                    RetroBar.Utilities.Settings.Instance.InputLanguageMode;
+                /* v1.5: ApplyMode e' incondizionata: anche quando il valore
+                 * non cambia (il caso che teneva la voce invisibile) la
+                 * visibilita' e il layout vengono riapplicati. La sigla e'
+                 * disegnata dal controllo (che interroga il core nativo);
+                 * il click apre il popup nativo del selettore (port del
+                 * mod), non un menu WPF. */
+                LanguageBar.ApplyMode(
+                    RetroBar.Utilities.Settings.Instance.InputLanguageMode);
             }
             catch (Exception) { /* ignora */ }
         }
