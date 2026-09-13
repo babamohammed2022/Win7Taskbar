@@ -30,16 +30,29 @@ try_compile(W7T_PROBE_RESULT "${CMAKE_BINARY_DIR}/probe-build"
     SOURCES "${CMAKE_BINARY_DIR}/w7t-probe.cpp"
     LINK_LIBRARIES user32 gdi32 shell32 ole32 oleaut32 comctl32 wtsapi32 dwmapi uxtheme msimg32 propsys shlwapi advapi32 powrprof wlanapi iphlpapi uuid psapi windowscodecs
     OUTPUT_VARIABLE W7T_PROBE_OUTPUT)
+# The configure-phase message() output is not matched by the runner's
+# problem matcher, so stash the probe's interesting lines and re-echo them
+# during the build phase (where error-shaped lines DO get annotated).
+set(W7T_PROBE_DIAG "${CMAKE_BINARY_DIR}/probe-diag.txt")
 if(W7T_PROBE_RESULT)
-    message(STATUS "native/src/CMakeLists.txt(1): error C999: PROBE OK (toolchain links the core's import libraries)")
+    file(WRITE "${W7T_PROBE_DIAG}" "PROBE OK (toolchain links the core's import libraries)\n")
 else()
-    message(STATUS "native/src/CMakeLists.txt(2): error C999: PROBE FAILED - toolchain output follows")
+    set(W7T_PROBE_DIAG_TEXT "")
     foreach(W7T_LINE ${W7T_PROBE_OUTPUT})
         if(W7T_LINE MATCHES "error|LNK|cl : Command line|LINK : fatal")
-            message(STATUS "native/src/CMakeLists.txt(3): error C999: PROBE: ${W7T_LINE}")
+            string(APPEND W7T_PROBE_DIAG_TEXT "${W7T_LINE}\n")
         endif()
     endforeach()
+    file(WRITE "${W7T_PROBE_DIAG}" "PROBE FAILED:\n${W7T_PROBE_DIAG_TEXT}")
 endif()
+file(WRITE "${CMAKE_BINARY_DIR}/echo-probe.cmake"
+"file(STRINGS \"${W7T_PROBE_DIAG}\" lines)\n"
+"foreach(l IN LISTS lines)\n"
+"    message(\"native/src/probe.cmake(1): error C999: PROBE: \${l}\")\n"
+"endforeach()\n")
+add_custom_target(w7tProbeDiag ALL
+    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_BINARY_DIR}/echo-probe.cmake"
+    COMMENT "Echo toolchain probe result" VERBATIM)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
