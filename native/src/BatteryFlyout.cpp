@@ -410,10 +410,11 @@ LRESULT CALLBACK BatteryFlyout::WndProc(HWND hwnd, UINT msg,
                 /* v1.7: sopra il link il cursore a MANO, come le voci
                  * del pannello overflow. */
                 if (LOWORD(lParam) == HTCLIENT) {
+                    const RECT lr = Instance().LinkRect();
                     POINT pt{};
                     GetCursorPos(&pt);
                     ScreenToClient(hwnd, &pt);
-                    if (PtInRect(&Instance().LinkRect(), pt)) {
+                    if (PtInRect(&lr, pt)) {
                         SetCursor(LoadCursorW(nullptr, IDC_HAND));
                         return TRUE;
                     }
@@ -423,9 +424,9 @@ LRESULT CALLBACK BatteryFlyout::WndProc(HWND hwnd, UINT msg,
             case WM_MOUSEMOVE: {
                 /* v1.7: stato HOVER del link (come l'overflow): un
                  * ripasso ripainta la voce con la selezione azzurra. */
+                const RECT lr = Instance().LinkRect();
                 POINT pt{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-                const bool hot =
-                    PtInRect(&Instance().LinkRect(), pt) != FALSE;
+                const bool hot = PtInRect(&lr, pt) != FALSE;
                 if (hot != Instance().m_linkHot) {
                     Instance().m_linkHot = hot;
                     InvalidateRect(hwnd, nullptr, TRUE);
