@@ -20,7 +20,11 @@ if len(sys.argv) != 3:
     raise SystemExit("uso: run-check.py <check.py> <dll>")
 
 check_name = os.path.basename(sys.argv[1]).replace("\\", "/")
-proc = subprocess.run([sys.executable, sys.argv[1], sys.argv[2]])
+# MSBuild runs POST_BUILD commands with the build folder as the working
+# directory, so a bare relative script name would not resolve. Anchor it to
+# this wrapper's own folder instead.
+check_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), check_name)
+proc = subprocess.run([sys.executable, check_path, sys.argv[2]])
 if proc.returncode != 0:
     print(f"native/tools/{check_name}(1): error C999: "
           f"{check_name} failed (exit {proc.returncode})")
