@@ -64,7 +64,9 @@ if(NOT W7T_INNER)
         endforeach()
     endif()
     if(W7T_FULL_RESULT)
-        string(PREPEND W7T_DIAG_TEXT "FULL PROBE OK\n")
+        # Keep the success output to one line: annotations are capped and
+        # the outer build's own errors need the budget.
+        set(W7T_DIAG_TEXT "FULL PROBE OK")
     else()
         string(PREPEND W7T_DIAG_TEXT "FULL PROBE FAILED\n")
     endif()
