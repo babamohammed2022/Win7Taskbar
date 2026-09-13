@@ -12,53 +12,71 @@ set(CMAKE_SYSTEM_VERSION "10.0.22621.0" CACHE STRING "Windows SDK version" FORCE
 project(Win7TaskbarCore VERSION 1.7.0 DESCRIPTION "Win7Taskbar native backend" LANGUAGES CXX RC)
 
 # Temporary full-project probe: configure+build the whole native project in
-# a subdirectory and re-emit its error lines as ": error C999:" text during
-# the outer build phase (the only phase the runner's problem matcher
-# annotates; raw job logs are not reachable from automation). The guard
-# keeps the inner build from recursing into the probe.
+# a subdirectory and re-emit the lines around its first toolchain error as
+# ": error C999:" / ": warning C999:" text during the outer build phase (the
+# only phase the runner's problem matcher annotates; raw job logs are not
+# reachable from automation). The guard keeps the inner build from
+# recursing into the probe.
 if(NOT W7T_INNER)
     set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
     try_compile(W7T_FULL_RESULT "${CMAKE_BINARY_DIR}/full-probe"
         "${CMAKE_SOURCE_DIR}" "CMakeLists.txt"
         CMAKE_FLAGS -DW7T_INNER:BOOL=ON
         OUTPUT_VARIABLE W7T_FULL_OUTPUT)
-    set(W7T_DIAG_TEXT "")
+    set(W7T_ALL "")
     string(REPLACE ";" "\\;" W7T_PROBE_ESCAPED "${W7T_FULL_OUTPUT}")
-    string(REPLACE "\n" ";" W7T_PROBE_LINES "${W7T_PROBE_ESCAPED}")
-    string(REPLACE "\n\n" "\n \n" W7T_PROBE_LINES_KEEP "${W7T_PROBE_ESCAPED}")
-    string(REPLACE "\n" ";" W7T_PROBE_LINES_KEEP "${W7T_PROBE_LINES_KEEP}")
-    set(W7T_BEFORE 0)
-    set(W7T_WINDOW 0)
-    set(W7T_DONE 0)
+    string(REPLACE "\n" ";" W7T_PROBE_LINES_KEEP "${W7T_PROBE_ESCAPED}")
+    string(REPLACE "\n\n" "\n \n" W7T_PROBE_LINES_KEEP "${W7T_PROBE_LINES_KEEP}")
     foreach(W7T_LINE ${W7T_PROBE_LINES_KEEP})
-        if(W7T_DONE EQUAL 1)
-        elseif(W7T_WINDOW GREATER 0)
-            string(APPEND W7T_DIAG_TEXT "${W7T_LINE}\n")
-            math(EXPR W7T_WINDOW "${W7T_WINDOW} - 1")
-            if(W7T_WINDOW EQUAL 0)
-                set(W7T_DONE 1)
-            endif()
-        elseif(W7T_LINE MATCHES "MSB[0-9]")
-            string(APPEND W7T_DIAG_TEXT "--- ERROR CONTEXT ---\n${W7T_LINE}\n")
-            set(W7T_WINDOW 12)
-        elseif(W7T_LINE MATCHES "Project \".*\(1\) is building|Build started")
-            string(APPEND W7T_DIAG_TEXT "${W7T_LINE}\n")
-        endif()
+        list(APPEND W7T_ALL "${W7T_LINE}")
     endforeach()
+    set(W7T_HIT -1)
+    set(W7T_IDX 0)
+    foreach(W7T_LINE ${W7T_ALL})
+        if(W7T_HIT EQUAL -1 AND W7T_LINE MATCHES "MSB[0-9]|LNK[0-9]|fatal error|MANCANTE")
+            set(W7T_HIT ${W7T_IDX})
+        endif()
+        math(EXPR W7T_IDX "${W7T_IDX} + 1")
+    endforeach()
+    set(W7T_DIAG_TEXT "")
+    list(LENGTH W7T_ALL W7T_N)
+    if(W7T_HIT GREATER -1)
+        math(EXPR W7T_START "${W7T_HIT} - 12")
+        if(W7T_START LESS 0)
+            set(W7T_START 0)
+        endif()
+        math(EXPR W7T_END "${W7T_HIT} + 3")
+        foreach(W7T_I RANGE ${W7T_START} ${W7T_END})
+            list(GET W7T_ALL ${W7T_I} W7T_L)
+            string(APPEND W7T_DIAG_TEXT "${W7T_L}\n")
+        endforeach()
+    else()
+        foreach(W7T_I RANGE 0 8)
+            list(GET W7T_ALL ${W7T_I} W7T_L)
+            string(APPEND W7T_DIAG_TEXT "${W7T_L}\n")
+        endforeach()
+    endif()
     if(W7T_FULL_RESULT)
         string(PREPEND W7T_DIAG_TEXT "FULL PROBE OK\n")
     else()
-        string(PREPEND W7T_DIAG_TEXT "FULL PROBE FAILED:\n")
+        string(PREPEND W7T_DIAG_TEXT "FULL PROBE FAILED\n")
     endif()
     file(WRITE "${CMAKE_BINARY_DIR}/full-probe-diag.txt" "${W7T_DIAG_TEXT}")
     file(WRITE "${CMAKE_BINARY_DIR}/echo-probe.cmake"
 "file(STRINGS \"${CMAKE_BINARY_DIR}/full-probe-diag.txt\" lines)\n"
+"set(i 0)\n"
 "foreach(l IN LISTS lines)\n"
-"    message(\"native/src/probe.cmake(1): error C999: PROBE: \${l}\")\n"
+"    if(i LESS 9)\n"
+"        message(\"native/src/probe.cmake(1): error C999: P\${i}: \${l}\")\n"
+"    else()\n"
+"        message(\"native/src/probe.cmake(1): warning C999: P\${i}: \${l}\")\n"
+"    endif()\n"
+"    math(EXPR i \"\${i} + 1\")\n"
 "endforeach()\n")
     add_custom_target(w7tProbeDiag ALL
         COMMAND ${CMAKE_COMMAND} -P "${CMAKE_BINARY_DIR}/echo-probe.cmake"
         COMMENT "Echo full-project probe result" VERBATIM)
+endif()
 endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
