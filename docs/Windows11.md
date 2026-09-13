@@ -264,6 +264,31 @@ never cached from startup, and it is the last word of the header: if it says
 connected, the flyout shows the connected layout with the network name Windows
 reports, even when neither of our own reads saw anything.
 
+### The list of the networks to connect to
+
+The flyout showed the connection state but not the networks to connect to.
+`WlanGetAvailableNetworkList` answers with what the system has **cached**: if
+nobody scanned recently (or the WLAN service has just started) the list is
+empty, and the flyout opened with a correct header and nothing under it.
+
+Opening the flyout now asks for a scan (`WlanScan`) on every WLAN interface. The
+scan is asynchronous and the WLAN notification is already registered, so when it
+finishes (`wlan_notification_acm_scan_complete`) the flyout refreshes itself: the
+list appears a moment after opening, with nothing blocked.
+
+And the flyout is no longer the only mute component of the program. `Wh_Log` -
+the logging function of the ported mod - wrote to `OutputDebugString` only,
+which is invisible in normal use; it now also appends to `log-core.txt` with the
+`[W7TNetFlyout]` prefix, and the refresh says what it found:
+
+| line | meaning |
+| --- | --- |
+| `rete: nessun handle WLAN` / `WlanEnumInterfaces non riuscito (errore N)` | the WLAN client is not available |
+| `rete: N interfaccia/e WLAN presenti` | the interfaces the system reports |
+| `rete: elenco reti non disponibile (errore N)` | the per-interface query failed |
+| `rete: scansione richiesta su N interfaccia/e` | the scan asked for when the flyout opens |
+| `rete: N interfaccia/e WLAN, M rete/i visibili` | **the number that matters**: how many networks the flyout had to show |
+
 ## Opening the Network and Sharing Center cannot take the bar down
 
 The link at the bottom of the flyout launches `control.exe /name
@@ -272,6 +297,13 @@ launch from the flyout now goes through a guarded helper: a SEH block around the
 `ShellExecuteW` call and a C++ `try`/`catch` around that block (in separate
 functions - MSVC does not allow the two in one body), with the outcome written
 to the log. A failure is a log line, not a crash.
+
+The launch also happens **after** the flyout is hidden and from a worker thread:
+the click used to run `ShellExecute` with the window still alive and the mouse
+message still in progress, so the flyout could receive activation messages
+(another process taking the foreground) while it was halfway through its own
+handler. Now the click returns immediately, and no part of the process is
+mid-way when `control.exe` arrives.
 
 ## Clock flyout placement
 
