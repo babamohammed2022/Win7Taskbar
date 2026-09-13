@@ -626,14 +626,15 @@ int32_t FlyoutLauncher::ShowClockFlyout(HWND taskbarHwnd) {
         return W7T_OK;
     }
 
-    /* Non e' comparso il calendario classico: se i riquadri della shell sono
-     * utilizzabili si ripiega su quello, altrimenti il frontend apre il
-     * calendario ricreato. */
-    if (IsImmersiveFlyoutHostUsable() &&
-        ToCoreResult(ImmersiveFlyouts::Invoke(FlyoutKind::Clock, FlyoutAction::Show,
-                                              MakeWinRtRect(barRect))) == W7T_OK) {
-        return W7T_OK;
-    }
+    /* Il calendario classico non e' comparso.
+     *
+     * NON si ripiega sul riquadro della shell: chi ha scelto "Windows 7" ha
+     * chiesto quel riquadro, e su Windows 11 la shell risponde S_OK aprendo la
+     * sua isola XAML - sarebbe di nuovo il difetto segnalato ("apre il nativo
+     * invece di quello di Windows 7"), per giunta con il rischio dei due
+     * riquadri sovrapposti. Si risponde "non riuscito" e il frontend apre il
+     * calendario ricreato, che e' il ripiego dichiarato. */
+    LogTagged(L"GATE", L"orologio: nessun riquadro di Windows 7, si apre il ricreato");
     return W7T_ERR_NOT_FOUND;
 }
 
