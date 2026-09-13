@@ -25,9 +25,14 @@ if(NOT W7T_INNER)
     set(W7T_DIAG_TEXT "")
     string(REPLACE ";" "\\;" W7T_PROBE_ESCAPED "${W7T_FULL_OUTPUT}")
     string(REPLACE "\n" ";" W7T_PROBE_LINES "${W7T_PROBE_ESCAPED}")
+    set(W7T_WINDOW 0)
     foreach(W7T_LINE ${W7T_PROBE_LINES})
-        if(W7T_LINE MATCHES "LNK[0-9]|fatal error|error MSB|error C[0-9]|MANCANTE|: error")
+        if(W7T_WINDOW GREATER 0)
             string(APPEND W7T_DIAG_TEXT "${W7T_LINE}\n")
+            math(EXPR W7T_WINDOW "${W7T_WINDOW} - 1")
+        elseif(W7T_LINE MATCHES "MSB[0-9]|LNK[0-9]|fatal error|error C[0-9]|MANCANTE")
+            string(APPEND W7T_DIAG_TEXT "--- ERROR CONTEXT ---\n${W7T_LINE}\n")
+            set(W7T_WINDOW 6)
         endif()
     endforeach()
     if(W7T_FULL_RESULT)
@@ -88,7 +93,6 @@ add_custom_command(TARGET Win7TaskbarCore PRE_BUILD
     COMMAND ${CMAKE_COMMAND} -E echo "native/src/CMakeLists.txt(1): error C999: MARKER pre-build reached"
     COMMENT "Marker: pre-build" VERBATIM)
 add_custom_command(TARGET Win7TaskbarCore POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E echo "native/src/CMakeLists.txt(2): error C999: MARKER post-build reached (link OK)"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Win7TaskbarCore> "${W7T_DIST_DIR}/"
     COMMENT "Copy Win7TaskbarCore.dll to dist/")
