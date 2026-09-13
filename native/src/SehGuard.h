@@ -68,7 +68,7 @@ inline void SehInstallOnce() {
 struct W7tSehAutoPop {
     ::w7t::SehFrame** top;
     ::w7t::SehFrame* frame;
-    ~SehAutoPop() {
+    ~W7tSehAutoPop() {
         if (*top == frame) {
             *top = frame->previous;
         }
