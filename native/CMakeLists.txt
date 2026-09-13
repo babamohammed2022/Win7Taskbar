@@ -84,7 +84,6 @@ if(NOT W7T_INNER)
         COMMAND ${CMAKE_COMMAND} -P "${CMAKE_BINARY_DIR}/echo-probe.cmake"
         COMMENT "Echo full-project probe result" VERBATIM)
 endif()
-endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
