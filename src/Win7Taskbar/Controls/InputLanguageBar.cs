@@ -287,7 +287,6 @@ namespace Win7Taskbar.Controls
                 }
             }
             catch (DllNotFoundException) { }
-            catch (EntryPointNotFoundException) { }
             catch (Exception)
             {
                 /* No text is better than a broken taskbar. */
