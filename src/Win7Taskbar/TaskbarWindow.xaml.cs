@@ -3210,6 +3210,25 @@ namespace Win7Taskbar
                 return;
             }
 
+            /* v2.62 - IL PANNELLO NATIVO DEVE ESSERE DAVVERO COMPARSO.
+             *
+             * ShowNear non puo' fallire in modo visibile: se la finestra non
+             * esiste (creazione rifiutata, sessione ristretta) la chiamata
+             * non fa niente e per l'utente la freccetta e' morta - "il menu
+             * di overflow non si apre". Qui si controlla e, se il pannello
+             * nostro non c'e', si apre quello WPF (lo stesso contenuto, lo
+             * stesso elenco di icone). Il clic non resta mai senza effetto. */
+            bool nativeVisible = false;
+            try { nativeVisible = _bridge.OverflowIsVisible(); } catch { nativeVisible = false; }
+
+            if (!nativeVisible)
+            {
+                _bridge.Log("overflow: il pannello nativo non e' visibile, apro quello WPF");
+                OverflowPopup.IsOpen = true;
+                StartOverflowOutsideClose();
+                return;
+            }
+
             StartNativeOverflowOutsideClose();
         }
 
@@ -3230,6 +3249,14 @@ namespace Win7Taskbar
                     StopOverflowOutsideClose();
                 }
                 return;
+            }
+
+            /* v2.62: puo' essere aperto il pannello WPF (rete di sicurezza di
+             * OverflowToggle_Checked) invece di quello nativo: si chiude
+             * quello che c'e' davvero. */
+            if (OverflowPopup != null && OverflowPopup.IsOpen)
+            {
+                OverflowPopup.IsOpen = false;
             }
 
             _bridge.OverflowHide();
@@ -3258,9 +3285,16 @@ namespace Win7Taskbar
                     {
                         scale = ct.TransformToDevice.M11;
                     }
+                    /* v2.62: origine gia' in pixel fisici (vedi
+                     * StartOverflowOutsideClose): solo le dimensioni vanno
+                     * convertite. Con l'origine moltiplicata, su uno schermo
+                     * al 125% il rettangolo della freccetta finiva fuori
+                     * posto e il clic sulla freccetta - quello che deve
+                     * CHIUDERE il pannello - veniva trattato come un clic
+                     * esterno. */
                     Point ttl = OverflowToggle.PointToScreen(new Point(0, 0));
                     _overflowMouseHook.ExcludeRect2 = new Rect(
-                        ttl.X * scale, ttl.Y * scale,
+                        ttl.X, ttl.Y,
                         OverflowToggle.ActualWidth * scale, OverflowToggle.ActualHeight * scale);
                 }
                 _overflowMouseHook.MouseDownOutside -= OnOverflowMouseDownOutside;
@@ -3383,8 +3417,16 @@ namespace Win7Taskbar
                     scale = ct2.TransformToDevice.M11;
                 }
 
+                /* v2.62 - ORIGINE IN PIXEL FISICI, DIMENSIONE CONVERTITA.
+                 *
+                 * PointToScreen restituisce gia' pixel dello schermo: moltiplicare
+                 * anche l'origine per il fattore DPI spostava il rettangolo
+                 * (e lo ingrandiva) su ogni schermo scalato, cosi' i clic
+                 * dentro il pannello venivano letti come "fuori" e il pannello
+                 * si chiudeva da solo. Le dimensioni, invece, arrivano dal
+                 * layout in unita' indipendenti e vanno convertite. */
                 Point tl = child.PointToScreen(new Point(0, 0));
-                Rect popupRect = new Rect(tl.X * scale, tl.Y * scale,
+                Rect popupRect = new Rect(tl.X, tl.Y,
                                           child.ActualWidth * scale,
                                           child.ActualHeight * scale);
 
@@ -3392,7 +3434,7 @@ namespace Win7Taskbar
                 if (OverflowToggle != null)
                 {
                     Point ttl = OverflowToggle.PointToScreen(new Point(0, 0));
-                    toggleRect = new Rect(ttl.X * scale, ttl.Y * scale,
+                    toggleRect = new Rect(ttl.X, ttl.Y,
                                           OverflowToggle.ActualWidth * scale,
                                           OverflowToggle.ActualHeight * scale);
                 }
