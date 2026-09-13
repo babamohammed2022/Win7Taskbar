@@ -772,25 +772,6 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ShowGroupMenu(uint64_t hwnd, int32_t x, 
                                     minimizeText, closeText);
 }
 
-/* ------------------------------------------------------------------ */
-/*  DllMain                                                            */
-/* ------------------------------------------------------------------ */
-
-extern "C" BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
-    switch (reason) {
-        case DLL_PROCESS_ATTACH:
-            DisableThreadLibraryCalls(instance);
-            break;
-        case DLL_PROCESS_DETACH:
-            /* v2.41: rilascia le bitmap GDI+ del flyout batteria. */
-            w7t::BatteryFlyout::Instance().Shutdown();
-            break;
-        default:
-            break;
-    }
-    return TRUE;
-}
-
 /* v2.7: pannello overflow nativo con vetro Aero (fallback: Popup WPF). */
 static TrayOverflowWindow g_overflowWindow;
 

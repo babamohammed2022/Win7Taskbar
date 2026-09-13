@@ -4,6 +4,8 @@
 
 #include <windows.h>
 
+#include "BatteryFlyout.h"
+
 namespace {
 
 volatile LONG g_crashReporting = 0;
@@ -108,14 +110,26 @@ LONG WINAPI Win7TaskbarUnhandledExceptionFilter(EXCEPTION_POINTERS* ep) noexcept
 
 } // namespace
 
+// Single DllMain for the whole DLL. Exports.cpp used to define a second one
+// (v2.41 battery-flyout teardown) and MSVC link gave LNK2005 "DllMain already
+// defined" now that duplicate COMDATs are no longer silently folded; the two
+// bodies are merged here.
 extern "C" BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {
-    UNREFERENCED_PARAMETER(instance);
     UNREFERENCED_PARAMETER(reserved);
 
-    if (reason == DLL_PROCESS_ATTACH) {
-        DisableThreadLibraryCalls(instance);
-        SetUnhandledExceptionFilter(Win7TaskbarUnhandledExceptionFilter);
+    switch (reason) {
+        case DLL_PROCESS_ATTACH:
+            DisableThreadLibraryCalls(instance);
+            SetUnhandledExceptionFilter(Win7TaskbarUnhandledExceptionFilter);
+            break;
+        case DLL_PROCESS_DETACH:
+            // Moved from Exports.cpp (v2.41): release the battery flyout's
+            // GDI+ bitmaps when the host unloads the DLL.
+            w7t::BatteryFlyout::Instance().Shutdown();
+            break;
+        default:
+            break;
     }
     return TRUE;
 }

@@ -111,11 +111,6 @@ target_sources(Win7TaskbarCore PRIVATE resources/app.ico)
 set_target_properties(Win7TaskbarCore PROPERTIES PREFIX "" OUTPUT_NAME "Win7TaskbarCore")
 if(MSVC)
     target_compile_options(Win7TaskbarCore PRIVATE /W4 /permissive- /utf-8)
-    # The runner-image roll-out of 2026-09-13 (newer MSVC/linker) can strip
-    # the COM GUID blobs and export surface this project's POST-BUILD checks
-    # require, failing the build silently. Keep linker dead-stripping and
-    # COMDAT folding off for the core DLL so the binary keeps them.
-    target_link_options(Win7TaskbarCore PRIVATE "/OPT:NOREF" "/OPT:NOICF")
 else()
     target_compile_options(Win7TaskbarCore PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type)
     target_link_options(Win7TaskbarCore PRIVATE -static-libgcc -static-libstdc++ -static)
