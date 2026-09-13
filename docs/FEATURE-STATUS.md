@@ -24,7 +24,7 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Jump Lists | ❌ | Jump Lists are not implemented yet. |
 | Windows 7 toolbars | ✅ | The three Windows 7-style toolbars are present. |
 | Notification area | ⚠️ | The notification area is implemented, but support for all modern Windows tray states is still partial. |
-| Windows 11 system tray support | ⚠️ | Windows 11 system tray support is implemented, but handling of all tray icons and shell states is still partial and requires further refinement. |
+| Windows 11 system tray support | ⚠️ | Windows 11 system tray support is implemented, but some tray icons are recreated because Windows 11 no longer exposes all classic tray elements directly. |
 | Tray overflow | ✅ | The overflow experience is reasonably close to Windows 7, although further refinement is possible. |
 | Battery indicator | ⚠️ | Battery status is implemented with a recreated taskbar icon, but the implementation is still partial rather than a complete native Windows 7 battery implementation. |
 | Clock and date display | ✅ | The taskbar clock and date are present. |
