@@ -19,6 +19,11 @@
 #include <mutex>
 
 #include "TrayService.h"
+
+/* v2.62: i riquadri di Windows 7 per le icone di sistema ricreate. */
+#include "BatteryFlyout.h"
+#include "Win7NetworkFlyout.h"
+
 #include "TrayOverflowWindow.h"   /* v3.1: refresh conservativo del pannello */
 #include "../include/RaiiWrappers.h"
 #include "ExplorerTrayReader.h"
@@ -107,7 +112,20 @@ constexpr DWORD kDebounceMs = 350;
 /*  anche il GUID). Valore DWORD: 1 = visibile, 0 = nell'overflow.      */
 /* ------------------------------------------------------------------ */
 
-const wchar_t* const kTrayPrefsKeyPath = L"SOFTWARE\\Win7Taskbar\\TrayIconPrefs";
+/*  v2.62 - CHIAVE NUOVA.
+ *
+ *  La chiave precedente (TrayIconPrefs) e' stata scritta anche da sola, senza
+ *  che l'utente toccasse niente: la sincronizzazione del modello col core
+ *  salvava ogni differenza come se fosse una scelta dell'utente. Da quando
+ *  una preferenza salvata vince sulla disposizione della shell, quei valori
+ *  hanno congelato la tray: le icone che la shell tiene nel suo pannello non
+ *  entravano piu' nel nostro e la freccetta restava senza niente da
+ *  mostrare. I valori vecchi non si cancellano (restano li' se servissero a
+ *  capire il passato): semplicemente non si leggono piu'.
+ *
+ *  Da qui in poi si scrive SOLO su azione esplicita dell'utente (spostare
+ *  un'icona, appuntarla o nasconderla dal pannello). */
+const wchar_t* const kTrayPrefsKeyPath = L"SOFTWARE\\Win7Taskbar\\TrayIconPrefs2";
 
 std::wstring MakePreferenceName(uint64_t ownerHwnd, uint32_t uid) {
     HWND hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(ownerHwnd));
@@ -2512,7 +2530,16 @@ void TrayService::EnsureSyntheticSystemIcons(
 
             for (SystemIconKind kind : kSyntheticKinds) {
                 if (shellExposed != nullptr && shellExposed->count(kind) != 0) {
-                    continue;   /* la shell la espone: vince la sua */
+                    /* La shell espone questo tipo.
+                     *
+                     * v2.62: non succede piu' - le icone di sistema che la
+                     * shell espone non entrano nel modello (vedi il filtro in
+                     * ApplyWin11TraySnapshot), quindi qui "esposta" resta
+                     * falso e le tre icone ricreate sono sempre le nostre.
+                     * Il ramo resta come rete di sicurezza per il percorso
+                     * classico (Windows 10 e precedenti), dove la shell le
+                     * disegna davvero ed e' giusto che vinca la sua. */
+                    continue;
                 }
 
                 const uint32_t uid = kSyntheticSystemUidBase |
@@ -2600,8 +2627,41 @@ void TrayService::ApplyWin11TraySnapshot() {
         return;
     }
 
-    const std::vector<Win11TrayItem> items =
+    const std::vector<Win11TrayItem> raw =
         Win11TrayReader::Instance().TakeSnapshot();
+
+    /* v2.62 - LE ICONE DI SISTEMA CHE RICREIAMO NON SI IMPORTANO.
+     *
+     * Volume, rete e batteria sono le tre icone che questa barra ridisegna
+     * (vedi EnsureSyntheticSystemIcons): se la shell ne espone una - su
+     * Windows 11 la batteria compare nell'angolo della tray, volume e rete
+     * no - importarla significava mostrarla DUE volte: la nostra e quella
+     * di Windows. L'utente le vedeva affiancate.
+     *
+     * Qui la voce della shell viene ignorata all'origine: resta la nostra,
+     * una sola, che parla la lingua di Windows 7 (icona e riquadro), mentre
+     * una voce importata aprirebbe il riquadro della shell.
+     *
+     * Il resto della tray (le icone delle applicazioni, comprese quelle nel
+     * pannello nascosto) si importa come sempre. */
+    std::vector<Win11TrayItem> items;
+    items.reserve(raw.size());
+    size_t skippedShellKinds = 0;
+    for (const Win11TrayItem& item : raw) {
+        if (item.kind != SystemIconKind::None) {
+            ++skippedShellKinds;
+            continue;
+        }
+        items.push_back(item);
+    }
+    if (skippedShellKinds != 0) {
+        wchar_t line[160] = {};
+        swprintf(line, 160,
+                 L"tray Win11: %zu icone di sistema ignorate (le ricreiamo noi)",
+                 skippedShellKinds);
+        AppendCoreLog(line);
+    }
+
     if (items.empty()) {
         /* Nessuna icona dalla shell in questa lettura: il modello non si
          * tocca (una lettura incompleta non e' una sparizione), ma le NOSTRE
@@ -2701,9 +2761,23 @@ void TrayService::ApplyWin11TraySnapshot() {
                 entry.iconRevision = entry.bitmap.empty() ? 0 : 1;
                 entry.isPinned     = !item.hidden;
                 entry.hiddenDesired = item.hidden;
-                /* Lo stato viaggia nello stesso campo di NIM_SETVERSION:
-                 * il frontend legge isHidden da qui. */
-                entry.state        = item.hidden ? NIS_HIDDEN : 0;
+                /* v2.62 - NASCOSTO DALLA SHELL NON VUOL DIRE NASCOSTO PER NOI.
+                 *
+                 * NIS_HIDDEN significa "l'applicazione ha chiesto di non
+                 * mostrare questa icona": e' quello che il modello usa per
+                 * togliere l'icona da ENTRAMBE le viste. Le icone che
+                 * Windows 11 tiene nel suo pannello delle icone nascoste non
+                 * sono nascoste dall'applicazione: sono esattamente le icone
+                 * che la NOSTRA freccetta deve mostrare. Marcandole
+                 * NIS_HIDDEN sparivano dal modello (ne' barra ne' pannello) e
+                 * l'overflow restava vuoto: la freccetta si nascondeva da
+                 * sola e il pannello - quando si apriva - non conteneva
+                 * niente.
+                 *
+                 * Quindi: stato 0 e isPinned falso. L'icona vive nella barra
+                 * solo se la shell la mostra, altrimenti nel nostro pannello.
+                 */
+                entry.state        = 0;
                 entry.sysChecked   = true;
                 entry.systemKind   = item.kind;
                 /* Il tipo viaggia anche nel campo guidKey: e' l'unico
@@ -2746,6 +2820,13 @@ void TrayService::ApplyWin11TraySnapshot() {
                         entry.hiddenDesired = item.hidden;
                         changed = true;
                     }
+                }
+                /* v2.62: lo stato "nascosto" non si eredita dalla shell (vedi
+                 * sopra): se una voce creata da una build precedente se lo
+                 * portava dietro, si azzera qui alla prima lettura utile. */
+                if (entry.state != 0) {
+                    entry.state = 0;
+                    changed = true;
                 }
                 /* v2.62 - ANCHE IL DISEGNO PUO' CAMBIARE.
                  *
@@ -2900,6 +2981,15 @@ int32_t TrayService::GetIconBitmap(uint64_t ownerHwnd, uint32_t uid,
         return W7T_ERR_NOT_FOUND;
     }
     return EmitBitmap(it->second.bitmap, width, height, pixels, pixelsBytes);
+}
+
+void TrayService::SetWin7NetworkFlyout(bool ready) {
+    /* v2.62: il frontend avvisa che il riquadro di rete di Windows 7 e'
+     * pronto (modulo inizializzato e modo "Windows 7 (ricreato)" scelto).
+     * Senza questo avviso il core non puo' sapere se invocare quel modulo e'
+     * sicuro: chiamarlo prima dell'inizializzazione significherebbe usare un
+     * contesto vuoto. */
+    m_win7NetworkFlyoutReady = ready;
 }
 
 int32_t TrayService::SetPinned(uint64_t ownerHwnd, uint32_t uid, int32_t pinned) {
@@ -3560,12 +3650,34 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
 
     /* v2.61 - Icone di sistema ricreate da noi (la tray di Windows 11 non
      * le espone: vedi ApplyWin11TraySnapshot). Non c'e' nessun elemento UI
-     * Automation da invocare: il clic apre il riquadro nativo del tipo,
-     * esattamente come se l'icona fosse quella di Explorer. Il tasto
-     * centrale resta senza azione, come per le altre voci della tray. */
+     * Automation da invocare: il clic apre il riquadro del tipo.
+     *
+     * v2.62 - E IL RIQUADRO E' QUELLO DI WINDOWS 7.
+     *
+     * Prima questi tre clic finivano nei flyout immersivi della shell: su
+     * Windows 11 l'utente si vedeva aprire i riquadri di Windows 10 (o il
+     * ripiego) al posto di quelli di Windows 7 che questa barra ricrea. Le
+     * icone sono ricreate da noi, quindi il riquadro e' il nostro:
+     * volume -> riquadro classico del volume, rete -> riquadro di rete di
+     * Windows 7, batteria -> riquadro batteria ricreato.
+     *
+     * Il tasto destro fa la stessa cosa del sinistro (come in Windows 7 il
+     * clic sul riquadro di volume lo apre e basta): NON si inoltra piu' alla
+     * shell, che avrebbe aperto un menu contestuale di Windows 11 estraneo a
+     * questa barra. Il tasto centrale resta senza azione, come per le altre
+     * voci della tray. */
     if (syntheticKind != SystemIconKind::None) {
         if (clickType == W7T_TRAY_CLICK_MIDDLE) {
             return W7T_ERR_INVALID_ARG;
+        }
+
+        /* Il frontend manda DUE eventi per un clic (pressione e rilascio),
+         * esattamente come la shell. Qui si agisce solo sul rilascio: aprire
+         * il riquadro anche sulla pressione significava aprirlo e richiuderlo
+         * subito (i riquadri di rete e batteria si aprono/chiudono a
+         * alternanza), cioe' il clic sembrava non fare niente. */
+        if (clickType == W7T_TRAY_CLICK_LEFT_DOWN) {
+            return W7T_OK;
         }
 
         /* v2.61 - IL FLYOUT VA DOVE STA L'ICONA ADESSO.
@@ -3585,30 +3697,47 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
             }
         }
 
-        /* v2.62 - IL TASTO DESTRO E' IL MENU DELLA SHELL.
-         *
-         * Sulle icone vere di Windows il tasto destro non apre il riquadro:
-         * apre il menu contestuale (impostazioni audio, risoluzione dei
-         * problemi, dispositivi...). Quando la shell espone quel tipo di
-         * icona, il clic viene rimandato all'elemento vero, cosi' il menu e'
-         * quello di sistema e non una copia. Se quel tipo non esiste (tipico
-         * su Windows 11 22H2+, dove la shell ne disegna uno solo) non c'e'
-         * nessun menu da mostrare: si apre il riquadro, che e' comunque
-         * meglio di un clic senza effetto. */
-        if (clickType == W7T_TRAY_CLICK_RIGHT) {
-            uint32_t shellUid = 0;
-            if (Win11TrayReader::Instance().FindByKind(syntheticKind, &shellUid) &&
-                Win11TrayReader::Instance().RequestClick(shellUid, true)) {
-                return W7T_OK;
-            }
-        }
+        const int centreX = (anchor.left + anchor.right) / 2;
 
-        if (syntheticKind == SystemIconKind::Volume) {
-            return FlyoutLauncher::ShowVolumeFlyoutAt(anchor);
+        switch (syntheticKind) {
+            case SystemIconKind::Volume:
+                /* Riquadro classico del volume (SndVol -f), ancorato sopra
+                 * l'icona: e' quello che Windows 7 mostrava al clic
+                 * sull'icona del volume.
+                 *
+                 * Se il lancio non riesce (SndVol assente o rifiutato dal
+                 * sistema) si usa il riquadro del volume della shell: meglio
+                 * del clic senza effetto. Non e' il primo tentativo, e' il
+                 * ripiego dichiarato. */
+                if (W7T_LaunchClassicVolume(centreX, anchor.top) != 0) {
+                    return W7T_OK;
+                }
+                return FlyoutLauncher::ShowVolumeFlyoutAt(anchor);
+
+            case SystemIconKind::Network:
+                /* Riquadro di rete di Windows 7 (ricreato), ma solo quando
+                 * il frontend lo ha preparato e l'utente non ha scelto il
+                 * riquadro di sistema: la preparazione (g_ctx, hook) la fa
+                 * il frontend una volta sola, quindi qui non si tocca. */
+                if (m_win7NetworkFlyoutReady) {
+                    /* La preparazione (init del modulo) l'ha fatta il
+                     * frontend; qui si usa la stessa funzione che apre il
+                     * riquadro dal menu della barra. */
+                    w7tnet::W7TNetFlyout_SetAnchorRect(&anchor);
+                    w7tnet::W7TNetFlyout_Toggle();
+                    return W7T_OK;
+                }
+                return FlyoutLauncher::InvokeFlyoutAt(FlyoutKind::Network,
+                                                      FlyoutAction::Show, anchor);
+
+            case SystemIconKind::Battery:
+                BatteryFlyout::Instance().ShowAt(anchor);
+                return W7T_OK;
+
+            default:
+                break;
         }
-        const FlyoutKind flyout = (syntheticKind == SystemIconKind::Network)
-            ? FlyoutKind::Network : FlyoutKind::Battery;
-        return FlyoutLauncher::InvokeFlyoutAt(flyout, FlyoutAction::Show, anchor);
+        return W7T_ERR_NOT_FOUND;
     }
 
     /* v2.60 - Voci della tray di Windows 11: non esiste nessun proprietario

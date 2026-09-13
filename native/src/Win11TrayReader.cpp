@@ -648,22 +648,6 @@ SystemIconKind Win11TrayReader::KindOf(uint32_t uid) const {
     return SystemIconKind::None;
 }
 
-bool Win11TrayReader::FindByKind(SystemIconKind kind, uint32_t* outUid) const {
-    if (kind == SystemIconKind::None) {
-        return false;
-    }
-    std::lock_guard<std::mutex> lock(m_mutex);
-    for (const Win11TrayItem& item : m_snapshot) {
-        if (item.kind == kind) {
-            if (outUid != nullptr) {
-                *outUid = item.uid;
-            }
-            return true;
-        }
-    }
-    return false;
-}
-
 /* ------------------------------------------------------------------ */
 /*  Worker thread                                                      */
 /* ------------------------------------------------------------------ */

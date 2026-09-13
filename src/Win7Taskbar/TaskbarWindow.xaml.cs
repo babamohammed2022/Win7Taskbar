@@ -297,6 +297,23 @@ namespace Win7Taskbar
                 LocationChanged += (_, _) => { ReportShellRects(); ScheduleIconRectReport(); };
             });
 
+            RunStage("riquadro-rete-win7", () =>
+            {
+                /* v2.62 - IL RIQUADRO DI RETE DI WINDOWS 7 SI PREPARA ALL'AVVIO.
+                 *
+                 * Prima veniva inizializzato al primo clic sull'icona di rete, e
+                 * solo se quella icona arrivava dal tray vero di Explorer
+                 * (IsNetworkTrayIcon). Su Windows 11 l'icona di rete la
+                 * disegniamo noi: quel ramo non passava mai, il modulo restava
+                 * spento e il clic finiva sul riquadro della shell - per
+                 * l'utente "si apre quello sbagliato".
+                 *
+                 * Con l'inizializzazione all'avvio il riquadro ricreato e'
+                 * pronto quando serve (nessuna attesa al primo clic) e il core
+                 * sa che puo' usarlo. */
+                ApplyNetworkFlyoutMode();
+            });
+
             RunStage("riquadro-orologio", () =>
             {
                 /* v2.61: il calendario di Windows 7 si costruisce ADESSO,
@@ -679,6 +696,53 @@ namespace Win7Taskbar
             {
                 Dispatcher.BeginInvoke(new Action(ApplyClockSecondsFormat));
             }
+            else if (e.PropertyName == nameof(Settings.NetworkFlyoutMode))
+            {
+                /* v2.62: la scelta del riquadro di rete si puo' cambiare
+                 * mentre la barra e' aperta (finestra Proprieta'): il core
+                 * deve sapere subito quale usare per le icone ricreate. */
+                Dispatcher.BeginInvoke(new Action(ApplyNetworkFlyoutMode));
+            }
+        }
+
+        /// <summary>
+        /// v2.62 - Il riquadro di rete di Windows 7 si prepara ADESSO.
+        ///
+        /// Prima veniva inizializzato al primo clic sull'icona di rete, e solo
+        /// se quella icona arrivava dal tray vero di Explorer
+        /// (IsNetworkTrayIcon): su Windows 11 l'icona di rete la disegniamo
+        /// noi, quel ramo non passava mai, il modulo restava spento e il clic
+        /// finiva sul riquadro della shell - per l'utente "si apre quello
+        /// sbagliato". Con la preparazione all'avvio il riquadro ricreato e'
+        /// pronto quando serve (nessuna attesa al primo clic) e il core sa
+        /// che puo' usarlo.
+        /// </summary>
+        private void ApplyNetworkFlyoutMode()
+        {
+            try
+            {
+                if (RetroBar.Utilities.Settings.Instance.NetworkFlyoutMode == 0)
+                {
+                    if (!_netFlyoutInit)
+                    {
+                        _netFlyoutInit = _bridge.NetFlyoutInit();
+                    }
+                    _bridge.SetWin7NetworkFlyout(_netFlyoutInit);
+                    _bridge.Log(_netFlyoutInit
+                        ? "rete: riquadro Windows 7 pronto"
+                        : "rete: riquadro Windows 7 non disponibile");
+                }
+                else
+                {
+                    /* Scelta dell'utente: il riquadro di sistema. Il core
+                     * apre quello (nessun modulo nostro da preparare). */
+                    _bridge.SetWin7NetworkFlyout(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log($"rete: preparazione del riquadro fallita: {ex.Message}");
+            }
         }
 
         private void ApplyClockSecondsFormat()
@@ -749,6 +813,16 @@ namespace Win7Taskbar
             {
                 return;
             }
+
+            /* v2.62: lo stato appena scritto dal core non torna indietro.
+             * Rimandarlo significava salvarlo come preferenza dell'utente,
+             * congelando per sempre la disposizione letta da Explorer e
+             * svuotando l'overflow. */
+            if (_viewModel.ApplyingTrayState)
+            {
+                return;
+            }
+
             try
             {
                 _bridge.SetTrayIconPinned(icon.OwnerHwnd, icon.Uid, icon.IsPinned);
@@ -761,7 +835,25 @@ namespace Win7Taskbar
 
         private void UpdateOverflowState()
         {
-            HasOverflowIcons = _viewModel.NotificationArea.UnpinnedIcons.Count > 0;
+            /* v2.62 - LA FRECCETTA C'E' SE LA TRAY RAGGRUPPA, NON "SE ADESSO
+             * C'E' QUALCOSA DENTRO".
+             *
+             * Prima la freccetta spariva quando il modello non aveva icone
+             * nell'overflow in quell'istante: bastava una lettura della tray
+             * in ritardo (o tutte le icone di sistema della shell filtrate
+             * via) e la freccetta si nascondeva. L'utente la cliccava e non
+             * si apriva niente, perche' non c'era piu' niente da cliccare.
+             * In Windows 7 la freccetta fa parte della tray: c'e' quando il
+             * raggruppamento e' attivo, e il pannello puo' anche essere
+             * vuoto (contiene comunque "Personalizza...").
+             *
+             * Il raggruppamento e' spento quando l'utente sceglie "mostra
+             * tutte le icone": in quel caso la freccetta non serve. */
+            bool collapse = true;
+            try { collapse = RetroBar.Utilities.Settings.Instance.CollapseNotifyIcons; }
+            catch (Exception) { /* impostazioni non disponibili: si mostra */ }
+
+            HasOverflowIcons = collapse || _viewModel.NotificationArea.UnpinnedIcons.Count > 0;
 
             // La freccetta che appare o scompare cambia la larghezza della
             // riga: le icone si spostano e i loro rettangoli vanno riferiti
@@ -1021,6 +1113,7 @@ namespace Win7Taskbar
             try
             {
                 try { _bridge.NetFlyoutUninit(); } catch { }
+                try { _bridge.SetWin7NetworkFlyout(false); } catch { }
 
                 if (_appBarRegistered && _hwndSource != null)
                 {
@@ -2722,11 +2815,26 @@ namespace Win7Taskbar
                 _trayDragCandidate = icon;
                 _trayDragElement = element;
 
+                /* v2.62 - IL MODELLO NON SI TOCCA MENTRE SI TRASCINA.
+                 *
+                 * Un aggiornamento della tray in questo momento ricrea i
+                 * contenitori delle icone: il mouse perde la cattura, gli
+                 * handler muoiono con l'elemento e il trascinamento si
+                 * interrompe da solo ("non riesco a spostare le icone").
+                 * Le letture riprendono al rilascio, con una passata sola. */
+                _viewModel.SuspendTrayRefresh();
+
                 // Cattura subito sull'elemento: niente ciclo OLE, il tracking
                 // del mouse resta sul thread UI come in TrayUI::WndProc reale.
+                //
+                // v2.62: la cattura resta sull'elemento (e' cosi' che il clic
+                // continua a funzionare quando NON si trascina). Il
+                // trascinamento non si perde piu' perche' adesso il modello
+                // non viene piu' aggiornato mentre il pulsante e' premuto.
                 element.CaptureMouse();
-                element.PreviewMouseMove += TrayIcon_CapturedMouseMove;
-                element.PreviewMouseLeftButtonUp += TrayIcon_CapturedMouseUp;
+                PreviewMouseMove += TrayIcon_CapturedMouseMove;
+                PreviewMouseLeftButtonUp += TrayIcon_CapturedMouseUp;
+                element.LostMouseCapture += TrayIcon_LostCapture;
             }
         }
 
@@ -2761,25 +2869,74 @@ namespace Win7Taskbar
 
         private void TrayIcon_CapturedMouseUp(object sender, MouseButtonEventArgs e)
         {
-            if (sender is FrameworkElement element)
-            {
-                element.ReleaseMouseCapture();
-                element.PreviewMouseMove -= TrayIcon_CapturedMouseMove;
-                element.PreviewMouseLeftButtonUp -= TrayIcon_CapturedMouseUp;
-            }
-
-            if (_trayDragging && _trayDragCandidate != null)
-            {
-                CommitTrayDrag();
-                _trayDragJustFinished = true;
-            }
-
-            _trayDragging = false;
-            _trayDragCandidate = null;
-            _trayDragElement = null;
-            HideTrayDragGhost();   // v3.1
-            ClearTrayDropAdorner();
+            EndTrayDrag(commit: true);
         }
+
+        /// <summary>La cattura del mouse e' finita per conto suo (alt-tab,
+        /// finestra disattivata): il trascinamento si annulla, ma lo stato non
+        /// resta appeso — altrimenti la tray smetterebbe di aggiornarsi.</summary>
+        private void TrayIcon_LostCapture(object sender, MouseEventArgs e)
+        {
+            EndTrayDrag(commit: false);
+        }
+
+        private void EndTrayDrag(bool commit)
+        {
+            if (_trayDragElement == null && _trayDragCandidate == null)
+            {
+                return;   /* gia' concluso: EndTrayDrag puo' arrivare due volte */
+            }
+
+            /* Il rilascio della cattura fa scattare LostMouseCapture, che
+             * richiama questa funzione: senza il guardiano il secondo giro
+             * azzererebbe lo stato e il trascinamento non verrebbe mai
+             * applicato (l'icona tornerebbe al suo posto da sola). */
+            if (_trayDragEnding)
+            {
+                return;
+            }
+            _trayDragEnding = true;
+            try
+            {
+                try
+                {
+                    _trayDragElement?.ReleaseMouseCapture();
+                    ReleaseMouseCapture();
+                }
+                catch (Exception) { /* ignora */ }
+
+                PreviewMouseMove -= TrayIcon_CapturedMouseMove;
+                PreviewMouseLeftButtonUp -= TrayIcon_CapturedMouseUp;
+                if (_trayDragElement != null)
+                {
+                    _trayDragElement.LostMouseCapture -= TrayIcon_LostCapture;
+                }
+                LostMouseCapture -= TrayIcon_LostCapture;
+
+                if (commit && _trayDragging && _trayDragCandidate != null)
+                {
+                    CommitTrayDrag();
+                    _trayDragJustFinished = true;
+                }
+
+                _trayDragging = false;
+                _trayDragCandidate = null;
+                _trayDragElement = null;
+                HideTrayDragGhost();   // v3.1
+                ClearTrayDropAdorner();
+
+                /* Le letture riprendono adesso, con una passata sola se
+                 * qualcosa e' cambiato nel frattempo. */
+                _viewModel.ResumeTrayRefresh();
+            }
+            finally
+            {
+                _trayDragEnding = false;
+            }
+        }
+
+        /// <summary>Guardiano di rientranza di <see cref="EndTrayDrag"/>.</summary>
+        private bool _trayDragEnding;
 
         /// <summary>
         /// Hit-test a mano contro TrayIcons/OverflowIcons/OverflowToggle,
@@ -3419,6 +3576,9 @@ namespace Win7Taskbar
                 if (!_netFlyoutInit)
                 {
                     _netFlyoutInit = _bridge.NetFlyoutInit();
+                    /* v2.62: il core deve saperlo, perche' il clic sulle
+                     * icone di rete RICREATE lo gestisce lui. */
+                    try { _bridge.SetWin7NetworkFlyout(_netFlyoutInit); } catch { }
                 }
                 if (_netFlyoutInit)
                 {

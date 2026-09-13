@@ -57,9 +57,19 @@ kind for the shell's own icons), so it lasts as long as the icon does; the name
 still arrives in the model and updates the tooltip, which is where it belongs.
 
 The tray/overflow split follows the user, not the shell: Windows 11 decides by
-itself which icons live in the hidden-icons flyout, but pin/unpin in Win7Taskbar
-is a stored preference and now wins over the shell's arrangement instead of
-being overwritten at every read.
+itself which icons live in the hidden-icons flyout, but moving an icon in
+Win7Taskbar is a stored preference and wins over the shell's arrangement
+instead of being overwritten at every read.
+
+That preference is written **only when the user moves something**. The previous
+round also wrote it while the model was being synchronised with the core - every
+difference looked like a user choice - and since a stored preference wins over
+the shell, those self-written values froze the tray: icons the shell kept in its
+own flyout never came back to ours and the chevron was left with nothing to
+show. Implicit writes are gone (the managed refresh marks the state it applies
+and the core ignores it), and the stored values of that round are not read any
+more: they live under `HKCU\SOFTWARE\Win7Taskbar\TrayIconPrefs`, while the
+current preference key is `TrayIconPrefs2`. Nothing is deleted.
 
 ## Volume, network and battery are recreated by us
 
@@ -69,23 +79,40 @@ live inside its flyout. A machine that reports the battery as its own icon
 gives us the battery and nothing else, which is exactly what users see when the
 reader is left alone.
 
-Win7Taskbar recreates the missing ones (`TrayFallbackIcons`, the same artwork
-used as fallback on Windows 10) and follows their state: volume level/mute,
-network connectivity, battery level and AC/DC.
+Win7Taskbar recreates them (`TrayFallbackIcons`, the same artwork used as
+fallback on Windows 10) and follows their state: volume level/mute, network
+connectivity, battery level and AC/DC.
 
-Clicking one of them opens the matching **system** flyout (volume, network,
-battery) through the shell's own experience managers, anchored to the current
-rectangle of the clicked icon: the same mechanism the shell itself uses, not a
-look-alike. A right click is forwarded to the shell's element of that kind when
-it has one, so the context menu is the real one; when the shell exposes no such
-element (the usual case on 22H2 and later, where a single quick-settings button
-represents all three) the flyout is opened instead, because a context menu
-without a source cannot be invented.
+Two rules make sure the user sees each of them **once**, and that it behaves
+like Windows 7:
 
-- The shell always wins: as soon as it exposes a type itself, our copy of that
-  type disappears within two reads.
+- An entry the shell exposes for one of those three types is **not imported**.
+  The reader still reads it (it is what tells us the type exists), but the
+  model takes only the icons of applications. Without this rule a machine whose
+  shell draws its own battery shows two battery icons side by side: ours and
+  Windows'.
+- A click on one of ours opens **our** flyout of that type, anchored to the
+  rectangle the icon has at that moment: the classic volume flyout
+  (`SndVol -f`, the Windows 7 volume popup), the recreated Windows 7 network
+  flyout, the recreated battery flyout. The shell's immersive flyouts are never
+  opened from these icons: they are the Windows 10/11 look, and opening them
+  from an icon drawn to look like Windows 7 is exactly the mismatch this
+  project exists to remove.
+
+If a piece is missing - the recreated network flyout could not be initialised,
+`SndVol` refused to start - the click falls back to the shell's flyout of that
+type, and says so in `log-core.txt`. A silent no-op is never the answer.
+
+The recreated network flyout is initialised at startup, not at the first click:
+on Windows 11 the network icon is ours, so the branch that used to prepare the
+module (a click on an icon imported from Explorer's tray) never ran, and the
+module stayed dormant.
+
+The type of these icons travels to the managed layer in the `guidKey` field
+(`uia:volume`, `uia:network`, `uia:battery`).
+
 - Consequence to be aware of: **on Windows 11 the tray shows the icons the
-  shell exposes plus our three, not necessarily the original three of
+  applications register plus our three, not necessarily the original three of
   Explorer.** This is the documented limit of the Windows 11 path.
 
 ## The overflow chevron opens our own panel
@@ -99,6 +126,24 @@ from the tray model, so on Windows 11 it contains the icons read through UI
 Automation (including the ones the shell keeps hidden) plus the recreated
 system icons. Same limit as above: what the shell does not expose cannot be
 shown.
+
+Two details decide whether the panel is reachable at all, and both were wrong
+after the previous round:
+
+- The chevron is part of the tray: it is shown whenever the tray collapses
+  icons, even if nothing is hidden at that instant (the panel always contains
+  its "Customize..." link). Tying its visibility to "there is something in the
+  panel right now" meant that a single late tray read could take the chevron
+  away, and the click that followed landed on nothing.
+- An icon the shell keeps in its hidden-icons flyout is **not** `NIS_HIDDEN`.
+  `NIS_HIDDEN` means "the application asked not to show this icon", and the
+  model removes such an icon from *both* lists. Icons hidden by the shell are
+  exactly the ones the panel has to show, so they are stored as "not on the
+  bar" and nothing else.
+
+The link at the bottom of the panel is localized through the native string
+table (eleven languages, English fallback) like every other string the program
+draws itself.
 
 ## Clock: one flyout only, and it is ours
 

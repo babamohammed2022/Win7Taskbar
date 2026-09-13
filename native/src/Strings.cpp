@@ -665,6 +665,8 @@ struct ShortStrings {
 
     const wchar_t* groupMinimize;
     const wchar_t* groupClose;
+
+    const wchar_t* overflowCustomize;
 };
 
 /* it: "Apri", "Esegui come amministratore", "Apri percorso file",
@@ -678,6 +680,7 @@ constexpr ShortStrings kShortIt = {
     L"&Ripristina", L"&Sposta", L"&Ridimensiona", L"R&iduci a icona",
     L"I&ngrandisci", L"&Chiudi",
     L"Riduci a icona gruppo", L"Chiudi gruppo",
+    L"Personalizza...",
 };
 
 constexpr ShortStrings kShortEn = {
@@ -687,6 +690,7 @@ constexpr ShortStrings kShortEn = {
     L"App",
     L"&Restore", L"&Move", L"&Size", L"Mi&nimize", L"Ma&ximize", L"&Close",
     L"Minimize group", L"Close group",
+    L"Customize...",
 };
 
 constexpr ShortStrings kShortEs = {
@@ -696,6 +700,7 @@ constexpr ShortStrings kShortEs = {
     L"Aplicación",
     L"&Restaurar", L"&Mover", L"&Tamaño", L"Mi&nimizar", L"Ma&ximizar", L"&Cerrar",
     L"Minimizar grupo", L"Cerrar grupo",
+    L"Personalizar...",
 };
 
 constexpr ShortStrings kShortFr = {
@@ -705,6 +710,7 @@ constexpr ShortStrings kShortFr = {
     L"Application",
     L"&Restaurer", L"&Déplacer", L"&Taille", L"Réduire", L"Agrandir", L"&Fermer",
     L"Réduire le groupe", L"Fermer le groupe",
+    L"Personnaliser...",
 };
 
 constexpr ShortStrings kShortDe = {
@@ -715,6 +721,7 @@ constexpr ShortStrings kShortDe = {
     L"&Wiederherstellen", L"&Verschieben", L"&Größe", L"Mi&nimieren",
     L"Ma&ximieren", L"&Schließen",
     L"Gruppe minimieren", L"Gruppe schließen",
+    L"Anpassen...",
 };
 
 constexpr ShortStrings kShortPt = {
@@ -724,6 +731,7 @@ constexpr ShortStrings kShortPt = {
     L"Aplicação",
     L"&Restaurar", L"&Mover", L"&Tamanho", L"Mi&nimizar", L"Ma&ximizar", L"&Fechar",
     L"Minimizar grupo", L"Fechar grupo",
+    L"Personalizar...",
 };
 
 constexpr ShortStrings kShortPl = {
@@ -734,6 +742,7 @@ constexpr ShortStrings kShortPl = {
     L"P&rzywróć", L"&Przenieś", L"&Rozmiar", L"Z&minimalizuj",
     L"Ma&ksymalizuj", L"&Zamknij",
     L"Minimalizuj grupę", L"Zamknij grupę",
+    L"Dostosuj...",
 };
 
 constexpr ShortStrings kShortRu = {
@@ -744,6 +753,7 @@ constexpr ShortStrings kShortRu = {
     L"&Восстановить", L"&Переместить", L"&Размер", L"С&вернуть",
     L"Р&азвернуть", L"&Закрыть",
     L"Свернуть группу", L"Закрыть группу",
+    L"Настройка...",
 };
 
 constexpr ShortStrings kShortJa = {
@@ -754,6 +764,7 @@ constexpr ShortStrings kShortJa = {
     L"元のサイズに戻す(&R)", L"移動(&M)", L"サイズ変更(&S)", L"最小化(&N)",
     L"最大化(&X)", L"閉じる(&C)",
     L"グループを最小化", L"グループを閉じる",
+    L"カスタマイズ...",
 };
 
 constexpr ShortStrings kShortZh = {
@@ -764,6 +775,7 @@ constexpr ShortStrings kShortZh = {
     L"还原(&R)", L"移动(&M)", L"大小(&S)", L"最小化(&N)", L"最大化(&X)",
     L"关闭(&C)",
     L"最小化组", L"关闭组",
+    L"自定义...",
 };
 
 /* Arabic - contributed by mahmogamer (see CREDITS.txt). */
@@ -775,6 +787,7 @@ constexpr ShortStrings kShortAr = {
     L"استعادة(&R)", L"نقل(&M)", L"الحجم(&S)", L"تصغير(&N)", L"تكبير(&X)",
     L"إغلاق(&C)",
     L"تصغير المجموعة", L"إغلاق المجموعة",
+    L"تخصيص...",
 };
 
 const PropStrings& PickProp(Lang lang) {
@@ -844,6 +857,7 @@ const wchar_t* PickShortId(const ShortStrings& s, StrId id) {
         case StrId::SysClose:             return s.sysClose;
         case StrId::GroupMinimize:        return s.groupMinimize;
         case StrId::GroupClose:           return s.groupClose;
+        case StrId::OverflowCustomize:    return s.overflowCustomize;
     }
     return L"";
 }

@@ -496,6 +496,11 @@ namespace Win7Taskbar.Interop
         /// <summary>v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).</summary>
         public bool NetFlyoutInit() => NativeMethods.W7T_NetFlyoutInit() == 1;
         public void NetFlyoutUninit() => NativeMethods.W7T_NetFlyoutUninit();
+
+        /// <summary>v2.62: dichiara al core se il riquadro di rete di
+        /// Windows 7 e' pronto all'uso (vedi W7T_NetFlyoutInit).</summary>
+        public void SetWin7NetworkFlyout(bool ready)
+            => NativeMethods.W7T_SetWin7NetworkFlyout(ready ? 1 : 0);
         public void NetFlyoutToggleAt(int left, int top, int right, int bottom)
         {
             var rc = new NativeMethods.RECT { Left = left, Top = top, Right = right, Bottom = bottom };

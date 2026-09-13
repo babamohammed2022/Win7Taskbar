@@ -259,6 +259,14 @@ extern "C" W7T_API int32_t W7T_CALL W7T_SendTrayIconClick(uint64_t ownerHwnd, ui
     return TrayService::Instance().SendClick(ownerHwnd, uid, clickType, x, y);
 }
 
+/* v2.62: il frontend dichiara pronto il riquadro di rete di Windows 7
+ * (modulo inizializzato e modo "Windows 7 (ricreato)" attivo). Serve al
+ * core per sapere se il clic su un'icona di rete RICREATA puo' aprire quel
+ * riquadro invece di quello moderno. */
+extern "C" W7T_API void W7T_CALL W7T_SetWin7NetworkFlyout(int32_t ready) {
+    TrayService::Instance().SetWin7NetworkFlyout(ready != 0);
+}
+
 extern "C" W7T_API int32_t W7T_CALL W7T_SetTrayIconPinned(uint64_t ownerHwnd, uint32_t uid,
                                                           int32_t pinned) {
     return TrayService::Instance().SetPinned(ownerHwnd, uid, pinned);

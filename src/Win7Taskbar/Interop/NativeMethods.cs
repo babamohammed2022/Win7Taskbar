@@ -411,6 +411,14 @@ namespace Win7Taskbar.Interop
         // v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_NetFlyoutInit();
+
+        // v2.62: comunica al core se il riquadro di rete di Windows 7 e' pronto.
+        // Le icone di rete RICREATE (quelle della tray di Windows 11) vengono
+        // gestite dal core: senza questo avviso il core non sa se puo' aprire
+        // il riquadro ricreato o deve ripiegare su quello della shell.
+        [DllImport("Win7TaskbarCore.dll", CallingConvention = CallingConvention.StdCall,
+            EntryPoint = "W7T_SetWin7NetworkFlyout")]
+        public static extern void W7T_SetWin7NetworkFlyout(int ready);
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_NetFlyoutUninit();
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]

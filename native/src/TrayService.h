@@ -206,6 +206,10 @@ public:
     int32_t SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickType, int32_t x, int32_t y);
     int32_t SetPinned(uint64_t ownerHwnd, uint32_t uid, int32_t pinned);
 
+    /* v2.62: il frontend dichiara pronta (o no) l'esperienza del riquadro di
+     * rete di Windows 7: vedi SendClick. */
+    void SetWin7NetworkFlyout(bool ready);
+
     /* Riordino del modello dal trascinamento del livello gestito: sposta
      * l'icona accanto a un'altra e muove il pulsante reale con
      * TB_MOVEBUTTON, come fa la shell. */
@@ -349,6 +353,10 @@ private:
      * stati fatti all'avvio. Si azzera alla prima lettura valida: da quel
      * momento vale il backoff normale e non si sonda piu' di frequente. */
     int                                  m_uiaFastRetries = 0;
+
+    /* v2.62: il riquadro di rete di Windows 7 e' pronto all'uso (modulo
+     * inizializzato dal frontend). */
+    bool                                 m_win7NetworkFlyoutReady = false;
     std::vector<TrayIconKey>        m_order;
 
     /* Indice GUID -> chiave, per il riaggancio delle re-registrazioni:

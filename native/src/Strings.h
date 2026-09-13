@@ -112,6 +112,10 @@ enum class StrId {
     /* Menu di gruppo della barra (ShellMenu.cpp). */
     GroupMinimize,
     GroupClose,
+
+    /* Pannello delle icone nascoste (TrayOverflowWindow.cpp): il collegamento
+     * in fondo, quello che in Windows 7 si chiama "Personalizza...". */
+    OverflowCustomize,
 };
 
 /* Imposta la lingua corrente (dal managed, o all'avvio col rilevamento). */
