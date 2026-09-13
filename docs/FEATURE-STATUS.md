@@ -22,13 +22,13 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Thumbnail previews | ❌ | Windows 7-style taskbar thumbnail previews are not currently implemented; the previous preview implementations were disabled because they were not reliable on real systems. |
 | Jump Lists | ❌ | Jump Lists are not implemented yet. |
 | Windows 7 toolbars | ✅ | The three Windows 7-style toolbars are present. |
-| Notification area | ❌ | The notification area is present, but complete and robust handling of all modern Windows tray states is not finished. |
-| Windows 11 system tray support | ❌ | The Windows 11 system tray requires further work for reliable and complete handling of all tray icons and shell states. |
+| Notification area | ⚠️ | The notification area is implemented, but support for all modern Windows tray states is still partial. |
+| Windows 11 system tray support | ⚠️ | Windows 11 system tray support is implemented, but handling of all tray icons and shell states is still partial and requires further refinement. |
 | Tray overflow | ✅ | The overflow experience is reasonably close to Windows 7, although further refinement is possible. |
-| Battery indicator | ⚠️ | Battery status is represented by a recreated taskbar icon rather than being a complete native Windows 7 battery implementation. |
+| Battery indicator | ⚠️ | Battery status is implemented with a recreated taskbar icon, but the implementation is still partial rather than a complete native Windows 7 battery implementation. |
 | Clock and date display | ✅ | The taskbar clock and date are present. |
 | System flyouts | ✅ | The main flyouts work, but positioning and some Windows-version-specific behavior still need improvement. |
-| Clock flyout | ❌ | The clock flyout position needs to be made more accurate. On Windows 11, the native Windows 10 flyout can sometimes appear first and must be prevented or bypassed. |
+| Clock flyout | ✅ | The Windows 7-style clock flyout is now considered complete. |
 | Aero Peek / Show Desktop | ⚠️ | Windows 7-style Aero Peek and the Show Desktop area are represented, but the implementation is not yet a complete recreation of the original shell behavior. |
 | Context menus | ✅ | Context menus are generally close to the Windows 7 behavior and appearance, with some details still to improve. |
 | Taskbar Properties | ✅ | A Windows 7-style Properties interface is available, although some options and behaviors can still be refined. |
@@ -54,9 +54,13 @@ Windows 7-style **Jump Lists** are not implemented yet.
 
 ### Complete Windows 11 system tray support
 
-Windows 11 uses a substantially different system tray architecture from Windows 7. Current support works, but it is **not yet complete or robust enough to be considered finished**.
+Windows 11 uses a substantially different system tray architecture from Windows 7. Current support is implemented, but it is **still partial** and not yet complete enough to be considered finished.
 
-The remaining work includes improving reliability, handling shell changes and Explorer restarts, and making tray icon discovery and updates consistently fast.
+The remaining work includes improving reliability, handling all shell states and Explorer restarts, and making tray icon discovery and updates consistently complete.
+
+### Battery indicator
+
+The battery indicator is implemented using a recreated taskbar icon. Further work is still needed for complete Windows 7 parity and robust handling of every battery state.
 
 ## Areas that are already in good shape
 
@@ -66,18 +70,15 @@ The remaining work includes improving reliability, handling shell changes and Ex
 - Context menus are generally good.
 - The overflow experience is generally good.
 - Flyouts are generally functional and visually close to the target.
+- The Windows 7-style clock flyout is now considered complete.
 - Application-name tooltips are available.
 - Overall Windows 7 accuracy is already fairly high.
 
 ## Known flyout issues
 
-The flyout system still needs refinement, especially for positioning.
+The main flyout system is functional, but some non-clock flyouts may still need refinement in positioning and Windows-version-specific behavior.
 
-The clock flyout requires additional work to:
-
-1. position the flyout more accurately relative to the clock icon;
-2. prevent the Windows 10 native flyout from appearing before the Win7Taskbar flyout on Windows 11;
-3. keep the behavior consistent when the taskbar moves, the DPI changes, or the taskbar is on another monitor.
+The clock flyout itself is considered complete.
 
 ## Accuracy limitations
 
