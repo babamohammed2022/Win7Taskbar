@@ -118,9 +118,12 @@ else()
     target_link_options(Win7TaskbarCore PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 set(W7T_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../dist" CACHE PATH "Folder for the compiled DLL")
+# Temporary stage echoes: the last one visible in the check annotations
+# tells which POST_BUILD step the failing run actually reached.
 add_custom_command(TARGET Win7TaskbarCore POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Win7TaskbarCore> "${W7T_DIST_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E echo "native/src/stage1.txt(1): error C999: STAGE dist copy done"
     COMMENT "Copy Win7TaskbarCore.dll to dist/")
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
@@ -129,6 +132,7 @@ if(Python3_Interpreter_FOUND)
     # problem matcher turns into a check annotation naming the failed check.
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-com-interfaces.py $<TARGET_FILE:Win7TaskbarCore>
+        COMMAND ${CMAKE_COMMAND} -E echo "native/src/stage2.txt(1): error C999: STAGE check-com done"
         COMMENT "Check COM interfaces in binary" VERBATIM)
     # v2.62: la tabella degli export deve contenere TUTTE le funzioni che il
     # livello gestito richiama. Una build che ne perde qualcuna compila, si
@@ -136,6 +140,7 @@ if(Python3_Interpreter_FOUND)
     # successo davvero, con nove funzioni mancanti in dist/.
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-exports.py $<TARGET_FILE:Win7TaskbarCore>
+        COMMAND ${CMAKE_COMMAND} -E echo "native/src/stage3.txt(1): error C999: STAGE check-exports done"
         COMMENT "Check exported functions in binary" VERBATIM)
 endif()
 add_library(W7TInject SHARED src/InjectHook.cpp)
@@ -147,6 +152,17 @@ endif()
 add_custom_command(TARGET W7TInject POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:W7TInject> "${W7T_DIST_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E echo "native/src/stage4.txt(1): error C999: STAGE inject copy done"
     COMMENT "Copy W7TInject.dll to dist/")
+file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/tools/final-gate.cmake"
+"if(EXISTS \"\${GATE_DLL}\")\n"
+"    message(\"native/src/stage5.txt(1): error C999: STAGE final gate dll present\")\n"
+"else()\n"
+"    message(\"native/src/stage5.txt(1): error C999: STAGE final gate DLL MISSING\")\n"
+"endif()\n")
+add_custom_target(w7tFinalGate ALL
+    COMMAND ${CMAKE_COMMAND} -DGATE_DLL="${W7T_DIST_DIR}/Win7TaskbarCore.dll" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/final-gate.cmake"
+    DEPENDS Win7TaskbarCore W7TInject
+    VERBATIM)
 install(TARGETS Win7TaskbarCore W7TInject RUNTIME DESTINATION bin)
 install(FILES include/Win7TaskbarCore.h DESTINATION include)
