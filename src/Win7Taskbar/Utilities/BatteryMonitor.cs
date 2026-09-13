@@ -12,9 +12,6 @@ namespace Win7Taskbar.Utilities
     /// <summary>
     /// Monitors battery status using public Windows APIs.
     /// Triggers refresh when AC line status or battery percentage changes.
-    /// This fixes "Battery icon doesn't update when unplugged" by using GetSystemPowerStatus.
-    /// English: Uses public API GetSystemPowerStatus + RegisterPowerSettingNotification
-    /// Italiano: Usa API pubbliche GetSystemPowerStatus e notifiche alimentazione
     /// </summary>
     public class BatteryMonitor : IDisposable
     {
@@ -40,13 +37,6 @@ namespace Win7Taskbar.Utilities
         public BatteryMonitor(Action<SYSTEM_POWER_STATUS> onBatteryChanged)
         {
             _onBatteryChanged = onBatteryChanged;
-
-            // Reto, non motore: il vero rilevamento AC/DC e' nativo e a
-            // eventi (WM_POWERBROADCAST + RegisterPowerSettingNotification
-            // nel core, che fa UNA passata mirata con confronto dei soli
-            // campi di stato). Qui resta un risveglio raro per rimettere
-            // in pari il livello gestito se un evento si fosse perso.
-            // Prima era 3 s: ripeteva il lavoro del nativo a polling.
             _pollTimer = new DispatcherTimer(DispatcherPriority.Background)
             {
                 Interval = TimeSpan.FromSeconds(30)
@@ -56,16 +46,15 @@ namespace Win7Taskbar.Utilities
 
         public void Start()
         {
+            DiagnosticLogger.Write("BATTERY", "start");
             CheckPowerStatus(true);
             _pollTimer.Start();
 
-            // v2.24: se il PC parte gia' a batteria, l'icona di Explorer
-            // puo' arrivare in ritardo: ripassi conservativi a 1,5/4 s.
             try
             {
-                if (GetSystemPowerStatus(out SYSTEM_POWER_STATUS sps) &&
-                    sps.ACLineStatus == 0)
+                if (GetSystemPowerStatus(out SYSTEM_POWER_STATUS sps) && sps.ACLineStatus == 0)
                 {
+                    DiagnosticLogger.Write("BATTERY", $"startup-on-battery percent={sps.BatteryLifePercent};flag={sps.BatteryFlag}");
                     var early = new DispatcherTimer(DispatcherPriority.Background)
                     {
                         Interval = TimeSpan.FromSeconds(1.5)
@@ -75,23 +64,23 @@ namespace Win7Taskbar.Utilities
                     {
                         CheckPowerStatus(true);
                         if (++ticks >= 3)
-                        {
                             early.Stop();
-                        }
                         else
-                        {
                             early.Interval = TimeSpan.FromSeconds(2.5);
-                        }
                     };
                     early.Start();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.WriteException("BATTERY_START_ERROR", ex);
+            }
         }
 
         public void Stop()
         {
             _pollTimer.Stop();
+            DiagnosticLogger.Write("BATTERY", "stop");
         }
 
         private void PollTimer_Tick(object? sender, EventArgs e)
@@ -104,30 +93,44 @@ namespace Win7Taskbar.Utilities
             try
             {
                 if (!GetSystemPowerStatus(out SYSTEM_POWER_STATUS current))
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    DiagnosticLogger.Write("BATTERY_ERROR", $"GetSystemPowerStatus failed;error={error};force={force}");
                     return;
+                }
 
-                bool changed = false;
-                if (!_hasLast || force)
-                    changed = true;
-                else if (_lastStatus.ACLineStatus != current.ACLineStatus ||
-                         _lastStatus.BatteryFlag != current.BatteryFlag ||
-                         _lastStatus.BatteryLifePercent != current.BatteryLifePercent)
-                    changed = true;
+                bool changed = !_hasLast || force ||
+                    _lastStatus.ACLineStatus != current.ACLineStatus ||
+                    _lastStatus.BatteryFlag != current.BatteryFlag ||
+                    _lastStatus.BatteryLifePercent != current.BatteryLifePercent;
+
+                DiagnosticLogger.Write("BATTERY", $"check;force={force};changed={changed};ac={current.ACLineStatus};percent={current.BatteryLifePercent};flag={current.BatteryFlag}");
 
                 if (changed)
                 {
                     _lastStatus = current;
                     _hasLast = true;
-                    System.Diagnostics.Debug.WriteLine($"BatteryMonitor: AC={current.ACLineStatus} Battery={current.BatteryLifePercent}% Flag={current.BatteryFlag} -> forcing refresh");
+                    DiagnosticLogger.Write("BATTERY_REFRESH", $"forcing icon refresh;ac={current.ACLineStatus};percent={current.BatteryLifePercent};flag={current.BatteryFlag}");
                     _onBatteryChanged?.Invoke(current);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.WriteException("BATTERY_ERROR", ex, $"force={force}");
+            }
         }
 
         public static SYSTEM_POWER_STATUS GetCurrentStatus()
         {
-            GetSystemPowerStatus(out SYSTEM_POWER_STATUS sps);
+            if (!GetSystemPowerStatus(out SYSTEM_POWER_STATUS sps))
+            {
+                int error = Marshal.GetLastWin32Error();
+                DiagnosticLogger.Write("BATTERY_ERROR", $"GetCurrentStatus failed;error={error}");
+            }
+            else
+            {
+                DiagnosticLogger.Write("BATTERY", $"GetCurrentStatus;ac={sps.ACLineStatus};percent={sps.BatteryLifePercent};flag={sps.BatteryFlag}");
+            }
             return sps;
         }
 

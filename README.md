@@ -43,36 +43,6 @@ For complete build, packaging, architecture, and development instructions, see [
 
 For a concise user and build guide, see [`docs/QUICK-START.md`](./docs/QUICK-START.md).
 
-### Icon assets
-
-The tray icons the application draws by itself (volume, network, battery — see
-`native/src/TrayFallbackIcons.cpp`) and the battery glyphs of the flyout are
-compiled into the native DLL: `native/src/TrayIconAssets.inc` and
-`native/src/BatteryAssets.inc` are generated files and the only icon files the
-repository carries.
-
-The PNG sources are kept outside the history in `assets/icon-sources/` (ignored
-by git) and turned into the tables by
-[`compilation files/icons_to_base64.py`](./compilation%20files/icons_to_base64.py):
-
-```bash
-# tray icons (the names are the order of the generated table)
-python3 "compilation files/icons_to_base64.py" \
-  --icon kVolume0=assets/icon-sources/volume-0.png ... \
-  --icon kNetworkNotWorking=assets/icon-sources/network-not-working.png \
-  --cpp-out native/src/TrayIconAssets.inc
-
-# battery strip: the drawings are picked on the alpha bounding box, no
-# coordinate is written by hand; --cells chooses which drawing goes where
-python3 "compilation files/icons_to_base64.py" --style battery \
-  --strip assets/icon-sources/Bitmap303.png \
-  --cells 0,1,2,3,4,5,6,7,8,8,32,... --names kLevel1,... \
-  --cpp-out native/src/BatteryAssets.inc
-```
-
-`--list-runs` prints the inventory of a strip (index, position, size) and the
-header of the generated file records the mapping that was used, so replacing
-the artwork does not require guessing which drawing was which.
 
 ## Contributing
 

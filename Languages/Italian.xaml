@@ -33,10 +33,10 @@
     <s:String x:Key="lang_close_group">Chiudi gruppo</s:String>
     <s:String x:Key="lang_appsearch">Ricerca applicazioni</s:String>
     <s:String x:Key="lang_appsearch_desc">Ricerca applicazioni (reimplementazione opzionale, ispirata alla ricerca di Windows)</s:String>
-    <s:String x:Key="lang_appsearch_note">Non e' la ricerca di sistema ne' un suo sostituto ufficiale: elenca solo i collegamenti del menu Start. Si disattiva dalle Proprieta'.</s:String>
+    <s:String x:Key="lang_appsearch_note">Non è la ricerca di sistema né un suo sostituto ufficiale: elenca solo i collegamenti del menu Start. Si disattiva dalle Proprietà.</s:String>
     <s:String x:Key="lang_appsearch_open">Apri ricerca</s:String>
     <s:String x:Key="lang_about_title">Informazioni</s:String>
-    <s:String x:Key="lang_about_text">Win7Taskbar e' un progetto best-effort in costante miglioramento che ricrea la barra delle applicazioni di Windows 7 sopra quella moderna: la precisione migliorera' col tempo. Limitazioni note: la rotazione della barra (laterale/alto) non e' supportata, quindi l'opzione relativa e' al momento decorativa; le finestre di sistema (flyout, menu start) vengono agganciate e riposizionate, non ricreate.</s:String>
+    <s:String x:Key="lang_about_text">Win7Taskbar è un progetto best-effort in costante miglioramento che ricrea la barra delle applicazioni di Windows 7 sopra quella moderna: la precisione migliorerà col tempo. Limitazioni note: la rotazione della barra (laterale/alto) non è supportata, quindi l'opzione relativa è al momento decorativa; le finestre di sistema (flyout, menu Start) vengono agganciate e riposizionate, non ricreate.</s:String>
     <s:String x:Key="lang_credits">Ringraziamenti: 3ds per alcune delle risorse grafiche e per l'ispirazione dell'idea XAML.</s:String>
     <s:String x:Key="lang_menu_toolbars">Barre degli strumenti</s:String>
     <s:String x:Key="lang_menu_desktop">Desktop</s:String>
