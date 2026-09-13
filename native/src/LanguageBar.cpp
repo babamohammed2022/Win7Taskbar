@@ -48,6 +48,7 @@
 
 #include <windows.h>
 #include <windowsx.h>
+#include <strsafe.h>
 
 #include <atomic>
 #include <cstring>
@@ -312,7 +313,7 @@ static HFONT IndicatorFont(int mode, LONG h, bool smallRow) {
         em = (LONG)(h * 0.50);
         lf.lfWeight = FW_NORMAL;
     }
-    lf.lfHeight = -max(8, em);
+    lf.lfHeight = -(em > 8 ? em : 8);
     return CreateFontIndirectW(&lf);
 }
 

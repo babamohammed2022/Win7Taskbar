@@ -80,8 +80,8 @@ namespace Win7Taskbar.Controls
         public InputLanguageBar()
         {
             Visibility = Visibility.Collapsed;   /* lo accende il modo */
-            LayoutUpdated += (_, _) => ScheduleForward();
-            SizeChanged += (_, _) => ScheduleForward();
+            LayoutUpdated += (s, e) => ScheduleForward();
+            SizeChanged += (s, e) => ScheduleForward();
         }
 
         /// <summary>Chiude l'indicatore nativo allo smontaggio.</summary>
