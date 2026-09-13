@@ -37,7 +37,6 @@ private:
 
     HWND m_hwnd = nullptr;
     bool m_classRegistered = false;
-    bool m_linkHot = false;          /* v1.7: hover sul link (stile overflow) */
     int  m_lang = 0;
 
     /* Icone decodificate UNA volta: HBITMAP 32bpp premoltiplicato. */
