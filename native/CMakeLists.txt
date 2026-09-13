@@ -126,7 +126,7 @@ set(W7T_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../dist" CACHE PATH "Folder for th
 add_custom_command(TARGET Win7TaskbarCore POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Win7TaskbarCore> "${W7T_DIST_DIR}/"
-    COMMAND ${CMAKE_COMMAND} -DGATE_TEXT="STAGE dist copy done" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
+    COMMAND ${CMAKE_COMMAND} -DGATE_TEXT=stage1_dist_copy_done -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
     COMMENT "Copy Win7TaskbarCore.dll to dist/")
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
@@ -135,7 +135,7 @@ if(Python3_Interpreter_FOUND)
     # problem matcher turns into a check annotation naming the failed check.
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-com-interfaces.py $<TARGET_FILE:Win7TaskbarCore>
-        COMMAND ${CMAKE_COMMAND} -DGATE_TEXT="STAGE check-com done" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
+        COMMAND ${CMAKE_COMMAND} -DGATE_TEXT=stage2_check_com_done -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
         COMMENT "Check COM interfaces in binary" VERBATIM)
     # v2.62: la tabella degli export deve contenere TUTTE le funzioni che il
     # livello gestito richiama. Una build che ne perde qualcuna compila, si
@@ -143,7 +143,7 @@ if(Python3_Interpreter_FOUND)
     # successo davvero, con nove funzioni mancanti in dist/.
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-exports.py $<TARGET_FILE:Win7TaskbarCore>
-        COMMAND ${CMAKE_COMMAND} -DGATE_TEXT="STAGE check-exports done" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
+        COMMAND ${CMAKE_COMMAND} -DGATE_TEXT=stage3_check_exports_done -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
         COMMENT "Check exported functions in binary" VERBATIM)
 endif()
 add_library(W7TInject SHARED src/InjectHook.cpp)
@@ -155,10 +155,10 @@ endif()
 add_custom_command(TARGET W7TInject POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:W7TInject> "${W7T_DIST_DIR}/"
-    COMMAND ${CMAKE_COMMAND} -DGATE_TEXT="STAGE inject copy done" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
+    COMMAND ${CMAKE_COMMAND} -DGATE_TEXT=stage4_inject_copy_done -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage-marker.cmake"
     COMMENT "Copy W7TInject.dll to dist/")
 add_custom_target(w7tFinalGate ALL
-    COMMAND ${CMAKE_COMMAND} -DGATE_DLL="${W7T_DIST_DIR}/Win7TaskbarCore.dll" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/final-gate.cmake"
+    COMMAND ${CMAKE_COMMAND} -DGATE_DLL=${W7T_DIST_DIR}/Win7TaskbarCore.dll -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/final-gate.cmake"
     DEPENDS Win7TaskbarCore W7TInject
     VERBATIM)
 install(TARGETS Win7TaskbarCore W7TInject RUNTIME DESTINATION bin)
