@@ -375,7 +375,7 @@ namespace Win7Taskbar.Controls
         private static ControlTemplate BuildTemplate()
         {
             var border = new FrameworkElementFactory(typeof(Border), "Bd");
-            border.Background = Brushes.Transparent;
+            border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
             border.SetValue(Border.CornerRadiusProperty, new CornerRadius(2));
 
             var presenter = new FrameworkElementFactory(typeof(ContentPresenter), "Content");
