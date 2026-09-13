@@ -1752,6 +1752,10 @@ void TrayService::ThreadMain() {
  * gestita che risale da un window procedure termina il processo che ospita
  * la finestra. Tutto il corpo vive in TrayWndProcInner; qui si cattura
  * qualsiasi cosa e si delega al comportamento di default. */
+/* Defined further down with the transient legacy-key helpers it belongs to;
+ * the retry timer below re-asserts it before delivering another click. */
+static void EnsureWin32BatteryFlyoutValue();
+
 LRESULT CALLBACK TrayService::TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     try {
         return TrayWndProcInner(hwnd, msg, wParam, lParam);
