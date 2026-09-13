@@ -332,9 +332,6 @@ namespace Win7Taskbar.Interop
         public static extern int W7T_AppBarNotify(uint wParam, int lParam);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
-        public static extern int W7T_AppBarWindowPosChanged(ulong hwnd);
-
-        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppBarActivate(ulong hwnd);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
@@ -733,16 +730,6 @@ namespace Win7Taskbar.Interop
          * monitor come i flyout Aero (AdjustWindowPosForTaskbar del mod
          * "Aero Tray" di aubymori, riscritto senza hooking). */
         [StructLayout(LayoutKind.Sequential)]
-        public struct POINT
-        {
-            public int x;
-            public int y;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct MONITORINFO
-        {
-            ayout(LayoutKind.Sequential)]
         public struct POINT
         {
             public int x;
