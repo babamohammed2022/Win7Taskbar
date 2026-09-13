@@ -12,17 +12,17 @@ Some parts are already close to the original Windows 7 experience, while other p
 
 | Feature | Status | Notes |
 |---|---|---|
-| Windows 7 taskbar layout | Good | The main taskbar layout is already close to Windows 7. |
-| Windows 7 toolbars | Implemented | The three Windows 7-style toolbars are present. |
-| Application icons | Mostly accurate | The general appearance is accurate, but icon accuracy is not yet complete for every application and system icon. |
-| Open-application indicators | Implemented | Windows 7-style indicators are present and can be refined further. |
-| Context menus | Good | Context menus are generally close to the Windows 7 behavior and appearance, with some details still to improve. |
-| Overflow | Good | The overflow experience is reasonably close to Windows 7, although further refinement is possible. |
-| Flyouts | Mostly good | The main flyouts work, but positioning still needs improvement. |
-| Clock flyout | Needs improvement | The clock flyout position needs to be made more accurate. On Windows 11, the native Windows 10 flyout can sometimes appear first and must be prevented or bypassed. |
-| Windows 11 system tray | Incomplete / not yet robust | The Windows 11 system tray requires further work for reliable and complete handling of all tray icons and shell states. |
-| Thumbnail previews | Missing | Windows 7-style taskbar thumbnail previews are not implemented yet. |
-| Taskbar rotation | Missing | Rotating the taskbar to other screen edges is not implemented yet. |
+| Windows 7 taskbar layout | ✅ | The main taskbar layout is already close to Windows 7. |
+| Windows 7 toolbars | ✅ | The three Windows 7-style toolbars are present. |
+| Application icons | ✅ | The general appearance is accurate, but icon accuracy is not yet complete for every application and system icon. |
+| Open-application indicators | ✅ | Windows 7-style indicators are present and can be refined further. |
+| Context menus | ✅ | Context menus are generally close to the Windows 7 behavior and appearance, with some details still to improve. |
+| Overflow | ✅ | The overflow experience is reasonably close to Windows 7, although further refinement is possible. |
+| Flyouts | ✅ | The main flyouts work, but positioning still needs improvement. |
+| Clock flyout | ❌ | The clock flyout position needs to be made more accurate. On Windows 11, the native Windows 10 flyout can sometimes appear first and must be prevented or bypassed. |
+| Windows 11 system tray | ❌ | The Windows 11 system tray requires further work for reliable and complete handling of all tray icons and shell states. |
+| Thumbnail previews | ❌ | Windows 7-style taskbar thumbnail previews are not implemented yet. |
+| Taskbar rotation | ❌ | Rotating the taskbar to other screen edges is not implemented yet. |
 
 ## Main missing features
 
