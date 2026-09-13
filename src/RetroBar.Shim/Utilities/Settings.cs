@@ -5,6 +5,7 @@
 // Italiano: Superficie pubblica minima richiesta dal tema Windows7.xaml (derivato da RetroBar, Apache 2.0). Codice scritto da zero.
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
@@ -28,6 +29,68 @@ namespace RetroBar.Utilities
         public static Settings Instance => LazyInstance.Value;
 
         public event PropertyChangedEventHandler? PropertyChanged;
+
+        /// <summary>
+        /// v2.63 - DOVE FINISCONO LE RIGHE DI QUESTA CLASSE.
+        ///
+        /// Il file viene letto prima che il core nativo esista (la lingua
+        /// dell'interfaccia serve al tema), quindi le righe vengono messe da
+        /// parte e consegnate al primo sink disponibile: nessuna va persa, e
+        /// se il sink non arriva mai non cambia nulla nel comportamento.
+        /// English: diagnostics are buffered until a sink is attached, so the
+        /// load that happens before the native core is not lost.
+        /// </summary>
+        public static Action<string>? Log
+        {
+            get => _logSink;
+            set
+            {
+                _logSink = value;
+                if (value == null)
+                {
+                    return;
+                }
+
+                List<string>? pending = null;
+                lock (PendingLog)
+                {
+                    if (PendingLog.Count > 0)
+                    {
+                        pending = new List<string>(PendingLog);
+                        PendingLog.Clear();
+                    }
+                }
+
+                if (pending != null)
+                {
+                    foreach (string line in pending)
+                    {
+                        try { value(line); } catch { }
+                    }
+                }
+            }
+        }
+
+        private static readonly List<string> PendingLog = new List<string>();
+        private static Action<string>? _logSink;
+
+        private static void Trace(string line)
+        {
+            Action<string>? sink = _logSink;
+            if (sink != null)
+            {
+                try { sink(line); } catch { }
+                return;
+            }
+
+            lock (PendingLog)
+            {
+                if (PendingLog.Count < 64)
+                {
+                    PendingLog.Add(line);
+                }
+            }
+        }
 
         private bool _showClockSeconds;
         private bool _collapseNotifyIcons = true;
@@ -259,40 +322,108 @@ namespace RetroBar.Utilities
                 if (File.Exists(path))
                 {
                     string json = File.ReadAllText(path);
+                    HashSet<string> present = ReadPresentNames(json);
                     Settings? loaded = JsonSerializer.Deserialize<Settings>(json, SerializerOptions);
                     if (loaded != null)
                     {
-                        return Migrate(loaded);
+                        /* v2.63 - COSA C'ERA DAVVERO NEL FILE.
+                         *
+                         * "salvati" dice, proprieta' per proprieta', se il file
+                         * conteneva la scelta o se il campo non c'era affatto:
+                         * e' la differenza fra "l'utente ha scelto questo" e
+                         * "non ha mai scelto". Senza questa riga, un valore
+                         * imposto dal codice e' indistinguibile da una scelta
+                         * salvata. */
+                        Trace("SETTINGS-LETTURA: file=" + path +
+                              " salvati={lingua:" + present.Contains("Language") +
+                              ", orologio:" + present.Contains("UseNativeClockFlyout") +
+                              ", batteria:" + present.Contains("UseBatteryFlyout") +
+                              ", rete:" + present.Contains("NetworkFlyoutMode") +
+                              ", volume:" + present.Contains("UseClassicVolumeMixer") + "}");
+                        return Migrate(loaded, present);
+                    }
+
+                    Trace("SETTINGS-LETTURA: " + path + " non ha prodotto impostazioni");
+                }
+                else
+                {
+                    Trace("SETTINGS-LETTURA: nessun file (" + path +
+                          "), si parte dai valori predefiniti");
+                }
+            }
+            catch (Exception ex)
+            {
+                // v2.63: prima si taceva e si ripartiva dai default senza dirlo.
+                Trace("SETTINGS-ERRORE lettura: " + ex.GetType().Name + ": " +
+                      ex.Message + " (file " + ConfigPath + ")");
+            }
+
+            return Migrate(new Settings(), new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// Names of the properties actually present in the file: it is what
+        /// tells "the user chose this" from "the field was never written".
+        /// Italiano: nomi delle proprieta' presenti nel file: distingue
+        /// "l'utente ha scelto" da "il campo non c'era", senza inventare valori.
+        /// </summary>
+        private static HashSet<string> ReadPresentNames(string json)
+        {
+            HashSet<string> present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (JsonProperty property in doc.RootElement.EnumerateObject())
+                    {
+                        present.Add(property.Name);
                     }
                 }
             }
-            catch (Exception ex) when (ex is IOException
-                                        or UnauthorizedAccessException
-                                        or JsonException)
+            catch (JsonException)
             {
-                // Corrupted or unreadable config: start from defaults / Config corrotta o illeggibile: si riparte dai default.
+                // Il deserialize che segue riporta l'errore vero.
             }
 
-            return Migrate(new Settings());
+            return present;
         }
 
         /// <summary>
         /// One-time migrations between versions / Migrazioni una tantum fra versioni.
         /// </summary>
-        private static Settings Migrate(Settings settings)
+        private static Settings Migrate(Settings settings, HashSet<string> present)
         {
             bool changed = false;
 
+            /* v2.63 - UNA MIGRAZIONE NON SOVRASCRIVE PIU' UNA SCELTA SALVATA.
+             *
+             * Queste due migrazioni sono nate per dare un valore agli impianti
+             * vecchi. Il difetto: girano a OGNI avvio finche' la bandierina non
+             * finisce nel file, e assegnano il valore senza guardare se il file
+             * lo conteneva gia'. Se il salvataggio falliva una volta (o se il
+             * file arrivava senza le bandierine), la scelta dell'utente veniva
+             * riscritta a ogni avvio: "il programma non legge le impostazioni
+             * all'avvio", con la scelta dei riquadri che si invertiva da sola.
+             *
+             * Adesso il valore viene imposto solo se il file NON lo conteneva:
+             * quello che l'utente ha scelto resta suo. */
             if (!settings.ClockFlyoutChoiceMigrated)
             {
-                settings._useNativeClockFlyout = false;
+                if (!present.Contains("UseNativeClockFlyout"))
+                {
+                    settings._useNativeClockFlyout = false;
+                }
                 settings.ClockFlyoutChoiceMigrated = true;
                 changed = true;
             }
 
             if (!settings.ClockFlyoutNativeMigrated195)
             {
-                settings._useNativeClockFlyout = true;
+                if (!present.Contains("UseNativeClockFlyout"))
+                {
+                    settings._useNativeClockFlyout = true;
+                }
                 settings.ClockFlyoutNativeMigrated195 = true;
                 changed = true;
             }
@@ -305,7 +436,11 @@ namespace RetroBar.Utilities
                 // does not pass through here.
                 // Italiano: primo avvio (o configurazione che non diceva nulla):
                 // lingua di Windows se e' una delle undici, altrimenti inglese.
-                settings._language = DetectSystemLanguage();
+                // v2.63: e se il file la lingua la conteneva, non si tocca.
+                if (!present.Contains("Language"))
+                {
+                    settings._language = DetectSystemLanguage();
+                }
                 settings.LanguageMigrated = true;
                 changed = true;
             }
@@ -320,9 +455,9 @@ namespace RetroBar.Utilities
         /// <summary>Writes settings atomically to disk / Scrive le impostazioni su disco in modo atomico.</summary>
         public void Save()
         {
+            string path = ConfigPath;
             try
             {
-                string path = ConfigPath;
                 string? dir = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(dir))
                 {
@@ -335,10 +470,22 @@ namespace RetroBar.Utilities
                 string temp = path + ".tmp";
                 File.WriteAllText(temp, json);
                 File.Move(temp, path, overwrite: true);
+
+                Trace("SETTINGS-SALVA: " + path + " (" + json.Length + " byte)");
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex)
             {
-                // Persistence must never crash UI / La persistenza non deve mai far cadere la UI.
+                /* v2.63 - PRIMA SI TACEVA.
+                 *
+                 * La cattura copriva solo IOException e UnauthorizedAccessException,
+                 * e in ogni caso non lasciava traccia: una scelta che non si
+                 * salvava era indistinguibile da una salvata. Adesso qualunque
+                 * errore viene registrato con tipo e messaggio (e il percorso del
+                 * file), perche' "a volte le opzioni non si salvano" e' una
+                 * diagnosi, non un mistero. La persistenza continua a non far
+                 * cadere la UI. */
+                Trace("SETTINGS-ERRORE salvataggio: " + ex.GetType().Name + ": " +
+                      ex.Message + " (file " + path + ")");
             }
         }
 
@@ -350,6 +497,8 @@ namespace RetroBar.Utilities
             }
             field = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            Trace("SETTINGS-CAMBIO: " + (propertyName ?? "?") + "=" +
+                  (value?.ToString() ?? "null"));
             Save();
         }
     }

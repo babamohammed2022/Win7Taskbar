@@ -132,6 +132,14 @@ namespace Win7Taskbar
                     return;
                 }
 
+                // v2.63: le righe di Settings (lettura, cambi, salvataggi,
+                // errori) finiscono in log-core.txt. Il caricamento avviene
+                // prima del core - la lingua serve al tema - e le righe di
+                // allora sono in coda: assegnando il sink vengono consegnate
+                // adesso, nell'ordine in cui sono successe.
+                NativeBridge coreBridge = _bridge;
+                RetroBar.Utilities.Settings.Log = line => coreBridge.Log(line);
+
                 StartupGuard.Enter("finestra");
                 _taskbar = new TaskbarWindow(_bridge);
                 _taskbar.Show();

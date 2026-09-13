@@ -173,6 +173,40 @@ the synthetic tray clicks, the taskbar menu and the frontend all ask the same
 function, so the "Windows 7" entry opens the Windows 7 flyout and the
 "Windows 10/11" entry opens the shell's one, by construction.
 
+### The choice that was overwritten at every start
+
+The settings file also carries one-shot migrations (they exist to give a value
+to installations written before an option existed) and a pair of them forces the
+clock choice. They ran at **every** load while their own flag was still missing
+from the file, and they assigned the value without looking at whether the file
+already contained it. If a save ever failed - or if the file was copied around
+without those flags - the user's choice was rewritten at every start: "the
+program does not read the settings at startup", with the flyout choices looking
+swapped because one side of the pair always won.
+
+A migration now assigns a value **only when the file does not contain that
+property**: the loader reads the JSON once, collects the property names that are
+actually present, and passes them to the migration, which uses them to tell
+"the user chose this" from "the field was never written". What the user chose
+stays theirs.
+
+The same suspicion (a choice that does not get saved) is now answerable from the
+log instead of being a guess. `Settings` writes one line per event:
+
+| line | meaning |
+| --- | --- |
+| `SETTINGS-LETTURA: file=... salvati={...}` | the file, and for each option whether it was **stored** in it |
+| `SETTINGS-LETTURA: nessun file (...)` | first run: the defaults are in use |
+| `SETTINGS-CAMBIO: UseBatteryFlyout=True` | a choice changed in the Properties window |
+| `SETTINGS-SALVA: <path> (n byte)` | the file was written |
+| `SETTINGS-ERRORE salvataggio: ...` | the write failed, with the exception and the path |
+
+The write used to swallow `IOException`/`UnauthorizedAccessException` without a
+trace and to let anything else escape; now every failure is logged and nothing
+can take the interface down. The lines produced before the native core exists
+(the language is loaded before it) are buffered and delivered as soon as the core
+is there, so the load is not lost.
+
 ## Clock: Windows 7 means Windows 7
 
 The clock combo offers the recreated classic theme and **Windows 7**. The second

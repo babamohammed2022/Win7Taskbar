@@ -3699,6 +3699,17 @@ bool TrayService::TryWindhawkNetFlyoutClick(uint64_t ownerHwnd, uint32_t uid) {
 
 int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickType,
                                int32_t x, int32_t y) {
+
+    /* v2.63 - UNA GUARDIA SU TUTTO IL PERCORSO DEL CLIC.
+     *
+     * Qui dentro si parla con il proprietario dell'icona, con la shell
+     * di Windows 11 (UI Automation), con i riquadri e con la barra: sono
+     * tutte cose che non sono nostre. Un'eccezione C++ che sfugge da
+     * questa funzione non deve arrivare al ciclo dei messaggi della
+     * finestra della tray, che la trasformerebbe in un crash: si
+     * registra e si risponde "non riuscito", come per un clic che non
+     * ha trovato nessuno. */
+    try {
     uint32_t callbackMessage = 0;
     uint32_t version = 0;
     bool uiaEntry = false;
@@ -3960,6 +3971,14 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
     }
 
     return W7T_OK;
+    } catch (const std::exception&) {
+        LogTagged(L"GUARDIA", L"clic della tray: eccezione C++ (std::exception) ignorata");
+        return W7T_ERR_NOT_FOUND;
+    } catch (...) {
+        LogTagged(L"GUARDIA", L"clic della tray: eccezione C++ ignorata");
+        return W7T_ERR_NOT_FOUND;
+    }
+
 }
 
 } /* namespace w7t */

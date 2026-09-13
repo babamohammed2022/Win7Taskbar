@@ -914,6 +914,12 @@ void Win11TrayReader::WorkerMain() {
     };
 
     auto readNow = [&]() {
+        /* v2.63 - la lettura della tray e' il punto in cui si parla di piu'
+         * con la shell (UI Automation, elementi di un altro processo). Se
+         * qualcosa qui dentro solleva, il thread di lettura non deve morire:
+         * si registra, si tiene l'ultima istantanea valida e il tentativo
+         * successivo riprova (il backoff e' del chiamante). */
+        try {
         releaseElements();
         std::vector<Win11TrayItem> items;
         std::set<uint32_t> usedUids;
@@ -948,6 +954,11 @@ void Win11TrayReader::WorkerMain() {
                  static_cast<unsigned>(items.size()));
         AppendCoreLog(line);
         postReady();
+        } catch (const std::exception&) {
+            AppendCoreLog(L"tray Win11: eccezione C++ (std::exception) nella lettura, si tiene l'ultima istantanea");
+        } catch (...) {
+            AppendCoreLog(L"tray Win11: eccezione C++ nella lettura, si tiene l'ultima istantanea");
+        }
     };
 
     /* --- clicks ---------------------------------------------------- */

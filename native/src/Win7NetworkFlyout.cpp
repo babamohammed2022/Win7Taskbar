@@ -5151,6 +5151,16 @@ void UpdateFlyoutWindowSize(HWND hwnd) {
 
 void RefreshNetworkData(BOOL forceDetection = FALSE, INetworkListManager* pNLMOverride = nullptr,
                          bool useOnlyOverride = false) {
+
+    /* v2.63 - GUARDIA SULL'AGGIORNAMENTO DELLA RETE.
+     *
+     * Qui si interrogano WLAN (WlanGetAvailableNetworkList), NLM
+     * (GetConnectivity) e gli adapter: API di sistema con handle
+     * esterni, chiamate mentre il servizio WLAN puo' stare partendo o
+     * fermandosi. Un'eccezione non deve chiudere il programma ne'
+     * lasciare il riquadro a meta': si registra e si tiene quello che
+     * c'e' gia', come per una lettura non riuscita. */
+    try {
     if (g_Ctx.hWlanClient) {
         RefreshWifiData(g_Ctx.hWlanClient);
     } else {
@@ -5210,6 +5220,12 @@ void RefreshNetworkData(BOOL forceDetection = FALSE, INetworkListManager* pNLMOv
     if (g_hWndFlyout && IsWindow(g_hWndFlyout)) {
         UpdateFlyoutWindowSize(g_hWndFlyout);
     }
+    } catch (const std::exception&) {
+        Wh_Log(L"[GUARDIA] aggiornamento della rete: eccezione C++ (std::exception) ignorata");
+    } catch (...) {
+        Wh_Log(L"[GUARDIA] aggiornamento della rete: eccezione C++ ignorata");
+    }
+
 }
 
 // -------------------------------------------------------
