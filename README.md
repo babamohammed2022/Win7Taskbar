@@ -21,8 +21,7 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 
 ## Requirements
 
-* Windows 10 or Windows 11
-* x64
+* Windows 10 or Windows 11 (64 bit)
 * Official releases are self-contained and do not require a separate .NET installation
 
 
