@@ -766,27 +766,6 @@ namespace Win7Taskbar.Interop
             public uint flags;
         }
 
-        /* =================================================================
-         * v2.55: cattura STATICA della finestra sorgente (PrintWindow).
-         *
-         * Sostituisce il thumbnail LIVE del DWM: quello poteva restare
-         * "silenzioso" (handle registrato ma mai reso visibile) e lasciava
-         * un rettangolo vuoto identico per qualunque finestra, senza un
-         * errore da intercettare. La cattura, invece, o restituisce pixel
-         * veri o fallisce in modo esplicito. Motivazione completa in
-         * Controls/TaskThumbnail.cs.
-         * ================================================================= */
-
-        public const uint PW_CLIENTONLY = 0x00000001;
-        // Necessario per le finestre con superfici accelerate (DirectX,
-        // DirectComposition: Chrome, Edge, molte app moderne): senza questo
-        // flag PrintWindow le cattura nere o vuote. Da Windows 8.1 in poi.
-        public const uint PW_RENDERFULLCONTENT = 0x00000002;
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
-
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);

@@ -2201,27 +2201,12 @@ namespace Win7Taskbar
         // ---------------------------------------------------------------
 
         /// <summary>Ritardo di comparsa dell'anteprima, in millisecondi.</summary>
-        /* ================================================================
-         * v2.56 - WINDOW PREVIEWS ARE TEMPORARILY DISABLED.
-         *
-         * Both preview implementations produced unwanted rectangles inside
-         * the popup (an empty grey/white box, the same for every window), so
-         * the feature is parked instead of shipped half-broken: the popup is
-         * never opened, hovering a task button shows only the app-name
-         * tooltip, which is the part that is guaranteed to work.
-         *
-         * This is the single switch for the whole feature. Everything else
-         * (the popup, the item template, the close button, the placement
-         * callback) is still in place and untouched: turning this to true is
-         * the only change needed to bring the previews back, once the
-         * rendering has been properly reimplemented (see
-         * Controls/TaskThumbnail.cs for what has to be proven first and the
-         * README for the user-facing statement).
-         * ================================================================ */
+        /* The popup, frame, close button and navigation stay owned here.
+         * TaskThumbnail.xaml.cs is deliberately limited to registering,
+         * sizing, repositioning and deregistering the live DWM surface. */
         // A static readonly field (not a const) on purpose: a compile-time
         // constant would make the rest of ShowTaskPreview unreachable code.
-        // v1.7.4: previews are back (live DWM thumbnail with the positive
-        // confirmation fallback - see Controls/TaskThumbnail.cs).
+        // Previews use the direct DWM path in Controls/TaskThumbnail.xaml.cs.
         private static readonly bool TaskPreviewsEnabled = true;
 
         private const int PreviewShowDelayMs = 400;
@@ -2381,14 +2366,10 @@ namespace Win7Taskbar
 
             try
             {
-                /* Chiusura e riapertura: e' il modo affidabile per far
-                 * riposizionare il popup quando cambia il pulsante sotto il
-                 * mouse (spostare il PlacementTarget di un popup gia' aperto
-                 * non lo fa spostare). Le miniature vengono ricreate e ogni
-                 * controllo TaskThumbnail fa la sua cattura alla Loaded
-                 * (v2.55: cattura statica, non piu' thumbnail DWM), quindi
-                 * non resta nessuna risorsa orfana (la chiusura azzera
-                 * l'ItemsSource, vedi TaskPreviewPopup_Closed). */
+                /* Chiusura e riapertura riposiziona il popup quando cambia
+                 * il pulsante. Ogni TaskThumbnail registra il proprio live
+                 * thumbnail DWM su Loaded e lo deregistra su Unloaded; la
+                 * chiusura azzera l'ItemsSource per garantire il cleanup. */
                 TaskPreviewPopup.IsOpen = false;
 
                 /* v2.53: se il tooltip di testo e' a schermo, si toglie prima
@@ -2657,9 +2638,8 @@ namespace Win7Taskbar
                 _previewGroup = null;
                 _openButtonTip = null;
 
-                /* Sgancia le miniature: senza questo i controlli TaskThumbnail
-                 * (e le immagini catturate che tengono in memoria) resterebbero
-                 * vivi anche a popup chiuso. */
+                /* Sgancia i controlli TaskThumbnail, che deregistrano sempre
+                 * il proprio handle DWM durante Unloaded. */
                 if (TaskPreviewItems != null)
                 {
                     TaskPreviewItems.ItemsSource = null;

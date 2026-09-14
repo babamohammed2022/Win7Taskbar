@@ -58,8 +58,7 @@
                      La cornice si disegna con otto PNG (angoli + bordi) nel
                      template TaskPreviewFrameVista di Themes/Overrides.xaml:
                      qui c'e' SOLO il contenuto della cella centrale, cioe' la
-                     miniatura della finestra (cattura statica PrintWindow
-                     dalla v2.55), che comincia dopo 16 px di vetro.
+                     miniatura live DWM, che comincia dopo 16 px di vetro.
 
                      Spariti: il Border del tema (bordo + gradiente + ombra),
                      il rettangolo bianco di ripiego, qualunque sfondo dietro
@@ -96,13 +95,11 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
-                        <!-- La miniatura: istantanea della finestra
-                             (v2.55, PrintWindow). -->
+                        <!-- Miniatura live della finestra tramite DWM. -->
                         <w7controls:TaskThumbnail x:Name="Thumb"
                                                   Grid.Row="1"
                                                   SourceWindowHandle="{Binding HandlePtr}"
-                                                  Title="{Binding Title}"
-                                                  FallbackIcon="{Binding Icon}" />
+                                                  Title="{Binding Title}" />
                     </Grid>
                 </ContentControl>
 
