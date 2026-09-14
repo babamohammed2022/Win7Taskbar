@@ -1,0 +1,39 @@
+name: build-validation
+
+# Validates that the Windows frontend and native backend still compile on PRs.
+# This workflow does not publish releases or upload build artifacts.
+
+on:
+  pull_request:
+    branches: [ main, master ]
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Configure native CMake
+        shell: pwsh
+        run: cmake -S native -B native/build -A x64
+
+      - name: Build native backend
+        shell: pwsh
+        run: cmake --build native/build --config Release -j 2
+
+      - name: Build WPF frontend
+        shell: pwsh
+        run: dotnet build src/Win7Taskbar/Win7Taskbar.csproj --configuration Release --no-restore
