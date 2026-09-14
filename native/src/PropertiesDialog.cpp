@@ -1,9 +1,6 @@
 // Win7Taskbar - finestra Proprieta' Win32 classica (stile Win7)
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 //
-// v3.7: struttura COPIATA dalla mod di riferimento: template dialogo in
-// memoria con unita' DLU, stesse dimensioni (262x271), stessi pulsanti
-// standard 50x14, tab nativo, texture tema, tema explorer sui figli.
 
 #include "PropertiesDialog.h"
 #include "SehGuard.h"
@@ -238,7 +235,6 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                             int32_t taskManagerMode) {
     try {
         if (m_hWnd && IsWindow(m_hWnd)) {
-            SetForegroundWindow(m_hWnd);
             return;
         }
         m_owner = owner;
