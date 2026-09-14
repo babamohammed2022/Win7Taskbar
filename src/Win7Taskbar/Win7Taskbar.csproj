@@ -133,7 +133,16 @@
          path is restored while all global shortcuts and shortcut hints stay
          absent; taskmgr.exe is intentionally omitted from overflow because
          its renewed IDs caused large runs of duplicate entries. -->
-    <Version>1.8.0-alpha</Version>
+    <!-- 1.9.0-alpha: ships the 1.8.0-alpha follow-up above. Jump Lists are
+         temporarily disabled (the task-button gesture entry point is
+         commented out, the subsystem itself stays in the source tree); every
+         "Customize..." link opens the native Windows Notification Area page
+         through its shell namespace instead of the removed private dialog;
+         the hover preview uses the direct RetroBar-style DWM thumbnail path
+         (TaskThumbnail.xaml.cs). AssemblyVersion/FileVersion stay at
+         1.7.0.0 on purpose: StartupGuard.VersionText reads them, so the
+         automatic safe-mode marker keeps matching across alphas. -->
+    <Version>1.9.0-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
