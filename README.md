@@ -17,13 +17,6 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 
 <img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
 
-> ⚠️ **Compatibility warning: RetroBar**
->
-> It is recommended not to run Win7Taskbar together with RetroBar. Both applications replace the Windows taskbar by hiding it and may conflict with each other, causing duplicate or missing taskbar elements.
->
-> **Use one or the other at a time.**
->
-> ExplorerPatcher is different and can complement Win7Taskbar on Windows 11.
 
 
 ## Requirements
@@ -32,7 +25,16 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 * x64
 * Official releases are self-contained and do not require a separate .NET installation
 
-## Run
+
+> ⚠️ **Compatibility warning: RetroBar**
+>
+> It is recommended not to run Win7Taskbar together with RetroBar. Both applications replace the Windows taskbar by hiding it and may conflict with each other, causing duplicate or missing taskbar elements.
+>
+> **Use one or the other at a time.**
+>
+> ExplorerPatcher is different and can complement Win7Taskbar on Windows 11.
+
+## Installation Guide
 
 To install this software, the subsequent steps need to be followed:
 1. Download the latest release from [Releases](https://github.com/babamohammed2022/Win7Taskbar/releases).
