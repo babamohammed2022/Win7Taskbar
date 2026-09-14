@@ -15,6 +15,9 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <!-- Used only for the short-lived TaskPreviewPopup screen capture;
+         no external imaging package or persistent GDI resource is retained. -->
+    <UseSystemDrawing>true</UseSystemDrawing>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>

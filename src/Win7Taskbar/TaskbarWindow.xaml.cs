@@ -1597,10 +1597,11 @@ namespace Win7Taskbar
                     int sourceAlpha = pixels[i + 3];
                     // Integer Rec.709 approximation. Pure luminance produced
                     // about 21% median opacity and was a little too faint.
-                    // A restrained floor raises the typical frame to about
-                    // 25%: above 20%, but still strongly translucent.
+                    // A very small floor keeps the typical frame near 23%:
+                    // slightly more transparent than the previous 25%, but
+                    // still readable compared with the original 21% result.
                     int luminance = (54 * red + 183 * green + 19 * blue + 128) >> 8;
-                    int maskCoverage = 16 + ((239 * luminance + 127) / 255);
+                    int maskCoverage = 8 + ((247 * luminance + 127) / 255);
                     pixels[i] = 0xFF;
                     pixels[i + 1] = 0xFF;
                     pixels[i + 2] = 0xFF;
@@ -2652,14 +2653,129 @@ namespace Win7Taskbar
             }
         }
 
+        /// <summary>RAII owner for the HBITMAP returned by Bitmap.GetHbitmap.
+        /// BitmapSource copies the pixels, so ownership ends immediately after
+        /// conversion rather than surviving for the popup lifetime.</summary>
+        private sealed class SafePreviewHBitmap
+            : Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid
+        {
+            internal SafePreviewHBitmap(IntPtr handle) : base(true)
+            {
+                SetHandle(handle);
+            }
+
+            protected override bool ReleaseHandle()
+                => NativeMethods.DeleteObject(handle);
+        }
+
+        private void CaptureTaskPreviewBackdrop()
+        {
+            try
+            {
+                TaskPreviewBlurImage.Source = null;
+                TaskPreviewBlurHost.Clip = null;
+                TaskPreviewPopupRoot.UpdateLayout();
+
+                if (!TaskPreviewPopupRoot.IsLoaded ||
+                    TaskPreviewPopupRoot.ActualWidth <= 0 ||
+                    TaskPreviewPopupRoot.ActualHeight <= 0 ||
+                    PresentationSource.FromVisual(TaskPreviewPopupRoot)
+                        is not HwndSource popupSource)
+                {
+                    return;
+                }
+
+                Matrix toDevice = popupSource.CompositionTarget?.TransformToDevice
+                                  ?? Matrix.Identity;
+                Point screenOrigin = TaskPreviewPopupRoot.PointToScreen(new Point(0, 0));
+                int pixelWidth = Math.Max(1, (int)Math.Ceiling(
+                    TaskPreviewPopupRoot.ActualWidth * toDevice.M11));
+                int pixelHeight = Math.Max(1, (int)Math.Ceiling(
+                    TaskPreviewPopupRoot.ActualHeight * toDevice.M22));
+
+                // Bitmap and Graphics are IDisposable; GetHbitmap has separate
+                // ownership and is wrapped immediately in SafePreviewHBitmap.
+                // Opened runs before the first useful popup frame is painted,
+                // so this single capture represents the desktop behind it.
+                using var capture = new System.Drawing.Bitmap(
+                    pixelWidth, pixelHeight,
+                    System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                using (System.Drawing.Graphics graphics =
+                       System.Drawing.Graphics.FromImage(capture))
+                {
+                    graphics.CopyFromScreen(
+                        (int)Math.Round(screenOrigin.X),
+                        (int)Math.Round(screenOrigin.Y),
+                        0, 0, new System.Drawing.Size(pixelWidth, pixelHeight),
+                        System.Drawing.CopyPixelOperation.SourceCopy);
+                }
+
+                using var hBitmap = new SafePreviewHBitmap(capture.GetHbitmap());
+                var source = Imaging.CreateBitmapSourceFromHBitmap(
+                    hBitmap.DangerousGetHandle(), IntPtr.Zero, Int32Rect.Empty,
+                    BitmapSizeOptions.FromEmptyOptions());
+                if (source.CanFreeze)
+                {
+                    source.Freeze();
+                }
+
+                TaskPreviewBlurImage.Source = source;
+                ClipTaskPreviewBackdropToFrames();
+            }
+            catch (Exception ex)
+            {
+                // Capture is cosmetic: keep the accepted accent frame and
+                // never prevent DWM thumbnail registration or popup opening.
+                TaskPreviewBlurImage.Source = null;
+                TaskPreviewBlurHost.Clip = null;
+                try { _bridge.Log($"preview static blur: {ex.Message}"); }
+                catch { }
+            }
+        }
+
+        private void ClipTaskPreviewBackdropToFrames()
+        {
+            var frameBands = new GeometryGroup();
+            int count = TaskPreviewItems.Items.Count;
+            for (int index = 0; index < count; index++)
+            {
+                if (TaskPreviewItems.ItemContainerGenerator.ContainerFromIndex(index)
+                    is not FrameworkElement item ||
+                    item.ActualWidth <= 34 || item.ActualHeight <= 57)
+                {
+                    continue;
+                }
+
+                Rect bounds = item.TransformToAncestor(TaskPreviewPopupRoot)
+                                  .TransformBounds(new Rect(
+                                      0, 0, item.ActualWidth, item.ActualHeight));
+                double middleHeight = Math.Max(0, bounds.Height - 57);
+
+                // Exact DWMBorder.png slices: top 38, sides 17, bottom 19.
+                // Four bands leave the complete central DWM cell unpainted.
+                frameBands.Children.Add(new RectangleGeometry(
+                    new Rect(bounds.X, bounds.Y, bounds.Width, 38)));
+                frameBands.Children.Add(new RectangleGeometry(
+                    new Rect(bounds.X, bounds.Y + 38, 17, middleHeight)));
+                frameBands.Children.Add(new RectangleGeometry(
+                    new Rect(bounds.Right - 17, bounds.Y + 38, 17, middleHeight)));
+                frameBands.Children.Add(new RectangleGeometry(
+                    new Rect(bounds.X, bounds.Bottom - 19, bounds.Width, 19)));
+            }
+
+            TaskPreviewBlurHost.Clip = frameBands;
+        }
+
         private void TaskPreviewPopup_Opened(object? sender, EventArgs e)
         {
             try
             {
+                CaptureTaskPreviewBackdrop();
+
                 /* v2.45: punto unico di controllo dopo che il popup e' davvero a
-                 * schermo. v2.50: non c'e' piu' nessun fondo da preparare (il
-                 * popup ha una tinta piena del tema): qui si riavvia solo il
-                 * timer che decide la chiusura, cosi' la permanenza non
+                 * schermo. Lo sfondo statico e' gia' stato catturato e limitato
+                 * alle sole bande esterne; ora si riavvia il timer che decide
+                 * la chiusura, cosi' la permanenza non
                  * dipende dall'ordine con cui WPF alza Opened rispetto al
                  * codice chiamante. */
                 _previewWatchTimer ??= new TimerLease(PreviewWatchIntervalMs,
@@ -2683,6 +2799,13 @@ namespace Win7Taskbar
             {
                 _previewShowTimer?.Stop();
                 _previewWatchTimer?.Stop();
+
+                // Release the managed BitmapSource reference after every
+                // short-lived hover popup; the HBITMAP was already released
+                // by SafePreviewHBitmap immediately after conversion.
+                TaskPreviewBlurImage.Source = null;
+                TaskPreviewBlurHost.Clip = null;
+
                 _previewAnchor = null;
                 _previewGroup = null;
                 _previewPointerInside = false;

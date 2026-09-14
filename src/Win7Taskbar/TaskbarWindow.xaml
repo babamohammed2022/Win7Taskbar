@@ -870,16 +870,32 @@
                    SnapsToDevicePixels="True"
                    Opened="TaskPreviewPopup_Opened"
                    Closed="TaskPreviewPopup_Closed">
-                <!-- Only framed DWM surfaces: no popup-wide coloured panel,
-                     filler rectangle, captured backdrop or extra geometry. -->
-                <ItemsControl x:Name="TaskPreviewItems"
-                              ItemTemplate="{StaticResource LiveThumbnailItemTemplate}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                </ItemsControl>
+                <Grid x:Name="TaskPreviewPopupRoot" ClipToBounds="True">
+                    <!-- One static screen capture per opening. Code-behind clips
+                         this host to the four outer-frame bands of every item,
+                         so neither this Image nor its BlurEffect ever paints the
+                         central ContentPresenter/TaskThumbnail DWM destination. -->
+                    <Grid x:Name="TaskPreviewBlurHost"
+                          IsHitTestVisible="False">
+                        <Image x:Name="TaskPreviewBlurImage"
+                               Stretch="Fill"
+                               RenderOptions.BitmapScalingMode="HighQuality">
+                            <Image.Effect>
+                                <BlurEffect Radius="15"
+                                            RenderingBias="Quality" />
+                            </Image.Effect>
+                        </Image>
+                    </Grid>
+
+                    <ItemsControl x:Name="TaskPreviewItems"
+                                  ItemTemplate="{StaticResource LiveThumbnailItemTemplate}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </Grid>
             </Popup>
         </Grid>
     </ContentControl>
