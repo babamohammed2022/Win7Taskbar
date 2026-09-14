@@ -4442,35 +4442,9 @@ namespace Win7Taskbar
 
         private void OpenNotificationAreaIconsApplet()
         {
-            /* v1.7.6: the menu item opens the program's OWN page now - the
-             * recreated "Notification Area Icons" dialog that configures the
-             * icons of THIS tray (three states per icon, always-show switch,
-             * system-icon page, restore link), with the choices persisted in
-             * trayicons.ini and ZERO registry involvement. Modeless: the
-             * page lives on this dispatcher and the tray keeps updating
-             * while it is open. Only when the page cannot be created at all
-             * (old native build without the export, failed window) does the
-             * click degrade to the previous chain below - never to nothing,
-             * never silently. */
-            try
-            {
-                int opened = _bridge.ShowNotificationIconsCpl(new System.Windows.Interop.WindowInteropHelper(this).Handle);
-                if (opened >= 0)
-                {
-                    Utilities.DiagnosticLogger.Write("TRAYCPL",
-                        opened == 1 ? "own page opened" : "own page already open (raised)");
-                    return;
-                }
-                Utilities.DiagnosticLogger.Write("TRAYCPL",
-                    $"own page unavailable (code {opened}), falling back to the system page");
-            }
-            catch (Exception ex)
-            {
-                Utilities.DiagnosticLogger.WriteException("TRAYCPL", ex,
-                    "own page threw before the fallback");
-            }
-
-            // 1) Meccanismo nativo del core (ShellExecuteEx sul namespace).
+            /* Open Windows' native Notification Area settings page directly,
+             * as this command did before the removed imitation existed. */
+            // Native shell namespace first.
             try
             {
                 if (_bridge.OpenNotificationIconsSettings())

@@ -13,7 +13,6 @@
  * definito nel core nativo): nessuna pagina sostitutiva, nessun percorso
  * alternativo inventato qui. */
 #include "Win7TaskbarCore.h"
-#include "TrayCplDialog.h"   /* v1.7.6: pagina Notification Area Icons */
 #include <commctrl.h>
 #include <windowsx.h>
 #include <shellapi.h>
@@ -704,25 +703,11 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             self->SendApply(false, true);
             DestroyWindow(hwnd);
         } else if (id == IDC_BTN_CUSTOMIZE) {
-            /* v1.7.6: "Customize..." opens the program's OWN "Notification
-             * Area Icons" page (TrayCplDialog): it configures only the
-             * icons of this tray and writes nothing to the registry. The
-             * page is modeless and lives on this thread (the Properties
-             * window already pumps on the managed UI thread). Only when
-             * the page cannot be created at all (old native build without
-             * the export/template) does the button degrade to the previous
-             * behavior - open the real Windows page - so the click never
-             * becomes a dead end. */
-            const int32_t rc = w7t::TrayCplDialog::Instance().Show(hwnd);
-            if (rc < 0) {
-                LogTagged(L"TRAYCPL",
-                          L"properties: page unavailable (code %d), "
-                          L"falling back to the system settings",
-                          static_cast<int>(rc));
-                if (W7T_OpenNotificationIconsSettings() != W7T_OK) {
-                    ShellExecuteW(nullptr, L"open", L"ms-settings:taskbar",
-                                  nullptr, nullptr, SW_SHOW);
-                }
+            /* Open Windows' native Notification Area settings page
+             * directly; the removed in-process imitation is not involved. */
+            if (W7T_OpenNotificationIconsSettings() != W7T_OK) {
+                ShellExecuteW(nullptr, L"open", L"ms-settings:taskbar",
+                              nullptr, nullptr, SW_SHOW);
             }
         }
         return TRUE;

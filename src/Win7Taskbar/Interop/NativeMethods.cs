@@ -575,17 +575,6 @@ namespace Win7Taskbar.Interop
         public static extern int W7T_OpenNotificationIconsSettings();
 
         /// <summary>
-        /// v1.7.6: opens the program's OWN "Notification Area Icons" page
-        /// (the recreated Windows 7 selector that configures only the icons
-        /// of THIS tray; modeless, no registry involvement at all).
-        /// Returns 1 = opened, 0 = already open and raised,
-        /// negative = W7T_ERR_* failure. No geometry crosses this call:
-        /// the page positions itself on the monitor of the owner.
-        /// </summary>
-        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
-        public static extern int W7T_TrayCplShow(ulong ownerTaskbar);
-
-        /// <summary>
         /// v2.2: scrive una riga in log-core.txt dal lato gestito.
         /// </summary>
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]

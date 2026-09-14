@@ -230,19 +230,6 @@ W7T_API int32_t  W7T_CALL W7T_SendTrayIconClick(uint64_t ownerHwnd, uint32_t uid
                                                 int32_t clickType, int32_t x, int32_t y);
 W7T_API int32_t  W7T_CALL W7T_SetTrayIconPinned(uint64_t ownerHwnd, uint32_t uid, int32_t pinned);
 
-/* v1.7.6 - pagina "Notification Area Icons" (ricreazione Win7 della
- * selezione "icone e notifiche visualizzate nella barra", SCOPATA alla
- * sola tray del programma: nessuna chiave di registro scritta o letta
- * per le preferenze, nessun host del Pannello di controllo, nessuna
- * registrazione CLSID on-demand). Modeless come la finestra Proprieta':
- * vive sul pump del thread chiamante e il core continua ad aggiornare
- * la tray in tempo reale mentre la pagina e' aperta.
- * ownerTaskbar puo' essere 0 (pagina senza proprietario).
- * Ritorno: 1 = aperta, 0 = gia' aperta (sollevata), <0 = W7T_ERR_*.
- * Le modifiche della pagina si applicano immediatamente; Annulla
- * riavvolge tutto allo snapshot preso all'apertura. */
-W7T_API int32_t  W7T_CALL W7T_TrayCplShow(uint64_t ownerTaskbar);
-
 /* Riordino del modello dopo il trascinamento nella barra: sposta l'icona
  * (ownerHwnd,uid) accanto a (targetHwnd,targetUid) nel toolbar reale con
  * TB_MOVEBUTTON, come fa la shell. insertAfter: 1 per dopo il bersaglio. */
