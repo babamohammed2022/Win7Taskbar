@@ -59,9 +59,9 @@
                   MouseEnter="PreviewThumbnail_MouseEnter"
                   MouseLeave="PreviewThumbnail_MouseLeave"
                   MouseLeftButtonUp="PreviewThumbnail_MouseLeftButtonUp">
-                <!-- Existing image border, one live preview, one close X. -->
-                <!-- A single live surface inside the current 9-slice frame.
-                     No solid/gradient backing rectangle or title artwork. -->
+                <!-- Supplied image border, one live preview, a dedicated
+                     title/icon band, and one close X. No title element enters
+                     the live DWM destination rectangle. -->
                 <ContentControl Template="{DynamicResource TaskPreviewFrameVista}">
                     <!-- DWMBorder.png already reserves its complete 38px top
                          chrome. The live surface goes directly into the exact
@@ -71,6 +71,42 @@
                                               SourceWindowHandle="{Binding HandlePtr}"
                                               Title="{Binding Title}" />
                 </ContentControl>
+
+                <!-- Title chrome occupies only y=0..37. Microsoft defines the
+                     DWM thumbnail output through rcDestination; ours begins at
+                     y=38, so the live surface can neither cover this text nor
+                     take its hit testing. Binding Width to the already-laid-out
+                     root prevents long titles from resizing the preview. -->
+                <Grid Height="38"
+                      Width="{Binding ActualWidth, ElementName=ThumbRoot}"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Top"
+                      IsHitTestVisible="False"
+                      Panel.ZIndex="50">
+                    <!-- Left edge follows the bitmap aperture; the larger
+                         right reserve keeps text clear of the close button. -->
+                    <Grid Margin="17,0,47,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Image Grid.Column="0"
+                               Source="{Binding Icon}"
+                               Width="12"
+                               Height="12"
+                               Margin="0,0,5,0"
+                               Stretch="Uniform"
+                               VerticalAlignment="Center"
+                               RenderOptions.BitmapScalingMode="HighQuality" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding Title}"
+                                   FontSize="12"
+                                   Foreground="#FFFFFFFF"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis" />
+                    </Grid>
+                </Grid>
 
                 <!-- Three-state close X in the top image border, outside the
                      centre cell painted by DWM. -->
