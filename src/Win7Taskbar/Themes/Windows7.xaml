@@ -1707,11 +1707,13 @@
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 IsHitTestVisible="False">
+                            <!-- 98% of the original tile, still centred on
+                                 exactly the same icon geometry. -->
                             <Image x:Name="HoverTileImg"
-                                   Width="30"
-                                   Height="40"
-                                   Canvas.Left="-15"
-                                   Canvas.Top="-20"
+                                   Width="29.4"
+                                   Height="39.2"
+                                   Canvas.Left="-14.7"
+                                   Canvas.Top="-19.6"
                                    Stretch="Fill"
                                    SnapsToDevicePixels="True"
                                    Source="{DynamicResource TrayTileHoverImage}"

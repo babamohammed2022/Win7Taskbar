@@ -370,6 +370,43 @@
         </Grid>
     </ControlTemplate>
 
+    <!-- User-supplied orange notification tile. Three-slice rendering keeps
+         its rounded side borders at native width while only the centre grows. -->
+    <ControlTemplate x:Key="TaskButtonFrameNotification"
+                     TargetType="ContentControl">
+        <Grid SnapsToDevicePixels="True">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="6" />
+            </Grid.ColumnDefinitions>
+            <Rectangle Grid.Column="0" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Notification}"
+                                Viewbox="0,0,6,40" ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Column="1" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Notification}"
+                                Viewbox="6,0,48,40" ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Column="2" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Notification}"
+                                Viewbox="54,0,6,40" ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+        </Grid>
+    </ControlTemplate>
+
         <ControlTemplate x:Key="SuperbarIdleTemplate" TargetType="Button">
         <!-- v2.53: l'HOVER e' tornato la tessera vettoriale della barra
              (TrayTileHoverImage, la stessa che usano le icone dell'area di
@@ -481,6 +518,37 @@
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
+    <!-- FlashWindowEx/attention state: the supplied orange tile replaces the
+         synthetic amber brushes, while icon placement and button geometry
+         stay identical to the running state. -->
+    <ControlTemplate x:Key="SuperbarNotificationTemplate" TargetType="Button">
+        <Border Background="Transparent" Padding="0" Name="ButtonBorder">
+            <Grid>
+                <ContentControl x:Name="Frame"
+                                Template="{DynamicResource TaskButtonFrameNotification}" />
+                <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
+                        Background="Transparent" IsHitTestVisible="False"
+                        Opacity="0" />
+                <ContentPresenter Margin="8.45,0" VerticalAlignment="Center"
+                                  x:Name="Content" />
+            </Grid>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="HoverTile" Property="Opacity" Value="1" />
+                <Setter TargetName="HoverTile" Property="Background">
+                    <Setter.Value>
+                        <ImageBrush ImageSource="{DynamicResource TrayTileHoverImage}"
+                                    Stretch="Fill" />
+                    </Setter.Value>
+                </Setter>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Frame" Property="Opacity" Value="0.85" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
     <!-- BasedOn collegato a runtime da ThemeLoader: un StaticResource
          qui fallirebbe al parse del BAML (il dizionario del tema e'
          visibile solo dopo il merge nella radice). -->
@@ -501,6 +569,11 @@
                         Value="{DynamicResource ButtonActiveForeground}" />
             </DataTrigger>
         </Style.Triggers>
+    </Style>
+
+    <Style x:Key="SuperbarButtonFlashing" TargetType="Button">
+        <Setter Property="Template"
+                Value="{StaticResource SuperbarNotificationTemplate}" />
     </Style>
 
     <!-- ==================================================================
