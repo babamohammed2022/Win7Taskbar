@@ -2713,7 +2713,7 @@ namespace Win7Taskbar
                 using var hBitmap = new SafePreviewHBitmap(capture.GetHbitmap());
                 var source = Imaging.CreateBitmapSourceFromHBitmap(
                     hBitmap.DangerousGetHandle(), IntPtr.Zero, Int32Rect.Empty,
-                    BitmapSizeOptions.FromEmptyOptions());
+                    System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
                 if (source.CanFreeze)
                 {
                     source.Freeze();

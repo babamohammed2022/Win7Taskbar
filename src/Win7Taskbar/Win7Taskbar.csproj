@@ -15,8 +15,9 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <!-- Used only for the short-lived TaskPreviewPopup screen capture;
-         no external imaging package or persistent GDI resource is retained. -->
+    <!-- Makes the inbox WindowsDesktop System.Drawing reference available
+         for CopyFromScreen; no NuGet or third-party dependency is added. -->
+    <UseWindowsForms>true</UseWindowsForms>
     <UseSystemDrawing>true</UseSystemDrawing>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
