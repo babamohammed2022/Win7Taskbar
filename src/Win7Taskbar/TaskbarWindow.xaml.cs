@@ -2579,7 +2579,7 @@ namespace Win7Taskbar
         /// nella Superbar di Windows 7 (che, a differenza di Windows 10/11,
         /// non ha il pulsante "anteprima" separato: si clicca la miniatura).
         /// </summary>
-        private void PreviewThumbnail_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        private void PreviewThumbnail_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             try
             {
