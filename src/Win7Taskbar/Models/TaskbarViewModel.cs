@@ -613,8 +613,8 @@ namespace Win7Taskbar.Models
 
         /* v1.7.6: the EnableAutoTray read that used to live here (with a
          * cached registry lookup) moved to the native core, where the same
-         * rule is resolved together with the "Notification Area Icons"
-         * per-icon behaviors. One authority, one cache, no view-level
+         * rule is resolved together with the saved per-icon tray
+         * behaviors. One authority, one cache, no view-level
          * overrides. */
 
         /// <summary>

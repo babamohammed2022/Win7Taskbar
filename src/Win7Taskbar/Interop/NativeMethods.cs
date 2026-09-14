@@ -543,9 +543,11 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_JumpListSetHover(int screenX, int screenY);
 
-        /// <summary>Attiva la riga sotto il punto al rilascio del pulsante
-        /// sinistro; chiude sempre il popup. bits: 1 documento, 2 riga app,
-        /// 4 pin invertito. Ritorna 1 se il popup era aperto.</summary>
+        /// <summary>Trasferisce il popup dal gesto catturato all'input
+        /// ordinario; il rilascio non attiva alcuna riga.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_JumpListMakeInteractive();
+
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_JumpListActivateAt(int screenX, int screenY,
             out int bits);

@@ -4308,7 +4308,7 @@ namespace Win7Taskbar
                     OpenDateTimeSettings();
                     break;
                 case 5:
-                    OpenNotificationAreaIconsApplet();
+                    OpenNativeNotificationAreaSettings();
                     break;
                 case 6:
                     NativeMethods.CascadeWindows(IntPtr.Zero, 0, IntPtr.Zero, 0, null);
@@ -4417,10 +4417,10 @@ namespace Win7Taskbar
                 OverflowToggle.IsChecked = false;
             }
 
-            OpenNotificationAreaIconsApplet();
+            OpenNativeNotificationAreaSettings();
         }
 
-        private void OpenNotificationAreaIconsApplet()
+        private void OpenNativeNotificationAreaSettings()
         {
             /* Open Windows' native Notification Area settings page directly,
              * as this command did before the removed imitation existed. */
@@ -4431,11 +4431,11 @@ namespace Win7Taskbar
                 {
                     return;
                 }
-                Debug.WriteLine("Apertura nativa dell'applet icone rifiutata dalla shell: ripiego 1");
+                Debug.WriteLine("Apertura delle impostazioni native delle icone rifiutata dalla shell: ripiego 1");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Apertura nativa dell'applet icone non riuscita: {ex.Message}");
+                Debug.WriteLine($"Apertura delle impostazioni native delle icone non riuscita: {ex.Message}");
             }
 
             // 2) Ripiego gestito: control.exe col nome canonico dell'applet
@@ -4486,7 +4486,7 @@ namespace Win7Taskbar
             catch (Exception ex)
             {
                 StartupGuard.Note($"apertura 'Personalizza...' fallita: {ex.GetType().Name}: {ex.Message}");
-                Debug.WriteLine($"Apertura applet icone non riuscita: {ex.Message}");
+                Debug.WriteLine($"Apertura impostazioni icone non riuscita: {ex.Message}");
             }
         }
 

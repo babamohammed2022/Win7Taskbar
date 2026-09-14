@@ -447,10 +447,12 @@ W7T_API int32_t W7T_CALL W7T_JumpListOpen(const RECT* buttonRect,
 W7T_API int32_t W7T_CALL W7T_JumpListSetHover(int32_t screenX,
         int32_t screenY);
 
-/* Attiva la riga sotto il punto schermo al rilascio del pulsante
- * sinistro; chiude sempre il popup. outBits: 1 = documento aperto,
- * 2 = riga applicazione, 4 = pin invertito. Ritorna 1 se il popup era
- * aperto, 0 se non c'era nulla da chiudere. */
+/* Al rilascio del gesto trasferisce focus e input ordinario al popup,
+ * senza attivare la riga sotto il cursore. */
+W7T_API void W7T_CALL W7T_JumpListMakeInteractive(void);
+
+/* Attiva una riga da un clic ordinario nel popup persistente. Conservato
+ * anche come ABI per client precedenti. */
 W7T_API int32_t W7T_CALL W7T_JumpListActivateAt(int32_t screenX,
         int32_t screenY, int32_t* outBits);
 

@@ -966,10 +966,18 @@ extern "C" W7T_API int32_t W7T_CALL W7T_JumpListSetHover(int32_t screenX,
     return 1;
 }
 
-/* Rilascio del pulsante sinistro: attiva la riga sotto il cursore.
- * Ritorna 1 se il popup era aperto (gesto chiuso), 0 se non c'era nulla
- * da chiudere. outBits: 1 = documento aperto, 2 = riga applicazione,
- * 4 = pin invertito (il gestito invalida i pin solo con quel bit). */
+/* The drag release only transfers ordinary input/focus to the popup. It
+ * deliberately does not select the row under that release. */
+extern "C" W7T_API void W7T_CALL W7T_JumpListMakeInteractive(void) {
+    W7T_SEH_TRY {
+        w7t::JumpListWindow::Instance().MakeInteractive();
+    } W7T_SEH_CATCH {
+        w7t::JumpListWindow::Instance().Hide();
+    } W7T_SEH_END
+}
+
+/* Ordinary popup clicks activate a row through WndProc. This export stays
+ * available for ABI compatibility with older managed builds. */
 extern "C" W7T_API int32_t W7T_CALL W7T_JumpListActivateAt(
         int32_t screenX, int32_t screenY, int32_t* outBits) {
     W7T_SEH_TRY {

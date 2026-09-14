@@ -15,11 +15,9 @@
 // Open/SetHover/ActivateRow is a SCREEN PHYSICAL PIXEL value (the space of
 // SetWindowPos/GetCursorPos and of WPF PointToScreen on a per-monitor-DPI
 // process). Geometry constants are 96-DPI reference values scaled by the
-// DPI of the monitor that owns the taskbar button - measured against the
-// Windows 7 jump list screenshots: 300 px popup width, 16 px document
-// icons, 32 px application icon, 19 px section header band; the row heights
-// (28/48/34) and the menu palette carry over the v2.40 tuning of this
-// popup. All offsets go through Sc(): no unscaled magic numbers.
+// DPI of the monitor that owns the taskbar button. The compact application
+// row uses a 24 px icon and smaller Segoe UI metrics; all offsets go through
+// Sc(), so there are no unscaled magic numbers.
 
 #include "JumpListWindow.h"
 #include "FlyoutLauncher.h"
@@ -40,20 +38,52 @@ namespace w7t {
 namespace {
 
 constexpr wchar_t kClassName[] = L"W7T_JumpList";
+constexpr UINT kDismissOutsideMessage = WM_APP + 0x177;
 
 /* --- 96-DPI reference geometry (scaled by JumpListWindow::Sc) --------- */
 constexpr int kWidth96      = 300;
-constexpr int kRowApp96     = 48;
-constexpr int kRowPin96     = 34;
-constexpr int kRowDoc96     = 28;
+constexpr int kRowApp96     = 40;
+constexpr int kRowPin96     = 30;
+constexpr int kRowDoc96     = 26;
 constexpr int kHeader96     = 19;
 constexpr int kPad96        = 8;   /* top/bottom inner padding           */
 constexpr int kSep96        = 6;   /* separator band between sections     */
 constexpr int kGap96        = 4;   /* popup-to-button gap (Windows 7)     */
 constexpr int kEdgeMargin96 = 2;   /* never closer to the work area edge  */
 constexpr int kDocIcon96    = 16;
-constexpr int kAppIcon96    = 32;
+constexpr int kAppIcon96    = 24;
+constexpr int kClose96      = 14;
 constexpr int kMaxDocsPerSection = 10; /* the taskbar list caps at ten    */
+
+/* Exact three-state 14x14 artwork used by the managed DWM preview close
+ * button (PreviewAssets.cs). Decoding it here keeps both close controls
+ * graphically identical instead of approximating the X with GDI lines. */
+constexpr char kCloseNormalPng[] =
+    "iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAABhklEQVR42pXSu04CQRSA4X/ZZVmuWRSNEgslJB"
+    "JiIWijYGGstCLBxE5K3kATHoAE3sASbDTRwsonABvxEsB4CdoQQowFBYUQ1rUwLJcKpzuZ882ZOXMEXdc53dpq"
+    "5J4b80ywEgFvCVgX8tHo7dxhIrS5ETJNAos39zTzuZKw4/Hpl9d52pW7SRyOlTDx3UMkAF3T0LpdLl8+KdRbAE"
+    "QWVICROL48i65pAH/wp9dD63xTqLe4OD8BYP8gCTASxxZd/PR6A/j19MjH1RlBh4/9gyQX5ycG6KNgp8nrVZEl"
+    "xQbASEMi7XeCnaZRbRhF2u8jb5UABFHEJMsACCYRgFqtZiQJpqF9URxUFGULZruTotNP1TxDJn1koEz6iKp5hq"
+    "LTj9nuRJQtQ1BRkF0qZVQDHaeyHKeyBi6jIrtUREUZXFWy2lHcHsLoRnLYoRsH9GPF7UGy2oehDWVqmtgUxMY+"
+    "fDyWrH9dlRIBb6lSa6ytbu9NNDkPlTcSAW9JyEejALe558baf4b8F1/egSzJiuNOAAAAAElFTkSuQmCC";
+constexpr char kCloseHoverPng[] =
+    "iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAABnUlEQVR42pWSMUtbYRSGn+9eEwOXqJGrpEFFEm"
+    "5JwC3BQROCTXFxcLDYwUKQQkr/gAF/gBL/gLTgoE6Ci5OQQehwl3DTwcVSuVCCmEGkgqSQCJ4O0ZtGaUnP9sJ5"
+    "vvc9L58SEfYzGWf322WSHiYfj1SBlNpLp52xwsdk9tVsLxxfTmwuPm9XVc6MStk+Qn587wlUky+Zn12kD4C7Fv"
+    "xqsOO4lM/rAMxbLwC69PtUrL0LbVBaTe4bt5TP6xwefALgzdsPAF16NTGK1mq2rXNmVOqlopzGNNmcy8jSckGe"
+    "ztJyQTbnMnIa06ReKkrOjIr2Z/6Fmk3q6sxze3RKXZ2xULO7bu37Wwmu6/6zJA1ABfzoQwbHVhZnJEFpY81bKG"
+    "2s4YwkOLay6EMGKuDvgHrIwDdhUhmwPKi4vkVxfcuDKwMWvgkTPWR0ourDQfyxMDM/r73lmeC198Cj9ofC6MPB"
+    "DugLDxKYGmcFWOHmIaQOz/Q4vvBgG8zHI9Wv7k1y+vU7UE2UaoB2293EfRARA6Sfil0jH49U1V46DfDfn/w3M2"
+    "Gc5P4I7F8AAAAASUVORK5CYII=";
+constexpr char kClosePressedPng[] =
+    "iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAABxElEQVR42o3Sv2sTYRzH8fflrrkLd+31Ei6BK7"
+    "UKkmhiBAdBJKO7S7DgD0QcMri30D+g0O4dupuh0MVdcImj1WIbSyCDChdaSQIS27vLc3cOsUkjKH22L3xez/N8"
+    "n+crvXj8MhbfT3C/HHKZ5dwsoVzJIT3M342fvHpK+U6e5MwMiqKQkKSpcBTHCCEIhkM+f2xR33qNMuh1yRcWOH"
+    "j7Bl3TSCYVZDkxBcMwIggEvzyP/P0HDHpdFIBIhER+wPuTmKNeDEDJlgE4/BECcCMtcdscEolR/QcKQt/nqKew"
+    "u7MNQHW5BjBVlzSfSIgJdPf32avXsQoVqss1dne2x+AcWW6TvXcNDGsBgKlmcq0Gltscn3YR5VqNqb6Vfz17u9"
+    "3+77eMTtQkMCWOyxX6TpGN9ZVxYGN9hb5T5LhcAVMaZc+hqqsYtkk/M0Gra5usrm1OcKaIYZuoujq5ampex1qy"
+    "WUy44/A1tTPeAGBRcbGWbFLz+gTq6Tmy1x2ups7Q1K/IiYuT840wivF8wemZg56eG8FZO4vbOeVetYaqhiQ1D1"
+    "ke/DU5BoGn4fsyBx86zNpZpGePnsc/PzUZ9LqXGnIjnUG/VeA3lCml9GTco10AAAAASUVORK5CYII=";
 
 /* RAII for COM interfaces: Release() on every path - early returns, C++
  * exceptions and SEH-fault unwinds alike (same principle as IconHandle and
@@ -383,6 +413,23 @@ JumpListWindow& JumpListWindow::Instance() {
     return instance;
 }
 
+LRESULT CALLBACK JumpListWindow::OutsideMouseProc(int code, WPARAM wParam,
+                                                   LPARAM lParam) {
+    JumpListWindow& j = Instance();
+    if (code >= 0 && j.m_interactive && j.IsVisible() &&
+        (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN ||
+         wParam == WM_MBUTTONDOWN)) {
+        const MSLLHOOKSTRUCT* mouse =
+            reinterpret_cast<const MSLLHOOKSTRUCT*>(lParam);
+        if (mouse != nullptr && !PtInRect(&j.m_popupRect, mouse->pt)) {
+            /* Never block the click. Dismiss asynchronously so the target
+             * underneath receives its original down message unchanged. */
+            PostMessageW(j.m_hwnd, kDismissOutsideMessage, 0, 0);
+        }
+    }
+    return CallNextHookEx(j.m_outsideMouseHook, code, wParam, lParam);
+}
+
 void JumpListWindow::RegisterClassOnce() {
     if (m_classRegistered) return;
     WNDCLASSEXW wc{};
@@ -504,6 +551,25 @@ RECT JumpListWindow::RowRect(size_t index) const {
     return RECT{ 0, 0, 0, 0 };
 }
 
+RECT JumpListWindow::CloseRect() const {
+    if (m_representativeHwnd == nullptr || !IsWindow(m_representativeHwnd))
+        return RECT{};
+    for (const Row& row : m_rows) {
+        if (row.kind == Row::App) {
+            const int size = Sc(kClose96);
+            const int right = m_width - Sc(12);
+            const int top = row.rect.top + (row.rect.bottom - row.rect.top - size) / 2;
+            return RECT{ right - size, top, right, top + size };
+        }
+    }
+    return RECT{};
+}
+
+bool JumpListWindow::HitCloseClient(POINT clientPt) const {
+    RECT close = CloseRect();
+    return close.right > close.left && PtInRect(&close, clientPt) != FALSE;
+}
+
 /* Index of the row under client coordinates, -1 for none. The empty strip
  * below the last row is NOT a target (Windows 7: releasing on free popup
  * space closes the list without activating anything). */
@@ -595,6 +661,9 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
      * on screen. */
     Hide();
     m_hover = -1;
+    m_interactive = false;
+    m_closeHot = false;
+    m_closeDown = false;
     ClearContent();
     m_appIcon.reset();
 
@@ -609,6 +678,9 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
         m_pinned = isPinned;
         m_buttonRect = buttonRectScreen;
         m_edge = edge;
+        m_representativeHwnd =
+            representativeHwnd != nullptr && IsWindow(representativeHwnd)
+                ? representativeHwnd : nullptr;
 
         /* --- application identity (public Shell APIs only) --- */
         int32_t source = kSourceNone;
@@ -647,6 +719,19 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
             }
         }
 
+        /* Decode the same embedded PNGs as PreviewAssets.cs once. */
+        auto loadClose = [](const char* png, raii::BitmapHandle& target) {
+            if (target) return;
+            std::vector<uint32_t> pixels;
+            int width = 0, height = 0;
+            if (DecodeEmbeddedPng(png, pixels, width, height, false, 0)) {
+                target.reset(MakeHBitmapFromArgb(pixels, width, height));
+            }
+        };
+        loadClose(kCloseNormalPng, m_closeNormal);
+        loadClose(kCloseHoverPng, m_closeHover);
+        loadClose(kClosePressedPng, m_closePressed);
+
         BuildRows();
         Layout();
 
@@ -663,6 +748,10 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
             }
             ApplyAeroFlyoutStyle(m_hwnd);   /* shared Aero flyout border */
         }
+        /* The opening drag is still captured by WPF. Start non-activating;
+         * MakeInteractive removes this bit only after that mouse-up. */
+        SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE,
+            GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
         Place(m_hwnd, m_buttonRect, m_edge);
         UpdateInteractionArea();
         InvalidateRect(m_hwnd, nullptr, TRUE);
@@ -681,10 +770,45 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
     } W7T_SEH_END
 }
 
+void JumpListWindow::MakeInteractive() {
+    if (!IsVisible()) return;
+    W7T_SEH_TRY {
+        m_interactive = true;
+        SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE,
+            GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE) & ~WS_EX_NOACTIVATE);
+        SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED |
+                     SWP_NOOWNERZORDER);
+        SetForegroundWindow(m_hwnd);
+        SetActiveWindow(m_hwnd);
+
+        if (m_outsideMouseHook == nullptr) {
+            HMODULE module = nullptr;
+            GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                    GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                reinterpret_cast<LPCWSTR>(&JumpListWindow::OutsideMouseProc),
+                &module);
+            m_outsideMouseHook = SetWindowsHookExW(
+                WH_MOUSE_LL, OutsideMouseProc, module, 0);
+        }
+    } W7T_SEH_CATCH {
+        Hide();
+    } W7T_SEH_END
+}
+
 void JumpListWindow::Hide() {
     W7T_SEH_TRY {
+        if (m_outsideMouseHook != nullptr) {
+            UnhookWindowsHookEx(m_outsideMouseHook);
+            m_outsideMouseHook = nullptr;
+        }
+        if (GetCapture() == m_hwnd) ReleaseCapture();
         if (m_hwnd != nullptr) ShowWindow(m_hwnd, SW_HIDE);
         m_hover = -1;
+        m_interactive = false;
+        m_closeHot = false;
+        m_closeDown = false;
     } W7T_SEH_CATCH {
     } W7T_SEH_END
 }
@@ -804,6 +928,19 @@ void JumpListWindow::LaunchApp() {
     } W7T_SEH_END
 }
 
+void JumpListWindow::CloseRunningApplication() {
+    W7T_SEH_TRY {
+        /* The close control exists only while this real representative
+         * window exists. WM_CLOSE follows the same path as the graphical
+         * close button in the DWM preview. */
+        if (m_representativeHwnd != nullptr && IsWindow(m_representativeHwnd)) {
+            PostMessageW(m_representativeHwnd, WM_CLOSE, 0, 0);
+        }
+    } W7T_SEH_CATCH {
+        LogTagged(L"JUMPLIST", L"hardware fault while closing the app");
+    } W7T_SEH_END
+}
+
 void JumpListWindow::PerformPinOrUnpin() {
     W7T_SEH_TRY {
         if (m_pinned) {
@@ -898,7 +1035,7 @@ void JumpListWindow::OnPaint(HWND hwnd) {
     if (bg.valid()) FillRect(hdc, &client, (HBRUSH)bg.get());
 
     SetBkMode(hdc, TRANSPARENT);
-    const int fontH = -::MulDiv(13, (int)m_dpi, 96);
+    const int fontH = -::MulDiv(11, (int)m_dpi, 96);
     const UniqueGdiObject font(CreateFontW(fontH, 0, 0, 0, FW_NORMAL,
         FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
         CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI"));
@@ -954,11 +1091,17 @@ void JumpListWindow::OnPaint(HWND hwnd) {
         }
 
         const int iconLeft = Sc(14);
-        const int textLeft = isDoc ? iconLeft + Sc(kDocIcon96) + Sc(6)
-                                   : iconLeft;
+        const int textLeft = isDoc
+            ? iconLeft + Sc(kDocIcon96) + Sc(6)
+            : (r.kind == Row::App
+                ? iconLeft + Sc(kAppIcon96) + Sc(10)
+                : iconLeft);
         SetTextColor(hdc, (r.kind == Row::Pin) ? RGB(0x1E, 0x6F, 0xC9)
                                                 : RGB(0x1E, 0x1E, 0x1E));
-        RECT tr{ textLeft, r.rect.top, client.right - margin, r.rect.bottom };
+        const RECT closeRect = CloseRect();
+        const int textRight = r.kind == Row::App && closeRect.right > closeRect.left
+            ? closeRect.left - Sc(8) : client.right - margin;
+        RECT tr{ textLeft, r.rect.top, textRight, r.rect.bottom };
         DrawTextW(hdc, r.label.c_str(), -1, &tr,
                   DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
 
@@ -972,6 +1115,15 @@ void JumpListWindow::OnPaint(HWND hwnd) {
             DrawBitmapScaled(hdc, m_appIcon.get(), box, box,
                              iconLeft,
                              r.rect.top + (Sc(kRowApp96) - box) / 2);
+        }
+        if (r.kind == Row::App && closeRect.right > closeRect.left) {
+            HBITMAP close = m_closeNormal.get();
+            if (m_closeDown && m_closePressed) close = m_closePressed.get();
+            else if (m_closeHot && m_closeHover) close = m_closeHover.get();
+            DrawBitmapScaled(hdc, close,
+                             closeRect.right - closeRect.left,
+                             closeRect.bottom - closeRect.top,
+                             closeRect.left, closeRect.top);
         }
     }
     EndPaint(hwnd, &ps);
@@ -987,37 +1139,70 @@ LRESULT CALLBACK JumpListWindow::WndProc(HWND hwnd, UINT msg,
             case WM_ERASEBKGND:
                 return 1;   /* the paint pass fills every band itself */
             case WM_MOUSEMOVE: {
-                /* Fallback path, only reached when NO capture owns the
-                 * input (capture-loss robustness): keep the hover in sync
-                 * with the real cursor. During a gesture this window
-                 * receives no mouse messages at all - the managed side
-                 * forwards positions through SetHover instead. */
                 JumpListWindow& j = Instance();
                 if (j.IsVisible()) {
                     POINT cl{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
                     const int hit = j.HitRowClient(cl);
-                    if (hit != j.m_hover) {
+                    const bool closeHot = j.HitCloseClient(cl);
+                    if (hit != j.m_hover || closeHot != j.m_closeHot) {
                         j.m_hover = hit;
+                        j.m_closeHot = closeHot;
                         InvalidateRect(hwnd, nullptr, FALSE);
                     }
+                    TRACKMOUSEEVENT tme{ sizeof(tme), TME_LEAVE, hwnd, 0 };
+                    TrackMouseEvent(&tme);
+                }
+                return 0;
+            }
+            case WM_MOUSELEAVE: {
+                JumpListWindow& j = Instance();
+                j.m_hover = -1;
+                j.m_closeHot = false;
+                if (!j.m_closeDown) InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
+            case WM_LBUTTONDOWN: {
+                JumpListWindow& j = Instance();
+                POINT cl{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                if (j.HitCloseClient(cl)) {
+                    j.m_closeDown = true;
+                    j.m_closeHot = true;
+                    SetCapture(hwnd);
+                    InvalidateRect(hwnd, nullptr, FALSE);
                 }
                 return 0;
             }
             case WM_LBUTTONUP: {
-                /* Only reachable without a capture (same fallback): the
-                 * release activates the row under the cursor, exactly like
-                 * the gesture release does. */
                 JumpListWindow& j = Instance();
-                if (j.IsVisible()) {
-                    POINT sc{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-                    ClientToScreen(hwnd, &sc);
-                    int32_t bits = 0;
-                    j.ActivateRow(sc.x, sc.y, &bits);
+                if (!j.IsVisible()) return 0;
+                POINT cl{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                if (j.m_closeDown) {
+                    const bool close = j.HitCloseClient(cl);
+                    j.m_closeDown = false;
+                    if (GetCapture() == hwnd) ReleaseCapture();
+                    if (close) {
+                        j.CloseRunningApplication();
+                        j.Hide();
+                    } else {
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                    }
+                    return 0;
                 }
+                POINT sc = cl;
+                ClientToScreen(hwnd, &sc);
+                int32_t bits = 0;
+                j.ActivateRow(sc.x, sc.y, &bits);
                 return 0;
             }
+            case WM_ACTIVATE:
+                if (LOWORD(wParam) == WA_INACTIVE && Instance().m_interactive)
+                    Instance().Hide();
+                break;
             case WM_KEYDOWN:
                 if (wParam == VK_ESCAPE) Instance().Hide();
+                return 0;
+            case kDismissOutsideMessage:
+                Instance().Hide();
                 return 0;
             case WM_NCDESTROY:
                 /* Window gone: drop everything bound to it so a later open

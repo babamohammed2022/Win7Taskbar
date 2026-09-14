@@ -18,15 +18,13 @@
 //   * the popup is built and shown by the native subsystem from the
 //     application's REAL Shell jump list data (identity resolution and the
 //     list read both live in native/src/JumpListWindow.cpp);
-//   * while open, the button keeps mouse capture (the same mechanism the
-//     tray drag uses: element capture + window-level tunneling handlers +
-//     manual hit-testing). The popup window never activates and never
-//     touches the input queue itself;
+//   * while the button is down, it keeps mouse capture (the same mechanism
+//     the tray drag uses) and forwards hover positions to the native popup;
 //   * the cursor may travel through the gap between button and popup; if
-//     it leaves the interaction area the gesture cancels cleanly;
-//   * releasing the left button activates the row under the cursor
-//     (document, application row or pin toggle) - the native side
-//     hit-tests the screen point it is given;
+//     it leaves the interaction area before release the gesture cancels;
+//   * releasing the left button transfers input to the native popup but
+//     never activates a row. The list persists until a separate item click,
+//     Escape, or a click anywhere outside it;
 //   * every failure (Shell/COM, popup creation, marshal) is logged through
 //     the project's DiagnosticLogger and ends the gesture in a controlled
 //     way: capture released, handlers detached, popup hidden. A failure
@@ -261,7 +259,7 @@ namespace Win7Taskbar
 
             if (_jumpStage == JumpListStage.Open)
             {
-                HandleJumpListSelection(e.GetPosition(this));
+                KeepJumpListOpenAfterDrag();
                 return;
             }
 
@@ -309,50 +307,27 @@ namespace Win7Taskbar
             CancelJumpList("gesture released without a list");
         }
 
-        /// <summary>Release over the open popup: activate the row under the
-        /// cursor. The native side hit-tests the screen point; a release
-        /// over empty popup space just closes (like Windows 7).</summary>
-        private void HandleJumpListSelection(Point windowDip)
+        /// <summary>The release that completed the upward drag never picks
+        /// a row. It releases WPF capture and turns the native popup into an
+        /// ordinary focused window. The list then remains visible until a
+        /// separate item click, Escape, or an outside click deactivates it.</summary>
+        private void KeepJumpListOpenAfterDrag()
         {
             ConsumeClickOnce();
+            _jumpStage = JumpListStage.Idle;
             try
             {
-                Point screen = PointToScreenSafe(windowDip);
-                bool handled = _bridge.JumpListActivateAt(
-                    (int)Math.Round(screen.X), (int)Math.Round(screen.Y),
-                    out int bits);
-                if (handled)
-                {
-                    if (bits != 0)
-                    {
-                        DiagnosticLogger.Write("JUMPLIST",
-                            $"item activated (bits={bits}: 1=document," +
-                            " 2=app row, 4=pin toggled)");
-                        if ((bits & 4) != 0)
-                        {
-                            // The native side wrote/deleted the real .lnk;
-                            // refresh the model without waiting for the
-                            // folder watcher's next pass.
-                            _viewModel.InvalidatePins();
-                            _bridge.PinnedRefresh();
-                        }
-                    }
-                    else
-                    {
-                        DiagnosticLogger.Write("JUMPLIST",
-                            "popup closed without a selection");
-                    }
-                }
+                _bridge.JumpListMakeInteractive();
+                DiagnosticLogger.Write("JUMPLIST",
+                    "drag released; popup remains open for ordinary input");
             }
             catch (Exception ex)
             {
-                LogJumpListFailure(ex, "activation");
+                LogJumpListFailure(ex, "input handoff");
+                try { _bridge.JumpListHide(); } catch { }
             }
             finally
             {
-                // Whatever happened above: no stuck capture, popup gone.
-                _jumpStage = JumpListStage.Idle;
-                _bridge.JumpListHide();
                 TearDownJumpListCapture();
             }
         }

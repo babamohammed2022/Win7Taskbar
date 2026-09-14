@@ -208,9 +208,9 @@ namespace Win7Taskbar.Converters
                 int effective = Math.Min(count, 3);
                 double ratio = 0.02 * (effective - 1);
 
-                /* Existing v1.7.6 placement, plus the requested 2% shift
-                 * of every stack line farther to the right. */
-                ratio += 0.025 + 0.02;
+                /* Existing v1.7.6 placement, the previous +2% shift, and
+                 * the requested additional +0.3% rightward adjustment. */
+                ratio += 0.025 + 0.02 + 0.003;
 
                 bool outer = parameter as string is not "inner";
                 if (outer && count > 2)

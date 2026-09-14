@@ -28,6 +28,17 @@ namespace {
 /* ID sintetici per il menu di gruppo: fuori dall'intervallo SC_*. */
 constexpr UINT kGroupMinimizeId = 0xF100;
 constexpr UINT kGroupCloseId    = 0xF101;
+constexpr UINT_PTR kMenuPriorityTimer = 0x574D;
+
+/* Keep the real #32768 menu at the front for the entire modal tracking
+ * loop. The WPF AppBar guard periodically reasserts the taskbar's own
+ * topmost position; a one-shot CBT promotion can therefore be undone. */
+void CALLBACK MenuPriorityTimerProc(HWND hwnd, UINT, UINT_PTR id, DWORD) {
+    if (id != kMenuPriorityTimer || hwnd == nullptr || !IsWindow(hwnd)) return;
+    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+                 SWP_NOOWNERZORDER);
+}
 
 /*
  * Historical TrackPopupMenu quirk: if the owner window is not in the
@@ -63,6 +74,10 @@ LRESULT CALLBACK MenuPriorityCbtProc(int code, WPARAM wParam, LPARAM lParam) {
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
                          SWP_NOOWNERZORDER);
+            /* TrackPopupMenu runs a modal message loop, so this timer keeps
+             * firing even while the menu is open. It disappears with the
+             * menu HWND and cannot outlive the tracking call. */
+            SetTimer(hwnd, kMenuPriorityTimer, 15, MenuPriorityTimerProc);
         }
     }
     return CallNextHookEx(nullptr, code, wParam, lParam);

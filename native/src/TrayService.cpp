@@ -112,8 +112,8 @@ constexpr DWORD kDebounceMs = 350;
 /*  v1.7.6 - THE STORAGE IS NO LONGER THE REGISTRY. Choices live in    */
 /*  trayicons.ini (TrayPrefsStore) under %LOCALAPPDATA%\Win7Taskbar,   */
 /*  the same folder as toolbars.ini that the user deletes by hand to   */
-/*  reset everything. The "Notification Area Icons" page is a          */
-/*  three-state control (show / only notifications / hide), so the    */
+/*  reset everything. Each saved per-icon preference has three states */
+/*  (show / only notifications / hide), so the                         */
 /*  per-icon value is no longer a bool "on the bar or not" but the     */
 /*  full behavior. The old HKCU\SOFTWARE\Win7Taskbar\TrayIconPrefs2   */
 /*  key is imported ONCE on the first start of the new format and then */
@@ -2340,9 +2340,9 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
             }
 
             /* The balloon arrives with an ADD/MODIFY carrying NIF_INFO.
-             * v1.7.6: an icon set to "Hide icon and notifications" on the
-             * "Notification Area Icons" page does not even surface the
-             * balloon (it is the combo's third state: "and notifications"
+             * v1.7.6: an icon whose saved behavior is "Hide icon and
+             * notifications" does not even surface the balloon (it is the
+             * third state: "and notifications"
              * is gone). The entry STAYS in the model - the application
              * keeps sending its updates - only the output stays silent.
              * "Only show notifications" is the mirror case: icon hidden,

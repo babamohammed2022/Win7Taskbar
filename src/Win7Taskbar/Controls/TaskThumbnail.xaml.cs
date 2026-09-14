@@ -9,331 +9,224 @@ using Win7Taskbar.Interop;
 namespace Win7Taskbar.Controls
 {
     /// <summary>
-    /// Windows 7-style live window preview using the native DWM thumbnail API.
-    /// The preview UI, close button and window navigation are handled by the
-    /// parent TaskbarWindow.
+    /// Direct DWM thumbnail control. This is RetroBar's TaskThumbnail
+    /// technique, adapted only to this project's interop type names. The
+    /// surrounding frame, three-state close X, and window navigation stay
+    /// in TaskbarWindow.xaml.
     /// </summary>
     public partial class TaskThumbnail : UserControl
     {
-        private const double PreviewMaxWidth = 180;
-        private const double PreviewMaxHeight = 120;
+        private const double RetroWidth = 180;
+        private const double RetroHeight = 120;
 
-        private IntPtr _thumbnailHandle;
-        private EventHandler? _renderingHandler;
+        public double DpiScale = 1.0;
+
         private readonly DispatcherTimer _toolTipTimer;
-
-        public double DpiScale { get; private set; } = 1.0;
+        private EventHandler? _renderingHandler;
+        private IntPtr _thumbHandle;
 
         public TaskThumbnail()
         {
             InitializeComponent();
 
-            _toolTipTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(
-                    ToolTipService.GetInitialShowDelay(this))
-            };
-
+            _toolTipTimer = new DispatcherTimer();
             _toolTipTimer.Tick += ToolTipTimer_Tick;
+            _toolTipTimer.Interval = new TimeSpan(
+                0, 0, 0, 0, ToolTipService.GetInitialShowDelay(this));
         }
 
-        public static readonly DependencyProperty SourceWindowHandleProperty =
-            DependencyProperty.Register(
-                nameof(SourceWindowHandle),
-                typeof(IntPtr),
-                typeof(TaskThumbnail),
-                new PropertyMetadata(IntPtr.Zero));
-
-        public IntPtr SourceWindowHandle
-        {
-            get => (IntPtr)GetValue(SourceWindowHandleProperty);
-            set => SetValue(SourceWindowHandleProperty, value);
-        }
-
-        public static readonly DependencyProperty TitleProperty =
-            DependencyProperty.Register(
-                nameof(Title),
-                typeof(string),
-                typeof(TaskThumbnail),
-                new PropertyMetadata(string.Empty));
-
-        public string Title
-        {
-            get => (string)GetValue(TitleProperty);
-            set => SetValue(TitleProperty, value);
-        }
-
-        private IntPtr HostHandle
+        public IntPtr Handle
         {
             get
             {
-                try
+                HwndSource? source =
+                    (HwndSource?)PresentationSource.FromVisual(this);
+
+                if (source == null)
                 {
-                    if (PresentationSource.FromVisual(this) is HwndSource source)
-                        return source.Handle;
-                }
-                catch
-                {
-                    // The control may be unloading.
+                    return IntPtr.Zero;
                 }
 
-                return IntPtr.Zero;
+                IntPtr handle = source.Handle;
+                return handle;
             }
         }
 
-        /// <summary>
-        /// Destination rectangle for the DWM thumbnail.
-        /// Coordinates are relative to the WPF host window.
-        /// </summary>
-        private NativeMethods.RECT DestinationRect
+        public static readonly DependencyProperty SourceWindowHandleProperty =
+            DependencyProperty.Register(nameof(SourceWindowHandle),
+                typeof(IntPtr), typeof(TaskThumbnail),
+                new PropertyMetadata(new IntPtr()));
+
+        public IntPtr SourceWindowHandle
+        {
+            get
+            {
+                return (IntPtr)GetValue(SourceWindowHandleProperty);
+            }
+            set
+            {
+                SetValue(SourceWindowHandleProperty, value);
+            }
+        }
+
+        public static readonly DependencyProperty TitleProperty =
+            DependencyProperty.Register(nameof(Title), typeof(string),
+                typeof(TaskThumbnail), new PropertyMetadata(""));
+
+        public string Title
+        {
+            get
+            {
+                return (string)GetValue(TitleProperty);
+            }
+            set
+            {
+                SetValue(TitleProperty, value);
+            }
+        }
+
+        public NativeMethods.RECT Rect
         {
             get
             {
                 try
                 {
-                    if (PresentationSource.FromVisual(this)?.RootVisual is not Visual root)
-                        return default;
-
-                    double width = ActualWidth > 0 ? ActualWidth : Width;
-                    double height = ActualHeight > 0 ? ActualHeight : Height;
-
-                    if (width <= 0 || height <= 0)
-                        return default;
-
-                    GeneralTransform transform = TransformToAncestor(root);
-
-                    Point topLeft = transform.Transform(new Point(0, 0));
-                    Point bottomRight = transform.Transform(
-                        new Point(width, height));
-
-                    int left = (int)Math.Round(topLeft.X * DpiScale);
-                    int top = (int)Math.Round(topLeft.Y * DpiScale);
-                    int right = (int)Math.Round(bottomRight.X * DpiScale);
-                    int bottom = (int)Math.Round(bottomRight.Y * DpiScale);
-
+                    var generalTransform =
+                        TransformToAncestor((Visual)Parent);
+                    Point leftTopPoint =
+                        generalTransform.Transform(new Point(0, 0));
                     return new NativeMethods.RECT
                     {
-                        Left = left,
-                        Top = top,
-                        Right = right,
-                        Bottom = bottom
+                        Left = (int)(leftTopPoint.X * DpiScale),
+                        Top = (int)(leftTopPoint.Y * DpiScale),
+                        Right = (int)(leftTopPoint.X * DpiScale) +
+                                (int)(RetroWidth * DpiScale),
+                        Bottom = (int)(leftTopPoint.Y * DpiScale) +
+                                 (int)(RetroHeight * DpiScale)
                     };
                 }
                 catch
                 {
-                    return default;
+                    return new NativeMethods.RECT();
                 }
             }
         }
 
         public void Refresh()
         {
-            try
+            if (_thumbHandle == IntPtr.Zero)
+                return;
+
+            var clientAreaProps =
+                new NativeMethods.DWM_THUMBNAIL_PROPERTIES
+                {
+                    dwFlags = NativeMethods.DWM_TNP_SOURCECLIENTAREAONLY,
+                    fSourceClientAreaOnly = true
+                };
+            NativeMethods.DwmUpdateThumbnailProperties(
+                _thumbHandle, ref clientAreaProps);
+
+            NativeMethods.DwmQueryThumbnailSourceSize(
+                _thumbHandle, out NativeMethods.SIZE size);
+            double aspectRatio = (double)size.cx / size.cy;
+
+            var props = new NativeMethods.DWM_THUMBNAIL_PROPERTIES
             {
-                if (_thumbnailHandle == IntPtr.Zero)
-                    return;
+                fVisible = true,
+                dwFlags = NativeMethods.DWM_TNP_VISIBLE |
+                          NativeMethods.DWM_TNP_RECTDESTINATION,
+                rcDestination = Rect
+            };
 
-                // Display only the client area of the source window.
-                var clientAreaProperties =
-                    new NativeMethods.DWM_THUMBNAIL_PROPERTIES
-                    {
-                        dwFlags = NativeMethods.DWM_TNP_SOURCECLIENTAREAONLY,
-                        fSourceClientAreaOnly = true
-                    };
-
-                NativeMethods.DwmUpdateThumbnailProperties(
-                    _thumbnailHandle,
-                    ref clientAreaProperties);
-
-                // Ask DWM for the real source size.
-                if (NativeMethods.DwmQueryThumbnailSourceSize(
-                        _thumbnailHandle,
-                        out NativeMethods.SIZE size) != 0)
-                {
-                    return;
-                }
-
-                if (size.cx <= 0 || size.cy <= 0)
-                    return;
-
-                double aspectRatio = (double)size.cx / size.cy;
-                double controlAspectRatio = PreviewMaxWidth / PreviewMaxHeight;
-
-                double width;
-                double height;
-
-                // Small windows are displayed at 1:1.
-                if (size.cx <= PreviewMaxWidth * DpiScale &&
-                    size.cy <= PreviewMaxHeight * DpiScale)
-                {
-                    width = size.cx / DpiScale;
-                    height = size.cy / DpiScale;
-                }
-                else if (aspectRatio > controlAspectRatio)
-                {
-                    // Wide window.
-                    width = PreviewMaxWidth;
-                    height = PreviewMaxWidth / aspectRatio;
-                }
-                else
-                {
-                    // Tall or square window.
-                    width = PreviewMaxHeight * aspectRatio;
-                    height = PreviewMaxHeight;
-                }
-
-                Width = width;
-                Height = height;
-
-                // WPF has to process the new size before the destination
-                // rectangle is calculated.
-                UpdateLayout();
-
-                NativeMethods.RECT destination = DestinationRect;
-
-                if (destination.Right <= destination.Left ||
-                    destination.Bottom <= destination.Top)
-                {
-                    return;
-                }
-
-                var properties =
-                    new NativeMethods.DWM_THUMBNAIL_PROPERTIES
-                    {
-                        fVisible = true,
-                        dwFlags =
-                            NativeMethods.DWM_TNP_VISIBLE |
-                            NativeMethods.DWM_TNP_RECTDESTINATION,
-                        rcDestination = destination
-                    };
-
-                NativeMethods.DwmUpdateThumbnailProperties(
-                    _thumbnailHandle,
-                    ref properties);
+            if (size.cx <= RetroWidth * DpiScale &&
+                size.cy <= RetroHeight * DpiScale)
+            {
+                // Small windows are not scaled.
+                Width = size.cx / DpiScale;
+                Height = size.cy / DpiScale;
+                props.rcDestination.Right =
+                    props.rcDestination.Left + size.cx;
+                props.rcDestination.Bottom =
+                    props.rcDestination.Top + size.cy;
             }
-            catch
+            else
             {
-                // A preview failure must never break the taskbar.
+                // Large windows are scaled while preserving aspect ratio.
+                double controlAspectRatio = RetroWidth / RetroHeight;
+
+                if (aspectRatio > controlAspectRatio)
+                {
+                    int height = (int)(RetroWidth / aspectRatio);
+                    Width = RetroWidth;
+                    Height = height;
+                    props.rcDestination.Bottom =
+                        props.rcDestination.Top +
+                        (int)(height * DpiScale);
+                }
+                else if (aspectRatio < controlAspectRatio)
+                {
+                    int width = (int)(RetroHeight * aspectRatio);
+                    Width = width;
+                    Height = RetroHeight;
+                    props.rcDestination.Right =
+                        props.rcDestination.Left +
+                        (int)(width * DpiScale);
+                }
+            }
+
+            NativeMethods.DwmUpdateThumbnailProperties(
+                _thumbHandle, ref props);
+        }
+
+        private void UserControl_Unloaded(object sender, RoutedEventArgs e)
+        {
+            if (_renderingHandler != null)
+            {
+                CompositionTarget.Rendering -= _renderingHandler;
+                _renderingHandler = null;
+            }
+
+            if (_thumbHandle != IntPtr.Zero)
+            {
+                NativeMethods.DwmUnregisterThumbnail(_thumbHandle);
+                _thumbHandle = IntPtr.Zero;
+            }
+
+            _toolTipTimer.Stop();
+            if (ToolTip is ToolTip tip)
+            {
+                tip.IsOpen = false;
             }
         }
 
         private void UserControl_Loaded(object sender, RoutedEventArgs e)
         {
-            try
+            DpiScale = PresentationSource.FromVisual(this)
+                .CompositionTarget.TransformToDevice.M11;
+
+            if (NativeMethods.IsCompositionEnabled() &&
+                SourceWindowHandle != IntPtr.Zero &&
+                Handle != IntPtr.Zero &&
+                NativeMethods.DwmRegisterThumbnail(Handle,
+                    SourceWindowHandle, out _thumbHandle) == 0)
             {
-                if (PresentationSource.FromVisual(this)?.CompositionTarget
-                    is CompositionTarget target)
-                {
-                    DpiScale = target.TransformToDevice.M11;
-                }
-
-                if (!NativeMethods.IsCompositionEnabled())
-                    return;
-
-                IntPtr hostHandle = HostHandle;
-
-                if (hostHandle == IntPtr.Zero ||
-                    SourceWindowHandle == IntPtr.Zero)
-                {
-                    return;
-                }
-
-                if (NativeMethods.DwmRegisterThumbnail(
-                        hostHandle,
-                        SourceWindowHandle,
-                        out _thumbnailHandle) != 0)
-                {
-                    _thumbnailHandle = IntPtr.Zero;
-                    return;
-                }
-
                 Refresh();
-
-                // The popup can move while it is open. DWM does not follow
-                // WPF layout automatically, so update the destination
-                // rectangle during rendering.
-                _renderingHandler = (senderObject, args) =>
-                {
-                    try
-                    {
-                        Dispatcher.BeginInvoke(
-                            DispatcherPriority.Render,
-                            new Action(Refresh));
-                    }
-                    catch
-                    {
-                        // Ignore dispatcher failures during shutdown.
-                    }
-                };
-
+                // Once loaded, refresh the DWM destination after rendering.
+                _renderingHandler = (s, a) =>
+                    Dispatcher.BeginInvoke(DispatcherPriority.Render,
+                        new Action(Refresh));
                 CompositionTarget.Rendering += _renderingHandler;
-
-                _toolTipTimer.Start();
             }
-            catch
-            {
-                CleanupThumbnail();
-            }
-        }
 
-        private void UserControl_Unloaded(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                CleanupThumbnail();
-
-                _toolTipTimer.Stop();
-
-                if (ToolTip is ToolTip tip)
-                    tip.IsOpen = false;
-            }
-            catch
-            {
-                // Nothing should escape from Unloaded.
-            }
-        }
-
-        private void CleanupThumbnail()
-        {
-            try
-            {
-                if (_renderingHandler != null)
-                {
-                    CompositionTarget.Rendering -= _renderingHandler;
-                    _renderingHandler = null;
-                }
-
-                if (_thumbnailHandle != IntPtr.Zero)
-                {
-                    NativeMethods.DwmUnregisterThumbnail(
-                        _thumbnailHandle);
-
-                    _thumbnailHandle = IntPtr.Zero;
-                }
-            }
-            catch
-            {
-                // Best-effort cleanup.
-                _thumbnailHandle = IntPtr.Zero;
-                _renderingHandler = null;
-            }
+            _toolTipTimer.Start();
         }
 
         private void ToolTipTimer_Tick(object? sender, EventArgs e)
         {
-            try
+            if (ToolTip is ToolTip tip)
             {
-                _toolTipTimer.Stop();
-
-                if (ToolTip is ToolTip tip)
-                {
-                    tip.PlacementTarget = this;
-                    tip.IsOpen = true;
-                }
-            }
-            catch
-            {
-                // Ignore tooltip failures.
+                tip.PlacementTarget = this;
+                tip.IsOpen = true;
             }
         }
     }
