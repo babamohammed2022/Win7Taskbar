@@ -91,10 +91,21 @@ namespace Win7Taskbar.Controls
             {
                 try
                 {
-                    var generalTransform =
-                        TransformToAncestor((Visual)Parent);
-                    Point leftTopPoint =
-                        generalTransform.Transform(new Point(0, 0));
+                    /* rcDestination is expressed in destination-HWND client
+                     * coordinates. RetroBar's single-item parent transform
+                     * happens to start at that origin; with several preview
+                     * items it would return (0,0) for each ContentPresenter,
+                     * stacking every DWM thumbnail over the first one. Use
+                     * the popup HwndSource root so every item receives its
+                     * actual position in the shared destination window. */
+                    if (PresentationSource.FromVisual(this) is not HwndSource source ||
+                        source.RootVisual is not Visual root)
+                    {
+                        return new NativeMethods.RECT();
+                    }
+
+                    GeneralTransform generalTransform = TransformToAncestor(root);
+                    Point leftTopPoint = generalTransform.Transform(new Point(0, 0));
                     return new NativeMethods.RECT
                     {
                         Left = (int)(leftTopPoint.X * DpiScale),

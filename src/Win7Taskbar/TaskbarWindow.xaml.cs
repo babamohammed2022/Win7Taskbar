@@ -2238,6 +2238,9 @@ namespace Win7Taskbar
 
         private FrameworkElement? _previewAnchor;
         private TaskGroup? _previewGroup;
+        // Explicit item hover ownership keeps the layered popup alive while
+        // the pointer is over a DWM destination (which is not WPF-painted).
+        private bool _previewPointerInside;
 
         /// <summary>
         /// v2.53: apertura del tooltip di testo del pulsante della Superbar.
@@ -2478,8 +2481,8 @@ namespace Win7Taskbar
                 }
 
                 bool overAnchor = _previewAnchor?.IsMouseOver == true;
-                bool overPopup = TaskPreviewPopup.Child is FrameworkElement child &&
-                                 child.IsMouseOver;
+                bool overPopup = _previewPointerInside ||
+                    (TaskPreviewPopup.Child is FrameworkElement child && child.IsMouseOver);
 
                 if (!overAnchor && !overPopup)
                 {
@@ -2530,6 +2533,7 @@ namespace Win7Taskbar
                 _previewWatchTimer?.Stop();
                 _previewAnchor = null;
                 _previewGroup = null;
+                _previewPointerInside = false;
                 _openButtonTip = null;
 
                 /* Sgancia i controlli TaskThumbnail, che deregistrano sempre
@@ -2574,12 +2578,22 @@ namespace Win7Taskbar
             }
         }
 
+        private void PreviewThumbnail_MouseEnter(object sender, MouseEventArgs e)
+        {
+            _previewPointerInside = true;
+        }
+
+        private void PreviewThumbnail_MouseLeave(object sender, MouseEventArgs e)
+        {
+            _previewPointerInside = false;
+        }
+
         /// <summary>
         /// Clic sulla miniatura: la finestra va DAVVERO in primo piano, come
         /// nella Superbar di Windows 7 (che, a differenza di Windows 10/11,
         /// non ha il pulsante "anteprima" separato: si clicca la miniatura).
         /// </summary>
-        private void PreviewThumbnail_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private void PreviewThumbnail_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             try
             {
