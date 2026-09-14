@@ -32,6 +32,9 @@ namespace Win7Taskbar
         private readonly TaskbarViewModel _viewModel;
 
         private HwndSource? _hwndSource;
+        private const string DwmPreviewAccentBrushKey = "DwmPreviewAccentBrush";
+        private const string DwmPreviewBorderMaskImageKey = "DwmPreviewBorderMaskImage";
+        private bool _dwmPreviewMaskReady;
         private bool _appBarRegistered;
         private bool _shuttingDown;
 
@@ -215,6 +218,11 @@ namespace Win7Taskbar
             var helper = new WindowInteropHelper(this);
             _hwndSource = HwndSource.FromHwnd(helper.Handle);
             _hwndSource?.AddHook(WndProc);
+
+            // The documented DWM API supplies the current glass/accent color.
+            // The same hook receives WM_DWMCOLORIZATIONCOLORCHANGED later, so
+            // previews already open update without restarting the application.
+            UpdateDwmPreviewAccentColor();
 
             // v2.7: pannello overflow nativo con vetro Aero vero
             // (SetWindowCompositionAttribute + blur-behind, come le mod
@@ -1554,12 +1562,123 @@ namespace Win7Taskbar
             }
         }
 
+        /// <summary>
+        /// WPF opacity masks use only brush alpha; grayscale luminance is not
+        /// converted to opacity. Keep the source PNG untouched and derive the
+        /// intended luminance-times-source-alpha mask once in memory.
+        /// </summary>
+        private void EnsureDwmPreviewBorderMask()
+        {
+            if (_dwmPreviewMaskReady)
+            {
+                return;
+            }
+
+            try
+            {
+                if (TryFindResource("DwmPreviewBorderImage") is not
+                    System.Windows.Media.Imaging.BitmapSource source ||
+                    source.PixelWidth <= 0 || source.PixelHeight <= 0)
+                {
+                    return;
+                }
+
+                var converted = new System.Windows.Media.Imaging.FormatConvertedBitmap(
+                    source, PixelFormats.Bgra32, null, 0);
+                int stride = checked(converted.PixelWidth * 4);
+                byte[] pixels = new byte[checked(stride * converted.PixelHeight)];
+                converted.CopyPixels(pixels, stride, 0);
+
+                for (int i = 0; i < pixels.Length; i += 4)
+                {
+                    int blue = pixels[i];
+                    int green = pixels[i + 1];
+                    int red = pixels[i + 2];
+                    int sourceAlpha = pixels[i + 3];
+                    // Integer Rec.709 approximation. White remains opaque,
+                    // black becomes transparent, and PNG alpha is preserved.
+                    int luminance = (54 * red + 183 * green + 19 * blue + 128) >> 8;
+                    pixels[i] = 0xFF;
+                    pixels[i + 1] = 0xFF;
+                    pixels[i + 2] = 0xFF;
+                    pixels[i + 3] = (byte)((sourceAlpha * luminance + 127) / 255);
+                }
+
+                var mask = System.Windows.Media.Imaging.BitmapSource.Create(
+                    converted.PixelWidth, converted.PixelHeight,
+                    converted.DpiX, converted.DpiY,
+                    PixelFormats.Bgra32, null, pixels, stride);
+                if (mask.CanFreeze)
+                {
+                    mask.Freeze();
+                }
+
+                Application.Current.Resources[DwmPreviewBorderMaskImageKey] = mask;
+                _dwmPreviewMaskReady = true;
+            }
+            catch (Exception ex)
+            {
+                // The original PNG alpha remains a valid fallback mask.
+                try { _bridge.Log($"preview accent mask: {ex.Message}"); }
+                catch { }
+            }
+        }
+
+        /// <summary>
+        /// Publishes a new brush object instead of mutating the fallback brush.
+        /// WPF DynamicResource expressions then re-evaluate the key for every
+        /// frame slice, including slices in an already-open preview popup.
+        /// </summary>
+        private void UpdateDwmPreviewAccentColor(uint? messageArgb = null)
+        {
+            try
+            {
+                EnsureDwmPreviewBorderMask();
+
+                uint argb;
+                if (messageArgb.HasValue)
+                {
+                    argb = messageArgb.Value;
+                }
+                else if (NativeMethods.DwmGetColorizationColor(
+                             out argb, out _) < 0)
+                {
+                    // Keep the XAML fallback if DWM cannot supply a color.
+                    return;
+                }
+
+                // Opacity comes from the derived luminance-times-alpha mask.
+                // Keep this brush opaque: using the DWM alpha here as well
+                // would multiply frame transparency a second time.
+                Color accent = Color.FromArgb(
+                    0xFF,
+                    (byte)((argb >> 16) & 0xFF),
+                    (byte)((argb >> 8) & 0xFF),
+                    (byte)(argb & 0xFF));
+                var brush = new SolidColorBrush(accent);
+                if (brush.CanFreeze)
+                {
+                    brush.Freeze();
+                }
+
+                Application.Current.Resources[DwmPreviewAccentBrushKey] = brush;
+            }
+            catch (Exception ex)
+            {
+                // Accent color is cosmetic: failure must never affect taskbar
+                // startup or the live DWM thumbnail relationship.
+                try { _bridge.Log($"preview accent update: {ex.Message}"); }
+                catch { }
+            }
+        }
+
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             const int WM_DISPLAYCHANGE = 0x007E;
+            const int WM_DWMCOLORIZATIONCOLORCHANGED = 0x0320;
             const int WM_DPICHANGED = 0x02E0;
             const int WM_MOUSEACTIVATE = 0x0021;
             const int WM_ACTIVATE = 0x0006;
@@ -1599,6 +1718,14 @@ namespace Win7Taskbar
 
             switch (msg)
             {
+                case WM_DWMCOLORIZATIONCOLORCHANGED:
+                    // Microsoft documents wParam as the new 0xAARRGGBB
+                    // colorization color. This hook runs on WPF's UI thread,
+                    // where ResourceDictionary updates are valid.
+                    UpdateDwmPreviewAccentColor(
+                        unchecked((uint)wParam.ToInt64()));
+                    handled = true;
+                    return IntPtr.Zero;
                 case WM_COPYDATA:
                     handled = HandlePropsCopyData(lParam);
                     return IntPtr.Zero;

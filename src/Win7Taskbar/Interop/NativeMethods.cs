@@ -923,6 +923,13 @@ namespace Win7Taskbar.Interop
         [DllImport("dwmapi.dll", PreserveSig = true)]
         public static extern int DwmQueryThumbnailSourceSize(IntPtr thumb, out SIZE size);
 
+        // Documented desktop API. The returned DWORD is 0xAARRGGBB (not the
+        // COLORREF 0x00BBGGRR layout used by many older Win32 functions).
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        public static extern int DwmGetColorizationColor(
+            out uint colorization,
+            [MarshalAs(UnmanagedType.Bool)] out bool opaqueBlend);
+
         // La firma vera e' HRESULT DwmIsCompositionEnabled(BOOL *pfEnabled):
         // il risultato torna nel parametro di uscita, non come valore di
         // ritorno. Dichiararla senza argomenti corrompe lo stack e provoca

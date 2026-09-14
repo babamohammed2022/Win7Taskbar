@@ -41,11 +41,20 @@
          larghi o stretti: si ricalcola da ActualWidth. -->
     <conv:WidthRatioConverter x:Key="WidthRatio" />
 
+    <!-- Startup fallback only. TaskbarWindow replaces this application-level
+         DynamicResource with the current DWM colorization brush and again on
+         WM_DWMCOLORIZATIONCOLORCHANGED. -->
+    <SolidColorBrush x:Key="DwmPreviewAccentBrush" Color="#FF4C8FC5" />
+
     <!-- Exact slicing of the user-supplied DWMBorder.png. Its transparent
          aperture is x=17..218, y=38..146 (202x109) in the 236x166 bitmap.
          Corners remain pixel-sized; only straight edge sections stretch, so
          the frame adapts to each aspect-correct live DWM thumbnail without
-         distorting rounded corners or leaving uncovered inner gaps. -->
+         distorting rounded corners or leaving uncovered inner gaps.
+
+         Per Microsoft WPF opacity-mask semantics, only the PNG alpha channel
+         controls visibility; its grayscale RGB/luminance is intentionally
+         ignored. The underlying Fill is the dynamic system accent brush. -->
     <ControlTemplate x:Key="TaskPreviewFrameVista"
                      TargetType="ContentControl">
         <Grid SnapsToDevicePixels="True">
@@ -60,31 +69,79 @@
                 <ColumnDefinition Width="17" />
             </Grid.ColumnDefinitions>
 
-            <Rectangle Grid.Row="0" Grid.Column="0">
-                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="0,0,17,38" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            <Rectangle Grid.Row="0" Grid.Column="0"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="0,0,17,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
             </Rectangle>
-            <Rectangle Grid.Row="0" Grid.Column="1">
-                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="17,0,202,38" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            <Rectangle Grid.Row="0" Grid.Column="1"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="17,0,202,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
             </Rectangle>
-            <Rectangle Grid.Row="0" Grid.Column="2">
-                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="219,0,17,38" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            <Rectangle Grid.Row="0" Grid.Column="2"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="219,0,17,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
             </Rectangle>
 
-            <Rectangle Grid.Row="1" Grid.Column="0">
-                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="0,38,17,109" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            <Rectangle Grid.Row="1" Grid.Column="0"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="0,38,17,109"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
             </Rectangle>
-            <Rectangle Grid.Row="1" Grid.Column="2">
-                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="219,38,17,109" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            <Rectangle Grid.Row="1" Grid.Column="2"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="219,38,17,109"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
             </Rectangle>
 
-            <Rectangle Grid.Row="2" Grid.Column="0">
-                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="0,147,17,19" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            <Rectangle Grid.Row="2" Grid.Column="0"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="0,147,17,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
             </Rectangle>
-            <Rectangle Grid.Row="2" Grid.Column="1">
-                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="17,147,202,19" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            <Rectangle Grid.Row="2" Grid.Column="1"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="17,147,202,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
             </Rectangle>
-            <Rectangle Grid.Row="2" Grid.Column="2">
-                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="219,147,17,19" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            <Rectangle Grid.Row="2" Grid.Column="2"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="219,147,17,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
             </Rectangle>
 
             <!-- DWM occupies exactly the bitmap's transparent aperture. -->

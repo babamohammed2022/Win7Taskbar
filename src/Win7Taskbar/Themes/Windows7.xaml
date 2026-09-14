@@ -22,6 +22,10 @@
          single bitmap around its exact transparent aperture. -->
     <BitmapImage x:Key="DwmPreviewBorderImage"
                  UriSource="../Resources/DWMBorder.png" />
+    <!-- Alpha-only fallback until TaskbarWindow derives an in-memory
+         luminance-times-alpha mask from the same unchanged PNG. -->
+    <BitmapImage x:Key="DwmPreviewBorderMaskImage"
+                 UriSource="../Resources/DWMBorder.png" />
 
     <!-- TASKBAR BACKGROUND PNG - texture on top of transparency -->
     <BitmapImage x:Key="TaskbarBackgroundImage"
