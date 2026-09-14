@@ -21,6 +21,29 @@ namespace {
 
 constexpr int kMaxPathW = 520;
 
+class ScopedHandle {
+public:
+    explicit ScopedHandle(HANDLE handle = nullptr) : m_handle(handle) {}
+    ~ScopedHandle() {
+        if (m_handle && m_handle != INVALID_HANDLE_VALUE) {
+            CloseHandle(m_handle);
+        }
+    }
+
+    ScopedHandle(const ScopedHandle&) = delete;
+    ScopedHandle& operator=(const ScopedHandle&) = delete;
+
+    HANDLE get() const { return m_handle; }
+    HANDLE release() {
+        HANDLE handle = m_handle;
+        m_handle = nullptr;
+        return handle;
+    }
+
+private:
+    HANDLE m_handle;
+};
+
 std::wstring PinnedFolder() {
     wchar_t base[MAX_PATH]{};
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, base))) {
@@ -112,18 +135,37 @@ PinnedApps& PinnedApps::Instance() {
 
 void PinnedApps::Start() {
     if (m_running.exchange(true)) return;
-    Refresh();
 
-    m_stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    m_watchThread = std::thread([this] { WatcherLoop(); });
+    try {
+        Refresh();
+
+        m_stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (!m_stopEvent) {
+            m_running = false;
+            Log(L"[Pinned] Failed to create stop event");
+            return;
+        }
+
+        m_watchThread = std::thread([this] { WatcherLoop(); });
+    } catch (...) {
+        m_running = false;
+        if (m_stopEvent) {
+            CloseHandle(m_stopEvent);
+            m_stopEvent = nullptr;
+        }
+        Log(L"[Pinned] Exception while starting pinned-app watcher");
+    }
 }
 
 void PinnedApps::Stop() {
     if (!m_running.exchange(false)) return;
-    if (m_stopEvent) SetEvent(m_stopEvent);
+
+    ScopedHandle stopEvent(m_stopEvent);
+    if (stopEvent.get()) SetEvent(stopEvent.get());
+    m_stopEvent = nullptr;
+
     if (m_watchDir) { CloseHandle(m_watchDir); m_watchDir = nullptr; }
     if (m_watchThread.joinable()) m_watchThread.join();
-    if (m_stopEvent) { CloseHandle(m_stopEvent); m_stopEvent = nullptr; }
 }
 
 void PinnedApps::WatcherLoop() {
