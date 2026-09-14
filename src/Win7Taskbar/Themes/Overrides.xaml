@@ -113,8 +113,10 @@
          disegna niente sopra di noi, quindi la X si vede sempre.
          ================================================================== -->
     <Style x:Key="TaskPreviewCloseButton" TargetType="Button">
-        <Setter Property="Width" Value="14" />
-        <Setter Property="Height" Value="14" />
+        <!-- 20x20 hit target; the artwork remains exactly 14x14 and is
+             centred, extending the clickable area 3px on every side. -->
+        <Setter Property="Width" Value="20" />
+        <Setter Property="Height" Value="20" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Background" Value="Transparent" />

@@ -56,12 +56,21 @@
                   MouseLeftButtonUp="PreviewThumbnail_MouseLeftButtonUp">
                 <!-- Existing image border, one live preview, one close X. -->
                 <!-- A single live surface inside the current 9-slice frame.
-                     No solid/gradient backing rectangle and no extra title
-                     geometry: the window preview itself fills the centre. -->
+                     No solid/gradient backing rectangle or title artwork. -->
                 <ContentControl Template="{DynamicResource TaskPreviewFrameVista}">
-                    <w7controls:TaskThumbnail x:Name="Thumb"
-                                              SourceWindowHandle="{Binding HandlePtr}"
-                                              Title="{Binding Title}" />
+                    <!-- Keep the DWM destination below the close control, as
+                         in the earlier working preview layout. This prevents
+                         the compositor from covering the X or its hit area. -->
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="16" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <w7controls:TaskThumbnail x:Name="Thumb"
+                                                  Grid.Row="1"
+                                                  SourceWindowHandle="{Binding HandlePtr}"
+                                                  Title="{Binding Title}" />
+                    </Grid>
                 </ContentControl>
 
                 <!-- Three-state close X in the top image border, outside the
@@ -70,7 +79,7 @@
                         Style="{DynamicResource TaskPreviewCloseButton}"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Top"
-                        Margin="0,11,26,0"
+                        Margin="0,11,23,0"
                         Panel.ZIndex="99"
                         Click="PreviewCloseButton_Click" />
             </Grid>
