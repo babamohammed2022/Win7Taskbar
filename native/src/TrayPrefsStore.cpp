@@ -174,17 +174,20 @@ void TrayPrefsStore::EnsureLoadedLocked() {
     }
 
     /* --- 2) one-time migration from the legacy registry key ---------- */
-    /* Runs even when the file exists but holds no icon rows (a build that
-     * wrote the file before migrating would otherwise strand the choices);
-     * the import + delete is idempotent, which is exactly what a crash
-     * between the two steps needs: next start sees no key, nothing to do. */
-    if (!fileHasIcons) {
+    /* The key is opened on EVERY load (cheap) and deleted unconditionally:
+     * even when the file already has rows, a leftover key must not survive
+     * this version - that is the zero-footprint promise. Importing is only
+     * meaningful when the file has no icon rows (a build that wrote the
+     * file before migrating would otherwise strand the choices); the
+     * import + delete is idempotent, which is exactly what a crash between
+     * the two steps needs: next start sees no key, nothing to do. */
+    {
         HKEY hKey = nullptr;
         if (RegOpenKeyExW(HKEY_CURRENT_USER, kLegacyKeyPath, 0,
                           KEY_READ | KEY_WOW64_64KEY, &hKey) == ERROR_SUCCESS) {
             int imported = 0;
             wchar_t valueName[512];
-            for (DWORD index = 0;; ++index) {
+            for (DWORD index = 0; !fileHasIcons; ++index) {
                 DWORD nameChars = static_cast<DWORD>(sizeof(valueName) / sizeof(valueName[0]));
                 DWORD type = 0, dataSize = 0;
                 valueName[0] = 0;
@@ -223,8 +226,9 @@ void TrayPrefsStore::EnsureLoadedLocked() {
              * the file that replaces it. Deletion failing (permissions,
              * race) is harmless - the next start retries. */
             if (RegDeleteTreeW(HKEY_CURRENT_USER, kLegacyKeyPath) == ERROR_SUCCESS) {
-                LogTagged(L"TRAYPREFS", L"legacy registry key removed (zero-footprint)");
-            } else if (imported > 0) {
+                LogTagged(L"TRAYPREFS",
+                          L"legacy registry key removed (zero-footprint)");
+            } else {
                 LogTagged(L"TRAYPREFS",
                           L"legacy registry key still present (code %u), will retry",
                           GetLastError());
