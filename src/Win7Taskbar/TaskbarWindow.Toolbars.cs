@@ -33,6 +33,20 @@ namespace Win7Taskbar
             public BitmapSource? Icon { get; init; }
         }
 
+        /// <summary>RAII ownership for SHGetFileInfo's copied HICON. This also
+        /// covers exceptions during WPF BitmapSource conversion.</summary>
+        private sealed class SafeShellIconHandle
+            : Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid
+        {
+            internal SafeShellIconHandle(IntPtr handle) : base(true)
+            {
+                SetHandle(handle);
+            }
+
+            protected override bool ReleaseHandle()
+                => Interop.NativeMethods.DestroyIcon(handle);
+        }
+
         // ------------------------------------------------------------------
         // v2.5: preferenze delle barre salvate in un INI leggibile a mano:
         //   %LocalAppData%\Win7Taskbar\toolbars.ini
@@ -432,9 +446,14 @@ namespace Win7Taskbar
                         (uint)System.Runtime.InteropServices.Marshal.SizeOf<Interop.NativeMethods.SHFILEINFOW>(),
                         flags) != IntPtr.Zero && shfi.hIcon != IntPtr.Zero)
                 {
-                    var bmp = Imaging.CreateBitmapSourceFromHIcon(shfi.hIcon, Int32Rect.Empty,
-                                                                  BitmapSizeOptions.FromEmptyOptions());
-                    Interop.NativeMethods.DestroyIcon(shfi.hIcon);
+                    using var icon = new SafeShellIconHandle(shfi.hIcon);
+                    var bmp = Imaging.CreateBitmapSourceFromHIcon(
+                        icon.DangerousGetHandle(), Int32Rect.Empty,
+                        BitmapSizeOptions.FromEmptyOptions());
+                    if (bmp.CanFreeze)
+                    {
+                        bmp.Freeze();
+                    }
                     return bmp;
                 }
             }

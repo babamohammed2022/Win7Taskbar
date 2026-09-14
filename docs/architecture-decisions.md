@@ -79,11 +79,13 @@ requirement.
 
 A short-lived, static `Graphics.CopyFromScreen` capture may provide soft glass
 behind the **outer chrome only**. `TaskPreviewPopup` clips that blurred image to
-the top, left, right and bottom frame bands of every preview item. The complete
-central aperture remains outside the clip, so this backdrop is not a thumbnail
-fallback and never paints, masks or applies an effect to the DWM destination.
-The capture is made once in `Opened`; its GDI bitmap has RAII ownership and the
-WPF source reference is cleared in `Closed`.
+the top, left, right and bottom frame bands of every preview item. Above it, the
+accent mask supplies the live Windows color while a low-opacity slice of the
+unchanged source PNG retains the photograph's exact edge and shading detail.
+The complete central aperture remains outside every chrome layer, so this
+backdrop is not a thumbnail fallback and never paints, masks or applies an
+effect to the DWM destination. The capture is made once in `Opened`; its GDI
+bitmap has RAII ownership and the WPF source reference is cleared in `Closed`.
 
 The former confirmation timer, geometry proof, icon fallback and static
 `PrintWindow` paths were removed. DWM failures are isolated with `try/catch`

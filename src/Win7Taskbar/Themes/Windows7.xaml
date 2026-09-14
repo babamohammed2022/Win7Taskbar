@@ -1716,8 +1716,10 @@
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 IsHitTestVisible="False">
-                            <!-- 98% of the original tile, still centred on
-                                 exactly the same icon geometry. -->
+                            <!-- Exactly 2% narrower/shorter than the original
+                                 tray-hover tile (98%), still centred on exactly
+                                 the same icon geometry; do not compound this
+                                 scale on later visual adjustments. -->
                             <Image x:Name="HoverTileImg"
                                    Width="29.4"
                                    Height="39.2"

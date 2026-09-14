@@ -144,6 +144,75 @@
                 </Rectangle.OpacityMask>
             </Rectangle>
 
+            <!-- Preserve the exact photographic shading and edge detail of
+                 the supplied border above the accent layer. A restrained
+                 grayscale overlay keeps the live accent visible and lets the
+                 clipped static blur show through; the PNG remains unchanged. -->
+            <Rectangle Grid.Row="0" Grid.Column="0" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="0,0,17,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="1" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="17,0,202,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="2" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="219,0,17,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="1" Grid.Column="0" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="0,38,17,109"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="1" Grid.Column="2" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="219,38,17,109"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="0" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="0,147,17,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="1" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="17,147,202,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="2" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="219,147,17,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+
             <!-- DWM occupies exactly the bitmap's transparent aperture. -->
             <ContentPresenter Grid.Row="1" Grid.Column="1" />
         </Grid>
