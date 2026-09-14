@@ -61,8 +61,10 @@ file can be traced back to a changelog entry and a screenshot.
 ## 5. Window previews: direct DWM surface, parent-owned chrome
 
 **Decision.** `Controls/TaskThumbnail.xaml.cs` contains only the essential
-RetroBar DWM path: register the source window, fit it into 180×120, update the
-destination rectangle while rendering, and always deregister on unload.
+RetroBar DWM path: register the source window, fit it into the 202×109 photo
+aperture, update the destination rectangle while rendering, and always
+deregister on unload. Tiny sources are enlarged toward a 65% minimum while
+preserving aspect ratio, avoiding a fixed frame that visually overwhelms them.
 `TaskbarWindow.xaml` continues to own the Aero frame, close button, layered
 popup placement, activation and navigation.
 
@@ -87,9 +89,16 @@ backdrop is not a thumbnail fallback and never paints, masks or applies an
 effect to the DWM destination. The capture is made once in `Opened`; its GDI
 bitmap has RAII ownership and the WPF source reference is cleared in `Closed`.
 
-The former confirmation timer, geometry proof, icon fallback and static
-`PrintWindow` paths were removed. DWM failures are isolated with `try/catch`
-and leave no registered thumbnail behind.
+DWM registration is not treated as proof of rendering. After a one-shot 350 ms
+delay, the control probes the on-screen destination. If it cannot verify a
+composed frame, the single persisted `UseThumbnailCaptureFallback` switch
+allows a BitBlt screen scrape of the source client area. That scrape is shown
+only when five z-order sample points all belong to the source root window, no
+long black two-pixel border indicates a composition race, and sampled edge
+pixels contain real colour. Otherwise DWM is unregistered and the UI shows the
+application icon plus current title—never an anonymous empty rectangle. All
+DCs, selected GDI objects and HBITMAPs have deterministic RAII cleanup; every
+failure path is guarded and leaves no registered thumbnail behind.
 
 ## 6. The overflow panel is a native popup, its behaviour mirrors Windows 7
 

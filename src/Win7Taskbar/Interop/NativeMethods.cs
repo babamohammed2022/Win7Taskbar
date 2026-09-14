@@ -781,6 +781,16 @@ namespace Win7Taskbar.Interop
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr WindowFromPoint(POINT point);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetCursorPos(out POINT lpPoint);
 
         /* =================================================================
@@ -818,8 +828,16 @@ namespace Win7Taskbar.Interop
         [DllImport("gdi32.dll")]
         public static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int nWidth, int nHeight);
 
-        [DllImport("gdi32.dll")]
+        [DllImport("gdi32.dll", SetLastError = true)]
         public static extern IntPtr SelectObject(IntPtr hdc, IntPtr hObject);
+
+        public const uint SRCCOPY = 0x00CC0020;
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool BitBlt(IntPtr destination, int xDest, int yDest,
+                                         int width, int height, IntPtr source,
+                                         int xSource, int ySource, uint rasterOperation);
 
         [DllImport("gdi32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
