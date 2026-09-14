@@ -63,25 +63,13 @@
                 <!-- A single live surface inside the current 9-slice frame.
                      No solid/gradient backing rectangle or title artwork. -->
                 <ContentControl Template="{DynamicResource TaskPreviewFrameVista}">
-                    <!-- Keep the DWM destination below the close control, as
-                         in the earlier working preview layout. This prevents
-                         the compositor from covering the X or its hit area. -->
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="16" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-                        <!-- The live DWM surface fills the complete centre
-                             cell. Do not add transparent padding here: in a
-                             layered popup it becomes a real opening through
-                             which the already-open window below is visible.
-                             Translucency belongs only to the surrounding eight
-                             frame pieces, outside this destination rectangle. -->
-                        <w7controls:TaskThumbnail x:Name="Thumb"
-                                                  Grid.Row="1"
-                                                  SourceWindowHandle="{Binding HandlePtr}"
-                                                  Title="{Binding Title}" />
-                    </Grid>
+                    <!-- DWMBorder.png already reserves its complete 38px top
+                         chrome. The live surface goes directly into the exact
+                         202x109 source aperture; no extra spacer, padding,
+                         background or invisible geometry is inserted. -->
+                    <w7controls:TaskThumbnail x:Name="Thumb"
+                                              SourceWindowHandle="{Binding HandlePtr}"
+                                              Title="{Binding Title}" />
                 </ContentControl>
 
                 <!-- Three-state close X in the top image border, outside the

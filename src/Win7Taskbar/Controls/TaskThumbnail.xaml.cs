@@ -16,8 +16,9 @@ namespace Win7Taskbar.Controls
     /// </summary>
     public partial class TaskThumbnail : UserControl
     {
-        private const double RetroWidth = 180;
-        private const double RetroHeight = 120;
+        /* Exact transparent aperture of Resources/DWMBorder.png. */
+        private const double RetroWidth = 202;
+        private const double RetroHeight = 109;
 
         public double DpiScale = 1.0;
 

@@ -41,62 +41,53 @@
          larghi o stretti: si ricalcola da ActualWidth. -->
     <conv:WidthRatioConverter x:Key="WidthRatio" />
 
-    <!-- Current eight-piece preview border. The live DWM surface is the
-         entire centre cell; only the border images and close X surround it. -->
+    <!-- Exact slicing of the user-supplied DWMBorder.png. Its transparent
+         aperture is x=17..218, y=38..146 (202x109) in the 236x166 bitmap.
+         Corners remain pixel-sized; only straight edge sections stretch, so
+         the frame adapts to each aspect-correct live DWM thumbnail without
+         distorting rounded corners or leaving uncovered inner gaps. -->
     <ControlTemplate x:Key="TaskPreviewFrameVista"
                      TargetType="ContentControl">
-        <!-- The frame consists only of its eight current PNG border pieces.
-             The DWM surface fills the centre; no blue backing rectangle is
-             painted behind or around the preview. -->
         <Grid SnapsToDevicePixels="True">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
+                <RowDefinition Height="38" />
                 <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
+                <RowDefinition Height="19" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="17" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="17" />
             </Grid.ColumnDefinitions>
 
-            <!-- angoli: misura esatta, nessuna scalatura -->
-            <Image Grid.Row="0" Grid.Column="0"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerTopLeft}"
-                   Width="21" Height="21" Stretch="None"
-                   SnapsToDevicePixels="True" />
-            <Image Grid.Row="0" Grid.Column="2"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerTopRight}"
-                   Width="21" Height="21" Stretch="None"
-                   SnapsToDevicePixels="True" />
-            <Image Grid.Row="2" Grid.Column="0"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerBottomLeft}"
-                   Width="21" Height="21" Stretch="None"
-                   SnapsToDevicePixels="True" />
-            <Image Grid.Row="2" Grid.Column="2"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerBottomRight}"
-                   Width="21" Height="21" Stretch="None"
-                   SnapsToDevicePixels="True" />
+            <Rectangle Grid.Row="0" Grid.Column="0">
+                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="0,0,17,38" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="1">
+                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="17,0,202,38" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="2">
+                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="219,0,17,38" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            </Rectangle>
 
-            <!-- bordi: si stirano lungo la loro direzione -->
-            <Image Grid.Row="0" Grid.Column="1"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameTop}"
-                   Height="21" Stretch="Fill"
-                   SnapsToDevicePixels="True" />
-            <Image Grid.Row="2" Grid.Column="1"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameBottom}"
-                   Height="21" Stretch="Fill"
-                   SnapsToDevicePixels="True" />
-            <Image Grid.Row="1" Grid.Column="0"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameLeft}"
-                   Width="21" Stretch="Fill"
-                   SnapsToDevicePixels="True" />
-            <Image Grid.Row="1" Grid.Column="2"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameRight}"
-                   Width="21" Stretch="Fill"
-                   SnapsToDevicePixels="True" />
+            <Rectangle Grid.Row="1" Grid.Column="0">
+                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="0,38,17,109" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="1" Grid.Column="2">
+                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="219,38,17,109" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            </Rectangle>
 
-            <!-- Superficie DWM centrale: nessun Background, maschera o Effect. -->
+            <Rectangle Grid.Row="2" Grid.Column="0">
+                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="0,147,17,19" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="1">
+                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="17,147,202,19" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="2">
+                <Rectangle.Fill><ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}" Viewbox="219,147,17,19" ViewboxUnits="Absolute" Stretch="Fill" /></Rectangle.Fill>
+            </Rectangle>
+
+            <!-- DWM occupies exactly the bitmap's transparent aperture. -->
             <ContentPresenter Grid.Row="1" Grid.Column="1" />
         </Grid>
     </ControlTemplate>

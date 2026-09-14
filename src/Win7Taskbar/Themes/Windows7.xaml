@@ -18,6 +18,11 @@
     <BitmapImage x:Key="OverflowTilePressedImage"
                  UriSource="../Resources/Win7_Overflow_TilePressed.png" />
 
+    <!-- User-supplied 236x166 DWM preview frame. Overrides.xaml slices this
+         single bitmap around its exact transparent aperture. -->
+    <BitmapImage x:Key="DwmPreviewBorderImage"
+                 UriSource="../Resources/DWMBorder.png" />
+
     <!-- TASKBAR BACKGROUND PNG - texture on top of transparency -->
     <BitmapImage x:Key="TaskbarBackgroundImage"
                  UriSource="../Resources/taskbarBackground.png" />
