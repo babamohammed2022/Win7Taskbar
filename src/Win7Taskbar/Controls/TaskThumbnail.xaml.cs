@@ -15,8 +15,8 @@ namespace Win7Taskbar.Controls
     /// </summary>
     public partial class TaskThumbnail : UserControl
     {
-        private const double MaxWidth = 180;
-        private const double MaxHeight = 120;
+        private const double PreviewMaxWidth = 180;
+        private const double PreviewMaxHeight = 120;
 
         private IntPtr _thumbnailHandle;
         private EventHandler? _renderingHandler;
@@ -157,14 +157,14 @@ namespace Win7Taskbar.Controls
                     return;
 
                 double aspectRatio = (double)size.cx / size.cy;
-                double controlAspectRatio = MaxWidth / MaxHeight;
+                double controlAspectRatio = PreviewMaxWidth / PreviewMaxHeight;
 
                 double width;
                 double height;
 
                 // Small windows are displayed at 1:1.
-                if (size.cx <= MaxWidth * DpiScale &&
-                    size.cy <= MaxHeight * DpiScale)
+                if (size.cx <= PreviewMaxWidth * DpiScale &&
+                    size.cy <= PreviewMaxHeight * DpiScale)
                 {
                     width = size.cx / DpiScale;
                     height = size.cy / DpiScale;
@@ -172,14 +172,14 @@ namespace Win7Taskbar.Controls
                 else if (aspectRatio > controlAspectRatio)
                 {
                     // Wide window.
-                    width = MaxWidth;
-                    height = MaxWidth / aspectRatio;
+                    width = PreviewMaxWidth;
+                    height = PreviewMaxWidth / aspectRatio;
                 }
                 else
                 {
                     // Tall or square window.
-                    width = MaxHeight * aspectRatio;
-                    height = MaxHeight;
+                    width = PreviewMaxHeight * aspectRatio;
+                    height = PreviewMaxHeight;
                 }
 
                 Width = width;
