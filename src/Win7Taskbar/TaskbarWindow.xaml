@@ -49,8 +49,13 @@
              esattamente come la Superbar di Windows 7.
              ============================================================ -->
         <DataTemplate x:Key="LiveThumbnailItemTemplate">
+            <!-- A non-zero alpha of 1 defines the exact rectangular input
+                 surface of the visible framed preview. It is visually
+                 imperceptible, stays behind DWM, and prevents the layered
+                 window from passing clicks through to applications below. -->
             <Grid x:Name="ThumbRoot"
-                  Background="Transparent"
+                  Background="#01000000"
+                  ClipToBounds="True"
                   MouseEnter="PreviewThumbnail_MouseEnter"
                   MouseLeave="PreviewThumbnail_MouseLeave"
                   MouseLeftButtonUp="PreviewThumbnail_MouseLeftButtonUp">
@@ -79,7 +84,7 @@
                         Style="{DynamicResource TaskPreviewCloseButton}"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Top"
-                        Margin="0,14,23,0"
+                        Margin="0,16,23,0"
                         Panel.ZIndex="99"
                         Click="PreviewCloseButton_Click" />
             </Grid>
