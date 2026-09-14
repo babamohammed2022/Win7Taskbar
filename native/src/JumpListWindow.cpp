@@ -16,8 +16,8 @@
 // SetWindowPos/GetCursorPos and of WPF PointToScreen on a per-monitor-DPI
 // process). Geometry constants are 96-DPI reference values scaled by the
 // DPI of the monitor that owns the taskbar button. The compact application
-// row uses a roughly 7% smaller 22 px icon and compact Segoe UI metrics;
-// all offsets go through Sc(), so there are no unscaled magic numbers.
+// row uses the compact 21 px application icon and Segoe UI metrics; all
+// offsets go through Sc(), so there are no unscaled magic numbers.
 
 #include "JumpListWindow.h"
 #include "FlyoutLauncher.h"
@@ -52,8 +52,9 @@ constexpr int kSep96        = 6;   /* separator band between sections     */
 constexpr int kGap96        = 4;   /* popup-to-button gap (Windows 7)     */
 constexpr int kEdgeMargin96 = 2;   /* never closer to the work area edge  */
 constexpr int kDocIcon96    = 15;
-/* 24 * 0.93 = 22.32: nearest whole reference pixel, about 7% smaller. */
-constexpr int kAppIcon96    = 22;
+/* Additional compact pass: 22 * 0.97 = 21.34 reference pixels. */
+constexpr int kAppIcon96    = 21;
+constexpr int kPinIcon96    = 14;
 constexpr int kClose96      = 14;
 constexpr int kMaxDocsPerSection = 10; /* the taskbar list caps at ten    */
 
@@ -521,18 +522,18 @@ void JumpListWindow::BuildRows() {
     app.label = m_title;
     m_rows.push_back(std::move(app));
 
-    if (m_representativeHwnd != nullptr && IsWindow(m_representativeHwnd)) {
-        Row close;
-        close.kind = Row::Close;
-        close.label = Str(m_lang).closeWindow;
-        m_rows.push_back(std::move(close));
-    }
-
     if (!m_pinned) {
         Row pin;
         pin.kind = Row::Pin;
         pin.label = Str(m_lang).pin;
         m_rows.push_back(std::move(pin));
+    }
+
+    if (m_representativeHwnd != nullptr && IsWindow(m_representativeHwnd)) {
+        Row close;
+        close.kind = Row::Close;
+        close.label = Str(m_lang).closeWindow;
+        m_rows.push_back(std::move(close));
     }
     /* FUTURE IMPLEMENTATION: the former "Unpin this program from the
      * taskbar" row is intentionally not added for pinned applications.
@@ -696,6 +697,7 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
     m_closeDown = false;
     ClearContent();
     m_appIcon.reset();
+    m_pinIcon.reset();
 
     W7T_SEH_TRY {
         RegisterClassOnce();
@@ -747,6 +749,15 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
             if (HBITMAP hb = MakeHBitmapFromArgb(px, iconW, iconH)) {
                 m_appIcon.reset(hb);   /* BitmapHandle owns and deletes it */
             }
+        }
+
+        /* Use Windows' supported stock pushpin artwork for the pin row. The
+         * supplied blue pushpin is represented at almost the same 14px size
+         * as the close X; IconHandle owns the returned HICON. */
+        SHSTOCKICONINFO pinInfo{ sizeof(pinInfo) };
+        if (SUCCEEDED(SHGetStockIconInfo(SIID_PIN,
+                SHGSI_ICON | SHGSI_SMALLICON, &pinInfo)) && pinInfo.hIcon) {
+            m_pinIcon.reset(pinInfo.hIcon);
         }
 
         /* Decode the same embedded PNGs as PreviewAssets.cs once. */
@@ -1132,7 +1143,9 @@ void JumpListWindow::OnPaint(HWND hwnd) {
                 ? iconLeft + Sc(kAppIcon96) + Sc(9)
                 : (r.kind == Row::Close
                     ? iconLeft + Sc(kClose96) + Sc(7)
-                    : iconLeft));
+                    : (r.kind == Row::Pin
+                        ? iconLeft + Sc(kPinIcon96) + Sc(7)
+                        : iconLeft)));
         SetTextColor(hdc, (r.kind == Row::Pin) ? RGB(0x1E, 0x6F, 0xC9)
                                                 : RGB(0x1E, 0x1E, 0x1E));
         const RECT closeRect = CloseRect();
@@ -1150,6 +1163,12 @@ void JumpListWindow::OnPaint(HWND hwnd) {
             DrawBitmapScaled(hdc, m_appIcon.get(), box, box,
                              iconLeft,
                              r.rect.top + (Sc(kRowApp96) - box) / 2);
+        }
+        if (r.kind == Row::Pin && m_pinIcon) {
+            const int box = Sc(kPinIcon96);
+            DrawIconEx(hdc, iconLeft,
+                       r.rect.top + (Sc(kRowPin96) - box) / 2,
+                       m_pinIcon.get(), box, box, 0, nullptr, DI_NORMAL);
         }
         if (r.kind == Row::Close && closeRect.right > closeRect.left) {
             HBITMAP close = m_closeNormal.get();
@@ -1249,6 +1268,7 @@ LRESULT CALLBACK JumpListWindow::WndProc(HWND hwnd, UINT msg,
                 Instance().m_area = RECT{};
                 Instance().ClearContent();
                 Instance().m_appIcon.reset();
+                Instance().m_pinIcon.reset();
                 return 0;
         }
     } W7T_SEH_CATCH {

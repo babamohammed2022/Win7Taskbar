@@ -41,33 +41,14 @@
          larghi o stretti: si ricalcola da ActualWidth. -->
     <conv:WidthRatioConverter x:Key="WidthRatio" />
 
-    <!-- ==================================================================
-         v2.51: CORNICE DELL'ANTEPRIMA, a griglia 3x3 (9-slice).
-
-         Otto PNG incorporati (Utilities/PreviewAssets.cs): quattro angoli
-         21x21 e quattro bordi da stirare (alto/basso 4x21, sinistra/destra
-         21x4). Gli angoli restano alla loro misura esatta (Stretch=None), i
-         bordi si stirano (Stretch=Fill) e la cella centrale e' SOLO il
-         contenuto: nessun rettangolo bianco, nessun overlay, nessuna
-         cattura dello schermo.
-
-         Il vetro del centro e' il gradiente campionato negli stessi asset
-         (#DCEBF9 in alto -> #C9DFF5 in basso): e' il colore che i bordi
-         laterali e inferiore portano con se', quindi la giunzione non si
-         vede. Il contenuto viene disegnato SOPRA il vetro.
-         ================================================================== -->
+    <!-- Current eight-piece preview border. The live DWM surface is the
+         entire centre cell; only the border images and close X surround it. -->
     <ControlTemplate x:Key="TaskPreviewFrameVista"
                      TargetType="ContentControl">
-        <!-- v1.7.6: the template now CONSUMES the control's Background
-             (TemplateBinding on the root Grid). The instance declares
-             #FFDCEBF9 - the same blue as the top of the frame images - and
-             until now the template ignored it: an unused declaration plus a
-             seam risk wherever the nine PNG pieces do not tile perfectly.
-             With the binding the frame rectangle is guaranteed painted
-             end to end, so no extra uncovered surface can appear next to
-             the Aero frame (the "white strip" family of defects). -->
-        <Grid SnapsToDevicePixels="True"
-              Background="{TemplateBinding Background}">
+        <!-- The frame consists only of its eight current PNG border pieces.
+             The DWM surface fills the centre; no blue backing rectangle is
+             painted behind or around the preview. -->
+        <Grid SnapsToDevicePixels="True">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -78,16 +59,6 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-
-            <!-- vetro della cella centrale (sotto il contenuto) -->
-            <Border Grid.Row="1" Grid.Column="1">
-                <Border.Background>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#FFDCEBF9" Offset="0.0" />
-                        <GradientStop Color="#FFC9DFF5" Offset="1.0" />
-                    </LinearGradientBrush>
-                </Border.Background>
-            </Border>
 
             <!-- angoli: misura esatta, nessuna scalatura -->
             <Image Grid.Row="0" Grid.Column="0"

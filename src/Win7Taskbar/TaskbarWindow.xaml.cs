@@ -2213,9 +2213,9 @@ namespace Win7Taskbar
          * sizing, repositioning and deregistering the live DWM surface. */
         // A static readonly field (not a const) on purpose: a compile-time
         // constant would make the rest of ShowTaskPreview unreachable code.
-        // Temporarily disabled: keep the direct DWM implementation available
-        // for a later pass, but do not create/register preview thumbnails now.
-        private static readonly bool TaskPreviewsEnabled = false;
+        // Direct DWM previews are active again. The popup now contains only
+        // the live surface, the existing image border and its close button.
+        private static readonly bool TaskPreviewsEnabled = true;
 
         private const int PreviewShowDelayMs = 400;
 
@@ -2481,14 +2481,6 @@ namespace Win7Taskbar
                 bool overPopup = TaskPreviewPopup.Child is FrameworkElement child &&
                                  child.IsMouseOver;
 
-                /* v1.7.6: the thumbnail controls resize themselves when the
-                 * source aspect becomes known, and the popup's WIN32 window
-                 * does not always shrink back with them: what stays behind
-                 * is a strip of bare popup surface beside the Aero frame
-                 * (the "white band" report). The tick doubles as the
-                 * alignment check for that - see FitPreviewPopupToContent. */
-                FitPreviewPopupToContent();
-
                 if (!overAnchor && !overPopup)
                 {
                     CloseTaskPreview();
@@ -2503,107 +2495,7 @@ namespace Win7Taskbar
             }
         }
 
-        /// <summary>
-        /// v1.7.6: re-fits the preview popup's WIN32 window to the actual
-        /// laid-out size of its content, so no extra uncovered surface of
-        /// the popup can show next to the Aero frame.
-        ///
-        /// The preview chain is Popup -> frame -> center cell -> thumbnail
-        /// -> DWM rectangle, and each layer is sized from the previous one.
-        /// WPF decides the popup window size, but that size can go stale:
-        /// a reused popup window keeps the bigger width of the previous
-        /// group while the content shrank, and the leftover pixels are
-        /// painted with the popup background - a strip that reads as a
-        /// white band OUTSIDE the frame, exactly the reported shape. DWM
-        /// success never caught it, because the DWM part was fine: the
-        /// mismatch lives purely in popup composition.
-        ///
-        /// All sizes below are device pixels of the POPUP host window; the
-        /// anchor's PointToScreen output is already screen device pixels
-        /// (never rescaled - same rule as the jump-list code). When the
-        /// window is off by more than one pixel, the popup is resized AND
-        /// repositioned with the same offsets WPF's custom placement uses,
-        /// so the re-fit is invisible except for the strip that disappears.
-        /// A silent no-op when the sizes already agree.
-        /// </summary>
-        private void FitPreviewPopupToContent()
-        {
-            try
-            {
-                if (TaskPreviewPopup?.IsOpen != true)
-                {
-                    return;
-                }
-                if (TaskPreviewPopup.Child is not FrameworkElement root)
-                {
-                    return;
-                }
-                if (PresentationSource.FromVisual(root) is not HwndSource source)
-                {
-                    return;
-                }
-                IntPtr hwnd = source.Handle;
-                if (hwnd == IntPtr.Zero || root.ActualWidth <= 0.0)
-                {
-                    return;
-                }
 
-                double dpiX = 1.0, dpiY = 1.0;
-                if (source.CompositionTarget != null)
-                {
-                    Matrix m = source.CompositionTarget.TransformToDevice;
-                    dpiX = m.M11;
-                    dpiY = m.M22;
-                }
-
-                int wantW = Math.Max(1, (int)Math.Round(root.ActualWidth * dpiX));
-                int wantH = Math.Max(1, (int)Math.Round(root.ActualHeight * dpiY));
-
-                if (!NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT rc))
-                {
-                    return;
-                }
-                int haveW = rc.Right - rc.Left;
-                int haveH = rc.Bottom - rc.Top;
-                if (Math.Abs(haveW - wantW) <= 1 && Math.Abs(haveH - wantH) <= 1)
-                {
-                    return;   // already fitted: no log, no churn
-                }
-
-                // Reposition with the SAME custom-placement formula WPF
-                // used, so the popup keeps touching the bar the same way.
-                int x = rc.Left, y = rc.Top;
-                if (_previewAnchor is FrameworkElement anchor && anchor.IsVisible)
-                {
-                    Point anchorTopLeftPx = anchor.PointToScreen(new Point(0, 0));
-                    CustomPopupPlacement[] placement = ComputeTaskPreviewPlacement(
-                        new Size(wantW / dpiX, wantH / dpiY),
-                        new Size(anchor.ActualWidth, anchor.ActualHeight));
-                    if (placement.Length > 0)
-                    {
-                        x = (int)Math.Round(anchorTopLeftPx.X +
-                                             placement[0].Point.X * dpiX);
-                        y = (int)Math.Round(anchorTopLeftPx.Y +
-                                             placement[0].Point.Y * dpiY);
-                    }
-                }
-
-                NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, x, y, wantW, wantH,
-                                           NativeMethods.SWP_NOZORDER |
-                                           NativeMethods.SWP_NOACTIVATE);
-
-                Utilities.DiagnosticLogger.Write("PREVIEW",
-                    $"popup refit: window {haveW}x{haveH} -> content {wantW}x{wantH}" +
-                    " (popup-host device px; strip removed beside the frame)");
-            }
-            catch (Exception ex)
-            {
-                /* Cosmetic guarantee: if anything here fails the preview
-                 * simply keeps the WPF-computed size (the pre-v1.7.6
-                 * behaviour). Never take the popup down over a fit. */
-                Debug.WriteLine($"fit anteprima: {ex.Message}");
-            }
-        }
 
         private void TaskPreviewPopup_Opened(object? sender, EventArgs e)
         {
@@ -2619,12 +2511,6 @@ namespace Win7Taskbar
                                                       PreviewWatchTimer_Tick);
                 _previewWatchTimer.Stop();
                 _previewWatchTimer.Start();
-
-                /* v1.7.6: first popup-to-content alignment right away, at
-                 * the layout priority (the first fit must not wait for the
-                 * watch tick; the tick then re-checks cheaply). */
-                Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
-                    new Action(FitPreviewPopupToContent));
             }
             catch (Exception ex)
             {
