@@ -10,6 +10,13 @@ The software has been tested on Windows 10 21H2/22H2 and Windows 11 24H2/25H2. S
 
 On Windows 11, **ExplorerPatcher is recommended for the best experience**, but it is optional. It can provide a more compatible Windows 10-style taskbar environment and allow Win7Taskbar to use more native notification-area functionality.
 
+
+**Current state: `Alpha`**
+
+## Screenshot
+
+<img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
+
 > ⚠️ **Compatibility warning: RetroBar**
 >
 > It is recommended not to run Win7Taskbar together with RetroBar. Both applications replace the Windows taskbar by hiding it and may conflict with each other, causing duplicate or missing taskbar elements.
@@ -18,11 +25,6 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 >
 > ExplorerPatcher is different and can complement Win7Taskbar on Windows 11.
 
-**Current state: `Alpha`**
-
-## Screenshot
-
-<img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
 
 ## Requirements
 
