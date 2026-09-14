@@ -44,29 +44,9 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**. Win7T
 
 Win7Taskbar is still under development. Window thumbnail previews are temporarily disabled because the previous preview implementations were not reliable on real systems. Jump Lists are implemented as a dedicated subsystem - press and hold the left button on a taskbar button and drag upward past the taskbar to open the list, then release over an item to activate it (the data comes from the real Shell jump list APIs, and the right-click menu is unchanged); the interaction still needs verification on real hardware at all display scales. The application-name tooltip remains available.
 
-The tray's "Notification Area Icons" page (opened by *Customize notification area...* in the taskbar/clock menu, by the *Customize...* button in Properties, or by the *Customize...* link in the tray overflow) is a recreation of the Windows 7 page - see the [zero-footprint note](#zero-footprint-notification-area-icons-page) below.
+The tray's "Notification Area Icons" page (opened by *Customize notification area...* in the taskbar/clock menu, by the *Customize...* button in Properties, or by the *Customize...* link in the tray overflow) is a recreation of the Windows 7 page.
 
 Other known limitations include unsupported decorative taskbar rotation and system windows that are hooked and repositioned rather than fully recreated.
-
-## Zero-footprint: "Notification Area Icons" page
-
-The page that selects which tray icons show, only notify, or stay hidden is
-fully owned by Win7Taskbar:
-
-* it lists and configures **only the icons of this program's tray** - it
-  never touches Windows' own tray, its Settings pages, or the `TrayNotify`
-  registry keys, and it never appears in the Control Panel;
-* every choice is stored in **`%LOCALAPPDATA%\Win7Taskbar\trayicons.ini`**
-  (the same folder as `toolbars.ini`) - nothing about it is written to the
-  registry, so deleting the program's folder removes the whole feature's
-  effect and the system is left exactly as it was;
-* the page is **modeless, in-process** (no `control.exe` host, no CLSID
-  registration, not even a temporary one) - therefore there is no
-  registration that a crash could orphan;
-* on the first run of this version, the **legacy key** older builds used to
-  keep per-icon pin state in (`HKCU\SOFTWARE\Win7Taskbar\TrayIconPrefs2`)
-  is imported into the ini file and then deleted by the program itself; if
-  the deletion ever fails, the cleanup is retried at the next start.
 
 ## Build
 
