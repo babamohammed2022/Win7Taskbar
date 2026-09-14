@@ -28,7 +28,7 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Tray overflow | ✅ | The overflow experience is reasonably close to Windows 7, although further refinement is possible. |
 | Battery indicator | ⚠️ | Battery status is implemented with a recreated taskbar icon, but the implementation is still partial rather than a complete native Windows 7 battery implementation. |
 | Clock and date display | ✅ | The taskbar clock and date are present. |
-| Language switcher (input language flyout) | ❌ | Windows 7/8.1-style keyboard layout switcher (tray abbreviation + popup, ported from the "Windows 7/8.1 Language Switcher Restorer" Windhawk mod) is implemented in source (`LanguageSwitcher.cpp`, dedicated native thread, SEH-guarded popup), but currently broken in shipped alpha builds: the `Win7TaskbarCore.dll` export table is missing `W7T_LangSwitcherShow`/`Hide`/`GetActive`/`SetChangedCallback` (stale/mismatched native build vs. managed code), so clicking the language indicator fails. Needs a clean rebuild of the native core (and a passing run of `native/tools/check-exports.py`) before repackaging. |
+| Language switcher (input language flyout) | ✅ | Windows 7/8.1-style keyboard layout switcher is now functional, including the tray language abbreviation and popup. It currently supports both Windows 7 and Windows 8.1 visual skins. |
 | System flyouts | ✅ | The main flyouts work, but positioning and some Windows-version-specific behavior still need improvement. |
 | Clock flyout | ✅ | The Windows 7-style clock flyout is now considered complete. |
 | Aero Peek / Show Desktop | ⚠️ | Windows 7-style Aero Peek and the Show Desktop area are represented, but the implementation is not yet a complete recreation of the original shell behavior. |
@@ -68,10 +68,6 @@ The battery indicator is implemented using a recreated taskbar icon. Further wor
 
 The vertical separator lines that Windows 7 draws next to a grouped task button's icon when it holds 2 or more windows are not visible yet. The rendering logic itself (how many separators to show, and where to offset them based on button width and window count) is fully implemented as WPF value converters, but the actual visual elements referencing those converters were never added to the task button's control template. This is a missing-markup issue, not a missing-asset issue — no icon or image is involved in this feature.
 
-### Language switcher
-
-The Windows 7/8.1-style input language switcher (tray abbreviation such as "ITA"/"ENG" plus the native popup for picking a keyboard layout) is implemented in the native core and wired up on the managed side, but the currently shipped `Win7TaskbarCore.dll` in alpha builds does not export the four functions this feature depends on. This points to a stale native build that predates the language-switcher code being added, not a logic bug in the feature itself. Rebuilding the native core and verifying the export table before packaging should resolve it.
-
 ## Areas that are already in good shape
 
 - The Windows 7-style Start orb and main taskbar layout are present.
@@ -81,6 +77,7 @@ The Windows 7/8.1-style input language switcher (tray abbreviation such as "ITA"
 - The overflow experience is generally good.
 - Flyouts are generally functional and visually close to the target.
 - The Windows 7-style clock flyout is now considered complete.
+- The Windows 7/8.1-style language switcher is functional with both Windows 7 and Windows 8.1 skins.
 - Application-name tooltips are available.
 - Overall Windows 7 accuracy is already fairly high.
 
