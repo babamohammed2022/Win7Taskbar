@@ -20,6 +20,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Win7Taskbar.Utilities;
 
 namespace Win7Taskbar.Interop
 {
@@ -604,26 +605,61 @@ namespace Win7Taskbar.Interop
             try { NativeMethods.W7T_CloseClassicVolume(); } catch { }
         }
 
-        /// <summary>v2.38: Jump List stile Windows 7 sul pulsante. iconArgb =
-        /// BGRA dritto (non premoltiplicato) top-down. iconArgb null se
-        /// l'icona non e' disponibile.</summary>
-        public void JumpListShow(int left, int top, int right, int bottom,
+        // ---------------------------------------------------------------
+        //  Jump List (sistema del gesto: clic sinistro + trascinamento
+        //  verso l'alto). Coordinate: PIXEL FISICI DELLO SCHERMO.
+        //
+        //  I metodi sono sottili di proposito: chi li chiama
+        //  (TaskbarWindow.JumpList.cs) e' il punto che conosce il gesto e
+        //  puo' annullarlo, quindi e' li' che ogni chiamata e' avvolta in
+        //  try/catch con log e CancelJumpList(). Qui non si convertono le
+        //  eccezioni in nessun comportamento: si lasciano salire.
+        //  L'unica eccezione e' JumpListHide, chiamato dai percorsi di
+        //  pulizia: un secondo errore durante l'annullamento non deve
+        //  nascondere il primo.
+        // ---------------------------------------------------------------
+
+        /// <summary>Carica dalla shell le voci reali dell'applicazione e
+        /// mostra il popup ancorato al rettangolo del pulsante. Ritorna il
+        /// numero di voci (0 = solo righe standard) o un codice negativo di
+        /// fallimento. appId riceve l'AppUserModelID risolta (vuota se la
+        /// shell non ne espone una).</summary>
+        public int JumpListOpen(NativeMethods.RECT buttonRect, int edge,
             string title, string launchPath, string pinnedLnk, bool isPinned,
-            uint[]? iconArgb, int iconW, int iconH, int lang)
+            ulong hwnd, string exePath, uint[]? iconArgb, int iconW, int iconH,
+            int lang, out string appId)
         {
-            try
-            {
-                var rc = new NativeMethods.RECT { Left = left, Top = top, Right = right, Bottom = bottom };
-                NativeMethods.W7T_JumpListShow(ref rc, title ?? string.Empty,
-                    launchPath ?? string.Empty, pinnedLnk ?? string.Empty,
-                    isPinned ? 1 : 0, iconArgb, iconW, iconH, lang);
-            }
-            catch { /* mai propagare */ }
+            var id = new System.Text.StringBuilder(512);
+            int entries = NativeMethods.W7T_JumpListOpen(ref buttonRect, edge,
+                title ?? string.Empty, launchPath ?? string.Empty,
+                pinnedLnk ?? string.Empty, isPinned ? 1 : 0, hwnd,
+                exePath ?? string.Empty, iconArgb, iconW, iconH, lang,
+                id, id.Capacity);
+            appId = id.ToString();
+            return entries;
         }
+
+        /// <summary>Vero finche' il cursore resta nell'area di interazione
+        /// del gesto (popup + pulsante + corridoio fra i due).</summary>
+        public bool JumpListSetHover(int screenX, int screenY)
+            => NativeMethods.W7T_JumpListSetHover(screenX, screenY) == 1;
+
+        /// <summary>Rilascio del gesto: attiva la riga sotto il cursore e
+        /// chiude il popup. bits: 1 documento, 2 riga applicazione,
+        /// 4 pin invertito. Ritorna falso se il popup non era aperto.</summary>
+        public bool JumpListActivateAt(int screenX, int screenY, out int bits)
+            => NativeMethods.W7T_JumpListActivateAt(screenX, screenY, out bits) == 1;
 
         public void JumpListHide()
         {
-            try { NativeMethods.W7T_JumpListHide(); } catch { }
+            try { NativeMethods.W7T_JumpListHide(); }
+            catch (Exception ex)
+            {
+                // Cleanup path only: logged, never thrown (an error here
+                // must not mask the failure that is being handled).
+                System.Diagnostics.Debug.WriteLine(
+                    "JumpList hide: " + ex.Message);
+            }
         }
 
         /// <summary>v2.38: flyout batteria ricreato, ancorato al rettangolo
@@ -660,6 +696,39 @@ namespace Win7Taskbar.Interop
         /// </summary>
         public bool OpenNotificationIconsSettings()
             => NativeMethods.W7T_OpenNotificationIconsSettings() == W7TResult.Ok;
+
+        /// <summary>
+        /// v1.7.6: opens the program's OWN "Notification Area Icons" page
+        /// (native dialog, zero registry: it configures only this tray).
+        /// Returns +1 opened, 0 already open (raised), negative when the
+        /// page is unavailable - an older core without the export must make
+        /// the caller degrade to the previous behavior, never crash the
+        /// click. Failures are logged, never swallowed.
+        /// </summary>
+        public int ShowNotificationIconsCpl(IntPtr owner)
+        {
+            try
+            {
+                return NativeMethods.W7T_TrayCplShow((ulong)owner);
+            }
+            catch (EntryPointNotFoundException ex)
+            {
+                DiagnosticLogger.Write("TRAYCPL",
+                    "core without W7T_TrayCplShow: " + ex.Message);
+                return -99;
+            }
+            catch (DllNotFoundException ex)
+            {
+                DiagnosticLogger.Write("TRAYCPL",
+                    "core not loaded: " + ex.Message);
+                return -99;
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.WriteException("TRAYCPL", ex);
+                return -1;
+            }
+        }
 
         /// <summary>
         /// v2.2: scrive una riga in log-core.txt (diagnostica dei percorsi

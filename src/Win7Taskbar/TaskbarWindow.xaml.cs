@@ -2050,11 +2050,13 @@ namespace Win7Taskbar
                 sender is FrameworkElement { DataContext: TaskGroup group } &&
                 group.IsActive;
 
-            // v2.40: arma il riconoscimento del trascinamento verso l'alto
-            // (apre la Jump List); un clic senza movimento resta un clic.
-            _taskDragStart = e.GetPosition(null);
-            _taskDragArmed = true;
-            _taskDragOpened = false;
+            // Jump List subsystem (TaskbarWindow.JumpList.cs): arms the
+            // press + drag-up detection. Nothing opens on mouse-down; a
+            // click without movement stays a plain click.
+            if (sender is FrameworkElement fe)
+            {
+                BeginPotentialJumpListDrag(fe, e);
+            }
         }
 
         /// <summary>v2.28: avvio robusto: prima la shell nativa con retry,
@@ -2090,11 +2092,11 @@ namespace Win7Taskbar
 
         private void TaskButton_Click(object sender, RoutedEventArgs e)
         {
-            // v2.40: se il "clic" e' in realta' la coda del trascinamento che
-            // ha aperto la Jump List, non eseguire l'azione di clic.
-            if (_taskDragOpened)
+            // A press + drag-up that opened (or attempted) the Jump List
+            // consumes this release: it must not activate the group. A
+            // normal click never sets the flag (see TaskbarWindow.JumpList.cs).
+            if (ShouldSuppressClickAfterJumpList())
             {
-                _taskDragOpened = false;
                 e.Handled = true;
                 return;
             }
@@ -2259,6 +2261,14 @@ namespace Win7Taskbar
                 return;
             }
 
+            // The Jump List gesture never gets a tooltip on top of it (same
+            // "one popup at a time" rule as the preview, v2.53).
+            if (IsJumpListGestureActive())
+            {
+                e.Handled = true;
+                return;
+            }
+
             _openButtonTip = sender as ToolTip;
         }
 
@@ -2357,6 +2367,14 @@ namespace Win7Taskbar
              * leaves every other behaviour (tooltips, click, middle click,
              * jump lists) exactly as it was. */
             if (!TaskPreviewsEnabled)
+            {
+                return;
+            }
+
+            /* The Jump List gesture owns the pointer: a preview popping up
+             * while its list is open (or being dragged out) would stack two
+             * flyovers over one button - Windows 7 shows one or the other. */
+            if (IsJumpListGestureActive())
             {
                 return;
             }
@@ -2474,6 +2492,13 @@ namespace Win7Taskbar
                 bool overPopup = TaskPreviewPopup.Child is FrameworkElement child &&
                                  child.IsMouseOver;
 
+                /* v1.7.6: the thumbnail controls resize themselves when the
+                 * source aspect becomes known, and the popup's WIN32 window
+                 * does not always shrink back with them: what stays behind
+                 * is a strip of bare popup surface beside the Aero frame
+                 * (the "white band" report). The tick doubles as the
+                 * alignment check for that - see FitPreviewPopupToContent. */
+                FitPreviewPopupToContent();
 
                 if (!overAnchor && !overPopup)
                 {
@@ -2486,6 +2511,108 @@ namespace Win7Taskbar
                  * per sempre ne' far esplodere il dispatcher. */
                 Debug.WriteLine($"controllo anteprima: {ex.Message}");
                 CloseTaskPreview();
+            }
+        }
+
+        /// <summary>
+        /// v1.7.6: re-fits the preview popup's WIN32 window to the actual
+        /// laid-out size of its content, so no extra uncovered surface of
+        /// the popup can show next to the Aero frame.
+        ///
+        /// The preview chain is Popup -> frame -> center cell -> thumbnail
+        /// -> DWM rectangle, and each layer is sized from the previous one.
+        /// WPF decides the popup window size, but that size can go stale:
+        /// a reused popup window keeps the bigger width of the previous
+        /// group while the content shrank, and the leftover pixels are
+        /// painted with the popup background - a strip that reads as a
+        /// white band OUTSIDE the frame, exactly the reported shape. DWM
+        /// success never caught it, because the DWM part was fine: the
+        /// mismatch lives purely in popup composition.
+        ///
+        /// All sizes below are device pixels of the POPUP host window; the
+        /// anchor's PointToScreen output is already screen device pixels
+        /// (never rescaled - same rule as the jump-list code). When the
+        /// window is off by more than one pixel, the popup is resized AND
+        /// repositioned with the same offsets WPF's custom placement uses,
+        /// so the re-fit is invisible except for the strip that disappears.
+        /// A silent no-op when the sizes already agree.
+        /// </summary>
+        private void FitPreviewPopupToContent()
+        {
+            try
+            {
+                if (TaskPreviewPopup?.IsOpen != true)
+                {
+                    return;
+                }
+                if (TaskPreviewPopup.Child is not FrameworkElement root)
+                {
+                    return;
+                }
+                if (PresentationSource.FromVisual(root) is not HwndSource source)
+                {
+                    return;
+                }
+                IntPtr hwnd = source.Handle;
+                if (hwnd == IntPtr.Zero || root.ActualWidth <= 0.0)
+                {
+                    return;
+                }
+
+                double dpiX = 1.0, dpiY = 1.0;
+                if (source.CompositionTarget != null)
+                {
+                    Matrix m = source.CompositionTarget.TransformToDevice;
+                    dpiX = m.M11;
+                    dpiY = m.M22;
+                }
+
+                int wantW = Math.Max(1, (int)Math.Round(root.ActualWidth * dpiX));
+                int wantH = Math.Max(1, (int)Math.Round(root.ActualHeight * dpiY));
+
+                if (!NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT rc))
+                {
+                    return;
+                }
+                int haveW = rc.Right - rc.Left;
+                int haveH = rc.Bottom - rc.Top;
+                if (Math.Abs(haveW - wantW) <= 1 && Math.Abs(haveH - wantH) <= 1)
+                {
+                    return;   // already fitted: no log, no churn
+                }
+
+                // Reposition with the SAME custom-placement formula WPF
+                // used, so the popup keeps touching the bar the same way.
+                int x = rc.Left, y = rc.Top;
+                if (_previewAnchor is FrameworkElement anchor && anchor.IsVisible)
+                {
+                    Point anchorTopLeftPx = anchor.PointToScreen(new Point(0, 0));
+                    CustomPopupPlacement[] placement = ComputeTaskPreviewPlacement(
+                        new Size(wantW / dpiX, wantH / dpiY),
+                        new Size(anchor.ActualWidth, anchor.ActualHeight));
+                    if (placement.Length > 0)
+                    {
+                        x = (int)Math.Round(anchorTopLeftPx.X +
+                                             placement[0].Point.X * dpiX);
+                        y = (int)Math.Round(anchorTopLeftPx.Y +
+                                             placement[0].Point.Y * dpiY);
+                    }
+                }
+
+                NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, x, y, wantW, wantH,
+                                           NativeMethods.SWP_NOZORDER |
+                                           NativeMethods.SWP_NOACTIVATE);
+
+                Utilities.DiagnosticLogger.Write("PREVIEW",
+                    $"popup refit: window {haveW}x{haveH} -> content {wantW}x{wantH}" +
+                    " (popup-host device px; strip removed beside the frame)");
+            }
+            catch (Exception ex)
+            {
+                /* Cosmetic guarantee: if anything here fails the preview
+                 * simply keeps the WPF-computed size (the pre-v1.7.6
+                 * behaviour). Never take the popup down over a fit. */
+                Debug.WriteLine($"fit anteprima: {ex.Message}");
             }
         }
 
@@ -2504,6 +2631,11 @@ namespace Win7Taskbar
                 _previewWatchTimer.Stop();
                 _previewWatchTimer.Start();
 
+                /* v1.7.6: first popup-to-content alignment right away, at
+                 * the layout priority (the first fit must not wait for the
+                 * watch tick; the tick then re-checks cheaply). */
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
+                    new Action(FitPreviewPopupToContent));
             }
             catch (Exception ex)
             {
@@ -2741,8 +2873,10 @@ namespace Win7Taskbar
         // v2.40: il clic DESTRO ripristina il menu contestuale di Windows 7
         // (sistema per una finestra, gruppo per piu' finestre, avvio/rimozione
         // per un pin idle). La Jump List si apre invece col TRASCINAMENTO
-        // verso l'alto del clic SINISTRO (vedi TaskButton_MouseMove), come fa
-        // la Superbar originale: cosi' il destro non perde mai "Chiudi" & co.
+        // verso l'alto del clic SINISTRO (sistema in TaskbarWindow.JumpList.cs),
+        // come fa la Superbar originale: cosi' il destro non perde mai "Chiudi" & co.
+        // Il menu del destro NON guadagna nessuna voce di Jump List: le due
+        // superfici restano separate esattamente come in Windows 7.
         private void TaskButton_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             if (sender is not FrameworkElement element || element.DataContext is not TaskGroup group)
@@ -2852,131 +2986,10 @@ namespace Win7Taskbar
             }
         }
 
-        // v2.40: trascinamento verso l'alto col clic sinistro = Jump List,
-        // come la Superbar di Windows 7. Un semplice clic resta un clic.
-        private Point _taskDragStart;
-        private bool _taskDragArmed;
-        private bool _taskDragOpened;
-
-        private void TaskButton_MouseMove(object sender, MouseEventArgs e)
-        {
-            if (sender is not FrameworkElement element || element.DataContext is not TaskGroup group)
-                return;
-
-            if (e.LeftButton != MouseButtonState.Pressed)
-            {
-                _taskDragArmed = false;
-                return;
-            }
-
-            if (!_taskDragArmed) return;
-
-            Point pos = e.GetPosition(null);
-            Vector moved = pos - _taskDragStart;
-            // Solo verso l'alto, oltre la soglia di drag di sistema.
-            if (moved.Y < -SystemParameters.MinimumVerticalDragDistance &&
-                Math.Abs(moved.Y) > Math.Abs(moved.X))
-            {
-                _taskDragArmed = false;
-                _taskDragOpened = true;
-                ShowTaskButtonJumpList(element, group);
-            }
-        }
-
-        private void TaskButton_MouseLeftButtonUpReset(object sender, MouseButtonEventArgs e)
-        {
-            _taskDragArmed = false;
-        }
-
-        /// <summary>v2.38: converte un ImageSource in pixel BGRA dritti
-        /// (non premoltiplicati) top-down, il formato che il nativo
-        /// MakeHBitmapFromArgb si aspetta. null se l'icona non e'
-        /// disponibile.</summary>
-        private static uint[]? ExtractBgra32(ImageSource? source,
-            out int width, out int height)
-        {
-            width = 0;
-            height = 0;
-            if (source == null) return null;
-            try
-            {
-                if (source is not System.Windows.Media.Imaging.BitmapSource bmp)
-                {
-                    return null;
-                }
-                if (bmp.Format != System.Windows.Media.PixelFormats.Bgra32)
-                {
-                    bmp = new System.Windows.Media.Imaging.FormatConvertedBitmap(
-                        bmp, System.Windows.Media.PixelFormats.Bgra32, null, 0);
-                }
-                width = bmp.PixelWidth;
-                height = bmp.PixelHeight;
-                if (width <= 0 || height <= 0)
-                {
-                    width = 0;
-                    height = 0;
-                    return null;
-                }
-                var bytes = new byte[width * height * 4];
-                bmp.CopyPixels(bytes, width * 4, 0);
-                var pixels = new uint[width * height];
-                Buffer.BlockCopy(bytes, 0, pixels, 0, bytes.Length);
-                return pixels;
-            }
-            catch
-            {
-                width = 0;
-                height = 0;
-                return null;
-            }
-        }
-
-        /// <summary>v2.38: apre la Jump List nativa ancorata al rettangolo del
-        /// pulsante. Il nativo gestisce: riga app (nuova istanza), pin/unpin;
-        //  la sezione recenti e' disattivata in questa versione.</summary>
-        private void ShowTaskButtonJumpList(FrameworkElement element, TaskGroup group)
-        {
-            try
-            {
-                double scale = _hwndSource?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-                if (scale <= 0) scale = 1.0;
-
-                Point tl = element.PointToScreen(new Point(0, 0));
-                int left = (int)Math.Round(tl.X * scale);
-                int top = (int)Math.Round(tl.Y * scale);
-                int right = left + (int)Math.Round(element.ActualWidth * scale);
-                int bottom = top + (int)Math.Round(element.ActualHeight * scale);
-
-                // Nome dell'applicazione (senza estensione) come Windows 7.
-                string title = group.AppId;
-                if (!string.IsNullOrEmpty(group.ExePath))
-                {
-                    try { title = System.IO.Path.GetFileNameWithoutExtension(group.ExePath); }
-                    catch (ArgumentException) { title = group.AppId; }
-                }
-                if (string.IsNullOrWhiteSpace(title))
-                {
-                    title = group.DisplayTitle;
-                }
-
-                string launchPath = !string.IsNullOrEmpty(group.LaunchPath)
-                    ? group.LaunchPath
-                    : (group.ExePath ?? string.Empty);
-                string pinnedLnk = group.LaunchPath ?? string.Empty;
-
-                uint[]? icon = ExtractBgra32(group.Icon, out int iconW, out int iconH);
-
-                int lang = Math.Max(0, Array.IndexOf(kLangCodes,
-                    RetroBar.Utilities.Settings.Instance.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode));
-
-                _bridge.JumpListShow(left, top, right, bottom, title,
-                    launchPath, pinnedLnk, group.IsPinned, icon, iconW, iconH, lang);
-            }
-            catch (Exception ex)
-            {
-                _bridge.Log($"jump list: {ex.Message}");
-            }
-        }
+        // The left-button press + drag-up Jump List gesture (state machine,
+        // identity hand-off, popup calls and teardown) lives in the partial
+        // file TaskbarWindow.JumpList.cs together with its icon-transport
+        // helper. The right-click menu above stays untouched by design.
 
         /// <summary>
         /// v2.61 - Testo di menu localizzato.
@@ -4429,6 +4442,34 @@ namespace Win7Taskbar
 
         private void OpenNotificationAreaIconsApplet()
         {
+            /* v1.7.6: the menu item opens the program's OWN page now - the
+             * recreated "Notification Area Icons" dialog that configures the
+             * icons of THIS tray (three states per icon, always-show switch,
+             * system-icon page, restore link), with the choices persisted in
+             * trayicons.ini and ZERO registry involvement. Modeless: the
+             * page lives on this dispatcher and the tray keeps updating
+             * while it is open. Only when the page cannot be created at all
+             * (old native build without the export, failed window) does the
+             * click degrade to the previous chain below - never to nothing,
+             * never silently. */
+            try
+            {
+                int opened = _bridge.ShowNotificationIconsCpl(new System.Windows.Interop.WindowInteropHelper(this).Handle);
+                if (opened >= 0)
+                {
+                    Utilities.DiagnosticLogger.Write("TRAYCPL",
+                        opened == 1 ? "own page opened" : "own page already open (raised)");
+                    return;
+                }
+                Utilities.DiagnosticLogger.Write("TRAYCPL",
+                    $"own page unavailable (code {opened}), falling back to the system page");
+            }
+            catch (Exception ex)
+            {
+                Utilities.DiagnosticLogger.WriteException("TRAYCPL", ex,
+                    "own page threw before the fallback");
+            }
+
             // 1) Meccanismo nativo del core (ShellExecuteEx sul namespace).
             try
             {

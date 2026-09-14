@@ -148,6 +148,17 @@ std::wstring ComputeAppId(HWND hwnd, DWORD pid, const std::wstring& exePath);
 /* Indice del monitor che contiene la finestra. */
 int32_t GetMonitorIndexForWindow(HWND hwnd);
 
+/* Effective DPI (device pixels per 96 DIP) of the monitor that owns a
+ * screen rectangle, in PHYSICAL pixels. Centralized helper for popups that
+ * must be sized/placed before their HWND exists (the Jump List): resolves
+ * the monitor with MonitorFromRect, then GetDpiForMonitor (shcore, loaded
+ * dynamically - Win8.1+), falling back to GetDpiForWindow on the desktop
+ * window (Win10 1607+) and finally to GetDeviceCaps(LOGPIXELSX), same
+ * ladder AppSearchWindow uses for its own panel. Never returns < 96.
+ * The rect argument is in screen physical pixels, like every coordinate
+ * crossing the managed boundary of this project. */
+UINT GetDpiForScreenRect(const RECT& screenRect);
+
 /* ------------------------------------------------------------------ */
 /*  Versione di Windows                                                */
 /*                                                                     */

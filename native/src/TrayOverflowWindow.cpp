@@ -4,6 +4,7 @@
 #include "TrayOverflowWindow.h"
 #include "Strings.h"
 #include "TrayService.h"
+#include "TrayCplDialog.h"   /* v1.7.6: "Customize..." opens our own page */
 #include "FlyoutLauncher.h"   /* ApplyAeroFlyoutStyle: bordi Aero */
 #include <dwmapi.h>
 #include <shellapi.h>
@@ -452,12 +453,22 @@ LRESULT CALLBACK TrayOverflowWindow::WndProc(HWND hWnd, UINT msg,
             self->m_dragIdx = -1;
         }
         if (PtInRect(&self->m_footerRect, p)) {
-            // v3.0: nulla di piu' nulla di meno del bersaglio shell chiesto
-            // dall'utente: la pagina "Icone di notifica" via CLSID.
-            ShellExecuteW(hWnd, L"open",
-                          L"shell:::{05d7b0f4-2121-4eff-bf6b-ed3f69b894d9}",
-                          nullptr, nullptr, SW_SHOWNORMAL);
+            /* v1.7.6: "Customize..." now opens the program's OWN page
+             * (the recreated "Notification Area Icons", TrayCplDialog).
+             * It controls only this tray's icons and leaves no registry
+             * trace at all. The panel closes BEFORE the page opens (the
+             * old shell-target behavior, kept); the dialog is modeless on
+             * THIS thread's pump (the service thread already pumps its own
+             * messages), so the bar is never blocked and nothing spawns
+             * control.exe. If the page cannot open (old native build,
+             * missing template) the click stays honest: one log line, no
+             * silent nothing - and never a handoff to the Windows page,
+             * which would configure a tray this program does not own. */
             self->Hide();
+            const int32_t rc = TrayCplDialog::Instance().Show(nullptr);
+            if (rc < 0) {
+                AppendCoreLog(L"overflow: pagina Notification Area Icons non disponibile");
+            }
             return 0;
         }
         self->ForwardClick(self->HitTestIcon(p), false);

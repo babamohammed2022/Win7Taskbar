@@ -58,7 +58,16 @@
          ================================================================== -->
     <ControlTemplate x:Key="TaskPreviewFrameVista"
                      TargetType="ContentControl">
-        <Grid SnapsToDevicePixels="True">
+        <!-- v1.7.6: the template now CONSUMES the control's Background
+             (TemplateBinding on the root Grid). The instance declares
+             #FFDCEBF9 - the same blue as the top of the frame images - and
+             until now the template ignored it: an unused declaration plus a
+             seam risk wherever the nine PNG pieces do not tile perfectly.
+             With the binding the frame rectangle is guaranteed painted
+             end to end, so no extra uncovered surface can appear next to
+             the Aero frame (the "white strip" family of defects). -->
+        <Grid SnapsToDevicePixels="True"
+              Background="{TemplateBinding Background}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -197,11 +206,15 @@
             </StackPanel>
             <Grid IsHitTestVisible="False">
                 <!-- linea piu' vicina al bordo destro (2 finestre) -->
-                <!-- v1.7.2: la linea ESTERNA scivola leggermente verso
-                     destra aprendo schede: +2% della larghezza del
-                     pulsante per scheda, contando fino a 3 (con 4+
-                     resta come a 3). RenderTransform: zero impatto sul
-                     layout, come il resto dell'overlay. -->
+                <!-- v1.7.2: the OUTER line slid slightly right as sheets
+                     opened: +2% of the button width per sheet, counted up
+                     to 3 (4+ behaves as 3). v1.7.6: +2.5% right for ALL
+                     lines at 2+ sheets, and a FURTHER +3% right for the
+                     outer line only when MORE THAN 2 sheets are open
+                     (3+ is one single case - no new per-sheet cases were
+                     invented above 3). Outer line totals: 4.5% at 2
+                     sheets, 9.5% at 3+. RenderTransform: zero layout
+                     impact, like the rest of the overlay. -->
                 <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
                        Width="3" Height="40"
                        Stretch="Fill"
@@ -225,6 +238,10 @@
                     </Image.RenderTransform>
                 </Image>
                 <!-- seconda linea, un gradino piu' a sinistra (3+ finestre) -->
+                <!-- v1.7.6: this line slides +2.5% right as well
+                     (parameter "inner": it never gets the outer line's
+                     extra +3% at 3+ sheets). RenderTransform again:
+                     zero layout impact. -->
                 <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
                        Width="3" Height="40"
                        Stretch="Fill"
@@ -234,7 +251,20 @@
                        SnapsToDevicePixels="True"
                        Visibility="{Binding WindowCount,
                                     Converter={StaticResource WindowStackVisibility},
-                                    ConverterParameter=2}" />
+                                    ConverterParameter=2}">
+                    <Image.RenderTransform>
+                        <TranslateTransform>
+                            <TranslateTransform.X>
+                                <MultiBinding Converter="{StaticResource WindowStackOuterBorderOffset}"
+                                              ConverterParameter="inner">
+                                    <Binding RelativeSource="{RelativeSource AncestorType=Button}"
+                                             Path="ActualWidth" />
+                                    <Binding Path="WindowCount" />
+                                </MultiBinding>
+                            </TranslateTransform.X>
+                        </TranslateTransform>
+                    </Image.RenderTransform>
+                </Image>
             </Grid>
         </Grid>
     </DataTemplate>

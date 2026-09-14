@@ -182,6 +182,38 @@ struct PropStrings {
 const PropStrings& PropStringsFor(Lang lang);
 
 /* ------------------------------------------------------------------------ */
+/*  "Notification Area Icons" page (TrayCplDialog.cpp)                      */
+/*                                                                          */
+/*  Same rules as the other tables: one source, English fallback, append    */
+/*  at the end. The texts mirror the Windows 7 page (its exact three-state */
+/*  combo wording included): the page is a faithful re-implementation, but  */
+/*  the DATA and the choices concern ONLY this program, never the system.  */
+/* ------------------------------------------------------------------------ */
+struct TrayCplStrings {
+    const wchar_t* title;            /* didascalia finestra            */
+    const wchar_t* header;           /* istruzione grande in alto      */
+    const wchar_t* description;      /* testo sotto l'istruzione       */
+    const wchar_t* alwaysShow;       /* checkbox globale               */
+    const wchar_t* colIcons;         /* colonna 1                      */
+    const wchar_t* colBehaviors;     /* colonna 2                      */
+    const wchar_t* show;             /* combo: stato 0                 */
+    const wchar_t* notify;           /* combo: stato 1                 */
+    const wchar_t* hide;             /* combo: stato 2                 */
+    const wchar_t* linkSystem;       /* "Turn system icons on or off"  */
+    const wchar_t* linkRestore;      /* "Restore default behaviors"    */
+    const wchar_t* ok;
+    const wchar_t* cancel;
+    const wchar_t* sysDescription;   /* pagina 2, testo sotto il titolo */
+    const wchar_t* sysNetwork;       /* etichette dei tre interruttori   */
+    const wchar_t* sysVolume;
+    const wchar_t* sysBattery;
+    const wchar_t* back;             /* pagina 2 -> pagina 1             */
+    const wchar_t* empty;            /* lista vuota: nessun'icona         */
+};
+
+const TrayCplStrings& TrayCplStringsFor(Lang lang);
+
+/* ------------------------------------------------------------------------ */
 /*  Tabella del flyout batteria                                              */
 /* ------------------------------------------------------------------------ */
 struct BattStrings {

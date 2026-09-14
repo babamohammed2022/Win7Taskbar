@@ -230,6 +230,19 @@ W7T_API int32_t  W7T_CALL W7T_SendTrayIconClick(uint64_t ownerHwnd, uint32_t uid
                                                 int32_t clickType, int32_t x, int32_t y);
 W7T_API int32_t  W7T_CALL W7T_SetTrayIconPinned(uint64_t ownerHwnd, uint32_t uid, int32_t pinned);
 
+/* v1.7.6 - pagina "Notification Area Icons" (ricreazione Win7 della
+ * selezione "icone e notifiche visualizzate nella barra", SCOPATA alla
+ * sola tray del programma: nessuna chiave di registro scritta o letta
+ * per le preferenze, nessun host del Pannello di controllo, nessuna
+ * registrazione CLSID on-demand). Modeless come la finestra Proprieta':
+ * vive sul pump del thread chiamante e il core continua ad aggiornare
+ * la tray in tempo reale mentre la pagina e' aperta.
+ * ownerTaskbar puo' essere 0 (pagina senza proprietario).
+ * Ritorno: 1 = aperta, 0 = gia' aperta (sollevata), <0 = W7T_ERR_*.
+ * Le modifiche della pagina si applicano immediatamente; Annulla
+ * riavvolge tutto allo snapshot preso all'apertura. */
+W7T_API int32_t  W7T_CALL W7T_TrayCplShow(uint64_t ownerTaskbar);
+
 /* Riordino del modello dopo il trascinamento nella barra: sposta l'icona
  * (ownerHwnd,uid) accanto a (targetHwnd,targetUid) nel toolbar reale con
  * TB_MOVEBUTTON, come fa la shell. insertAfter: 1 per dopo il bersaglio. */
@@ -420,14 +433,40 @@ W7T_API int32_t W7T_CALL W7T_TrayOwnerModuleMatch(uint64_t ownerHwnd,
 W7T_API int32_t W7T_CALL W7T_LaunchClassicVolume(int32_t x, int32_t y);
 
 /* ------------------------------------------------------------------ */
-/*  v2.38: Jump List stile Windows 7 (click destro sui pulsanti).     */
-/*  iconArgb = BGRA dritto (non premoltiplicato), top-down.           */
+/*  Jump List stile Windows 7 - sistema del gesto (clic sinistro +      */
+/*  trascinamento verso l'alto). TUTTE le coordinate (rettangolo del    */
+/*  pulsante, punti di hover/attivazione) sono PIXEL FISICI DELLO       */
+/*  SCHERMO; la geometria del popup e' scalata sul DPI del monitor      */
+/*  del pulsante. iconArgb = BGRA dritto (non premoltiplicato),         */
+/*  top-down. I dati vengono solo dalle API pubbliche della shell       */
+/*  (IApplicationDocumentLists + property store della finestra/.lnk):   */
+/*  nessuna voce inventata.                                             */
 /* ------------------------------------------------------------------ */
-W7T_API void W7T_CALL W7T_JumpListShow(const RECT* buttonRect,
-        const wchar_t* title, const wchar_t* launchPath,
-        const wchar_t* pinnedLnk, int32_t isPinned,
-        const uint32_t* iconArgb, int32_t iconW, int32_t iconH,
-        int32_t lang);
+
+/* Costruisce e mostra il popup ancorato al pulsante. Ritorna il numero
+ * di voci reali lette dalla shell (>=0), o un codice di fallimento
+ * negativo (-1 COM/Shell, -2 creazione finestra, -3 argomento nullo):
+ * il lato gestito annulla il gesto in modo controllato. outAppId riceve
+ * l'AppUserModelID risolta per il log gestito (puo' restare vuota). */
+W7T_API int32_t W7T_CALL W7T_JumpListOpen(const RECT* buttonRect,
+        int32_t edge, const wchar_t* title, const wchar_t* launchPath,
+        const wchar_t* pinnedLnk, int32_t isPinned, uint64_t hwnd,
+        const wchar_t* exePath, const uint32_t* iconArgb,
+        int32_t iconW, int32_t iconH, int32_t lang,
+        wchar_t* outAppId, int32_t outAppIdCap);
+
+/* 1 se il punto schermo e' ancora nell'area di interazione del gesto
+ * (popup + pulsante + corridoio fra i due), 0 se l'ha lasciata. */
+W7T_API int32_t W7T_CALL W7T_JumpListSetHover(int32_t screenX,
+        int32_t screenY);
+
+/* Attiva la riga sotto il punto schermo al rilascio del pulsante
+ * sinistro; chiude sempre il popup. outBits: 1 = documento aperto,
+ * 2 = riga applicazione, 4 = pin invertito. Ritorna 1 se il popup era
+ * aperto, 0 se non c'era nulla da chiudere. */
+W7T_API int32_t W7T_CALL W7T_JumpListActivateAt(int32_t screenX,
+        int32_t screenY, int32_t* outBits);
+
 W7T_API void W7T_CALL W7T_JumpListHide(void);
 
 /* ------------------------------------------------------------------ */

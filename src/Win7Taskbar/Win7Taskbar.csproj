@@ -121,7 +121,7 @@
          switcher; the remaining paint paths use RAII guards (ScopeGuards.h)
          and every entry point catches. The v1.7.4 shell menu stays as the
          automatic fallback if the popup path cannot be reached. -->
-    <Version>1.7.5-alpha</Version>
+    <Version>1.8.0-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
