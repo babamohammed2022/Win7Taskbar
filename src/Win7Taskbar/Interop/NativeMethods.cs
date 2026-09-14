@@ -779,6 +779,10 @@ namespace Win7Taskbar.Interop
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetCursorPos(out POINT lpPoint);
+
         /* =================================================================
          * v2.56: z-order helpers.
          *

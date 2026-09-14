@@ -2470,6 +2470,29 @@ namespace Win7Taskbar
             };
         }
 
+        /// <summary>
+        /// A layered popup can contain pixels painted directly by DWM rather
+        /// than WPF. Those pixels are visibly under the pointer but do not
+        /// always update IsMouseOver, so use the popup HWND bounds as the
+        /// authoritative hover test. It remains open only while the cursor is
+        /// actually inside the popup (or over its taskbar anchor).
+        /// </summary>
+        private bool IsPointerInsideTaskPreviewPopup()
+        {
+            if (TaskPreviewPopup?.IsOpen != true ||
+                TaskPreviewPopup.Child is not Visual child ||
+                PresentationSource.FromVisual(child) is not HwndSource source ||
+                source.Handle == IntPtr.Zero ||
+                !NativeMethods.GetWindowRect(source.Handle, out NativeMethods.RECT rect) ||
+                !NativeMethods.GetCursorPos(out NativeMethods.POINT cursor))
+            {
+                return false;
+            }
+
+            return cursor.x >= rect.Left && cursor.x < rect.Right &&
+                   cursor.y >= rect.Top && cursor.y < rect.Bottom;
+        }
+
         private void PreviewWatchTimer_Tick(object? sender, EventArgs e)
         {
             try
@@ -2482,7 +2505,8 @@ namespace Win7Taskbar
 
                 bool overAnchor = _previewAnchor?.IsMouseOver == true;
                 bool overPopup = _previewPointerInside ||
-                    (TaskPreviewPopup.Child is FrameworkElement child && child.IsMouseOver);
+                    (TaskPreviewPopup.Child is FrameworkElement child && child.IsMouseOver) ||
+                    IsPointerInsideTaskPreviewPopup();
 
                 if (!overAnchor && !overPopup)
                 {
