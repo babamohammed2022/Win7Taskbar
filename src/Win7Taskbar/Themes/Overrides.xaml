@@ -230,11 +230,10 @@
                 <!-- v1.7.2: the OUTER line slid slightly right as sheets
                      opened: +2% of the button width per sheet, counted up
                      to 3 (4+ behaves as 3). v1.7.6: +2.5% right for ALL
-                     lines at 2+ sheets, and a FURTHER +3% right for the
+                     lines at 2+ sheets, and a FURTHER +2.5% right for the
                      outer line only when MORE THAN 2 sheets are open
                      (3+ is one single case - no new per-sheet cases were
-                     invented above 3). Outer line totals: 4.5% at 2
-                     sheets, 9.5% at 3+. RenderTransform: zero layout
+                     invented above 3). RenderTransform has zero layout
                      impact, like the rest of the overlay. -->
                 <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
                        Width="3" Height="40"
@@ -261,7 +260,7 @@
                 <!-- seconda linea, un gradino piu' a sinistra (3+ finestre) -->
                 <!-- v1.7.6: this line slides +2.5% right as well
                      (parameter "inner": it never gets the outer line's
-                     extra +3% at 3+ sheets). RenderTransform again:
+                     extra +2.5% at 3+ sheets). RenderTransform again:
                      zero layout impact. -->
                 <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
                        Width="3" Height="40"

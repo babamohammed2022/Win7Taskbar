@@ -1597,10 +1597,10 @@ namespace Win7Taskbar
                     int sourceAlpha = pixels[i + 3];
                     // Integer Rec.709 approximation. Pure luminance produced
                     // about 21% median opacity and was a little too faint.
-                    // A small floor raises the typical frame to about 29%:
-                    // still clearly translucent, without disappearing.
+                    // A restrained floor raises the typical frame to about
+                    // 25%: above 20%, but still strongly translucent.
                     int luminance = (54 * red + 183 * green + 19 * blue + 128) >> 8;
-                    int maskCoverage = 32 + ((223 * luminance + 127) / 255);
+                    int maskCoverage = 16 + ((239 * luminance + 127) / 255);
                     pixels[i] = 0xFF;
                     pixels[i + 1] = 0xFF;
                     pixels[i + 2] = 0xFF;

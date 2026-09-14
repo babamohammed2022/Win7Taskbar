@@ -174,7 +174,7 @@ namespace Win7Taskbar.Converters
     ///  - every stacked-borders line includes the previous +2.5%, then
     ///    moves a further +2% right;
     ///  - with MORE THAN 2 sheets open the OUTER line gets a further
-    ///    +3% rightward. 3 sheets and 3+ sheets are one case: the count
+    ///    +2.5% rightward. 3 sheets and 3+ sheets are one case: the count
     ///    is clamped at 3, no new per-sheet case above it was invented.
     ///
     /// At 3+ the inner line moves another 1.5% toward the outer line,
@@ -215,7 +215,9 @@ namespace Win7Taskbar.Converters
                 bool outer = parameter as string is not "inner";
                 if (outer && count > 2)
                 {
-                    ratio += 0.03;
+                    // With more than two open windows, increase the outer
+                    // stacked border offset by exactly another 2.5%.
+                    ratio += 0.025;
                 }
                 else if (!outer && count > 2)
                 {
