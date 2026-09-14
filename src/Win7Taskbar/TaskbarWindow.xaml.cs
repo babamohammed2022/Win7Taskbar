@@ -2574,8 +2574,8 @@ namespace Win7Taskbar
                 {
                     return;
                 }
-                int haveW = rc.right - rc.left;
-                int haveH = rc.bottom - rc.top;
+                int haveW = rc.Right - rc.Left;
+                int haveH = rc.Bottom - rc.Top;
                 if (Math.Abs(haveW - wantW) <= 1 && Math.Abs(haveH - wantH) <= 1)
                 {
                     return;   // already fitted: no log, no churn
@@ -2583,7 +2583,7 @@ namespace Win7Taskbar
 
                 // Reposition with the SAME custom-placement formula WPF
                 // used, so the popup keeps touching the bar the same way.
-                int x = rc.left, y = rc.top;
+                int x = rc.Left, y = rc.Top;
                 if (_previewAnchor is FrameworkElement anchor && anchor.IsVisible)
                 {
                     Point anchorTopLeftPx = anchor.PointToScreen(new Point(0, 0));
