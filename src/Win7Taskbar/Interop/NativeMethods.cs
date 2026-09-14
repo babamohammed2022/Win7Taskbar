@@ -930,25 +930,6 @@ namespace Win7Taskbar.Interop
             out uint colorization,
             [MarshalAs(UnmanagedType.Bool)] out bool opaqueBlend);
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct DWM_BLURBEHIND
-        {
-            public uint dwFlags;
-            [MarshalAs(UnmanagedType.Bool)] public bool fEnable;
-            public IntPtr hRgnBlur;
-            [MarshalAs(UnmanagedType.Bool)] public bool fTransitionOnMaximized;
-        }
-
-        // Documented Vista/Windows 7 blur-behind API. Microsoft notes that
-        // Windows 8 and later retain the call but no longer produce this blur.
-        [DllImport("dwmapi.dll", PreserveSig = true)]
-        public static extern int DwmEnableBlurBehindWindow(
-            IntPtr hwnd, ref DWM_BLURBEHIND blurBehind);
-
-        [DllImport("dwmapi.dll", PreserveSig = true)]
-        public static extern int DwmSetWindowAttribute(
-            IntPtr hwnd, uint attribute, ref int value, uint valueSize);
-
         // La firma vera e' HRESULT DwmIsCompositionEnabled(BOOL *pfEnabled):
         // il risultato torna nel parametro di uscita, non come valore di
         // ritorno. Dichiararla senza argomenti corrompe lo stack e provoca

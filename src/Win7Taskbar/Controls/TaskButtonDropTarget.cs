@@ -103,7 +103,7 @@ namespace Win7Taskbar.Controls
         /// True when every file in the drop list is probably openable by
         /// the executable (an empty list is vacuously fine).
         /// </summary>
-        internal static bool AllLikelyOpen(string? exePath, string[] files)
+        internal static bool AllLikelyOpen(string? exePath, string[]? files)
         {
             if (files == null || files.Length == 0)
             {

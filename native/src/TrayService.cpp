@@ -2235,8 +2235,6 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
     switch (message) {
         case NIM_ADD:
         case NIM_MODIFY: {
-            std::lock_guard<std::recursive_mutex> lock(m_mutex);
-
             auto it = m_icons.find(key);
             const bool isNew = (it == m_icons.end());
             if (isNew) {
@@ -2373,7 +2371,6 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
         }
 
         case NIM_DELETE: {
-            std::lock_guard<std::recursive_mutex> lock(m_mutex);
             auto it = m_icons.find(key);
             if (it == m_icons.end() && hasGuid) {
                 /* DELETE per GUID: la voce potrebbe essere importata con
@@ -2391,7 +2388,6 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
         }
 
         case NIM_SETVERSION: {
-            std::lock_guard<std::recursive_mutex> lock(m_mutex);
             auto it = m_icons.find(key);
             if (it != m_icons.end()) {
                 it->second.version = nid.uVersion;

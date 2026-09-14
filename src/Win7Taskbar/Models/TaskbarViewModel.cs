@@ -444,8 +444,10 @@ namespace Win7Taskbar.Models
             // ultimo criterio: nome file senza estensione identico
             try
             {
-                string pn = System.IO.Path.GetFileNameWithoutExtension(pin.TargetPath);
-                string gn = System.IO.Path.GetFileNameWithoutExtension(group.ExePath);
+                string pn = System.IO.Path.GetFileNameWithoutExtension(pin.TargetPath)
+                            ?? string.Empty;
+                string gn = System.IO.Path.GetFileNameWithoutExtension(group.ExePath)
+                            ?? string.Empty;
                 return !string.IsNullOrEmpty(pn) &&
                        string.Equals(pn, gn, StringComparison.OrdinalIgnoreCase);
             }

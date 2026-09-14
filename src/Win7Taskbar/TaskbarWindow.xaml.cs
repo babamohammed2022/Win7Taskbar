@@ -1595,14 +1595,12 @@ namespace Win7Taskbar
                     int green = pixels[i + 1];
                     int red = pixels[i + 2];
                     int sourceAlpha = pixels[i + 3];
-                    // Integer Rec.709 approximation. A pure luminance mask
-                    // made this mostly-dark Windows 7 artwork nearly
-                    // invisible (its median effective alpha was about 21%).
-                    // Retain a 63% opacity floor and use luminance only for
-                    // the remaining shading: the typical frame pixel is now
-                    // about 59% opaque, close to restrained Aero glass.
+                    // Integer Rec.709 approximation. Pure luminance produced
+                    // about 21% median opacity and was a little too faint.
+                    // A small floor raises the typical frame to about 29%:
+                    // still clearly translucent, without disappearing.
                     int luminance = (54 * red + 183 * green + 19 * blue + 128) >> 8;
-                    int maskCoverage = 160 + ((95 * luminance + 127) / 255);
+                    int maskCoverage = 32 + ((223 * luminance + 127) / 255);
                     pixels[i] = 0xFF;
                     pixels[i + 1] = 0xFF;
                     pixels[i + 2] = 0xFF;
@@ -1683,7 +1681,6 @@ namespace Win7Taskbar
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             const int WM_DISPLAYCHANGE = 0x007E;
-            const int WM_DWMCOMPOSITIONCHANGED = 0x031E;
             const int WM_DWMCOLORIZATIONCOLORCHANGED = 0x0320;
             const int WM_DPICHANGED = 0x02E0;
             const int WM_MOUSEACTIVATE = 0x0021;
@@ -1724,11 +1721,6 @@ namespace Win7Taskbar
 
             switch (msg)
             {
-                case WM_DWMCOMPOSITIONCHANGED:
-                    // Microsoft requires blur-behind to be reapplied when DWM
-                    // composition changes. This is harmless if no popup is open.
-                    ApplyTaskPreviewBlurBehind();
-                    break;
                 case WM_DWMCOLORIZATIONCOLORCHANGED:
                     // Microsoft documents wParam as the new 0xAARRGGBB
                     // colorization color. This hook runs on WPF's UI thread,
@@ -2660,59 +2652,10 @@ namespace Win7Taskbar
             }
         }
 
-
-
-        private void ApplyTaskPreviewBlurBehind()
-        {
-            try
-            {
-                if (TaskPreviewPopup?.IsOpen != true ||
-                    TaskPreviewPopup.Child is not Visual child ||
-                    PresentationSource.FromVisual(child) is not HwndSource popupSource)
-                {
-                    return;
-                }
-
-                // Microsoft documents a null hRgnBlur with DWM_BB_ENABLE as
-                // blur behind the entire top-level window. DWM honors each
-                // rendered pixel's alpha, so the moderately translucent frame
-                // reveals glass while the live thumbnail remains fully drawn.
-                var blur = new NativeMethods.DWM_BLURBEHIND
-                {
-                    dwFlags = 0x00000001, // DWM_BB_ENABLE
-                    fEnable = true,
-                    hRgnBlur = IntPtr.Zero,
-                    fTransitionOnMaximized = false
-                };
-                _ = NativeMethods.DwmEnableBlurBehindWindow(
-                    popupSource.Handle, ref blur);
-
-                // The classic call intentionally has no visual effect from
-                // Windows 8 onward. On Windows 11 22H2+, use Microsoft's
-                // documented transient-window backdrop (Desktop Acrylic).
-                // Older systems simply reject the unknown attribute.
-                const uint DWMWA_SYSTEMBACKDROP_TYPE = 38;
-                const int DWMSBT_TRANSIENTWINDOW = 3;
-                int backdropType = DWMSBT_TRANSIENTWINDOW;
-                _ = NativeMethods.DwmSetWindowAttribute(
-                    popupSource.Handle, DWMWA_SYSTEMBACKDROP_TYPE,
-                    ref backdropType, sizeof(int));
-            }
-            catch (Exception ex)
-            {
-                // Blur is cosmetic and unsupported visually from Windows 8;
-                // a failure must not close or disable the live preview.
-                try { _bridge.Log($"preview blur: {ex.Message}"); }
-                catch { }
-            }
-        }
-
         private void TaskPreviewPopup_Opened(object? sender, EventArgs e)
         {
             try
             {
-                ApplyTaskPreviewBlurBehind();
-
                 /* v2.45: punto unico di controllo dopo che il popup e' davvero a
                  * schermo. v2.50: non c'e' piu' nessun fondo da preparare (il
                  * popup ha una tinta piena del tema): qui si riavvia solo il
@@ -3070,8 +3013,10 @@ namespace Win7Taskbar
                     var t = Type.GetTypeFromProgID("WScript.Shell");
                     if (t != null)
                     {
-                        dynamic sh = Activator.CreateInstance(t);
-                        var sc = sh.CreateShortcut(lnk);
+                        dynamic sh = Activator.CreateInstance(t)
+                                     ?? throw new InvalidOperationException(
+                                         "WScript.Shell non disponibile");
+                        dynamic sc = sh.CreateShortcut(lnk);
                         sc.TargetPath = exe;
                         sc.Save();
                     }
