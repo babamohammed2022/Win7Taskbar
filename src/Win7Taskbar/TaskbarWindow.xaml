@@ -71,20 +71,16 @@
                             <RowDefinition Height="16" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <!-- The reference preview leaves a narrow glass inset
-                             around the opaque live surface. The translucent
-                             band is outside the DWM destination: it never
-                             tints or covers the represented window. -->
-                        <Border Grid.Row="1"
-                                Padding="3"
-                                BorderThickness="1"
-                                BorderBrush="#70FFFFFF"
-                                Background="#52DCEAF4"
-                                SnapsToDevicePixels="True">
-                            <w7controls:TaskThumbnail x:Name="Thumb"
-                                                      SourceWindowHandle="{Binding HandlePtr}"
-                                                      Title="{Binding Title}" />
-                        </Border>
+                        <!-- The live DWM surface fills the complete centre
+                             cell. Do not add transparent padding here: in a
+                             layered popup it becomes a real opening through
+                             which the already-open window below is visible.
+                             Translucency belongs only to the surrounding eight
+                             frame pieces, outside this destination rectangle. -->
+                        <w7controls:TaskThumbnail x:Name="Thumb"
+                                                  Grid.Row="1"
+                                                  SourceWindowHandle="{Binding HandlePtr}"
+                                                  Title="{Binding Title}" />
                     </Grid>
                 </ContentControl>
 
