@@ -10,6 +10,8 @@ The software has been tested on Windows 10 21H2, Windows 10 22H2, Windows 11 24H
 
 On Windows 11, **ExplorerPatcher is recommended for the best experience**, but it is optional. It can provide a more compatible Windows 10-style taskbar environment and allow Win7Taskbar to use more native notification-area functionality.
 
+**Open-Shell is also recommended alongside Win7Taskbar** for a more complete Windows 7-style desktop experience, particularly for restoring a Windows 7-style Start menu. Open-Shell is optional and complements Win7Taskbar rather than replacing it.
+
 
 **Current state: `Alpha`**
 
@@ -32,6 +34,8 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 > **Use one or the other at a time.**
 >
 > ExplorerPatcher is different and can complement Win7Taskbar on Windows 11.
+>
+> Open-Shell can also be used alongside Win7Taskbar and is recommended when a Windows 7-style Start menu is desired.
 
 ## Installation Guide
 
