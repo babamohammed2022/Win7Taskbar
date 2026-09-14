@@ -530,11 +530,11 @@ namespace Win7Taskbar.Interop
         public void PropertiesShow(IntPtr owner, int lang, int seconds, int nativeFlyout,
             int enableSearch, int netFlyout, int classicVolume, int batteryFlyout,
             int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
-            int inputLanguageMode)
+            int inputLanguageMode, int taskManagerMode)
             => NativeMethods.W7T_PropertiesShow((ulong)owner, lang, seconds, nativeFlyout,
                 enableSearch, netFlyout, classicVolume, batteryFlyout,
                 aeroPeek, toolbarDesktop, toolbarAddress, toolbarLinks,
-                inputLanguageMode);
+                inputLanguageMode, taskManagerMode);
 
         /// <summary>v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).</summary>
         public bool NetFlyoutInit() => NativeMethods.W7T_NetFlyoutInit() == 1;
@@ -644,11 +644,11 @@ namespace Win7Taskbar.Interop
         public bool JumpListSetHover(int screenX, int screenY)
             => NativeMethods.W7T_JumpListSetHover(screenX, screenY) == 1;
 
-        /// <summary>Rilascio del gesto: attiva la riga sotto il cursore e
-        /// chiude il popup. bits: 1 documento, 2 riga applicazione,
-        /// 4 pin invertito. Ritorna falso se il popup non era aperto.</summary>
-        public bool JumpListActivateAt(int screenX, int screenY, out int bits)
-            => NativeMethods.W7T_JumpListActivateAt(screenX, screenY, out bits) == 1;
+        /// <summary>Il rilascio del gesto lascia aperto il popup e gli
+        /// trasferisce focus/input ordinario; la scelta richiede un nuovo
+        /// clic e un clic esterno lo chiude per deactivation.</summary>
+        public void JumpListMakeInteractive()
+            => NativeMethods.W7T_JumpListMakeInteractive();
 
         public void JumpListHide()
         {
@@ -696,39 +696,6 @@ namespace Win7Taskbar.Interop
         /// </summary>
         public bool OpenNotificationIconsSettings()
             => NativeMethods.W7T_OpenNotificationIconsSettings() == W7TResult.Ok;
-
-        /// <summary>
-        /// v1.7.6: opens the program's OWN "Notification Area Icons" page
-        /// (native dialog, zero registry: it configures only this tray).
-        /// Returns +1 opened, 0 already open (raised), negative when the
-        /// page is unavailable - an older core without the export must make
-        /// the caller degrade to the previous behavior, never crash the
-        /// click. Failures are logged, never swallowed.
-        /// </summary>
-        public int ShowNotificationIconsCpl(IntPtr owner)
-        {
-            try
-            {
-                return NativeMethods.W7T_TrayCplShow((ulong)owner);
-            }
-            catch (EntryPointNotFoundException ex)
-            {
-                DiagnosticLogger.Write("TRAYCPL",
-                    "core without W7T_TrayCplShow: " + ex.Message);
-                return -99;
-            }
-            catch (DllNotFoundException ex)
-            {
-                DiagnosticLogger.Write("TRAYCPL",
-                    "core not loaded: " + ex.Message);
-                return -99;
-            }
-            catch (Exception ex)
-            {
-                DiagnosticLogger.WriteException("TRAYCPL", ex);
-                return -1;
-            }
-        }
 
         /// <summary>
         /// v2.2: scrive una riga in log-core.txt (diagnostica dei percorsi
@@ -815,7 +782,9 @@ namespace Win7Taskbar.Interop
 
         public void ShowStartMenu() => NativeMethods.W7T_ShowStartMenu();
 
-        public void ShowTaskManager() => NativeMethods.W7T_ShowTaskManager();
+        public void ShowTaskManager()
+            => NativeMethods.W7T_ShowTaskManagerMode(
+                RetroBar.Utilities.Settings.Instance.TaskManagerMode);
 
         /// <summary>
         /// Apre il menu di sistema REALE della finestra (quello di Windows,

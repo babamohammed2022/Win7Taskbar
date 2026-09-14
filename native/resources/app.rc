@@ -6,59 +6,6 @@
  * the Properties dialog above all - can carry the same icon as the executable.
  */
 
-/* v1.7.6: IDD_TRAYCPL - the "Notification Area Icons" page. The dialog
- * template is written HERE, from zero, for the layout metrics of the Windows
- * 7 page (two-column list, in-place combo, always-show checkbox, the two
- * links, OK/Cancel in a command band); every number is in dialog units
- * derived from Segoe UI 9, which is how the 96-DPI reference points of the
- * original page come out (the dialog procedure re-verifies them per DPI with
- * MapDialogRect-style scaling, see TrayCplDialog.cpp). NO bitmaps, NO
- * strings, NO resources taken from any Windows binary: labels are set at
- * runtime from the program's own string table (11 languages). */
-
-#include <windows.h>
-#include <commctrl.h>
-#include "../src/TrayCplRes.h"
-
 #define IDI_APPICON 101
 
 IDI_APPICON ICON "app.ico"
-
-/* Win7 reference (measured, 96 DPI px -> DLU: x = px*4/7, y = px*8/15):
- *   dialog client 460x432      ->  263 x 230 DLU
- *   header title    y 12 h 14  ->   18 DLU
- *   description     y 30 h 28  ->   45 DLU top
- *   checkbox        y 62 h 14
- *   link "system"   y 82 h 12
- *   list            y 102..336 (234 tall, header 23 + rows 44)
- *   command band    separator y 348, buttons y 356 h 23 w 76
- *   link "restore"  y 360 left
- * Coordinates below keep the same proportions in dialog units. */
-IDD_TRAYCPL DIALOGEX 0, 0, 263, 230
-STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "Notification Area Icons"
-FONT 9, "Segoe UI", 400, 0, 0x1
-BEGIN
-    /* page 1 ---------------------------------------------------------- */
-    LTEXT           "", IDC_TRAYCPL_TITLE,      7,  6, 249,  8
-    LTEXT           "", IDC_TRAYCPL_DESC,      7, 16, 249, 16
-    AUTOCHECKBOX    "", IDC_TRAYCPL_CHECK,      7, 33, 240,  8
-    CONTROL         "", IDC_TRAYCPL_LINKSYS, "SysLink",
-                    WS_TABSTOP, 150, 42, 106,  8
-    CONTROL         "", IDC_TRAYCPL_LIST, "SysListView32",
-                    LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS |
-                    WS_BORDER | WS_TABSTOP | WS_VSCROLL,
-                    7, 52, 249, 152
-    /* page 2 ("Turn system icons on or off") --------------------------- */
-    LTEXT           "", IDC_TRAYCPL_DESC2,      7, 16, 249, 16
-    CONTROL         "", IDC_TRAYCPL_BACK, "SysLink",
-                    WS_TABSTOP, 7, 6, 200, 8
-    AUTOCHECKBOX    "", IDC_TRAYCPL_CHK_NET,    7, 33, 240,  8
-    AUTOCHECKBOX    "", IDC_TRAYCPL_CHK_VOL,    7, 44, 240,  8
-    AUTOCHECKBOX    "", IDC_TRAYCPL_CHK_BAT,    7, 55, 240,  8
-    /* shared command band ---------------------------------------------- */
-    CONTROL         "", IDC_TRAYCPL_LINKREST, "SysLink",
-                    WS_TABSTOP, 7, 209, 150, 8
-    DEFPUSHBUTTON   "OK", IDOK,     122, 207,  60,  14
-    PUSHBUTTON      "Cancel", IDCANCEL, 188, 207, 60, 14
-END

@@ -47,7 +47,11 @@ To install this software, the subsequent steps need to be followed:
 
 ## Current status
 
-Win7Taskbar is still under development. Some features are incomplete or recreated, particularly parts of the notification area and system UI on Windows 11 and other features.
+Win7Taskbar is still under development. Some features are incomplete or recreated, particularly parts of the notification area and system UI on Windows 11. Window thumbnail previews use a direct DWM surface with the existing image border and close button, without a coloured backing panel. Jump Lists are incomplete and temporarily disabled; their managed/native implementation remains in the source tree for completion. The right-click menu is unchanged.
+
+*Customize notification area...* opens Windows' native Notification Area settings directly; Win7Taskbar does not recreate that Control Panel page.
+
+Other known limitations include unsupported decorative taskbar rotation and system windows that are hooked and repositioned rather than fully recreated.
 
 ## Build
 

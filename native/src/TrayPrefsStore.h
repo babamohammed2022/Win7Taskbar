@@ -17,8 +17,7 @@
  * ============================================================================
  * WHY THIS FILE EXISTS
  *
- * The "Notification Area Icons" page (TrayCplDialog.cpp) and the tray's own
- * pin/overflow logic need to remember, per icon, what the user chose, and
+ * The tray's pin/overflow logic needs to remember, per icon, what the user chose, and
  * the program is portable by design: extracting the zip and deleting it must
  * leave the system exactly as it was. That rules out ANY persistent registry
  * write. Windows itself keeps the same information in a blob under

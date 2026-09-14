@@ -58,29 +58,50 @@ close button, icon metrics) live in `Themes/Overrides.xaml`, never in the upstre
 obvious which values are ours: measured frames, paddings and gradients in the overrides
 file can be traced back to a changelog entry and a screenshot.
 
-## 5. Window previews: disabled until they can be verified
+## 5. Window previews: direct DWM surface, parent-owned chrome
 
-**Decision.** The preview popup is not opened at all (`TaskPreviewsEnabled` in
-`TaskbarWindow.xaml.cs`); hovering a task button shows the app-name tooltip only. Both
-previous implementations are kept, commented out, in `Controls/TaskThumbnail.cs`.
+**Decision.** `Controls/TaskThumbnail.xaml.cs` contains only the essential
+RetroBar DWM path: register the source window, fit it into the 202×109 photo
+aperture, update the destination rectangle while rendering, and always
+deregister on unload. Tiny sources are enlarged toward a 65% minimum while
+preserving aspect ratio, avoiding a fixed frame that visually overwhelms them.
+Sources beyond a 2.5:1 aspect threshold use a bounded 15% central crop of the
+long edge; pixels remain uniformly scaled and the destination never enters the
+fixed frame or close-button region.
+`TaskbarWindow.xaml` continues to own the Aero frame, close button, layered
+popup placement, activation and navigation.
 
-**Why.** *Unwanted rectangles* inside the popup were reported on real hardware in both
-variants. The live DWM thumbnail (up to v2.54) can fail **silently**: `DwmRegisterThumbnail`
-succeeds and the compositor then never paints, so the only thing visible is the popup
-backdrop, identical for every window. The static `PrintWindow` capture (v2.55) fails
-*loudly* (it returns `FALSE` and we fall back to the app icon), but a `TRUE` return still
-does not prove that the captured surface is the window content - several applications
-answer with an empty or stale surface - and the result also cannot move, which makes the
-popup feel frozen.
+The DWM destination must remain an unpainted WPF surface. In the layered
+preview popup, even an explicit `Background="Transparent"` on
+`TaskThumbnail` participates in WPF composition over that destination and
+can tint the live thumbnail blue. Conversely, opaque brushes over the same
+area in a non-layered popup can cover it with blue or black. Therefore the
+thumbnail control leaves `Background` unset (`null`), and the central frame
+cell has no background, opacity mask, or effect. Chrome belongs only to the
+outer frame images and close button, following RetroBar's ownership model.
+DWM supports the layered popup; using a non-layered popup is not a DWM
+requirement.
 
-**What a future implementation has to prove before this decision is reversed.**
+A short-lived, static `Graphics.CopyFromScreen` capture may provide soft glass
+behind the **outer chrome only**. `TaskPreviewPopup` clips that blurred image to
+the top, left, right and bottom frame bands of every preview item. Above it, the
+accent mask supplies the live Windows color while a low-opacity slice of the
+unchanged source PNG retains the photograph's exact edge and shading detail.
+The complete central aperture remains outside every chrome layer, so this
+backdrop is not a thumbnail fallback and never paints, masks or applies an
+effect to the DWM destination. The capture is made once in `Opened`; its GDI
+bitmap has RAII ownership and the WPF source reference is cleared in `Closed`.
 
-1. A **positive** confirmation that real content was drawn (a pixel read-back, a
-   non-uniformity check), not just a successful return code.
-2. A documented fallback that is invisible to the user: if the check fails, the popup must
-   look intentional (icon + title), not like an empty box.
-3. A single switch to turn the feature back on, so it can be tested per machine without
-   shipping it half-broken.
+DWM registration is not treated as proof of rendering. After a one-shot 350 ms
+delay, the control probes the on-screen destination. If it cannot verify a
+composed frame, the single persisted `UseThumbnailCaptureFallback` switch
+allows a BitBlt screen scrape of the source client area. That scrape is shown
+only when five z-order sample points all belong to the source root window, no
+long black two-pixel border indicates a composition race, and sampled edge
+pixels contain real colour. Otherwise DWM is unregistered and the UI shows the
+application icon plus current title—never an anonymous empty rectangle. All
+DCs, selected GDI objects and HBITMAPs have deterministic RAII cleanup; every
+failure path is guarded and leaves no registered thumbnail behind.
 
 ## 6. The overflow panel is a native popup, its behaviour mirrors Windows 7
 
@@ -252,9 +273,13 @@ no locks are taken across the guarded boundary elsewhere.
 **Revisit if.** A fault repeats in one spot: the log line names the module
 phase, and the guard can then be narrowed to the exact call.
 
-## 13. Jump Lists: managed gesture state machine, native data + popup
+## 13. Jump Lists: incomplete and temporarily disabled
 
-**Decision.** The Windows 7 Jump List opens exclusively from the left-button
+**Current status.** Jump Lists are incomplete, so the task-button entry-point
+call is commented out and they cannot currently be opened. The managed and
+native implementation is intentionally retained in place for completion.
+
+**Decision.** When re-enabled, the Windows 7 Jump List opens exclusively from the left-button
 press + drag-up gesture on a task button (never from the right-click menu),
 and the implementation is split the way the rest of the project is:
 
@@ -294,66 +319,13 @@ under the `JUMPLIST` tag.
 APIs, or the bar ever needs per-monitor instances: the pixel-space contract
 stays the same, only the monitor lookup of the anchor changes.
 
-## 14. "Notification Area Icons": in-process modeless page, file storage, zero registry
+## 14. Notification Area settings: delegate to Windows
 
-**Decision.** The Windows 7 "Select which icons and notifications appear on
-the taskbar" page is recreated as a **fully proprietary Win32 dialog inside
-the core** (`TrayCplDialog.cpp`, dialog template written from zero in
-`resources/app.rc`, all labels from the project's own 11-language string
-table) and opens modeless on the thread that asked for it - the managed UI
-thread for the menu entry, the Properties thread for its button, the tray
-service thread for the overflow link (both of those pumps already run).
-`W7T_TrayCplShow(uint64 owner)` just creates/raises it; there is no return
-payload and no pumping contract beyond the dialog being modeless.
+**Decision.** Every notification-area “Customize...” entry delegates directly
+to the native Windows page through `W7T_OpenNotificationIconsSettings`. The
+core first opens the shell namespace and retains the existing system fallbacks
+for Windows versions that redirect that namespace. Win7Taskbar does not create,
+register, host, or imitate a Control Panel applet.
 
-The hosting question the feature was specified with - "register the CLSID
-on demand, wait for the host, deregister with an RAII scope guard, plus a
-crash self-check" - was evaluated and deliberately NOT taken. The prompt
-itself names the registry-free alternative as the preferred one whenever it
-exists: a window this process owns entirely. With no `control.exe` host and
-no CLSID there is nothing to register, nothing to deregister, and no orphan
-key to clean up after a crash; the trade-off (the page is not openable from
-the system Control Panel) is exactly what the spec demands ("must not appear
-in All Control Panel Items"). The entries that used to jump to the real
-Windows page (clock/taskbar menu *Customize notification area...*,
-Properties *Customize...*, overflow *Customize...* link) now open this page
-and fall back to the old behavior only when the page itself cannot be
-created - an honest degrade, never a silent one.
-
-Storage moved from the registry to **`%LOCALAPPDATA%\Win7Taskbar\trayicons.ini`**
-(`TrayPrefsStore.cpp`: one `name=value` line per icon + a `[settings]`
-section; full rewrite through a temp file + `MoveFileEx`, so a kill can
-never truncate the file). A stored value is the page's three-state behavior
-(0 show / 1 only notifications / 2 hide), which is why the old boolean
-"promoted" flag could simply be reinterpreted: on the first run of the new
-format the legacy `HKCU\SOFTWARE\Win7Taskbar\TrayIconPrefs2` key is imported
-into the file and then **deleted by the program itself** (retry next start
-if deletion fails). The real `TrayNotify` keys of Explorer are never read or
-written for this feature - the page controls only this tray.
-
-A single resolver - `TrayService::ResolveVisibilityLocked` - turns
-"saved behavior + Always-show-all + the system-icon switches + EnableAutoTray
-default" into `(barVisible, presentSomewhere)`, and EVERY consumer reads its
-answer (the toolbar model's `TBSTATE_HIDDEN`, the native overflow snapshot,
-the managed `W7T_GetTrayIcons` view, balloon suppression). The managed
-layer's old "EnableAutoTray=0 → force visible" hack was removed with this:
-a view re-applying a default is exactly how a user's "Only show
-notifications" choice used to be silently crushed.
-
-Fidelity choices worth recording: the Win7 original is not a
-`SysListView32` - it is a DUI ScrollViewer with one in-place themed combo
-per row - so rows are owner-drawn with the original's 96-DPI metrics
-(header 23, row 44, 16 px icon, 150 px combo, 8 px padding, command band
-47) and a SINGLE real `ComboBox` is parked over the row being edited
-(click on the Behaviors cell, Enter/F2 on a row; commit on `CBN_CLOSEUP`).
-`Always show all icons and notifications on the taskbar` overrides the
-display of every saved choice (including "hide") without rewriting any of
-them, like the original; the system-icon switches outrank the checkbox and
-live on page 2 of the same window. Changes apply live (the tray updates
-while the page is open - the whole point of modeless); `Cancel` and the
-close box rewind everything to the snapshot taken when the page opened,
-`OK` simply closes.
-
-**Revisit if.** A future build ever needs the page to be openable from the
-system Control Panel: the on-demand CLSID scope-guard sketch from the
-spec stays applicable - but only then does the orphaned-key problem exist.
+Per-icon placement selected by dragging between the taskbar and overflow remains
+portable in `trayicons.ini`; it is taskbar state, not a replacement settings UI.

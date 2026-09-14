@@ -3,11 +3,11 @@
 //
 // The popup is opened by the left-button press + upward drag gesture that
 // the managed side runs as a state machine (TaskbarWindow.JumpList.cs):
-// release over a row activates the row under the cursor, release outside
-// (or leaving the interaction area) cancels. While the gesture owns the
-// input, all mouse positions arrive here as SCREEN PHYSICAL PIXELS through
-// SetHover/ActivateAt - the managed WPF window keeps mouse capture, so the
-// popup never activates itself (WS_EX_NOACTIVATE) and never grabs input.
+// the opening release leaves the list visible. While the drag owns input,
+// positions arrive here as SCREEN PHYSICAL PIXELS through SetHover and the
+// popup remains WS_EX_NOACTIVATE. On release MakeInteractive transfers
+// focus/input to this window; a separate click selects a row, Escape or a
+// click anywhere outside dismisses it.
 //
 // Content rules (project instructions for this subsystem):
 //   - entries come ONLY from the public Shell Jump List APIs
@@ -96,9 +96,13 @@ public:
      * (popup + button + corridor): 1 inside, 0 outside. */
     int32_t SetHover(int32_t screenX, int32_t screenY);
 
-    /* Gesture release: activates the row under the point (document open,
-     * application row, or pin toggle), hides the popup, and reports the
-     * ActivationBits. Returns 0 when the popup was not open at all. */
+    /* Hands input from the completed drag gesture to the popup itself.
+     * The release which opened the list never selects an item: after this
+     * call ordinary mouse input is handled by WndProc and deactivation
+     * (an outside click) dismisses the list. */
+    void MakeInteractive();
+
+    /* Activates one row from an ordinary click in the persistent popup. */
     int32_t ActivateRow(int32_t screenX, int32_t screenY, int32_t* outBits);
 
     void Hide();
@@ -121,7 +125,9 @@ private:
     /* One hit-testable row of the popup. The icon is owned by the row and
      * released through the raii handle (move-only row storage). */
     struct Row {
-        enum Kind { DocRecent = 0, DocFrequent = 1, App = 2, Pin = 3 };
+        enum Kind {
+            DocRecent = 0, DocFrequent = 1, App = 2, Close = 3, Pin = 4
+        };
         Kind kind = App;
         RECT rect = {};
         std::wstring label;
@@ -134,6 +140,7 @@ private:
     };
 
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
+    static LRESULT CALLBACK OutsideMouseProc(int, WPARAM, LPARAM);
     void RegisterClassOnce();
     void OnPaint(HWND hwnd);
     void BuildRows();
@@ -142,8 +149,11 @@ private:
     void UpdateInteractionArea();
     int HitRowClient(POINT clientPt) const;
     RECT RowRect(size_t index) const;
+    RECT CloseRect() const;
+    bool HitCloseClient(POINT clientPt) const;
     bool InInteractionArea(POINT screenPt) const;
     void LaunchApp();
+    void CloseRunningApplication();
     void PerformPinOrUnpin();
     void ClearContent();
     int Sc(int v96) const;           /* 96-DPI value -> device px at m_dpi */
@@ -165,6 +175,15 @@ private:
     std::vector<JumpListDoc> m_docs;
     std::vector<Row> m_rows;
     raii::BitmapHandle m_appIcon;
+    raii::BitmapHandle m_pinIcon;
+    raii::BitmapHandle m_closeNormal;
+    raii::BitmapHandle m_closeHover;
+    raii::BitmapHandle m_closePressed;
+    HWND m_representativeHwnd = nullptr;
+    bool m_interactive = false;
+    bool m_closeHot = false;
+    bool m_closeDown = false;
+    HHOOK m_outsideMouseHook = nullptr;
 
     int m_width = 300;      /* device px, already scaled */
     int m_totalH = 0;       /* device px */

@@ -86,14 +86,26 @@ namespace Win7Taskbar.Utilities
             "AH6dz+ffnp6efnlycvJkm9kaeR5qY4sxVNqjrW3b6/l8/gOAX/LHuc8AfATgbffyoYP3dE8JO3ZydrELAD8B+P" +
             "4fVo3EwQYTnRgAAAAASUVORK5CYII=";
 
+        /// <summary>
+        /// 60x40 px: tile arancione fornita per i pulsanti che richiedono
+        /// attenzione (FlashWindowEx), mantenuta distinta dagli stati blu.
+        /// </summary>
+        private const string NotificationPngBase64 =
+            "iVBORw0KGgoAAAANSUhEUgAAADwAAAAoCAYAAACiu5n/AAAA60lEQVR42uXa0UaDARyG8e/onZGMjN1FF7KL6WamScREZIzExMgYiUhkjJFFRIwd7KSj9X2jg3nu4Pn+PP/z3/lbFOX1u8WuDhX/2N3vaS3ao6u3OivR2466yngI3rTVEbw+UUfwT0sdwd/H6gj+OlJH8GdTHcEfDXUEL6OO4EXUETyPOoLfo47gt6gj+DXqCH6JOoKfo47gp6gjeBZ1BE+jjuDHqCN4EnUEP0QdweOoI/g+6gi+izqCR1FH8DDqCL6NOoJvoo7g66gjeBB1BF9FHcGXUUfwRdQRfB51BPeiDuA6dLDkqcts6Q8hSTT4L7jt7QAAAABJRU5ErkJggg==";
+
         private static BitmapImage? _hover;
         private static BitmapImage? _active;
+        private static BitmapImage? _notification;
 
         /// <summary>Sfondo "hover", 60x40 px, decodificato una volta sola.</summary>
         public static BitmapImage Hover => _hover ??= Decode(HoverPngBase64);
 
         /// <summary>Sfondo "active", 60x40 px, decodificato una volta sola.</summary>
         public static BitmapImage Active => _active ??= Decode(ActivePngBase64);
+
+        /// <summary>Sfondo notifica/attenzione, 60x40 px.</summary>
+        public static BitmapImage Notification =>
+            _notification ??= Decode(NotificationPngBase64);
 
         /// <summary>Decodifica un PNG base64 in un BitmapImage congelato.</summary>
         private static BitmapImage Decode(string base64)
