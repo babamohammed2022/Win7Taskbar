@@ -70,7 +70,7 @@
                         Style="{DynamicResource TaskPreviewCloseButton}"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Top"
-                        Margin="0,6,26,0"
+                        Margin="0,11,26,0"
                         Panel.ZIndex="99"
                         Click="PreviewCloseButton_Click" />
             </Grid>
