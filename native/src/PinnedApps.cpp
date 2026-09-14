@@ -160,12 +160,29 @@ void PinnedApps::Start() {
 void PinnedApps::Stop() {
     if (!m_running.exchange(false)) return;
 
-    ScopedHandle stopEvent(m_stopEvent);
-    if (stopEvent.get()) SetEvent(stopEvent.get());
-    m_stopEvent = nullptr;
+    // Keep the stop event alive and published until the watcher exits.
+    // ReadDirectoryChangesW is synchronous, so signalling the event alone
+    // cannot wake it. Cancel the thread's pending synchronous I/O first.
+    HANDLE stopEvent = m_stopEvent;
+    if (stopEvent) {
+        SetEvent(stopEvent);
+    }
 
-    if (m_watchDir) { CloseHandle(m_watchDir); m_watchDir = nullptr; }
-    if (m_watchThread.joinable()) m_watchThread.join();
+    if (m_watchThread.joinable()) {
+        CancelSynchronousIo(m_watchThread.native_handle());
+        m_watchThread.join();
+    }
+
+    // The watcher no longer uses these handles after join().
+    if (m_watchDir) {
+        CloseHandle(m_watchDir);
+        m_watchDir = nullptr;
+    }
+
+    if (stopEvent) {
+        CloseHandle(stopEvent);
+    }
+    m_stopEvent = nullptr;
 }
 
 void PinnedApps::WatcherLoop() {
