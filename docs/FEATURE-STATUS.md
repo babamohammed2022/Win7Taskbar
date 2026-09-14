@@ -7,6 +7,7 @@ This document tracks the current feature status of Win7Taskbar and the main area
 Win7Taskbar currently has **high overall Windows 7 visual and behavioral accuracy**, but it is not a complete reproduction of every Windows 7 taskbar feature.
 
 Some parts are already close to the original Windows 7 experience, while other parts are still being implemented or refined.
+If there are any imprecisions or problems, please report them to the author of this software.
 
 ## Current status
 
@@ -21,25 +22,25 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Application tooltips | ✅ | Application-name tooltips are available. |
 | File drag & drop onto taskbar buttons | ⚠️ | Dropping a file onto a pinned/running app button to open it with that app (hover-to-activate + drop) has an initial implementation: standard WPF drag&drop (no COM `IDropTarget` needed, since this isn't injected into explorer.exe), with a fallback to `ShellExecute` when the known executable can't be launched directly, and an extension check (via registry `SupportedTypes`, permissive when unknown) driving the allowed/forbidden cursor feedback. Needs real-world testing (multi-file drops, apps without declared `SupportedTypes`, mixed-extension drops). |
 | Thumbnail previews (DWM) | ⚠️ | The popup uses the direct RetroBar-style DWM path (`TaskThumbnail.xaml.cs`): source-size query, aspect-preserving 180×120 fit, render-time destination updates and guaranteed unload cleanup. Frame, close button and navigation remain in `TaskbarWindow.xaml`; no confirmation timer or icon fallback is interposed. |
-| Jump Lists | ⚠️ | Windows 7-style Jump Lists are implemented as a dedicated subsystem (left-button press + drag-up on a task button opens the list; releasing the button over a row activates it). The data comes from the real Shell APIs (`IApplicationDocumentLists` + the window/shortcut `AppUserModelID`), never from invented entries, and the right-click menu is unchanged. The popup is a native window with DPI-scaled geometry. Not yet verified against a real Windows desktop at every scale, so it is not marked complete. |
+| Jump Lists | ❌ | Despite the Windows 7-style Jump Lists being implemented as a dedicated subsystem (left-button press + drag-up on a task button opens the list; releasing the button over a row activates it), they are currently not enabled in the code of the software. The data comes from the real Shell APIs (`IApplicationDocumentLists` + the window/shortcut `AppUserModelID`), never from invented entries, and the right-click menu is unchanged. The popup is a native window with DPI-scaled geometry. Not yet verified against a real Windows desktop at every scale, so it is not marked complete. |
 | Windows 7 toolbars | ✅ | The three Windows 7-style toolbars are present. |
 | Notification area | ⚠️ | The notification area is implemented, but support for all modern Windows tray states is still partial. v1.7.6: per-icon behavior preferences moved from the legacy registry key to `trayicons.ini` (zero-footprint); the old key is imported and deleted on first run. |
-| Notification Area settings page | ⚠️ | All Customize links now open the native Windows Notification Area page directly through its shell namespace, with system fallbacks for builds that redirect it. No private applet or replacement settings dialog is shipped. |
+| Notification Area settings page | ⚠️ | All Customize links now open the native Windows Notification Area page directly through its shell namespace, with system fallbacks for builds that redirect it. To make this page more functional on Windows 11, it is recommended to use ExplorerPatcher along with this software. |
 | Windows 11 system tray support | ⚠️ | Windows 11 system tray support is implemented, but some tray icons are recreated because Windows 11 no longer exposes all classic tray elements directly. |
 | Tray overflow | ✅ | The overflow experience is close to Windows 7. `taskmgr.exe` is intentionally excluded because its renewed tray registrations produced many duplicate rows and an excessively tall overflow menu on affected builds. |
-| Battery indicator | ⚠️ | Battery status is implemented with a recreated taskbar icon, but the implementation is still partial rather than a complete native Windows 7 battery implementation. |
+| Battery indicator | ⚠️ | Battery status is implemented with a recreated taskbar icon, but the implementation is still partial rather than a complete native Windows 7 battery implementation. However, by using ExplorerPatcher with the "Windows 7" option, |
 | Clock and date display | ✅ | The taskbar clock and date are present. |
 | Language switcher (input language flyout) | ⚠️ | Windows 7/8.1-style layout switching is ported from the Windhawk language-restorer mod. The Windows 7 selection mark now uses the mod's runtime-loaded GDI+ path with GDI fallback; layout enumeration and real `WM_INPUTLANGCHANGEREQUEST` switching remain. Global hooks, shortcuts, and shortcut hints are deliberately absent. |
 | System flyouts | ✅ | The main flyouts work, but positioning and some Windows-version-specific behavior still need improvement. |
 | Clock flyout | ✅ | The Windows 7-style clock flyout is now considered complete. |
-| Aero Peek / Show Desktop | ⚠️ | Windows 7-style Aero Peek and the Show Desktop area are represented, but the implementation is not yet a complete recreation of the original shell behavior. |
+| Aero Peek / Show Desktop | ✅ | Windows 7-style Aero Peek and the Show Desktop area are included in the software. |
 | Context menus | ✅ | Context menus are generally close to the Windows 7 behavior and appearance, with some details still to improve. |
 | Taskbar Properties | ✅ | A Windows 7-style Properties interface is available, although some options and behaviors can still be refined. |
 | Taskbar positioning | ⚠️ | Taskbar positioning is supported in the current implementation, but edge-specific behavior still requires refinement. |
 | Taskbar rotation | ❌ | Rotating the taskbar to other screen edges is not fully implemented. |
 | Taskbar size / configuration | ⚠️ | Taskbar configuration is available through Properties, but full Windows 7 parity for all size and layout options is not guaranteed. |
 | Taskbar locking | ⚠️ | Taskbar locking/configuration behavior is not yet guaranteed to match Windows 7 in every case. |
-| Explorer restart / tray recovery | ❌ | Recovery and consistent tray/icon state after Explorer restarts and shell changes still require further work. |
+| Explorer restart / tray recovery | ⚠️ | Recovery and consistent tray/icon state after Explorer restarts and shell changes still require further work. |
 
 ## Main missing features
 
