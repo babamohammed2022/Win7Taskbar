@@ -18,6 +18,8 @@
 
 #include "WindowManager.h"
 #include <algorithm>
+#include <objbase.h>
+#include <shlobj.h>
 
 namespace w7t {
 
