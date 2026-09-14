@@ -270,12 +270,18 @@ void TrayOverflowWindow::ForwardClick(int index, bool right) {
     const int32_t y = rc.top + m_pad + row * m_cell + m_cell / 2;
 
     if (right) {
-        TrayService::Instance().SendClick(e.ownerHwnd, e.uid, W7T_TRAY_CLICK_RIGHT, x, y);
+        /* A tray application's context menu is external to this window.
+         * Keep overflow open for this specific action: closing it here made
+         * every right-click unnecessarily destroy the user's icon context. */
+        TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
+                                          W7T_TRAY_CLICK_RIGHT, x, y);
     } else {
-        TrayService::Instance().SendClick(e.ownerHwnd, e.uid, W7T_TRAY_CLICK_LEFT_DOWN, x, y);
-        TrayService::Instance().SendClick(e.ownerHwnd, e.uid, W7T_TRAY_CLICK_LEFT, x, y);
+        TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
+                                          W7T_TRAY_CLICK_LEFT_DOWN, x, y);
+        TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
+                                          W7T_TRAY_CLICK_LEFT, x, y);
+        Hide();   // ordinary activation keeps the Windows 7 close behavior
     }
-    Hide();   // come in Win7: il clic su un'icona chiude il pannello
 }
 
 void TrayOverflowWindow::OnPaint(HDC hdcWindow) {

@@ -35,6 +35,7 @@
 #include "JumpListWindow.h"     /* v2.38 */
 #include "LanguageSwitcher.h"   /* v1.4: selettore della lingua */
 #include "BatteryFlyout.h"      /* v2.38 */
+#include "RaiiWrappers.h"
 #include <thread>
 #include <atomic>
 #include <psapi.h>
@@ -605,14 +606,47 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ReassertNativeTaskbarHidden(void) {
     return W7T_OK;
 }
 
+extern "C" W7T_API int32_t W7T_CALL W7T_ShowTaskManagerMode(int32_t mode) {
+    try {
+        /* The explicit alternatives only exist on Windows 11 21H2+
+         * (build 22000). Windows 10 always follows its normal association. */
+        if (!IsWindows11OrBetter() || mode < 0 || mode > 2) mode = 0;
+
+        wchar_t windowsDir[MAX_PATH]{};
+        std::wstring executable = L"taskmgr.exe"; // Automatic
+        if (mode != 0) {
+            const UINT length = GetWindowsDirectoryW(
+                windowsDir, static_cast<UINT>(std::size(windowsDir)));
+            if (length == 0 || length >= std::size(windowsDir))
+                return W7T_ERR_NOT_FOUND;
+            executable = windowsDir;
+            executable += mode == 1
+                ? L"\\System32\\Taskmgr.exe"   // Windows 11 modern
+                : L"\\SysWOW64\\Taskmgr.exe"; // Win8/10 legacy 32-bit
+            if (GetFileAttributesW(executable.c_str()) == INVALID_FILE_ATTRIBUTES)
+                return W7T_ERR_NOT_FOUND;
+        }
+
+        SHELLEXECUTEINFOW info{};
+        info.cbSize = sizeof(info);
+        info.lpVerb = L"open";
+        info.lpFile = executable.c_str();
+        info.nShow = SW_SHOW;
+        /* Request the process handle solely so its ownership is explicit;
+         * GenericHandle closes it on every return and exception path. */
+        info.fMask = SEE_MASK_NOASYNC | SEE_MASK_NOCLOSEPROCESS;
+        if (!ShellExecuteExW(&info)) return W7T_ERR_NOT_FOUND;
+        raii::GenericHandle process(info.hProcess);
+        return W7T_OK;
+    } catch (...) {
+        /* No exception is allowed to cross the C ABI boundary; RAII has
+         * already released any process handle acquired above. */
+        return W7T_ERR_NOT_FOUND;
+    }
+}
+
 extern "C" W7T_API int32_t W7T_CALL W7T_ShowTaskManager(void) {
-    SHELLEXECUTEINFOW info = {};
-    info.cbSize = sizeof(info);
-    info.lpVerb = L"open";
-    info.lpFile = L"taskmgr.exe";
-    info.nShow  = SW_SHOW;
-    info.fMask  = SEE_MASK_NOASYNC;
-    return ShellExecuteExW(&info) ? W7T_OK : W7T_ERR_NOT_FOUND;
+    return W7T_ShowTaskManagerMode(0);
 }
 
 /* v2.1: link "Personalizza..." del riquadro di overflow.
@@ -886,7 +920,7 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t enableSearch, int32_t netFlyout, int32_t classicVolume,
         int32_t batteryFlyout, int32_t aeroPeek, int32_t toolbarDesktop,
         int32_t toolbarAddress, int32_t toolbarLinks,
-        int32_t inputLanguageMode) {
+        int32_t inputLanguageMode, int32_t taskManagerMode) {
     try {
         /* v3.6: l'ordine DEVE essere quello della firma Show(): nativeFlyout,
          * enableSearch, netFlyout. Prima erano invertiti (netFlyout al posto
@@ -896,7 +930,7 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
                           seconds, nativeFlyout, enableSearch,
                           netFlyout, classicVolume, batteryFlyout, aeroPeek,
                           toolbarDesktop, toolbarAddress, toolbarLinks,
-                          inputLanguageMode);
+                          inputLanguageMode, taskManagerMode);
     } catch (...) { /* mai propagare */ }
 }
 

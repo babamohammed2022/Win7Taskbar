@@ -530,11 +530,11 @@ namespace Win7Taskbar.Interop
         public void PropertiesShow(IntPtr owner, int lang, int seconds, int nativeFlyout,
             int enableSearch, int netFlyout, int classicVolume, int batteryFlyout,
             int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
-            int inputLanguageMode)
+            int inputLanguageMode, int taskManagerMode)
             => NativeMethods.W7T_PropertiesShow((ulong)owner, lang, seconds, nativeFlyout,
                 enableSearch, netFlyout, classicVolume, batteryFlyout,
                 aeroPeek, toolbarDesktop, toolbarAddress, toolbarLinks,
-                inputLanguageMode);
+                inputLanguageMode, taskManagerMode);
 
         /// <summary>v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).</summary>
         public bool NetFlyoutInit() => NativeMethods.W7T_NetFlyoutInit() == 1;
@@ -782,7 +782,9 @@ namespace Win7Taskbar.Interop
 
         public void ShowStartMenu() => NativeMethods.W7T_ShowStartMenu();
 
-        public void ShowTaskManager() => NativeMethods.W7T_ShowTaskManager();
+        public void ShowTaskManager()
+            => NativeMethods.W7T_ShowTaskManagerMode(
+                RetroBar.Utilities.Settings.Instance.TaskManagerMode);
 
         /// <summary>
         /// Apre il menu di sistema REALE della finestra (quello di Windows,

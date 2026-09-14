@@ -16,8 +16,8 @@
 // SetWindowPos/GetCursorPos and of WPF PointToScreen on a per-monitor-DPI
 // process). Geometry constants are 96-DPI reference values scaled by the
 // DPI of the monitor that owns the taskbar button. The compact application
-// row uses a 24 px icon and smaller Segoe UI metrics; all offsets go through
-// Sc(), so there are no unscaled magic numbers.
+// row uses a roughly 7% smaller 22 px icon and compact Segoe UI metrics;
+// all offsets go through Sc(), so there are no unscaled magic numbers.
 
 #include "JumpListWindow.h"
 #include "FlyoutLauncher.h"
@@ -41,17 +41,19 @@ constexpr wchar_t kClassName[] = L"W7T_JumpList";
 constexpr UINT kDismissOutsideMessage = WM_APP + 0x177;
 
 /* --- 96-DPI reference geometry (scaled by JumpListWindow::Sc) --------- */
-constexpr int kWidth96      = 300;
-constexpr int kRowApp96     = 40;
-constexpr int kRowPin96     = 30;
-constexpr int kRowDoc96     = 26;
-constexpr int kHeader96     = 19;
-constexpr int kPad96        = 8;   /* top/bottom inner padding           */
+constexpr int kWidth96      = 280;
+constexpr int kRowApp96     = 36;
+constexpr int kRowClose96   = 26;
+constexpr int kRowPin96     = 28;
+constexpr int kRowDoc96     = 24;
+constexpr int kHeader96     = 17;
+constexpr int kPad96        = 6;   /* top/bottom inner padding           */
 constexpr int kSep96        = 6;   /* separator band between sections     */
 constexpr int kGap96        = 4;   /* popup-to-button gap (Windows 7)     */
 constexpr int kEdgeMargin96 = 2;   /* never closer to the work area edge  */
-constexpr int kDocIcon96    = 16;
-constexpr int kAppIcon96    = 24;
+constexpr int kDocIcon96    = 15;
+/* 24 * 0.93 = 22.32: nearest whole reference pixel, about 7% smaller. */
+constexpr int kAppIcon96    = 22;
 constexpr int kClose96      = 14;
 constexpr int kMaxDocsPerSection = 10; /* the taskbar list caps at ten    */
 
@@ -117,36 +119,44 @@ struct JumpStr {
     const wchar_t* frequent;
     const wchar_t* pin;
     const wchar_t* unpin;
+    const wchar_t* closeWindow;
 };
 const JumpStr& Str(int lang) {
     static const JumpStr kIt = {
         L"Voci usate di recente", L"Voci usate di frequente",
         L"Fissa questo programma alla barra delle applicazioni",
-        L"Rimuovi questo programma dalla barra delle applicazioni" };
+        L"Rimuovi questo programma dalla barra delle applicazioni",
+        L"Chiudi la finestra" };
     static const JumpStr kEn = {
         L"Recent items", L"Frequent items",
         L"Pin this program to the taskbar",
-        L"Unpin this program from the taskbar" };
+        L"Unpin this program from the taskbar",
+        L"Close window" };
     static const JumpStr kEs = {
         L"Elementos recientes", L"Elementos frecuentes",
         L"Anclar este programa a la barra de tareas",
-        L"Desanclar este programa de la barra de tareas" };
+        L"Desanclar este programa de la barra de tareas",
+        L"Cerrar ventana" };
     static const JumpStr kFr = {
         L"\u00c9l\u00e9ments r\u00e9cents", L"\u00c9l\u00e9ments fr\u00e9quents",
         L"\u00c9pingler ce programme \u00e0 la barre des t\u00e2ches",
-        L"D\u00e9tacher ce programme de la barre des t\u00e2ches" };
+        L"D\u00e9tacher ce programme de la barre des t\u00e2ches",
+        L"Fermer la fen\u00eatre" };
     static const JumpStr kDe = {
         L"Zuletzt verwendete Elemente", L"H\u00e4ufig verwendete Elemente",
         L"Dieses Programm an die Taskleiste anheften",
-        L"Dieses Programm von der Taskleiste l\u00f6sen" };
+        L"Dieses Programm von der Taskleiste l\u00f6sen",
+        L"Fenster schlie\u00dfen" };
     static const JumpStr kPt = {
         L"Itens recentes", L"Itens frequentes",
         L"Fixar este programa na barra de tarefas",
-        L"Desafixar este programa da barra de tarefas" };
+        L"Desafixar este programa da barra de tarefas",
+        L"Fechar janela" };
     static const JumpStr kPl = {
         L"Ostatnie elementy", L"Cz\u0119ste elementy",
         L"Przypnij ten program do paska zada\u0144",
-        L"Odepnij ten program od paska zada\u0144" };
+        L"Odepnij ten program od paska zada\u0144",
+        L"Zamknij okno" };
     static const JumpStr kRu = {
         L"\u041d\u0435\u0434\u0430\u0432\u043d\u0438\u0435 \u044d\u043b\u0435"
         L"\u043c\u0435\u043d\u0442\u044b",
@@ -159,19 +169,22 @@ const JumpStr& Str(int lang) {
         L"\u041e\u0442\u043a\u0440\u0435\u043f\u0438\u0442\u044c \u044d"
         L"\u0442\u0443 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c"
         L"\u0443 \u043e\u0442 \u043f\u0430\u043d\u0435\u043b\u0438 \u0437"
-        L"\u0430\u0434\u0430\u0447" };
+        L"\u0430\u0434\u0430\u0447",
+        L"\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u043e\u043a\u043d\u043e" };
     static const JumpStr kJa = {
         L"\u6700\u8fd1\u4f7f\u3063\u305f\u9805\u76ee",
         L"\u3088\u304f\u4f7f\u3046\u9805\u76ee",
         L"\u3053\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u3092\u30bf\u30b9"
         L"\u30af\u30d0\u30fc\u306b\u8868\u793a\u3059\u308b",
         L"\u3053\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u3092\u30bf\u30b9"
-        L"\u30af\u30d0\u30fc\u306b\u8868\u793a\u3057\u306a\u3044" };
+        L"\u30af\u30d0\u30fc\u306b\u8868\u793a\u3057\u306a\u3044",
+        L"\u30a6\u30a3\u30f3\u30c9\u30a6\u3092\u9589\u3058\u308b" };
     static const JumpStr kZh = {
         L"\u6700\u8fd1\u4f7f\u7528\u3057\u305f\u9879\u76ee",
         L"\u7ecf\u5e38\u4f7f\u7528\u3059\u308b\u9879\u76ee",
         L"\u5c06\u6b64\u7a0b\u5e8f\u56fa\u5b9a\u5230\u4efb\u52a1\u680f",
-        L"\u5c06\u6b64\u7a0b\u5e8f\u4ece\u4efb\u52a1\u680f\u89e3\u9664" };
+        L"\u5c06\u6b64\u7a0b\u5e8f\u4ece\u4efb\u52a1\u680f\u89e3\u9664",
+        L"\u5173\u95ed\u7a97\u53e3" };
     static const JumpStr kAr = {
         L"\u0627\u0644\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0623"
         L"\u062e\u064a\u0631\u0629",
@@ -183,7 +196,8 @@ const JumpStr& Str(int lang) {
         L"\u0625\u0644\u063a\u0627\u0621 \u062a\u062b\u0628\u064a\u062a"
         L" \u0647\u0630\u0627 \u0627\u0644\u0628\u0631\u0646\u0627\u0645"
         L"\u062c \u0645\u0646 \u0634\u0631\u064a\u0637 \u0627\u0644\u0645"
-        L"\u0647\u0627\u0645" };
+        L"\u0647\u0627\u0645",
+        L"\u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0646\u0627\u0641\u0630\u0629" };
     switch (lang) {
         case 1: return kEn; case 2: return kEs; case 3: return kFr;
         case 4: return kDe; case 5: return kPt; case 6: return kPl;
@@ -507,10 +521,23 @@ void JumpListWindow::BuildRows() {
     app.label = m_title;
     m_rows.push_back(std::move(app));
 
-    Row pin;
-    pin.kind = Row::Pin;
-    pin.label = m_pinned ? Str(m_lang).unpin : Str(m_lang).pin;
-    m_rows.push_back(std::move(pin));
+    if (m_representativeHwnd != nullptr && IsWindow(m_representativeHwnd)) {
+        Row close;
+        close.kind = Row::Close;
+        close.label = Str(m_lang).closeWindow;
+        m_rows.push_back(std::move(close));
+    }
+
+    if (!m_pinned) {
+        Row pin;
+        pin.kind = Row::Pin;
+        pin.label = Str(m_lang).pin;
+        m_rows.push_back(std::move(pin));
+    }
+    /* FUTURE IMPLEMENTATION: the former "Unpin this program from the
+     * taskbar" row is intentionally not added for pinned applications.
+     * Keep PerformPinOrUnpin's unpin path available for a future design,
+     * but do not expose that command in the current jump-list interface. */
 }
 
 void JumpListWindow::Layout() {
@@ -532,11 +559,13 @@ void JumpListWindow::Layout() {
          * the tasks). */
         if (!isDoc && (lastKind == (int)Row::DocRecent ||
                        lastKind == (int)Row::DocFrequent ||
-                       lastKind == (int)Row::App)) {
+                       lastKind == (int)Row::App ||
+                       lastKind == (int)Row::Close)) {
             y += Sc(kSep96);
         }
 
         const int rowH = (r.kind == Row::App) ? Sc(kRowApp96)
+                         : (r.kind == Row::Close) ? Sc(kRowClose96)
                          : (r.kind == Row::Pin) ? Sc(kRowPin96)
                          : Sc(kRowDoc96);
         r.rect = RECT{ 0, y, m_width, y + rowH };
@@ -555,11 +584,12 @@ RECT JumpListWindow::CloseRect() const {
     if (m_representativeHwnd == nullptr || !IsWindow(m_representativeHwnd))
         return RECT{};
     for (const Row& row : m_rows) {
-        if (row.kind == Row::App) {
+        if (row.kind == Row::Close) {
             const int size = Sc(kClose96);
-            const int right = m_width - Sc(12);
-            const int top = row.rect.top + (row.rect.bottom - row.rect.top - size) / 2;
-            return RECT{ right - size, top, right, top + size };
+            const int left = Sc(14);
+            const int top = row.rect.top +
+                (row.rect.bottom - row.rect.top - size) / 2;
+            return RECT{ left, top, left + size, top + size };
         }
     }
     return RECT{};
@@ -898,6 +928,10 @@ int32_t JumpListWindow::ActivateRow(int32_t screenX, int32_t screenY,
                     bits |= BitsLaunchedApp;
                     LogTagged(L"JUMPLIST", L"item activated: application row");
                     break;
+                case Row::Close:
+                    CloseRunningApplication();
+                    LogTagged(L"JUMPLIST", L"item activated: close window");
+                    break;
                 case Row::Pin:
                     PerformPinOrUnpin();
                     bits |= BitsPinToggled;
@@ -1079,7 +1113,8 @@ void JumpListWindow::OnPaint(HWND hwnd) {
         }
         if (!isDoc && (lastKind == (int)Row::DocRecent ||
                        lastKind == (int)Row::DocFrequent ||
-                       lastKind == (int)Row::App)) {
+                       lastKind == (int)Row::App ||
+                       lastKind == (int)Row::Close)) {
             hline(r.rect.top - Sc(kSep96) / 2);
         }
         lastKind = (int)r.kind;
@@ -1094,14 +1129,14 @@ void JumpListWindow::OnPaint(HWND hwnd) {
         const int textLeft = isDoc
             ? iconLeft + Sc(kDocIcon96) + Sc(6)
             : (r.kind == Row::App
-                ? iconLeft + Sc(kAppIcon96) + Sc(10)
-                : iconLeft);
+                ? iconLeft + Sc(kAppIcon96) + Sc(9)
+                : (r.kind == Row::Close
+                    ? iconLeft + Sc(kClose96) + Sc(7)
+                    : iconLeft));
         SetTextColor(hdc, (r.kind == Row::Pin) ? RGB(0x1E, 0x6F, 0xC9)
                                                 : RGB(0x1E, 0x1E, 0x1E));
         const RECT closeRect = CloseRect();
-        const int textRight = r.kind == Row::App && closeRect.right > closeRect.left
-            ? closeRect.left - Sc(8) : client.right - margin;
-        RECT tr{ textLeft, r.rect.top, textRight, r.rect.bottom };
+        RECT tr{ textLeft, r.rect.top, client.right - margin, r.rect.bottom };
         DrawTextW(hdc, r.label.c_str(), -1, &tr,
                   DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
 
@@ -1116,7 +1151,7 @@ void JumpListWindow::OnPaint(HWND hwnd) {
                              iconLeft,
                              r.rect.top + (Sc(kRowApp96) - box) / 2);
         }
-        if (r.kind == Row::App && closeRect.right > closeRect.left) {
+        if (r.kind == Row::Close && closeRect.right > closeRect.left) {
             HBITMAP close = m_closeNormal.get();
             if (m_closeDown && m_closePressed) close = m_closePressed.get();
             else if (m_closeHot && m_closeHover) close = m_closeHover.get();

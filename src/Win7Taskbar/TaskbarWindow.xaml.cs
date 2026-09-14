@@ -1516,6 +1516,13 @@ namespace Win7Taskbar
                     : st.InputLanguageMode;
                 st.InputLanguageMode =
                     (inputLanguageMode is < 0 or > 3) ? 1 : inputLanguageMode;
+                /* Windows 11-only Task Manager selector, appended at offset
+                 * 56. Older native cores and Windows 10 retain Automatic. */
+                int taskManagerMode = cds.cbData >= 60
+                    ? System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 56)
+                    : st.TaskManagerMode;
+                st.TaskManagerMode = taskManagerMode is >= 0 and <= 2
+                    ? taskManagerMode : 0;
                 if (hasToolbars)
                 {
                     /* Le caselle della scheda "Barre degli strumenti" sono le
@@ -2206,8 +2213,9 @@ namespace Win7Taskbar
          * sizing, repositioning and deregistering the live DWM surface. */
         // A static readonly field (not a const) on purpose: a compile-time
         // constant would make the rest of ShowTaskPreview unreachable code.
-        // Previews use the direct DWM path in Controls/TaskThumbnail.xaml.cs.
-        private static readonly bool TaskPreviewsEnabled = true;
+        // Temporarily disabled: keep the direct DWM implementation available
+        // for a later pass, but do not create/register preview thumbnails now.
+        private static readonly bool TaskPreviewsEnabled = false;
 
         private const int PreviewShowDelayMs = 400;
 
@@ -5707,7 +5715,8 @@ namespace Win7Taskbar
                     tbDesktop ? 1 : 0,
                     tbAddress ? 1 : 0,
                     tbLinks ? 1 : 0,
-                    st.InputLanguageMode);
+                    st.InputLanguageMode,
+                    st.TaskManagerMode);
             }
             catch (Exception ex)
             {

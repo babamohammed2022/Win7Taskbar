@@ -464,7 +464,7 @@ namespace Win7Taskbar.Interop
             int seconds, int nativeFlyout, int enableSearch, int netFlyout,
             int classicVolume, int batteryFlyout,
             int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
-            int inputLanguageMode);
+            int inputLanguageMode, int taskManagerMode);
 
         // v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
@@ -628,6 +628,9 @@ namespace Win7Taskbar.Interop
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_ShowTaskManager();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_ShowTaskManagerMode(int mode);
 
         // --- stili finestra (user32) ---
         //

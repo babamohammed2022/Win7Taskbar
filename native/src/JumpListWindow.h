@@ -125,7 +125,9 @@ private:
     /* One hit-testable row of the popup. The icon is owned by the row and
      * released through the raii handle (move-only row storage). */
     struct Row {
-        enum Kind { DocRecent = 0, DocFrequent = 1, App = 2, Pin = 3 };
+        enum Kind {
+            DocRecent = 0, DocFrequent = 1, App = 2, Close = 3, Pin = 4
+        };
         Kind kind = App;
         RECT rect = {};
         std::wstring label;

@@ -94,6 +94,8 @@ constexpr PropStrings kPropIt = {
     L"Barra degli strumenti Desktop",
     L"Indirizzi",
     L"Collegamenti",
+    /* Task Manager selector (Windows 11 only). */
+    L"Gestione attività:", L"Automatico (predefinito)", L"Task Manager (Windows 11)", L"Task Manager (Legacy)",
 };
 constexpr PropStrings kPropEn = {
     L"Properties",
@@ -143,6 +145,8 @@ constexpr PropStrings kPropEn = {
     L"Desktop toolbar",
     L"Address",
     L"Links",
+    /* Task Manager selector (Windows 11 only). */
+    L"Task Manager:", L"Automatic (default)", L"Task Manager (Windows 11)", L"Task Manager (Legacy)",
 };
 constexpr PropStrings kPropEs = {
     L"Propiedades",
@@ -192,6 +196,8 @@ constexpr PropStrings kPropEs = {
     L"Barra de herramientas Escritorio",
     L"Direcciones",
     L"Vínculos",
+    /* Task Manager selector (Windows 11 only). */
+    L"Administrador de tareas:", L"Automático (predeterminado)", L"Administrador de tareas (Windows 11)", L"Administrador de tareas (heredado)",
 };
 constexpr PropStrings kPropFr = {
     L"Propriétés",
@@ -241,6 +247,8 @@ constexpr PropStrings kPropFr = {
     L"Barre d'outils Bureau",
     L"Adresses",
     L"Liens",
+    /* Task Manager selector (Windows 11 only). */
+    L"Gestionnaire des tâches:", L"Automatique (par défaut)", L"Gestionnaire des tâches (Windows 11)", L"Gestionnaire des tâches (hérité)",
 };
 constexpr PropStrings kPropDe = {
     L"Eigenschaften",
@@ -288,6 +296,8 @@ constexpr PropStrings kPropDe = {
     L"Symbolleiste Desktop",
     L"Adressen",
     L"Links",
+    /* Task Manager selector (Windows 11 only). */
+    L"Task-Manager:", L"Automatisch (Standard)", L"Task-Manager (Windows 11)", L"Task-Manager (Legacy)",
 };
 constexpr PropStrings kPropPt = {
     L"Propriedades",
@@ -336,6 +346,8 @@ constexpr PropStrings kPropPt = {
     L"Barra de ferramentas Área de trabalho",
     L"Endereços",
     L"Links",
+    /* Task Manager selector (Windows 11 only). */
+    L"Gestor de Tarefas:", L"Automático (predefinição)", L"Gestor de Tarefas (Windows 11)", L"Gestor de Tarefas (Legado)",
 };
 constexpr PropStrings kPropPl = {
     L"Właściwości",
@@ -383,6 +395,8 @@ constexpr PropStrings kPropPl = {
     L"Pasek narzędzi Pulpit",
     L"Adresy",
     L"Łącza",
+    /* Task Manager selector (Windows 11 only). */
+    L"Menedżer zadań:", L"Automatycznie (domyślne)", L"Menedżer zadań (Windows 11)", L"Menedżer zadań (starszy)",
 };
 constexpr PropStrings kPropRu = {
     L"Свойства",
@@ -430,6 +444,8 @@ constexpr PropStrings kPropRu = {
     L"Панель инструментов «Рабочий стол»",
     L"Адрес",
     L"Ссылки",
+    /* Task Manager selector (Windows 11 only). */
+    L"Диспетчер задач:", L"Автоматически (по умолчанию)", L"Диспетчер задач (Windows 11)", L"Диспетчер задач (классический)",
 };
 constexpr PropStrings kPropJa = {
     L"プロパティ",
@@ -473,6 +489,8 @@ constexpr PropStrings kPropJa = {
     L"デスクトップ ツールバー",
     L"アドレス",
     L"リンク",
+    /* Task Manager selector (Windows 11 only). */
+    L"タスク マネージャー:", L"自動 (既定)", L"タスク マネージャー (Windows 11)", L"タスク マネージャー (レガシ)",
 };
 constexpr PropStrings kPropZh = {
     L"属性",
@@ -514,6 +532,8 @@ constexpr PropStrings kPropZh = {
     L"桌面工具栏",
     L"地址",
     L"链接",
+    /* Task Manager selector (Windows 11 only). */
+    L"任务管理器:", L"自动（默认）", L"任务管理器 (Windows 11)", L"任务管理器（旧版）",
 };
 
 /* Arabic - contributed by mahmogamer (see CREDITS.txt). */
@@ -556,6 +576,8 @@ constexpr PropStrings kPropAr = {
     L"شريط أدوات سطح المكتب",
     L"العنوان",
     L"الارتباطات",
+    /* Task Manager selector (Windows 11 only). */
+    L"إدارة المهام:", L"تلقائي (افتراضي)", L"إدارة المهام (Windows 11)", L"إدارة المهام (قديم)",
 };
 
 /* ------------------------------------------------------------------------ */

@@ -46,6 +46,8 @@ namespace RetroBar.Utilities
         // v3.3: ON by default (lente a sinistra dello Start durante
         // l'esecuzione); si disattiva dalle Proprieta'.
         private bool _enableAppSearch = true;
+        // Windows 11 only: 0 automatic, 1 modern System32, 2 legacy SysWOW64.
+        private int _taskManagerMode;
 
         /// <summary>
         /// Show seconds in clock, persisted to file / Mostra i secondi nell'orologio, persistita su file.
@@ -109,6 +111,18 @@ namespace RetroBar.Utilities
         {
             get => _enableAppSearch;
             set => SetField(ref _enableAppSearch, value);
+        }
+
+        /// <summary>
+        /// Task Manager selected for the taskbar context-menu command.
+        /// 0 = automatic, 1 = Windows 11 modern, 2 = legacy 32-bit.
+        /// The native launcher forces automatic mode on Windows 10.
+        /// </summary>
+        public int TaskManagerMode
+        {
+            get => _taskManagerMode;
+            set => SetField(ref _taskManagerMode,
+                value >= 0 && value <= 2 ? value : 0);
         }
 
         /// <summary>

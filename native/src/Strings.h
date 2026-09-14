@@ -177,6 +177,11 @@ struct PropStrings {
     const wchar_t* linkHelp;
     const wchar_t* txtToolbars;
     const wchar_t* tbDesktop; const wchar_t* tbAddress; const wchar_t* tbLinks;
+    /* Windows 11-only Task Manager selector below App search. */
+    const wchar_t* lblTaskManager;
+    const wchar_t* taskManagerAuto;
+    const wchar_t* taskManagerModern;
+    const wchar_t* taskManagerLegacy;
 };
 
 const PropStrings& PropStringsFor(Lang lang);
