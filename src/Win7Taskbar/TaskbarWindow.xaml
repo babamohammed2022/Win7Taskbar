@@ -69,6 +69,7 @@
                          background or invisible geometry is inserted. -->
                     <w7controls:TaskThumbnail x:Name="Thumb"
                                               SourceWindowHandle="{Binding HandlePtr}"
+                                              ApplicationName="{Binding ApplicationName}"
                                               Title="{Binding Title}" />
                 </ContentControl>
 
@@ -109,12 +110,15 @@
                 </Grid>
 
                 <!-- Three-state close X in the top image border, outside the
-                     centre cell painted by DWM. -->
+                     centre cell painted by DWM. At 20x20, margin 16/21 keeps
+                     the full hit target above y=38 and left of the 17px
+                     rounded outer-corner slice while moving it 2px right and
+                     1px up from the previous placement. -->
                 <Button x:Name="PreviewCloseButton"
                         Style="{DynamicResource TaskPreviewCloseButton}"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Top"
-                        Margin="0,17,23,0"
+                        Margin="0,16,21,0"
                         Panel.ZIndex="99"
                         Click="PreviewCloseButton_Click" />
             </Grid>

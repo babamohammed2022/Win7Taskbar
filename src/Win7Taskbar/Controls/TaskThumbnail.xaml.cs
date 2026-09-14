@@ -27,6 +27,8 @@ namespace Win7Taskbar.Controls
         // tiny source windows otherwise make the fixed 17/19px frame dominate.
         private const double MinScaledWidth = RetroWidth * 0.65;
         private const double MinScaledHeight = RetroHeight * 0.65;
+        private const double ExtremeAspectRatioThreshold = 2.5;
+        private const double ExtremeLongEdgeCrop = 0.15;
         private static readonly TimeSpan VerificationDelay = TimeSpan.FromMilliseconds(350);
         private const uint GA_ROOT = 2;
 
@@ -92,6 +94,18 @@ namespace Win7Taskbar.Controls
             set => SetValue(TitleProperty, value);
         }
 
+        public static readonly DependencyProperty ApplicationNameProperty =
+            DependencyProperty.Register(nameof(ApplicationName), typeof(string),
+                typeof(TaskThumbnail), new PropertyMetadata(string.Empty));
+
+        /// <summary>Friendly executable name for the tooltip. Title remains
+        /// the real per-window caption used by the visible preview band.</summary>
+        public string ApplicationName
+        {
+            get => (string)GetValue(ApplicationNameProperty);
+            set => SetValue(ApplicationNameProperty, value);
+        }
+
         private NativeMethods.RECT Rect
         {
             get
@@ -122,6 +136,38 @@ namespace Win7Taskbar.Controls
             }
         }
 
+        private static void ApplyExtremeAspectCrop(ref NativeMethods.RECT rect)
+        {
+            int width = rect.Right - rect.Left;
+            int height = rect.Bottom - rect.Top;
+            if (width <= 0 || height <= 0)
+            {
+                return;
+            }
+
+            double ratio = (double)width / height;
+            if (ratio > ExtremeAspectRatioThreshold)
+            {
+                // A bounded 15% centre crop makes an exceptionally wide
+                // preview more substantial without non-uniform stretching.
+                // The destination remains wholly inside the DWM aperture.
+                int crop = Math.Max(0,
+                    (int)Math.Round(width * ExtremeLongEdgeCrop / 2.0));
+                rect.Left += crop;
+                rect.Right -= crop;
+            }
+            else if (ratio < 1.0 / ExtremeAspectRatioThreshold)
+            {
+                // Same compromise for a tall/narrow source. Cropping source
+                // pixels is preferable to letting an oversized destination
+                // paint over the fixed Aero frame or close button.
+                int crop = Math.Max(0,
+                    (int)Math.Round(height * ExtremeLongEdgeCrop / 2.0));
+                rect.Top += crop;
+                rect.Bottom -= crop;
+            }
+        }
+
         public void Refresh()
         {
             try
@@ -145,8 +191,19 @@ namespace Win7Taskbar.Controls
                     return;
                 }
 
-                double sourceWidth = size.cx / DpiScale;
-                double sourceHeight = size.cy / DpiScale;
+                var sourceRect = new NativeMethods.RECT
+                {
+                    Left = 0,
+                    Top = 0,
+                    Right = size.cx,
+                    Bottom = size.cy
+                };
+                ApplyExtremeAspectCrop(ref sourceRect);
+
+                double sourceWidth =
+                    (sourceRect.Right - sourceRect.Left) / DpiScale;
+                double sourceHeight =
+                    (sourceRect.Bottom - sourceRect.Top) / DpiScale;
                 double scale;
 
                 if (sourceWidth <= RetroWidth && sourceHeight <= RetroHeight)
@@ -193,8 +250,10 @@ namespace Win7Taskbar.Controls
                 {
                     fVisible = true,
                     dwFlags = NativeMethods.DWM_TNP_VISIBLE |
-                              NativeMethods.DWM_TNP_RECTDESTINATION,
-                    rcDestination = destination
+                              NativeMethods.DWM_TNP_RECTDESTINATION |
+                              NativeMethods.DWM_TNP_RECTSOURCE,
+                    rcDestination = destination,
+                    rcSource = sourceRect
                 };
                 _ = NativeMethods.DwmUpdateThumbnailProperties(
                     _thumbHandle, ref props);
@@ -410,7 +469,9 @@ namespace Win7Taskbar.Controls
                 Right = origin.x + width,
                 Bottom = origin.y + height
             };
-            return true;
+            // Keep fallback framing identical to the DWM source crop.
+            ApplyExtremeAspectCrop(ref rect);
+            return rect.Right - rect.Left >= 32 && rect.Bottom - rect.Top >= 32;
         }
 
         private static bool IsWindowUnoccludedAt(

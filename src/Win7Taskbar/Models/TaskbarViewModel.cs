@@ -583,6 +583,10 @@ namespace Win7Taskbar.Models
 
                 var state = (WindowStateFlags)info.State;
                 window.Title = info.Title ?? string.Empty;
+                // Reuse the executable path already supplied by the native
+                // window enumeration; don't perform another process query.
+                window.ApplicationName = TaskGroup.ResolveFriendlyApplicationName(
+                    info.ExePath, window.Title, info.AppId);
                 window.IsActive = state.HasFlag(WindowStateFlags.Active);
                 window.IsMinimized = state.HasFlag(WindowStateFlags.Minimized);
                 window.IsMaximized = state.HasFlag(WindowStateFlags.Maximized);

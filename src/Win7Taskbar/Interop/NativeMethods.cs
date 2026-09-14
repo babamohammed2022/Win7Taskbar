@@ -737,6 +737,7 @@ namespace Win7Taskbar.Interop
         // della nostra finestra. Non e' uno screenshot, e' live.
 
         public const int DWM_TNP_RECTDESTINATION = 0x00000001;
+        public const int DWM_TNP_RECTSOURCE = 0x00000002;
         public const int DWM_TNP_VISIBLE = 0x00000008;
         public const int DWM_TNP_SOURCECLIENTAREAONLY = 0x00000010;
 

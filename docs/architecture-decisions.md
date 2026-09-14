@@ -65,6 +65,9 @@ RetroBar DWM path: register the source window, fit it into the 202×109 photo
 aperture, update the destination rectangle while rendering, and always
 deregister on unload. Tiny sources are enlarged toward a 65% minimum while
 preserving aspect ratio, avoiding a fixed frame that visually overwhelms them.
+Sources beyond a 2.5:1 aspect threshold use a bounded 15% central crop of the
+long edge; pixels remain uniformly scaled and the destination never enters the
+fixed frame or close-button region.
 `TaskbarWindow.xaml` continues to own the Aero frame, close button, layered
 popup placement, activation and navigation.
 

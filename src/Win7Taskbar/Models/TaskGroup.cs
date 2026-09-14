@@ -15,8 +15,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -33,6 +35,7 @@ namespace Win7Taskbar.Models
         private bool _isMaximized;
         private bool _isFlashing;
         private ImageSource? _icon;
+        private string _applicationName = string.Empty;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -92,6 +95,14 @@ namespace Win7Taskbar.Models
             set => SetField(ref _icon, value);
         }
 
+        /// <summary>Localized executable metadata used only where the UI asks
+        /// for an application identity; Title remains the live HWND caption.</summary>
+        public string ApplicationName
+        {
+            get => _applicationName;
+            set => SetField(ref _applicationName, value ?? string.Empty);
+        }
+
         private void SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
         {
             if (Equals(field, value))
@@ -110,6 +121,11 @@ namespace Win7Taskbar.Models
     /// </summary>
     public sealed class TaskGroup : INotifyPropertyChanged
     {
+        // FileVersionInfo reads executable resources from disk. Cache only
+        // metadata (empty means unavailable), never a mutable window title.
+        private static readonly ConcurrentDictionary<string, string>
+            FriendlyNameCache = new(StringComparer.OrdinalIgnoreCase);
+
         private ImageSource? _icon;
         private bool _isFlashing;
         private bool _isActive;
@@ -203,34 +219,67 @@ namespace Win7Taskbar.Models
             }
         }
 
-        /// <summary>Nome mostrato nel tooltip e nell'intestazione del picker.</summary>
-        public string DisplayTitle
-        {
-            get
-            {
-                if (Windows.Count == 1)
-                {
-                    string title = Windows[0].Title;
-                    if (!string.IsNullOrWhiteSpace(title))
-                    {
-                        return title;
-                    }
-                }
+        /// <summary>Friendly application identity used by the Superbar
+        /// tooltip. Individual preview title bands keep TaskWindow.Title.</summary>
+        public string DisplayTitle => ResolveFriendlyApplicationName(
+            ExePath,
+            Windows.FirstOrDefault()?.Title,
+            AppId);
 
-                if (!string.IsNullOrEmpty(ExePath))
+        internal static string ResolveFriendlyApplicationName(
+            string? exePath, string? windowTitle, string? finalFallback = null)
+        {
+            if (!string.IsNullOrWhiteSpace(exePath))
+            {
+                string metadata = FriendlyNameCache.GetOrAdd(exePath, path =>
                 {
                     try
                     {
-                        return Path.GetFileNameWithoutExtension(ExePath);
+                        FileVersionInfo info = FileVersionInfo.GetVersionInfo(path);
+                        if (!string.IsNullOrWhiteSpace(info.FileDescription))
+                        {
+                            return info.FileDescription.Trim();
+                        }
+                        if (!string.IsNullOrWhiteSpace(info.ProductName))
+                        {
+                            return info.ProductName.Trim();
+                        }
                     }
-                    catch (ArgumentException)
+                    catch
                     {
-                        // percorso non valido: si passa al fallback
+                        // Elevated, missing and virtual executables are normal;
+                        // bindings must degrade silently to live model data.
+                    }
+                    return string.Empty;
+                });
+                if (!string.IsNullOrWhiteSpace(metadata))
+                {
+                    return metadata;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(windowTitle))
+            {
+                return windowTitle.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(exePath))
+            {
+                try
+                {
+                    string? fileName = Path.GetFileNameWithoutExtension(exePath);
+                    if (!string.IsNullOrWhiteSpace(fileName))
+                    {
+                        return fileName;
                     }
                 }
-
-                return AppId;
+                catch
+                {
+                    // Last-resort identity below.
+                }
             }
+
+            return finalFallback ?? string.Empty;
         }
 
         /// <summary>

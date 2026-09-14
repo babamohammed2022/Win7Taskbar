@@ -5,8 +5,10 @@
              Height="109"
              Loaded="UserControl_Loaded"
              Unloaded="UserControl_Unloaded">
+    <!-- The hover tooltip identifies the application; the parent preview
+         title band deliberately continues to show the real window caption. -->
     <UserControl.ToolTip>
-        <ToolTip Content="{Binding PlacementTarget.Title, RelativeSource={RelativeSource Self}}" />
+        <ToolTip Content="{Binding PlacementTarget.ApplicationName, RelativeSource={RelativeSource Self}}" />
     </UserControl.ToolTip>
 
     <!-- Normally this grid paints nothing: the compositor-owned DWM surface
