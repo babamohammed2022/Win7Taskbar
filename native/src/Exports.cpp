@@ -35,6 +35,7 @@
 #include "JumpListWindow.h"     /* v2.38 */
 #include "LanguageSwitcher.h"   /* v1.4: selettore della lingua */
 #include "BatteryFlyout.h"      /* v2.38 */
+#include "TrayCplDialog.h"      /* v1.7.6: pagina "Notification Area Icons" */
 #include <thread>
 #include <atomic>
 #include <psapi.h>
@@ -277,6 +278,22 @@ extern "C" W7T_API void W7T_CALL W7T_SetWin7NetworkFlyout(int32_t ready) {
 extern "C" W7T_API int32_t W7T_CALL W7T_SetTrayIconPinned(uint64_t ownerHwnd, uint32_t uid,
                                                           int32_t pinned) {
     return TrayService::Instance().SetPinned(ownerHwnd, uid, pinned);
+}
+
+/* v1.7.6: apertura della pagina "Notification Area Icons" dal livello
+ * gestito (voce "Personalizza area di notifica..." del menu orologio).
+ * Il dialogo e' modeless: questo chiamante ritorna SUBITO e il pump WPF
+ * governa la pagina; nessun blocco, nessuna registrazione nel registro,
+ * nessun processo host. C++ try/catch + SEH: un fallimento qui e' una
+ * pagina che non si apre, mai un frontend che muore. */
+extern "C" W7T_API int32_t W7T_CALL W7T_TrayCplShow(uint64_t ownerTaskbar) {
+    try {
+        return w7t::TrayCplDialog::Instance().Show(
+            reinterpret_cast<HWND>(static_cast<uintptr_t>(ownerTaskbar)));
+    } catch (...) {
+        AppendCoreLog(L"traycpl: Show ha catturato un'eccezione C++");
+        return W7T_ERR_CREATE_WINDOW;
+    }
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_TrayMoveIcon(uint64_t sourceHwnd, uint32_t sourceUid,

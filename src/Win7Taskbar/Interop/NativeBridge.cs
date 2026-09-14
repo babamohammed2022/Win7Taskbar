@@ -20,6 +20,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Win7Taskbar.Utilities;
 
 namespace Win7Taskbar.Interop
 {
@@ -695,6 +696,39 @@ namespace Win7Taskbar.Interop
         /// </summary>
         public bool OpenNotificationIconsSettings()
             => NativeMethods.W7T_OpenNotificationIconsSettings() == W7TResult.Ok;
+
+        /// <summary>
+        /// v1.7.6: opens the program's OWN "Notification Area Icons" page
+        /// (native dialog, zero registry: it configures only this tray).
+        /// Returns +1 opened, 0 already open (raised), negative when the
+        /// page is unavailable - an older core without the export must make
+        /// the caller degrade to the previous behavior, never crash the
+        /// click. Failures are logged, never swallowed.
+        /// </summary>
+        public int ShowNotificationIconsCpl(IntPtr owner)
+        {
+            try
+            {
+                return NativeMethods.W7T_TrayCplShow((ulong)owner);
+            }
+            catch (EntryPointNotFoundException ex)
+            {
+                DiagnosticLogger.Write("TRAYCPL",
+                    "core without W7T_TrayCplShow: " + ex.Message);
+                return -99;
+            }
+            catch (DllNotFoundException ex)
+            {
+                DiagnosticLogger.Write("TRAYCPL",
+                    "core not loaded: " + ex.Message);
+                return -99;
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.WriteException("TRAYCPL", ex);
+                return -1;
+            }
+        }
 
         /// <summary>
         /// v2.2: scrive una riga in log-core.txt (diagnostica dei percorsi

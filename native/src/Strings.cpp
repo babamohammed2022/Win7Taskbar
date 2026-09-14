@@ -1073,4 +1073,276 @@ const BattStrings& BattStringsFor(Lang lang) {
     return PickBatt(lang);
 }
 
+/* ------------------------------------------------------------------------ */
+/*  Pagina "Notification Area Icons" - TrayCplDialog.cpp                    */
+/* ------------------------------------------------------------------------ */
+
+/* Field order: title, header, description, alwaysShow, colIcons,
+ * colBehaviors, show, notify, hide, linkSystem, linkRestore, ok, cancel,
+ * sysDescription, sysNetwork, sysVolume, sysBattery, back, empty. */
+
+constexpr TrayCplStrings kTrayCplEn = {
+    L"Notification Area Icons",
+    L"Select which icons and notifications appear on the taskbar",
+    L"These settings control only the icons managed by the Win7Taskbar tray, never the icons of Windows itself. Changes take effect immediately.",
+    L"Always show all icons and notifications on the taskbar",
+    L"Icons",
+    L"Behaviors",
+    L"Show icon and notifications",
+    L"Only show notifications",
+    L"Hide icon and notifications",
+    L"Turn system icons on or off",
+    L"Restore default icon behaviors",
+    L"&OK",
+    L"&Cancel",
+    L"Choose which system icons Win7Taskbar shows in its tray. A switched-off icon disappears from the bar, from the overflow panel and from notifications.",
+    L"Network",
+    L"Volume",
+    L"Power",
+    L"Back",
+    L"There are no icons to configure right now.",
+};
+
+constexpr TrayCplStrings kTrayCplIt = {
+    L"Icone dell'area di notifica",
+    L"Selezionare le icone e le notifiche da visualizzare nella barra delle applicazioni",
+    L"Queste impostazioni controllano solo le icone gestite dalla tray di Win7Taskbar, mai quelle di Windows. Le modifiche hanno effetto immediato.",
+    L"Mostra sempre tutte le icone e le notifiche nella barra delle applicazioni",
+    L"Icone",
+    L"Comportamenti",
+    L"Mostra icona e notifiche",
+    L"Mostra solo le notifiche",
+    L"Nascondi icona e notifiche",
+    L"Attivare o disattivare le icone di sistema",
+    L"Ripristina i comportamenti predefiniti delle icone",
+    L"&OK",
+    L"&Annulla",
+    L"Scegli quali icone di sistema Win7Taskbar mostra nella sua tray. Un'icona disattivata scompare dalla barra, dal riquadro di overflow e dalle notifiche.",
+    L"Rete",
+    L"Audio",
+    L"Alimentazione",
+    L"Indietro",
+    L"Non ci sono icone da configurare in questo momento.",
+};
+
+constexpr TrayCplStrings kTrayCplEs = {
+    L"Iconos del área de notificación",
+    L"Seleccione qué iconos y notificaciones aparecen en la barra de tareas",
+    L"Esta configuración solo controla los iconos gestionados por la bandeja de Win7Taskbar, nunca los de Windows. Los cambios se aplican de inmediato.",
+    L"Mostrar siempre todos los iconos y notificaciones en la barra de tareas",
+    L"Iconos",
+    L"Comportamientos",
+    L"Mostrar icono y notificaciones",
+    L"Mostrar solo notificaciones",
+    L"Ocultar icono y notificaciones",
+    L"Activar o desactivar los iconos del sistema",
+    L"Restaurar los comportamientos predeterminados de los iconos",
+    L"A&ceptar",
+    L"Cancelar",
+    L"Elija qué iconos del sistema muestra Win7Taskbar en su bandeja. Un icono desactivado desaparece de la barra, del panel de desbordamiento y de las notificaciones.",
+    L"Red",
+    L"Volumen",
+    L"Energía",
+    L"Atrás",
+    L"No hay iconos que configurar en este momento.",
+};
+
+constexpr TrayCplStrings kTrayCplFr = {
+    L"Icônes de la zone de notification",
+    L"Choisissez les icônes et notifications à afficher dans la barre des tâches",
+    L"Ces paramètres contrôlent uniquement les icônes gérées par la barre Win7Taskbar, jamais celles de Windows. Les modifications sont appliquées immédiatement.",
+    L"Toujours afficher toutes les icônes et toutes les notifications dans la barre des tâches",
+    L"Icônes",
+    L"Comportements",
+    L"Afficher l'icône et les notifications",
+    L"Afficher les notifications uniquement",
+    L"Masquer l'icône et les notifications",
+    L"Activer ou désactiver les icônes système",
+    L"Rétablir les comportements par défaut des icônes",
+    L"&OK",
+    L"Annuler",
+    L"Choisissez les icônes système affichées par Win7Taskbar dans sa zone de notification. Une icône désactivée disparaît de la barre, du panneau de débordement et des notifications.",
+    L"Réseau",
+    L"Volume",
+    L"Alimentation",
+    L"Retour",
+    L"Aucune icône à configurer pour le moment.",
+};
+
+constexpr TrayCplStrings kTrayCplDe = {
+    L"Symbole im Infobereich",
+    L"Auswählen, welche Symbole und Benachrichtigungen in der Taskleiste angezeigt werden",
+    L"Diese Einstellungen betreffen nur die von Win7Taskbar verwalteten Symbole, niemals die von Windows. Änderungen wirken sofort.",
+    L"Alle Symbole und Benachrichtigungen immer in der Taskleiste anzeigen",
+    L"Symbole",
+    L"Verhalten",
+    L"Symbol und Benachrichtigungen anzeigen",
+    L"Nur Benachrichtigungen anzeigen",
+    L"Symbol und Benachrichtigungen ausblenden",
+    L"Systemsymbole ein- oder ausschalten",
+    L"Standardverhalten der Symbole wiederherstellen",
+    L"&OK",
+    L"Abbrechen",
+    L"Wählen Sie, welche Systemsymbole Win7Taskbar im Infobereich anzeigt. Ein ausgeschaltetes Symbol verschwindet aus der Taskleiste, dem Überlaufbereich und den Benachrichtigungen.",
+    L"Netzwerk",
+    L"Lautstärke",
+    L"Energie",
+    L"Zurück",
+    L"Derzeit sind keine Symbole vorhanden, die konfiguriert werden können.",
+};
+
+constexpr TrayCplStrings kTrayCplPt = {
+    L"Ícones da área de notificação",
+    L"Selecione quais ícones e notificações aparecem na barra de tarefas",
+    L"Essas configurações controlam apenas os ícones gerenciados pela bandeja do Win7Taskbar, nunca os do Windows. As alterações têm efeito imediato.",
+    L"Sempre mostrar todos os ícones e notificações na barra de tarefas",
+    L"Ícones",
+    L"Comportamentos",
+    L"Mostrar ícone e notificações",
+    L"Mostrar somente notificações",
+    L"Ocultar ícone e notificações",
+    L"Ativar ou desativar ícones do sistema",
+    L"Restaurar comportamentos padrão dos ícones",
+    L"&OK",
+    L"Cancelar",
+    L"Escolha quais ícones do sistema o Win7Taskbar mostra em sua bandeja. Um ícone desativado desaparece da barra, do painel de overflow e das notificações.",
+    L"Rede",
+    L"Volume",
+    L"Energia",
+    L"Voltar",
+    L"Não há ícones para configurar agora.",
+};
+
+constexpr TrayCplStrings kTrayCplPl = {
+    L"Ikony obszaru powiadomień",
+    L"Wybierz, które ikony i powiadomienia są wyświetlane na pasku zadań",
+    L"Te ustawienia dotyczą tylko ikon zarządzanych przez zasobnik Win7Taskbar, nigdy ikon systemu Windows. Zmiany są stosowane natychmiast.",
+    L"Zawsze pokazuj wszystkie ikony i powiadomienia na pasku zadań",
+    L"Ikony",
+    L"Zachowania",
+    L"Pokaż ikonę i powiadomienia",
+    L"Pokaż tylko powiadomienia",
+    L"Ukryj ikonę i powiadomienia",
+    L"Włącz lub wyłącz ikony systemowe",
+    L"Przywróć domyślne zachowania ikon",
+    L"&OK",
+    L"Anuluj",
+    L"Wybierz, które ikony systemowe Win7Taskbar pokazuje w swoim zasobniku. Wyłączona ikona znika z paska, z panelu nadmiaru i z powiadomień.",
+    L"Sieć",
+    L"Głośność",
+    L"Zasilanie",
+    L"Wstecz",
+    L"Brak ikon do skonfigurowania w tej chwili.",
+};
+
+constexpr TrayCplStrings kTrayCplRu = {
+    L"Значки области уведомлений",
+    L"Выберите, какие значки и уведомления отображаются на панели задач",
+    L"Эти параметры управляют только значками панели Win7Taskbar, но не значками Windows. Изменения применяются немедленно.",
+    L"Всегда отображать все значки и уведомления на панели задач",
+    L"Значки",
+    L"Поведение",
+    L"Показывать значок и уведомления",
+    L"Показывать только уведомления",
+    L"Скрывать значок и уведомления",
+    L"Включение и отключение значков системы",
+    L"Восстановить поведение значков по умолчанию",
+    L"&ОК",
+    L"Отмена",
+    L"Выберите, какие системные значки показывает панель Win7Taskbar. Отключенный значок исчезает с панели, из вызывного меню и из уведомлений.",
+    L"Сеть",
+    L"Громкость",
+    L"Питание",
+    L"Назад",
+    L"Сейчас нет значков для настройки.",
+};
+
+constexpr TrayCplStrings kTrayCplJa = {
+    L"通知領域のアイコン",
+    L"タスクバーに表示するアイコンと通知を選択します",
+    L"これらの設定は Win7Taskbar が管理するアイコンのみに適用され、Windows 自体のアイコンには影響しません。変更はすぐに反映されます。",
+    L"すべてのアイコンと通知を常にタスクバーに表示する",
+    L"アイコン",
+    L"動作",
+    L"アイコンと通知を表示する",
+    L"通知のみ表示する",
+    L"アイコンと通知を非表示にする",
+    L"システム アイコンをオンまたはオフにします",
+    L"アイコンの既定の動作を復元",
+    L"OK",
+    L"キャンセル",
+    L"Win7Taskbar がトレイに表示するシステム アイコンを選択します。オフにしたアイコンは、バー、オーバーフロー・パネル、通知から消えます。",
+    L"ネットワーク",
+    L"音量",
+    L"電源",
+    L"戻る",
+    L"現在、構成できるアイコンありません。",
+};
+
+constexpr TrayCplStrings kTrayCplZh = {
+    L"通知区域图标",
+    L"选择要在任务栏上显示的图标和通知",
+    L"这些设置仅控制 Win7Taskbar 托盘管理的图标，不影响 Windows 自身的图标。更改立即生效。",
+    L"始终在任务栏上显示所有图标和通知",
+    L"图标",
+    L"行为",
+    L"显示图标和通知",
+    L"仅显示通知",
+    L"隐藏图标和通知",
+    L"打开或关闭系统图标",
+    L"还原图标的默认行为",
+    L"确定",
+    L"取消",
+    L"选择 Win7Taskbar 在其托盘中显示的系统图标。关闭的图标会从任务栏、溢出面板和通知中消失。",
+    L"网络",
+    L"音量",
+    L"电源",
+    L"返回",
+    L"当前没有可配置的图标。",
+};
+
+constexpr TrayCplStrings kTrayCplAr = {
+    L"أيقونات منطقة الإعلام",
+    L"حدد الأيقونات والإشعارات التي تظهر على شريط المهام",
+    L"تنطبق هذه الإعدادات على الأيقونات التي يديرها Win7Taskbar فقط، وليس على أيقونات Windows نفسها. تُطبّق التغييرات فورًا.",
+    L"إظهار جميع الأيقونات والإشعارات دائمًا على شريط المهام",
+    L"الأيقونات",
+    L"السلوك",
+    L"إظهار الأيقونة والإشعارات",
+    L"إظهار الإشعارات فقط",
+    L"إخفاء الأيقونة والإشعارات",
+    L"تشغيل أيقونات النظام أو إيقافها",
+    L"استعادة السلوكيات الافتراضية للأيقونات",
+    L"موافق",
+    L"إلغاء",
+    L"اختر أيقونات النظام التي يعرضها Win7Taskbar في منطقته. الأيقونة الموقوفة تختفي من الشريط ومن لوحة التجاوز ومن الإشعارات.",
+    L"الشبكة",
+    L"الصوت",
+    L"الطاقة",
+    L"رجوع",
+    L"لا توجد أيقونات للإعداد حاليًا.",
+};
+
+const TrayCplStrings& PickTrayCpl(Lang lang) {
+    switch (lang) {
+        case Lang::It: return kTrayCplIt;
+        case Lang::Es: return kTrayCplEs;
+        case Lang::Fr: return kTrayCplFr;
+        case Lang::De: return kTrayCplDe;
+        case Lang::Pt: return kTrayCplPt;
+        case Lang::Pl: return kTrayCplPl;
+        case Lang::Ru: return kTrayCplRu;
+        case Lang::Ja: return kTrayCplJa;
+        case Lang::Zh: return kTrayCplZh;
+        case Lang::Ar: return kTrayCplAr;
+        case Lang::En: break;
+    }
+    return kTrayCplEn;   /* ripiego inglese, come in tutta la tabella */
+}
+
+const TrayCplStrings& TrayCplStringsFor(Lang lang) {
+    return PickTrayCpl(lang);
+}
+
+
 } // namespace w7t

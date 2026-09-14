@@ -293,3 +293,67 @@ under the `JUMPLIST` tag.
 **Revisit if.** Windows removes or renames the automatic-destination read
 APIs, or the bar ever needs per-monitor instances: the pixel-space contract
 stays the same, only the monitor lookup of the anchor changes.
+
+## 14. "Notification Area Icons": in-process modeless page, file storage, zero registry
+
+**Decision.** The Windows 7 "Select which icons and notifications appear on
+the taskbar" page is recreated as a **fully proprietary Win32 dialog inside
+the core** (`TrayCplDialog.cpp`, dialog template written from zero in
+`resources/app.rc`, all labels from the project's own 11-language string
+table) and opens modeless on the thread that asked for it - the managed UI
+thread for the menu entry, the Properties thread for its button, the tray
+service thread for the overflow link (both of those pumps already run).
+`W7T_TrayCplShow(uint64 owner)` just creates/raises it; there is no return
+payload and no pumping contract beyond the dialog being modeless.
+
+The hosting question the feature was specified with - "register the CLSID
+on demand, wait for the host, deregister with an RAII scope guard, plus a
+crash self-check" - was evaluated and deliberately NOT taken. The prompt
+itself names the registry-free alternative as the preferred one whenever it
+exists: a window this process owns entirely. With no `control.exe` host and
+no CLSID there is nothing to register, nothing to deregister, and no orphan
+key to clean up after a crash; the trade-off (the page is not openable from
+the system Control Panel) is exactly what the spec demands ("must not appear
+in All Control Panel Items"). The entries that used to jump to the real
+Windows page (clock/taskbar menu *Customize notification area...*,
+Properties *Customize...*, overflow *Customize...* link) now open this page
+and fall back to the old behavior only when the page itself cannot be
+created - an honest degrade, never a silent one.
+
+Storage moved from the registry to **`%LOCALAPPDATA%\Win7Taskbar\trayicons.ini`**
+(`TrayPrefsStore.cpp`: one `name=value` line per icon + a `[settings]`
+section; full rewrite through a temp file + `MoveFileEx`, so a kill can
+never truncate the file). A stored value is the page's three-state behavior
+(0 show / 1 only notifications / 2 hide), which is why the old boolean
+"promoted" flag could simply be reinterpreted: on the first run of the new
+format the legacy `HKCU\SOFTWARE\Win7Taskbar\TrayIconPrefs2` key is imported
+into the file and then **deleted by the program itself** (retry next start
+if deletion fails). The real `TrayNotify` keys of Explorer are never read or
+written for this feature - the page controls only this tray.
+
+A single resolver - `TrayService::ResolveVisibilityLocked` - turns
+"saved behavior + Always-show-all + the system-icon switches + EnableAutoTray
+default" into `(barVisible, presentSomewhere)`, and EVERY consumer reads its
+answer (the toolbar model's `TBSTATE_HIDDEN`, the native overflow snapshot,
+the managed `W7T_GetTrayIcons` view, balloon suppression). The managed
+layer's old "EnableAutoTray=0 → force visible" hack was removed with this:
+a view re-applying a default is exactly how a user's "Only show
+notifications" choice used to be silently crushed.
+
+Fidelity choices worth recording: the Win7 original is not a
+`SysListView32` - it is a DUI ScrollViewer with one in-place themed combo
+per row - so rows are owner-drawn with the original's 96-DPI metrics
+(header 23, row 44, 16 px icon, 150 px combo, 8 px padding, command band
+47) and a SINGLE real `ComboBox` is parked over the row being edited
+(click on the Behaviors cell, Enter/F2 on a row; commit on `CBN_CLOSEUP`).
+`Always show all icons and notifications on the taskbar` overrides the
+display of every saved choice (including "hide") without rewriting any of
+them, like the original; the system-icon switches outrank the checkbox and
+live on page 2 of the same window. Changes apply live (the tray updates
+while the page is open - the whole point of modeless); `Cancel` and the
+close box rewind everything to the snapshot taken when the page opened,
+`OK` simply closes.
+
+**Revisit if.** A future build ever needs the page to be openable from the
+system Control Panel: the on-demand CLSID scope-guard sketch from the
+spec stays applicable - but only then does the orphaned-key problem exist.
