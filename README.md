@@ -2,23 +2,21 @@
 
 <img src="docs/icon-256.png" alt="Win7Taskbar" width="96" align="left" hspace="12" vspace="4">
 
-A Windows 7-inspired taskbar recreation for Windows 10 and 11.
+A Windows 7-inspired taskbar recreation and for Windows 10 and 11.
 
-Win7Taskbar is a software that recreates the Windows 7 taskbar on Windows 10 and Windows 11. It combines a XAML frontend with a native C++/Win32 backend to reproduce the Windows 7 Superbar, including grouped task buttons, the notification area, system flyouts, overflow handling, and a very similar Properties interface.
+Win7Taskbar is a system utility that recreates the Windows 7-style taskbar and Superbar using a XAML frontend with a native C++/Win32 backend. It includes grouped task buttons, the notification area, system flyouts, overflow handling, Jump Lists, and a Windows 7-inspired Properties interface.
 
-This software has been tested on Windows 10 21H2, Windows 10 22H2, Windows 11 24H2 and Windows 11 25H2. However, on Windows 11, some functionality, particularly the system tray, is implemented as a recreation because the newer versions of the operating system no longer expose the same taskbar elements that were available on previous versions of Windows, so the system tray behavior on Windows 11 is replicated rather than directly provided by the native taskbar.
+The software has been tested on Windows 10 21H2/22H2 and Windows 11 24H2/25H2. Some functionality on Windows 11, particularly the notification area, is recreated because newer versions of Windows no longer expose all of the same taskbar functionality available on previous versions.
 
-On Windows 11, **ExplorerPatcher is recommended for the best experience**. Win7Taskbar can work without it, but ExplorerPatcher provides a more compatible Windows 10-style taskbar/shell environment and can expose the notification-area elements that Win7Taskbar can use directly. This can avoid falling back to recreated notification-area icons on Windows 11. ExplorerPatcher is optional and is not required for Win7Taskbar to run.
+On Windows 11, **ExplorerPatcher is recommended for the best experience**, but it is optional. It can provide a more compatible Windows 10-style taskbar environment and allow Win7Taskbar to use more native notification-area functionality.
 
 > ⚠️ **Compatibility warning: RetroBar**
 >
-> **Do not run Win7Taskbar together with RetroBar.**
+> It is recommended not to run Win7Taskbar together with RetroBar. Both applications replace the Windows taskbar by hiding it and may conflict with each other, causing duplicate or missing taskbar elements.
 >
-> Both applications hide and replace the Windows taskbar. Running them simultaneously can cause taskbar conflicts, unexpected behavior, duplicate UI elements, or an apparently missing taskbar.
+> **Use one or the other at a time.**
 >
-> **Use one or the other, not both at the same time.**
->
-> **Note:** ExplorerPatcher is different. On Windows 11, it can complement Win7Taskbar by restoring or exposing native Explorer taskbar functionality that Win7Taskbar can use.
+> ExplorerPatcher is different and can complement Win7Taskbar on Windows 11.
 
 **Current state: `Alpha`**
 
@@ -28,13 +26,13 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**. Win7T
 
 ## Requirements
 
-- Windows 10/11
-- x64
-- No separate .NET installation required for official releases
-> **Self-contained:** official releases include the .NET runtime and do not require a separate .NET installation.
+* Windows 10 or Windows 11
+* x64
+* Official releases are self-contained and do not require a separate .NET installation
 
 ## Run
 
+To install this software, the subsequent steps need to be followed:
 1. Download the latest release from [Releases](https://github.com/babamohammed2022/Win7Taskbar/releases).
 2. Extract the complete package, keeping `Themes/`, `Resources/`, and `Languages/` next to `Win7Taskbar.exe`.
 3. Run `Win7Taskbar.exe`.
@@ -42,34 +40,34 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**. Win7T
 
 ## Current status
 
-Win7Taskbar is still under development. Window thumbnail previews are temporarily disabled because the previous preview implementations were not reliable on real systems. Jump Lists are implemented as a dedicated subsystem - press and hold the left button on a taskbar button and drag upward past the taskbar to open the list, then release over an item to activate it (the data comes from the real Shell jump list APIs, and the right-click menu is unchanged); the interaction still needs verification on real hardware at all display scales. The application-name tooltip remains available.
-
-The tray's "Notification Area Icons" page (opened by *Customize notification area...* in the taskbar/clock menu, by the *Customize...* button in Properties, or by the *Customize...* link in the tray overflow) is a recreation of the Windows 7 page.
-
-Other known limitations include unsupported decorative taskbar rotation and system windows that are hooked and repositioned rather than fully recreated.
+Win7Taskbar is still under development. Some features are incomplete or recreated, particularly parts of the notification area and system UI on Windows 11 and other features.
 
 ## Build
 
-For the normal one-click build on Windows, double-click **`build.bat`** inside the `compilation files` folder.
+For a standard Windows build, double-click **`build.bat`** in the `compilation files` folder.
 
-For complete build, packaging, architecture, and development instructions, see [`docs/PROJECT-INSTRUCTIONS.md`](./docs/PROJECT-INSTRUCTIONS.md).
+For development and build instructions, see [`docs/PROJECT-INSTRUCTIONS.md`](./docs/PROJECT-INSTRUCTIONS.md).
 
-For a concise user and build guide, see [`docs/QUICK-START.md`](./docs/QUICK-START.md).
+For a quick guide, see [`docs/QUICK-START.md`](./docs/QUICK-START.md).
 
 ## Contributing
 
-Bug reports, reproductions, and pull requests are welcome. New documentation and code comments should be written in English.
+Bug reports, reproductions, pull requests, documentation, and code improvements are welcome.
 
 Please read [`AGENTS.md`](./docs/AGENTS.md) before making changes.
 
 ## Credits
 
-- MAHMOGAMER - Arabic translation
-- WinBoeing777 - Testing on Windows 10 22H2 and providing resouces
-- AdministratoX - Testing on Windows 11 25H2
+* MAHMOGAMER - Arabic translation
+* WinBoeing777 - Testing on Windows 10 22H2 and providing resources
+* AdministratoX - Testing on Windows 11 25H2
 
-Win7Taskbar was created using work from projects including RetroBar, ExplorerPatcher and ManagedShell.
-For additional information, please refer to the docs folder.
+Win7Taskbar was created using work from projects including RetroBar, ExplorerPatcher, and ManagedShell.
+
+Additional information and attribution details are available in the `docs` folder.
 
 ## License
-The project is licensed under **GNU GPL v3.0 or later**. See [`LICENSE`](./docs/LICENSE), [`CREDITS.txt`](./docs/CREDITS.txt), and [`THIRD-PARTY-NOTICES.md`](./docs/THIRD-PARTY-NOTICES.md) for licensing and attribution details.
+
+This software is licensed under **GNU GPL v3.0 or later**.
+
+See [`LICENSE`](./docs/LICENSE), [`CREDITS.txt`](./docs/CREDITS.txt), and [`THIRD-PARTY-NOTICES.md`](./docs/THIRD-PARTY-NOTICES.md) for licensing and attribution details.
