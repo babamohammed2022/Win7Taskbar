@@ -20,7 +20,7 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Open-application indicators | ⚠️ | Active/running-state indicators work, but the multi-window "stacked" separator lines (the vertical bars shown when a group has 2+ windows) are not visible yet: the visibility/offset logic (`WindowStackVisibilityConverter`, `WindowStackOuterBorderOffsetConverter`, `WidthRatioConverter`) is implemented and registered as a resource in `Overrides.xaml`, but no XAML element in the task button template is actually bound to it. Needs the missing `Border`/`Rectangle` elements added to the button template. |
 | Application tooltips | ✅ | Application-name tooltips are available. |
 | File drag & drop onto taskbar buttons | ⚠️ | Dropping a file onto a pinned/running app button to open it with that app (hover-to-activate + drop) has an initial implementation: standard WPF drag&drop (no COM `IDropTarget` needed, since this isn't injected into explorer.exe), with a fallback to `ShellExecute` when the known executable can't be launched directly, and an extension check (via registry `SupportedTypes`, permissive when unknown) driving the allowed/forbidden cursor feedback. Needs real-world testing (multi-file drops, apps without declared `SupportedTypes`, mixed-extension drops). |
-| Thumbnail previews | ❌ | Windows 7-style taskbar thumbnail previews are not currently implemented; the previous preview implementations were disabled because they were not reliable on real systems. |
+| Thumbnail previews (DWM) | ⚠️ | DWM-based Windows 7-style taskbar thumbnail previews are currently **in development**. The previews are functional and can be displayed, but they still exhibit graphical anomalies/artifacts in some situations and require further rendering and visual refinement before being considered complete. |
 | Jump Lists | ❌ | Jump Lists are not implemented yet. |
 | Windows 7 toolbars | ✅ | The three Windows 7-style toolbars are present. |
 | Notification area | ⚠️ | The notification area is implemented, but support for all modern Windows tray states is still partial. |
@@ -48,7 +48,7 @@ Taskbar rotation to the top, left, or right side of the screen is still missing.
 
 ### Thumbnail previews
 
-Windows 7-style **taskbar thumbnail previews** are still missing. This includes the preview experience shown when hovering over an open application button.
+Windows 7-style **taskbar thumbnail previews** are currently **in development**. The DWM-based preview implementation is functional, but graphical anomalies/artifacts remain in some situations. Further work is needed to make the rendering consistently match the Windows 7 appearance.
 
 ### Jump Lists
 
@@ -78,6 +78,7 @@ The vertical separator lines that Windows 7 draws next to a grouped task button'
 - Flyouts are generally functional and visually close to the target.
 - The Windows 7-style clock flyout is now considered complete.
 - The Windows 7/8.1-style language switcher is functional with both Windows 7 and Windows 8.1 skins.
+- DWM-based taskbar thumbnail previews are functional and actively being refined.
 - Application-name tooltips are available.
 - Overall Windows 7 accuracy is already fairly high.
 
