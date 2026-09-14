@@ -85,7 +85,7 @@ namespace Win7Taskbar.Controls
             }
         }
 
-        public NativeMethods.RECT Rect
+        private NativeMethods.RECT Rect
         {
             get
             {
