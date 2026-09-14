@@ -26,6 +26,7 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Notification area | ⚠️ | The notification area is implemented, but support for all modern Windows tray states is still partial. |
 | Windows 11 system tray support | ⚠️ | Windows 11 system tray support is implemented, but some tray icons are recreated because Windows 11 no longer exposes all classic tray elements directly. |
 | Tray overflow | ✅ | The overflow experience is reasonably close to Windows 7, although further refinement is possible. |
+| Notification area icon configuration CPL | 🗓️ | Planned: a real `.cpl` component, not exposed in Windows Control Panel, invoked directly from the Win7Taskbar tray overflow to configure which Win7Taskbar-managed notification-area icons are shown. |
 | Battery indicator | ⚠️ | Battery status is implemented with a recreated taskbar icon, but the implementation is still partial rather than a complete native Windows 7 battery implementation. |
 | Clock and date display | ✅ | The taskbar clock and date are present. |
 | Language switcher (input language flyout) | ✅ | Windows 7/8.1-style keyboard layout switcher is now functional, including the tray language abbreviation and popup. It currently supports both Windows 7 and Windows 8.1 visual skins. |
@@ -59,6 +60,10 @@ Windows 7-style **Jump Lists** are not implemented yet.
 Windows 11 uses a substantially different system tray architecture from Windows 7. Current support is implemented, but it is **still partial** and not yet complete enough to be considered finished.
 
 The remaining work includes improving reliability, handling all shell states and Explorer restarts, and making tray icon discovery and updates consistently complete.
+
+### Notification area icon configuration CPL
+
+A real `.cpl` component is planned for configuring which notification-area icons are displayed by Win7Taskbar. It will **not be registered as a normal Control Panel applet** and will instead be launched directly from the Win7Taskbar tray overflow, providing a Windows 7-style configuration interface for the mod's own notification-area icons.
 
 ### Battery indicator
 
