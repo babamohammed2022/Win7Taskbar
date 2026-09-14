@@ -137,6 +137,19 @@ void WindowManager::OnWinEventImpl(DWORD event, HWND hwnd) {
                 TrackedWindow& win = m_windows[hwnd];
                 if (win.title != title) {
                     win.title = title;
+
+                    /* CabinetWClass can navigate in-place from an ordinary
+                     * folder to Control Panel (and back). Re-evaluate only on
+                     * navigation/title changes so that a reused Explorer HWND
+                     * cannot retain the old taskbar identity or icon. */
+                    const std::wstring appId =
+                        ComputeAppId(hwnd, win.pid, win.exePath);
+                    if (win.appId != appId) {
+                        win.appId = appId;
+                        win.icon.clear();
+                        win.iconLoaded = false;
+                    }
+
                     CoreState::Instance().QueueEvent(W7T_EVT_WINDOW_CHANGED,
                                                      reinterpret_cast<uint64_t>(hwnd), 0);
                 }
@@ -323,7 +336,19 @@ int32_t WindowManager::RefreshImpl() {
             wchar_t title[W7T_MAX_TITLE] = {};
             GetWindowTextW(hwnd, title, W7T_MAX_TITLE);
             const uint32_t state = ComputeState(hwnd);
-            if (it->second.title != title || it->second.state != state) {
+            const bool titleChanged = it->second.title != title;
+            bool identityChanged = false;
+            if (titleChanged) {
+                const std::wstring appId =
+                    ComputeAppId(hwnd, it->second.pid, it->second.exePath);
+                if (it->second.appId != appId) {
+                    it->second.appId = appId;
+                    it->second.icon.clear();
+                    it->second.iconLoaded = false;
+                    identityChanged = true;
+                }
+            }
+            if (titleChanged || identityChanged || it->second.state != state) {
                 it->second.title = title;
                 it->second.state = state;
                 CoreState::Instance().QueueEvent(W7T_EVT_WINDOW_CHANGED,
@@ -405,11 +430,35 @@ void WindowManager::EnsureIcon(TrackedWindow& win, int32_t desiredSize) {
 
     const bool large = desiredSize > 16;
     HICON icon = nullptr;
+    bool destroyIcon = false;
+
+    /* Explorer-hosted Control Panel pages often expose Explorer's window
+     * icon as well as its AUMID. Once ComputeAppId has positively identified
+     * such a page, ask the canonical shell namespace for its own icon. This
+     * is deliberately identity-gated, so ordinary Explorer folders retain
+     * their existing icon path. */
+    if (_wcsicmp(win.appId.c_str(), L"w7t:control-panel") == 0) {
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        if (SUCCEEDED(SHParseDisplayName(
+                L"shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}",
+                nullptr, &pidl, 0, nullptr)) && pidl != nullptr) {
+            SHFILEINFOW sfi{};
+            const UINT flags = SHGFI_PIDL | SHGFI_ICON |
+                (large ? SHGFI_LARGEICON : SHGFI_SMALLICON);
+            if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &sfi,
+                               sizeof(sfi), flags) != 0) {
+                icon = sfi.hIcon;
+                destroyIcon = icon != nullptr;
+            }
+            CoTaskMemFree(pidl);
+        }
+    }
 
     /* WM_GETICON con timeout: una finestra bloccata non deve bloccare noi. */
     DWORD_PTR result = 0;
     const UINT type = large ? ICON_BIG : ICON_SMALL;
-    if (SendMessageTimeoutW(win.hwnd, WM_GETICON, type, 0,
+    if (icon == nullptr &&
+        SendMessageTimeoutW(win.hwnd, WM_GETICON, type, 0,
                             SMTO_ABORTIFHUNG | SMTO_BLOCK, 250, &result) && result != 0) {
         icon = reinterpret_cast<HICON>(result);
     }
@@ -435,7 +484,6 @@ void WindowManager::EnsureIcon(TrackedWindow& win, int32_t desiredSize) {
      * consegnano il glifo generico dell'host. Se l'host e' quello (o se
      * non e' arrivata nessuna icona) si chiede l'icona al pacchetto via
      * AppUserModelID + cartella shell:AppsFolder (API pubbliche). */
-    bool destroyIcon = false;
     {
         const size_t slash = win.exePath.find_last_of(L"\\/");
         const std::wstring exeName = (slash == std::wstring::npos)
