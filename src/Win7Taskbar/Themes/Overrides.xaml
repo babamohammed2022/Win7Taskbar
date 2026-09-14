@@ -96,7 +96,7 @@
                    Width="21" Stretch="Fill"
                    SnapsToDevicePixels="True" />
 
-            <!-- contenuto (fascia del titolo + miniatura viva) -->
+            <!-- Superficie DWM centrale: nessun Background, maschera o Effect. -->
             <ContentPresenter Grid.Row="1" Grid.Column="1" />
         </Grid>
     </ControlTemplate>

@@ -63,8 +63,19 @@ file can be traced back to a changelog entry and a screenshot.
 **Decision.** `Controls/TaskThumbnail.xaml.cs` contains only the essential
 RetroBar DWM path: register the source window, fit it into 180×120, update the
 destination rectangle while rendering, and always deregister on unload.
-`TaskbarWindow.xaml` continues to own the Aero frame, close button, popup
-placement, activation and navigation.
+`TaskbarWindow.xaml` continues to own the Aero frame, close button, layered
+popup placement, activation and navigation.
+
+The DWM destination must remain an unpainted WPF surface. In the layered
+preview popup, even an explicit `Background="Transparent"` on
+`TaskThumbnail` participates in WPF composition over that destination and
+can tint the live thumbnail blue. Conversely, opaque brushes over the same
+area in a non-layered popup can cover it with blue or black. Therefore the
+thumbnail control leaves `Background` unset (`null`), and the central frame
+cell has no background, opacity mask, or effect. Chrome belongs only to the
+outer frame images and close button, following RetroBar's ownership model.
+DWM supports the layered popup; using a non-layered popup is not a DWM
+requirement.
 
 The former confirmation timer, geometry proof, icon fallback and static
 `PrintWindow` paths were removed. DWM failures are isolated with `try/catch`
@@ -240,9 +251,13 @@ no locks are taken across the guarded boundary elsewhere.
 **Revisit if.** A fault repeats in one spot: the log line names the module
 phase, and the guard can then be narrowed to the exact call.
 
-## 13. Jump Lists: managed gesture state machine, native data + popup
+## 13. Jump Lists: incomplete and temporarily disabled
 
-**Decision.** The Windows 7 Jump List opens exclusively from the left-button
+**Current status.** Jump Lists are incomplete, so the task-button entry-point
+call is commented out and they cannot currently be opened. The managed and
+native implementation is intentionally retained in place for completion.
+
+**Decision.** When re-enabled, the Windows 7 Jump List opens exclusively from the left-button
 press + drag-up gesture on a task button (never from the right-click menu),
 and the implementation is split the way the rest of the project is:
 

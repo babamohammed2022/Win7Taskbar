@@ -1,6 +1,10 @@
 // Win7Taskbar - Windows 7 Jump List gesture subsystem
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 //
+// STATUS: INCOMPLETE AND TEMPORARILY DISABLED. The call that arms this
+// subsystem is commented out in TaskButton_PreviewMouseDown. Keep this code
+// intact for completion; no Jump List can currently be opened by the user.
+//
 // The Windows 7 Superbar opened a taskbar button's Jump List from the
 // left-button press + drag-up gesture (the right-click stays the plain
 // Windows 7 context menu, handled in TaskbarWindow.xaml.cs and not touched

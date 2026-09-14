@@ -58,12 +58,11 @@ struct ScopeExit {
 template <typename F>
 ScopeExit<F> MakeScopeExit(F f) { return ScopeExit<F>(f); }
 
-/* Stesse dimensioni della mod di riferimento (unita' DLU).
- * v2.47: la finestra si allunga per ospitare la scheda "Barre degli
- * strumenti" e i nuovi gruppi (Flyout, Area di notifica, Aero Peek).
- * v3.5: altre 14 DLU per la seconda riga del gruppo lingua (l'indicatore
- * della lingua di input). */
-constexpr short MAIN_WIDTH  = 262;
+/* Dimensioni in unita' DLU basate sulla mod di riferimento.
+ * La larghezza include 16 DLU aggiuntive per non troncare l'etichetta
+ * italiana "Gestione attività"; l'altezza ospita la scheda Barre degli
+ * strumenti e la seconda riga del gruppo lingua. */
+constexpr short MAIN_WIDTH  = 278;
 constexpr short MAIN_HEIGHT = 326;
 
 /* v2.50: le tendine di volume e batteria non si chiamano piu' "mixer
@@ -160,7 +159,7 @@ void InitToolbarsList(HWND hwnd, const PropStrings& S,
     LVCOLUMNW col{};
     col.mask = LVCF_WIDTH | LVCF_FMT;
     col.fmt  = LVCFMT_LEFT;
-    col.cx   = 226;
+    col.cx   = 242;
     ListView_InsertColumn(hList, 0, &col);
 
     const wchar_t* names[]  = { S.tbAddress, S.tbDesktop, S.tbLinks };
@@ -315,7 +314,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
             controlCount++;
         };
 
-        addCtrl(TCS_TABS | WS_TABSTOP, 0, 6, 6, 250, 292, IDC_TAB_MAIN,
+        addCtrl(TCS_TABS | WS_TABSTOP, 0, 6, 6, 266, 292, IDC_TAB_MAIN,
                 L"SysTabControl32", L"");
         /* ============================================================
          * PAGINA 1 - "Barra delle applicazioni"
@@ -332,7 +331,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * tendina (orologio, rete, volume, batteria). Passo fra le righe 16
          * DLU (tendina alta 14 + 2 di aria), etichette a 18, tendine a 72
          * larghe 172: la stessa griglia del resto del dialogo. */
-        addCtrl(BS_GROUPBOX, 0, 12, 30, 238, 74, IDC_GRP_NETFLY, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 30, 254, 74, IDC_GRP_NETFLY, L"Button", L"");
         addCtrl(SS_LEFT, 0, 18, 40, 50, 10, IDC_LBL_CLOCK, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 38, 172, 80, IDC_CMB_CLOCK, L"ComboBox", L"");
         addCtrl(SS_LEFT, 0, 18, 56, 50, 10, IDC_TXT_NETFLY, L"Static", L"");
@@ -343,8 +342,8 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 86, 172, 80, IDC_CMB_BATTERY, L"ComboBox", L"");
 
         /* GRUPPO 2 - OROLOGIO: una sola casella, gruppo alto 30. */
-        addCtrl(BS_GROUPBOX, 0, 12, 108, 238, 30, IDC_GRP_CLOCK, L"Button", L"");
-        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 118, 226, 10, IDC_CHK_SECONDS, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 108, 254, 30, IDC_GRP_CLOCK, L"Button", L"");
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 118, 242, 10, IDC_CHK_SECONDS, L"Button", L"");
 
         /* GRUPPO 3 - RICERCA APPLICAZIONI. La casella e' su DUE righe
          * (BS_MULTILINE, alto 20): la sua etichetta e' lunga e in tedesco,
@@ -354,24 +353,24 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         /* Il pulsante "Apri ricerca" resta assente. Su Windows 11 21H2+
          * la seconda riga sceglie quale Task Manager viene aperto dalla
          * voce del menu contestuale; ShowTabPage la nasconde su Windows 10. */
-        addCtrl(BS_GROUPBOX, 0, 12, 142, 238, 50, IDC_GRP_SEARCH, L"Button", L"");
-        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 0, 18, 150, 226, 18, IDC_CHK_SEARCH, L"Button", L"");
-        addCtrl(SS_LEFT, 0, 18, 175, 52, 10, IDC_LBL_TASKMGR, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 172, 172, 80, IDC_CMB_TASKMGR, L"ComboBox", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 142, 254, 50, IDC_GRP_SEARCH, L"Button", L"");
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 0, 18, 150, 242, 18, IDC_CHK_SEARCH, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 175, 68, 10, IDC_LBL_TASKMGR, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 88, 172, 172, 80, IDC_CMB_TASKMGR, L"ComboBox", L"");
 
         /* GRUPPO 4 - LINGUA (al posto della sezione Aero Peek della foto).
          * v3.5: due righe - la lingua del programma (come prima) e lo
          * stile dell'indicatore della lingua di input (0 nascosta,
          * 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11). */
-        addCtrl(BS_GROUPBOX, 0, 12, 196, 238, 44, IDC_GRP_LANG, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 196, 254, 44, IDC_GRP_LANG, L"Button", L"");
         addCtrl(SS_LEFT, 0, 18, 206, 50, 10, IDC_LBL_LANG, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 204, 130, 80, IDC_CMB_LANG, L"ComboBox", L"");
         addCtrl(SS_LEFT, 0, 18, 222, 50, 10, IDC_LBL_LANGBAR, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 220, 130, 80, IDC_CMB_LANGBAR, L"ComboBox", L"");
 
         /* GRUPPO 5 - AREA DI NOTIFICA: testo su due righe (20) + pulsante. */
-        addCtrl(BS_GROUPBOX, 0, 12, 244, 238, 52, IDC_GRP_NOTIF, L"Button", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 254, 226, 20, IDC_TXT_NOTIF, L"Static", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 244, 254, 52, IDC_GRP_NOTIF, L"Button", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 254, 242, 20, IDC_TXT_NOTIF, L"Static", L"");
         addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 18, 276, 76, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
 
         /* ============================================================
@@ -394,9 +393,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * Coordinates are plain dialog units from the template - nothing on
          * this page is measured or computed at run time any more. The page
          * still ends at ~282 units, like the other two. */
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 234, 196, IDC_TXT_ABOUT, L"Static", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 250, 196, IDC_TXT_ABOUT, L"Static", L"");
         /* v3.5: il gruppo di uscita segue il fondo pagina (+14 DLU). */
-        addCtrl(BS_GROUPBOX, 0, 14, 238, 234, 40, IDC_GRP_EXIT, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 14, 238, 250, 40, IDC_GRP_EXIT, L"Button", L"");
         addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 20, 254, 110, 14, IDC_BTN_EXIT, L"Button", L"");
 
         /* ============================================================
@@ -408,18 +407,18 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * ============================================================ */
         /* v2.50: PAGINA 3 copiata DALLA MOD, spaziature comprese: il testo
          * informativo in alto (14,22) e sotto un unico elenco con le caselle
-         * (SysListView32 in stile report, senza intestazione), largo 230 e
+         * (SysListView32 in stile report, senza intestazione), largo 246 e
          * alto 160. Le tre caselle separate di prima erano troppo distanti
          * fra loro: qui le righe hanno il passo compatto della mod. */
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 234, 26, IDC_TXT_TB_INFO, L"Static", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 250, 26, IDC_TXT_TB_INFO, L"Static", L"");
         addCtrl(LVS_REPORT | LVS_NOCOLUMNHEADER | LVS_SINGLESEL | WS_BORDER | WS_TABSTOP,
-                0, 16, 52, 230, 160, IDC_LST_TOOLBARS, L"SysListView32", L"");
+                0, 16, 52, 246, 160, IDC_LST_TOOLBARS, L"SysListView32", L"");
 
         // ---- pulsanti standard 50x14, come la mod ----
         /* v3.5: la riga scende di 14 DLU con la finestra. */
-        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 88, 306, 50, 14, IDOK, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 144, 306, 50, 14, IDCANCEL, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 200, 306, 50, 14, IDC_BTN_APPLY, L"Button", L"");
+        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 104, 306, 50, 14, IDOK, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 160, 306, 50, 14, IDCANCEL, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 216, 306, 50, 14, IDC_BTN_APPLY, L"Button", L"");
 
         pDlg->cdit = controlCount;
         m_hWnd = CreateDialogIndirectParamW(GetModuleHandleW(nullptr),

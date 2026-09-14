@@ -808,17 +808,16 @@
                  chiudeva appena il mouse usciva dal pulsante e non poteva
                  ospitare clic.
 
-                 - AllowsTransparency="False" (come il ToolTip di prima con
-                   HasDropShadow=False): il compositore NON disegna i
-                   thumbnail DWM dentro una finestra layered, quindi il
-                   popup deve restare una finestra normale.
+                 - AllowsTransparency="True": come in RetroBar, il popup
+                   layered lascia che il DWM componga la miniatura; nessun
+                   pennello deve coprire la sua superficie centrale.
                  - StaysOpen="True": la chiusura la decide il code-behind
                    (TaskbarWindow: timer di controllo a 200 ms), perche' il
                    mouse passa da una finestra all'altra (pulsante ->
                    popup) e un MouseLeave singolo chiuderebbe l'anteprima
                    proprio mentre l'utente ci sta entrando. -->
             <Popup x:Name="TaskPreviewPopup"
-                   AllowsTransparency="False"
+                   AllowsTransparency="True"
                    StaysOpen="True"
                    Placement="Custom"
                    PopupAnimation="None"

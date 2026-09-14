@@ -44,7 +44,7 @@ To install this software, the subsequent steps need to be followed:
 
 ## Current status
 
-Win7Taskbar is still under development. Some features are incomplete or recreated, particularly parts of the notification area and system UI on Windows 11. Window thumbnail previews use a direct DWM surface with the existing image border and close button, without a coloured backing panel. Jump Lists use the real Shell jump-list APIs: press the left button on a taskbar button and drag upward to open one; releasing the drag leaves it open, and a separate item click selects an entry while an outside click dismisses it. The right-click menu is unchanged. These interactions still need verification on real hardware at all display scales.
+Win7Taskbar is still under development. Some features are incomplete or recreated, particularly parts of the notification area and system UI on Windows 11. Window thumbnail previews use a direct DWM surface with the existing image border and close button, without a coloured backing panel. Jump Lists are incomplete and temporarily disabled; their managed/native implementation remains in the source tree for completion. The right-click menu is unchanged.
 
 *Customize notification area...* opens Windows' native Notification Area settings directly; Win7Taskbar does not recreate that Control Panel page.
 

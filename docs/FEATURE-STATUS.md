@@ -72,9 +72,13 @@ The vertical separator lines that Windows 7 draws next to a grouped task button'
 
 The Windows 7/8.1-style input language switcher (tray abbreviation such as "ITA"/"ENG" plus the native popup for picking a keyboard layout) is implemented in the native core and wired up on the managed side, but the currently shipped `Win7TaskbarCore.dll` in alpha builds does not export the four functions this feature depends on. This points to a stale native build that predates the language-switcher code being added, not a logic bug in the feature itself. Rebuilding the native core and verifying the export table before packaging should resolve it.
 
-### Jump Lists (implemented, pending hardware verification)
+### Jump Lists (incomplete, temporarily disabled)
 
-The Jump List subsystem reproduces the Windows 7 interaction: press and hold the left button on a
+Jump Lists are currently disabled: the task-button gesture entry point is
+commented out while the remaining behavior is completed. The implementation
+below remains in the source tree and is not removed.
+
+The Jump List subsystem is intended to reproduce the Windows 7 interaction: press and hold the left button on a
 taskbar button, drag **up** past the system drag threshold, and the list opens above the button;
 moving the cursor through it highlights a row, and releasing the left button activates the row under
 the cursor. A press without a qualifying drag behaves exactly like before (normal activation,
@@ -98,14 +102,15 @@ Implementation notes:
   owned and hard faults are contained by the project's portable SEH barrier. A jump list failure
   can never take the taskbar down.
 
-Remaining work before this is marked ✅: verification on a real Windows 10/11 desktop at
-100/125/150/200% scaling and on a mixed-DPI multi-monitor setup.
+Remaining work before this is marked ✅ and re-enabled: complete the unfinished behavior,
+then verify it on a real Windows 10/11 desktop at 100/125/150/200% scaling and on a
+mixed-DPI multi-monitor setup.
 
 ## Areas that are already in good shape
 
 - The Windows 7-style Start orb and main taskbar layout are present.
-- The Jump List gesture and its Shell data path are implemented (see above; hardware verification
-  still pending).
+- The Jump List gesture and Shell data path remain in source, but the incomplete feature is
+  temporarily disabled (see above).
 - Pinned and grouped task buttons are supported.
 - The three Windows 7-style toolbars are present.
 - Context menus are generally good.

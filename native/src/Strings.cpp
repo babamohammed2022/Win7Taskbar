@@ -95,7 +95,7 @@ constexpr PropStrings kPropIt = {
     L"Indirizzi",
     L"Collegamenti",
     /* Task Manager selector (Windows 11 only). */
-    L"Gestione attività:", L"Automatico (predefinito)", L"Task Manager (Windows 11)", L"Task Manager (Legacy)",
+    L"Gestione attività:", L"Automatico (predefinito)", L"Gestione attività", L"Gestione attività (classico)",
 };
 constexpr PropStrings kPropEn = {
     L"Properties",

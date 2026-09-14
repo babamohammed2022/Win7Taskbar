@@ -2057,13 +2057,13 @@ namespace Win7Taskbar
                 sender is FrameworkElement { DataContext: TaskGroup group } &&
                 group.IsActive;
 
-            // Jump List subsystem (TaskbarWindow.JumpList.cs): arms the
-            // press + drag-up detection. Nothing opens on mouse-down; a
-            // click without movement stays a plain click.
-            if (sender is FrameworkElement fe)
-            {
-                BeginPotentialJumpListDrag(fe, e);
-            }
+            // INCOMPLETE / TEMPORARILY DISABLED: keep the complete Jump List
+            // gesture implementation in TaskbarWindow.JumpList.cs, but do not
+            // arm it until its remaining behavior has been completed.
+            // if (sender is FrameworkElement fe)
+            // {
+            //     BeginPotentialJumpListDrag(fe, e);
+            // }
         }
 
         /// <summary>v2.28: avvio robusto: prima la shell nativa con retry,
