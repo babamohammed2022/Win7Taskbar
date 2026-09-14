@@ -10,13 +10,21 @@ This software has been tested on Windows 10 21H2, Windows 10 22H2, Windows 11 24
 
 On Windows 11, **ExplorerPatcher is recommended for the best experience**. Win7Taskbar can work without it, but ExplorerPatcher provides a more compatible Windows 10-style taskbar/shell environment and can expose the notification-area elements that Win7Taskbar can use directly. This can avoid falling back to recreated notification-area icons on Windows 11. ExplorerPatcher is optional and is not required for Win7Taskbar to run.
 
+> ⚠️ **Compatibility warning: RetroBar**
+>
+> **Do not run Win7Taskbar together with RetroBar.**
+>
+> Both applications hide and replace the Windows taskbar. Running them simultaneously can cause taskbar conflicts, unexpected behavior, duplicate UI elements, or an apparently missing taskbar.
+>
+> **Use one or the other, not both at the same time.**
+>
+> **Note:** ExplorerPatcher is different. On Windows 11, it can complement Win7Taskbar by restoring or exposing native Explorer taskbar functionality that Win7Taskbar can use.
 
 **Current state: `Alpha`**
 
 ## Screenshot
 
 <img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
-
 
 ## Requirements
 
@@ -46,7 +54,6 @@ For complete build, packaging, architecture, and development instructions, see [
 
 For a concise user and build guide, see [`docs/QUICK-START.md`](./docs/QUICK-START.md).
 
-
 ## Contributing
 
 Bug reports, reproductions, and pull requests are welcome. New documentation and code comments should be written in English.
@@ -62,7 +69,5 @@ Please read [`AGENTS.md`](./docs/AGENTS.md) before making changes.
 Win7Taskbar was created using work from projects including RetroBar, ExplorerPatcher and ManagedShell.
 For additional information, please refer to the docs folder.
 
-
-
-## License 
+## License
 The project is licensed under **GNU GPL v3.0 or later**. See [`LICENSE`](./docs/LICENSE), [`CREDITS.txt`](./docs/CREDITS.txt), and [`THIRD-PARTY-NOTICES.md`](./docs/THIRD-PARTY-NOTICES.md) for licensing and attribution details.
