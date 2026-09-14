@@ -205,6 +205,20 @@ namespace Win7Taskbar.Controls
         /// window ROOT (the DWM draws into that HWND and ignores the WPF
         /// tree; using the direct parent was what pushed the thumbnail out
         /// of place in the pre-v2.55 builds).
+        ///
+        /// v1.7.6: the rectangle is derived from the RENDERED size of this
+        /// control (ActualWidth/ActualHeight, falling back to the requested
+        /// Width/Height before the first layout pass) and BOTH corners are
+        /// rounded independently from the same transform (transform, then
+        /// Math.Round - never "left + round(width)", which drifts a pixel).
+        /// That makes the DWM destination rectangle mathematically equal to
+        /// the visual area laid out for the thumbnail, which is what the
+        /// white strip on the right of the popup was: a destination
+        /// rectangle built from MaxWidth_ with integer truncation never
+        /// matched the laid-out area exactly, and every uncovered column
+        /// showed the popup surface behind it. The caller (the popup code)
+        /// also re-fits the popup window to its content so no additional
+        /// uncovered surface exists next to the frame.
         /// </summary>
         private NativeMethods.RECT DestinationRect
         {
@@ -217,15 +231,34 @@ namespace Win7Taskbar.Controls
                         return default;
                     }
 
+                    double w = ActualWidth > 0.0 ? ActualWidth : Width;
+                    double h = ActualHeight > 0.0 ? ActualHeight : Height;
+                    if (w <= 0.0 || h <= 0.0)
+                    {
+                        return default;
+                    }
+
                     GeneralTransform transform = TransformToAncestor(root);
                     Point topLeft = transform.Transform(new Point(0, 0));
+                    Point bottomRight = transform.Transform(new Point(w, h));
+
+                    int left = (int)Math.Round(topLeft.X * DpiScale);
+                    int top = (int)Math.Round(topLeft.Y * DpiScale);
+                    int right = (int)Math.Round(bottomRight.X * DpiScale);
+                    int bottom = (int)Math.Round(bottomRight.Y * DpiScale);
+
+                    // A rectangle with zero area is rejected by
+                    // DwmUpdateThumbnailProperties; one device pixel is
+                    // always a safe floor.
+                    if (right <= left) { right = left + 1; }
+                    if (bottom <= top) { bottom = top + 1; }
 
                     return new NativeMethods.RECT
                     {
-                        Left = (int)(topLeft.X * DpiScale),
-                        Top = (int)(topLeft.Y * DpiScale),
-                        Right = (int)(topLeft.X * DpiScale) + (int)(MaxWidth_ * DpiScale),
-                        Bottom = (int)(topLeft.Y * DpiScale) + (int)(MaxHeight_ * DpiScale)
+                        Left = left,
+                        Top = top,
+                        Right = right,
+                        Bottom = bottom
                     };
                 }
                 catch (InvalidOperationException)
@@ -324,7 +357,10 @@ namespace Win7Taskbar.Controls
             }
 
             // Layout pass only when the size just changed: the popup
-            // repositions BEFORE the DWM paints.
+            // repositions BEFORE the DWM paints. The layout also refreshes
+            // ActualWidth/ActualHeight, which is what DestinationRect is
+            // measured from (v1.7.6: DWM rectangle == rendered area, no
+            // separate manual adjustment of the rectangle any more).
             if (_layoutPending)
             {
                 UpdateLayout();
@@ -332,8 +368,14 @@ namespace Win7Taskbar.Controls
             }
 
             NativeMethods.RECT dest = DestinationRect;
-            dest.Right = dest.Left + (int)(Width * DpiScale);
-            dest.Bottom = dest.Top + (int)(Height * DpiScale);
+            if (dest.Right <= dest.Left || dest.Bottom <= dest.Top)
+            {
+                // Nothing laid out yet (or the transform failed): retry on
+                // the next frame instead of sending an empty rectangle to
+                // the DWM.
+                _layoutPending = true;
+                return;
+            }
 
             var props = new NativeMethods.DWM_THUMBNAIL_PROPERTIES
             {
@@ -430,6 +472,30 @@ namespace Win7Taskbar.Controls
 
                 NativeMethods.RECT dest = DestinationRect;
                 alive = alive && dest.Right > dest.Left && dest.Bottom > dest.Top;
+
+                /* v1.7.6: the confirmation must prove more than "a valid
+                 * thumbnail exists": the DWM destination rectangle has to
+                 * MATCH the area the frame laid out for the control. A
+                 * register/size that is sane while the rectangles drift is
+                 * exactly how the white strip next to the preview survived
+                 * every earlier check. DestinationRect is now computed from
+                 * the rendered size, so any remaining mismatch beyond
+                 * rounding (3 device pixels) means the fit never settled:
+                 * better the icon than a misaligned live thumbnail. */
+                if (alive)
+                {
+                    double destW = dest.Right - dest.Left;
+                    double destH = dest.Bottom - dest.Top;
+                    double wantW = ActualWidth * DpiScale;
+                    double wantH = ActualHeight * DpiScale;
+                    if (Math.Abs(destW - wantW) > 3.0 || Math.Abs(destH - wantH) > 3.0)
+                    {
+                        Utilities.DiagnosticLogger.Write("PREVIEW",
+                            $"thumbnail rect mismatch (popup-host device px): dest {destW:F0}x{destH:F0}" +
+                            $" vs laid-out {wantW:F0}x{wantH:F0} -> icon fallback");
+                        alive = false;
+                    }
+                }
 
                 if (alive)
                 {
