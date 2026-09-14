@@ -730,6 +730,36 @@ int32_t GetMonitorIndexForWindow(HWND hwnd) {
     return search.index;
 }
 
+/* Effective DPI of the monitor that owns a screen rectangle (device pixels
+ * per 96 DIP). Popups that must be sized BEFORE their window exists (the
+ * Jump List) cannot wait for WM_DPICHANGED, so the scale comes from the
+ * monitor of the anchor. The loader ladder is the one AppSearchWindow uses:
+ * shcore!GetDpiForMonitor (Win8.1+) with GetDeviceCaps (always present) as
+ * the fallback; never below 96. */
+UINT GetDpiForScreenRect(const RECT& screenRect) {
+    HMONITOR mon = MonitorFromRect(&screenRect, MONITOR_DEFAULTTONEAREST);
+
+    typedef HRESULT(WINAPI* GetDpiForMonitorFn)(HMONITOR, int, UINT*, UINT*);
+    static GetDpiForMonitorFn fn = []() -> GetDpiForMonitorFn {
+        HMODULE m = LoadLibraryW(L"shcore.dll");
+        if (!m) return nullptr;
+        return reinterpret_cast<GetDpiForMonitorFn>(
+            GetProcAddress(m, "GetDpiForMonitor"));
+    }();
+
+    UINT dpiX = 0, dpiY = 0;
+    if (fn && mon &&
+        SUCCEEDED(fn(mon, 0 /* MDT_EFFECTIVE_DPI */, &dpiX, &dpiY)) &&
+        dpiX >= 96) {
+        return dpiX;
+    }
+    HDC dc = GetDC(nullptr);
+    dpiX = dc ? static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSX)) : 96;
+    if (dc) ReleaseDC(nullptr, dc);
+    if (dpiX < 96) dpiX = 96;
+    return dpiX;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Filtro finestre                                                    */
 /* ------------------------------------------------------------------ */

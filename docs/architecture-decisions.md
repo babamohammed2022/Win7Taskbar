@@ -251,3 +251,45 @@ no locks are taken across the guarded boundary elsewhere.
 
 **Revisit if.** A fault repeats in one spot: the log line names the module
 phase, and the guard can then be narrowed to the exact call.
+
+## 13. Jump Lists: managed gesture state machine, native data + popup
+
+**Decision.** The Windows 7 Jump List opens exclusively from the left-button
+press + drag-up gesture on a task button (never from the right-click menu),
+and the implementation is split the way the rest of the project is:
+
+- `TaskbarWindow.JumpList.cs` runs the small state machine
+  (`Idle -> PotentialDrag -> Opening -> Open`) on the UI thread. Input uses
+  ordinary WPF mouse capture plus window-level tunneling handlers and manual
+  hit-test forwarding - the same mechanism the tray drag has used since v2.7.
+  No global mouse hook is introduced.
+- The popup itself is a native `WS_POPUP | WS_EX_NOACTIVATE` window with the
+  shared Aero flyout border (`JumpListWindow.cpp`), so it can show and
+  repaint while the WPF window keeps the capture, exactly like the tray
+  overflow panel (point 6).
+- Data comes only from documented Shell APIs: application identity via
+  `SHGetPropertyStoreForWindow` (window) and
+  `SHGetPropertyStoreFromParsingName` (the pinned .lnk) for the
+  AppUserModelID, and `IApplicationDocumentLists` for the Recent/Frequent
+  destinations. When the Shell exposes no list, no document rows appear -
+  nothing is invented.
+- Every coordinate crossing the interop boundary is a **screen physical
+  pixel**; the WPF side converts with `PointToScreen` only (both button
+  corners, never a size multiplied by a scale a second time), and the native
+  side scales its 96-DPI geometry with `GetDpiForScreenRect` for the monitor
+  of the button. The release-activates rule replaces the "click inside the
+  popup" flow: the popup never takes focus, so activation is the gesture's
+  own left-button release, forwarded by position.
+
+**Why.** The old v2.38/v2.40 shape (right-click opening a popup that grabs
+foreground and reads the hardware cursor itself) fought the WPF capture
+model, double-scaled coordinates at non-100% DPI, clamped only against the
+primary monitor, and shipped the document list disabled. A separate
+subsystem with one choke point per responsibility (identity, read, show,
+hover, commit, cancel) is what lets every failure path end quietly:
+capture always released, popup always hidden, exceptions always logged
+under the `JUMPLIST` tag.
+
+**Revisit if.** Windows removes or renames the automatic-destination read
+APIs, or the bar ever needs per-monitor instances: the pixel-space contract
+stays the same, only the monitor lookup of the anchor changes.

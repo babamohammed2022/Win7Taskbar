@@ -922,23 +922,67 @@ extern "C" W7T_API int32_t W7T_CALL W7T_AppSearchIsVisible(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* v2.38: Jump List stile Windows 7 (click destro sui pulsanti).       */
+/* Jump List stile Windows 7: gestico clic sinistro + trascinamento    */
+/* verso l'alto (sistema del TaskbarWindow.JumpList.cs gestito).        */
+/* Tutte le coordinate sono PIXEL FISICI DELLO SCHERMO: il livello      */
+/* gestito converte i DIP WPF con PointToScreen e le inoltra qui;       */
+/* il nativo scala la geometria sul DPI del monitor del pulsante.       */
 /* ------------------------------------------------------------------ */
-extern "C" W7T_API void W7T_CALL W7T_JumpListShow(
-        const RECT* buttonRect, const wchar_t* title,
+extern "C" W7T_API int32_t W7T_CALL W7T_JumpListOpen(
+        const RECT* buttonRect, int32_t edge, const wchar_t* title,
         const wchar_t* launchPath, const wchar_t* pinnedLnk,
-        int32_t isPinned, const uint32_t* iconArgb,
-        int32_t iconW, int32_t iconH, int32_t lang) {
+        int32_t isPinned, uint64_t hwnd, const wchar_t* exePath,
+        const uint32_t* iconArgb, int32_t iconW, int32_t iconH,
+        int32_t lang, wchar_t* outAppId, int32_t outAppIdCap) {
+    if (buttonRect == nullptr) return -3;
     W7T_SEH_TRY {
-        if (buttonRect == nullptr) return;
-        w7t::JumpListWindow::Instance().Show(
-            *buttonRect,
+        return w7t::JumpListWindow::Instance().Open(
+            *buttonRect, edge,
             title ? title : L"",
             launchPath ? launchPath : L"",
             pinnedLnk ? pinnedLnk : L"",
             isPinned == 1,
-            iconArgb, iconW, iconH, lang);
-    } W7T_SEH_CATCH {} W7T_SEH_END
+            reinterpret_cast<HWND>(static_cast<uintptr_t>(hwnd)),
+            exePath ? exePath : L"",
+            iconArgb, iconW, iconH, lang,
+            outAppId, outAppIdCap);
+    } W7T_SEH_CATCH {
+        w7t::LogTagged(L"JUMPLIST", L"fault at the export boundary (open)");
+        return -1;
+    } W7T_SEH_END
+    return -1;
+}
+
+/* Movimento del cursore durante il gesto: aggiorna la riga evidenziata
+ * e risponde 1 se il punto e' ancora nell'area di interazione. */
+extern "C" W7T_API int32_t W7T_CALL W7T_JumpListSetHover(int32_t screenX,
+        int32_t screenY) {
+    W7T_SEH_TRY {
+        return w7t::JumpListWindow::Instance().SetHover(screenX, screenY);
+    } W7T_SEH_CATCH {
+        w7t::LogTagged(L"JUMPLIST", L"fault at the export boundary (hover)");
+        return 1;   /* non interrompere il gesto per un errore di dipendenza */
+    } W7T_SEH_END
+    return 1;
+}
+
+/* Rilascio del pulsante sinistro: attiva la riga sotto il cursore.
+ * Ritorna 1 se il popup era aperto (gesto chiuso), 0 se non c'era nulla
+ * da chiudere. outBits: 1 = documento aperto, 2 = riga applicazione,
+ * 4 = pin invertito (il gestito invalida i pin solo con quel bit). */
+extern "C" W7T_API int32_t W7T_CALL W7T_JumpListActivateAt(
+        int32_t screenX, int32_t screenY, int32_t* outBits) {
+    W7T_SEH_TRY {
+        return w7t::JumpListWindow::Instance().ActivateRow(
+            screenX, screenY, outBits);
+    } W7T_SEH_CATCH {
+        w7t::LogTagged(L"JUMPLIST",
+                       L"fault at the export boundary (activate)");
+        if (outBits) *outBits = 0;
+        w7t::JumpListWindow::Instance().Hide();
+        return 0;
+    } W7T_SEH_END
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */

@@ -514,15 +514,41 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_CloseClassicVolume();
 
-        /// <summary>Jump List stile Windows 7. iconArgb = BGRA dritto,
-        /// top-down (puo' essere null se l'icona non e' disponibile).</summary>
+        // Jump List stile Windows 7 - sistema del gesto (clic sinistro +
+        // trascinamento verso l'alto,vedi TaskbarWindow.JumpList.cs).
+        // TUTTE le coordinate (rettangolo pulsante, punti hover/release)
+        // sono PIXEL FISICI DELLO SCHERMO: PointToScreen del WPF le produce
+        // gia' in quel sistema su un processo Per-Monitor-V2, quindi qui
+        // NON si moltiplica nessuna scala. La geometria del popup e' scalata
+        // dal nativo sul DPI del monitor del pulsante.
+
+        /// <summary>Apre il popup ancorato al pulsante e carica le voci
+        /// reali dalla shell. Ritorna il numero di voci (>=0) o un codice
+        /// negativo di fallimento. iconArgb = BGRA dritto, top-down (puo'
+        /// essere null). outAppId riceve l'AppUserModelID risolta.</summary>
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
                    CharSet = CharSet.Unicode)]
-        public static extern void W7T_JumpListShow(ref RECT buttonRect,
+        public static extern int W7T_JumpListOpen(ref RECT buttonRect,
+            int edge,
             [MarshalAs(UnmanagedType.LPWStr)] string title,
             [MarshalAs(UnmanagedType.LPWStr)] string launchPath,
             [MarshalAs(UnmanagedType.LPWStr)] string pinnedLnk,
-            int isPinned, [Out] uint[]? iconArgb, int iconW, int iconH, int lang);
+            int isPinned, ulong hwnd,
+            [MarshalAs(UnmanagedType.LPWStr)] string exePath,
+            [In] uint[]? iconArgb, int iconW, int iconH, int lang,
+            [Out] System.Text.StringBuilder? outAppId, int outAppIdCap);
+
+        /// <summary>1 se il punto schermo e' ancora nell'area di
+        /// interazione del gesto (popup + pulsante + corridoio).</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_JumpListSetHover(int screenX, int screenY);
+
+        /// <summary>Attiva la riga sotto il punto al rilascio del pulsante
+        /// sinistro; chiude sempre il popup. bits: 1 documento, 2 riga app,
+        /// 4 pin invertito. Ritorna 1 se il popup era aperto.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_JumpListActivateAt(int screenX, int screenY,
+            out int bits);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_JumpListHide();

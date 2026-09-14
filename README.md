@@ -31,7 +31,7 @@ This software has been tested on Windows 10 21H2, Windows 10 22H2, and Windows 1
 
 ## Current status
 
-Win7Taskbar is still under development. Window thumbnail previews are temporarily disabled because the previous preview implementations were not reliable on real systems. Additionally, jump lists are not implemented yet. The application-name tooltip remains available.
+Win7Taskbar is still under development. Window thumbnail previews are temporarily disabled because the previous preview implementations were not reliable on real systems. Jump Lists are implemented as a dedicated subsystem - press and hold the left button on a taskbar button and drag upward past the taskbar to open the list, then release over an item to activate it (the data comes from the real Shell jump list APIs, and the right-click menu is unchanged); the interaction still needs verification on real hardware at all display scales. The application-name tooltip remains available.
 
 Other known limitations include unsupported decorative taskbar rotation and system windows that are hooked and repositioned rather than fully recreated.
 

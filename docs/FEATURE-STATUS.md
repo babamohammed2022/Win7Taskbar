@@ -21,7 +21,7 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Application tooltips | ✅ | Application-name tooltips are available. |
 | File drag & drop onto taskbar buttons | ⚠️ | Dropping a file onto a pinned/running app button to open it with that app (hover-to-activate + drop) has an initial implementation: standard WPF drag&drop (no COM `IDropTarget` needed, since this isn't injected into explorer.exe), with a fallback to `ShellExecute` when the known executable can't be launched directly, and an extension check (via registry `SupportedTypes`, permissive when unknown) driving the allowed/forbidden cursor feedback. Needs real-world testing (multi-file drops, apps without declared `SupportedTypes`, mixed-extension drops). |
 | Thumbnail previews | ❌ | Windows 7-style taskbar thumbnail previews are not currently implemented; the previous preview implementations were disabled because they were not reliable on real systems. |
-| Jump Lists | ❌ | Jump Lists are not implemented yet. |
+| Jump Lists | ⚠️ | Windows 7-style Jump Lists are implemented as a dedicated subsystem (left-button press + drag-up on a task button opens the list; releasing the button over a row activates it). The data comes from the real Shell APIs (`IApplicationDocumentLists` + the window/shortcut `AppUserModelID`), never from invented entries, and the right-click menu is unchanged. The popup is a native window with DPI-scaled geometry. Not yet verified against a real Windows desktop at every scale, so it is not marked complete. |
 | Windows 7 toolbars | ✅ | The three Windows 7-style toolbars are present. |
 | Notification area | ⚠️ | The notification area is implemented, but support for all modern Windows tray states is still partial. |
 | Windows 11 system tray support | ⚠️ | Windows 11 system tray support is implemented, but some tray icons are recreated because Windows 11 no longer exposes all classic tray elements directly. |
@@ -50,10 +50,6 @@ Taskbar rotation to the top, left, or right side of the screen is still missing.
 
 Windows 7-style **taskbar thumbnail previews** are still missing. This includes the preview experience shown when hovering over an open application button.
 
-### Jump Lists
-
-Windows 7-style **Jump Lists** are not implemented yet.
-
 ### Complete Windows 11 system tray support
 
 Windows 11 uses a substantially different system tray architecture from Windows 7. Current support is implemented, but it is **still partial** and not yet complete enough to be considered finished.
@@ -72,9 +68,40 @@ The vertical separator lines that Windows 7 draws next to a grouped task button'
 
 The Windows 7/8.1-style input language switcher (tray abbreviation such as "ITA"/"ENG" plus the native popup for picking a keyboard layout) is implemented in the native core and wired up on the managed side, but the currently shipped `Win7TaskbarCore.dll` in alpha builds does not export the four functions this feature depends on. This points to a stale native build that predates the language-switcher code being added, not a logic bug in the feature itself. Rebuilding the native core and verifying the export table before packaging should resolve it.
 
+### Jump Lists (implemented, pending hardware verification)
+
+The Jump List subsystem reproduces the Windows 7 interaction: press and hold the left button on a
+taskbar button, drag **up** past the system drag threshold, and the list opens above the button;
+moving the cursor through it highlights a row, and releasing the left button activates the row under
+the cursor. A press without a qualifying drag behaves exactly like before (normal activation,
+grouping, picker, hover, tooltip), and the right-click keeps only the Windows 7 context menu
+(never a Jump List command).
+
+Implementation notes:
+
+* The gesture is a small state machine (`TaskbarWindow.JumpList.cs`) using normal WPF mouse capture
+  and manual hit-test forwarding, the same mechanism the tray drag uses - no global mouse hooks.
+* The popup is a native no-activate window with the shared Aero flyout border
+  (`native/src/JumpListWindow.cpp`). All coordinates crossing the interop boundary are screen
+  physical pixels; the popup geometry is scaled by the DPI of the monitor under the button.
+* Entries come only from the public Shell read APIs for jump list data
+  (`IApplicationDocumentLists`, recent + frequent automatic destinations). Application identity is
+  the window's `AppUserModelID` from the shell property store, else the pinned shortcut's metadata,
+  else the default id Windows derives from the executable path. If the Shell exposes no list for an
+  application, no document rows are shown - nothing is ever fabricated.
+* Failure handling: every Shell/COM call is wrapped in try/catch with logging (managed
+  `DiagnosticLogger`, category `JUMPLIST`) and controlled cancellation; native resources are RAII
+  owned and hard faults are contained by the project's portable SEH barrier. A jump list failure
+  can never take the taskbar down.
+
+Remaining work before this is marked ✅: verification on a real Windows 10/11 desktop at
+100/125/150/200% scaling and on a mixed-DPI multi-monitor setup.
+
 ## Areas that are already in good shape
 
 - The Windows 7-style Start orb and main taskbar layout are present.
+- The Jump List gesture and its Shell data path are implemented (see above; hardware verification
+  still pending).
 - Pinned and grouped task buttons are supported.
 - The three Windows 7-style toolbars are present.
 - Context menus are generally good.
