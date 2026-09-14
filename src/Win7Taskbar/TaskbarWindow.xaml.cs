@@ -2830,7 +2830,8 @@ namespace Win7Taskbar
                         "Pin this program to taskbar");
                 int choice = _bridge.ShowContextMenu(
                     x, y, bottomEdge: true,
-                    L("lang_start_tip", "Start"), pinText);
+                    L("lang_start_context",
+                        L("lang_start_tip", "Start")), pinText);
                 switch (choice)
                 {
                     case 1:

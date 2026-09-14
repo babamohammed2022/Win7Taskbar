@@ -751,13 +751,31 @@ static void SwitchToLayout(size_t index) {
 /* ------------------------------------------------------------------ */
 
 static WORD ActiveLangIdWord() {
-    GUITHREADINFO info = {};
-    info.cbSize = sizeof(info);
-    DWORD tid = 0;
-    if (GetGUIThreadInfo(0, &info) && info.hwndActive != nullptr) {
-        tid = GetWindowThreadProcessId(info.hwndActive, nullptr);
+    /* Match the functional target-selection path from the upstream
+     * language-restorer mod, without importing any of its shortcut hooks.
+     * GetGUIThreadInfo(0) queried the core caller's own UI thread, so the
+     * tray abbreviation could remain stuck on that thread's layout while
+     * focus moved between applications. The active layout belongs to the
+     * thread of the real foreground window. While our flyout/taskbar owns
+     * the foreground relationship, use the application target captured
+     * before the click, exactly as RefreshKeyboardLayouts does. */
+    const HWND hFlyout = AtomicLoadHwnd(g_hFlyoutWnd);
+    HWND hTarget = GetForegroundWindow();
+
+    if (!hTarget || !IsWindow(hTarget) || hTarget == hFlyout ||
+        IsOurTaskbarWindow(hTarget)) {
+        const HWND captured = AtomicLoadHwnd(g_targetWindow);
+        hTarget = captured && IsWindow(captured) && captured != hFlyout &&
+                          !IsOurTaskbarWindow(captured)
+            ? captured : nullptr;
+    } else {
+        /* Keep the mod's target cache current for the next flyout click. */
+        g_targetWindow.store(hTarget, std::memory_order_release);
     }
-    HKL hkl = GetKeyboardLayout(tid);
+
+    const DWORD tid = hTarget
+        ? GetWindowThreadProcessId(hTarget, nullptr) : 0;
+    const HKL hkl = GetKeyboardLayout(tid);
     return LOWORD(reinterpret_cast<uintptr_t>(hkl));
 }
 
