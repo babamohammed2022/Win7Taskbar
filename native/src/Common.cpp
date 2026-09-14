@@ -616,12 +616,12 @@ std::wstring ComputeAppId(HWND hwnd, DWORD pid, const std::wstring& exePath) {
     /* control.exe hosts classic Control Panel applets. Give only that real
      * executable a stable identity before consulting any window AUMID; all
      * Explorer, UWP and ordinary fallback grouping remains untouched. */
-    const size_t slash = exePath.find_last_of(L"\\/");
-    const std::wstring exeName =
-        (slash == std::wstring::npos)
-            ? exePath : exePath.substr(slash + 1);
+    const size_t identitySlash = exePath.find_last_of(L"\\/");
+    const std::wstring identityExeName =
+        (identitySlash == std::wstring::npos)
+            ? exePath : exePath.substr(identitySlash + 1);
 
-    if (_wcsicmp(exeName.c_str(), L"control.exe") == 0) {
+    if (_wcsicmp(identityExeName.c_str(), L"control.exe") == 0) {
         return std::wstring(L"w7t:control-exe");
     }
 

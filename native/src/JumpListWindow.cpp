@@ -58,6 +58,88 @@ constexpr int kPinIcon96    = 14;
 constexpr int kClose96      = 14;
 constexpr int kMaxDocsPerSection = 10; /* the taskbar list caps at ten    */
 
+/* Glossy cyan pushpin artwork for the localized Pin row. It is decoded
+ * through the same WIC path as the graphical close-button states. */
+constexpr char kPinPng[] =
+    "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";
+
 /* Exact three-state 14x14 artwork used by the managed DWM preview close
  * button (PreviewAssets.cs). Decoding it here keeps both close controls
  * graphically identical instead of approximating the X with GDI lines. */
@@ -751,17 +833,9 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
             }
         }
 
-        /* Use Windows' supported stock pushpin artwork for the pin row. The
-         * supplied blue pushpin is represented at almost the same 14px size
-         * as the close X; IconHandle owns the returned HICON. */
-        SHSTOCKICONINFO pinInfo{ sizeof(pinInfo) };
-        if (SUCCEEDED(SHGetStockIconInfo(SIID_PIN,
-                SHGSI_ICON | SHGSI_SMALLICON, &pinInfo)) && pinInfo.hIcon) {
-            m_pinIcon.reset(pinInfo.hIcon);
-        }
-
-        /* Decode the same embedded PNGs as PreviewAssets.cs once. */
-        auto loadClose = [](const char* png, raii::BitmapHandle& target) {
+        /* Decode the embedded pushpin and the same close PNGs used by
+         * PreviewAssets.cs. BitmapHandle owns every resulting HBITMAP. */
+        auto loadArtwork = [](const char* png, raii::BitmapHandle& target) {
             if (target) return;
             std::vector<uint32_t> pixels;
             int width = 0, height = 0;
@@ -769,9 +843,10 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
                 target.reset(MakeHBitmapFromArgb(pixels, width, height));
             }
         };
-        loadClose(kCloseNormalPng, m_closeNormal);
-        loadClose(kCloseHoverPng, m_closeHover);
-        loadClose(kClosePressedPng, m_closePressed);
+        loadArtwork(kPinPng, m_pinIcon);
+        loadArtwork(kCloseNormalPng, m_closeNormal);
+        loadArtwork(kCloseHoverPng, m_closeHover);
+        loadArtwork(kClosePressedPng, m_closePressed);
 
         BuildRows();
         Layout();
@@ -1166,9 +1241,9 @@ void JumpListWindow::OnPaint(HWND hwnd) {
         }
         if (r.kind == Row::Pin && m_pinIcon) {
             const int box = Sc(kPinIcon96);
-            DrawIconEx(hdc, iconLeft,
-                       r.rect.top + (Sc(kRowPin96) - box) / 2,
-                       m_pinIcon.get(), box, box, 0, nullptr, DI_NORMAL);
+            DrawBitmapScaled(hdc, m_pinIcon.get(), box, box,
+                             iconLeft,
+                             r.rect.top + (Sc(kRowPin96) - box) / 2);
         }
         if (r.kind == Row::Close && closeRect.right > closeRect.left) {
             HBITMAP close = m_closeNormal.get();

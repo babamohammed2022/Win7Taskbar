@@ -175,7 +175,7 @@ private:
     std::vector<JumpListDoc> m_docs;
     std::vector<Row> m_rows;
     raii::BitmapHandle m_appIcon;
-    raii::IconHandle m_pinIcon;
+    raii::BitmapHandle m_pinIcon;
     raii::BitmapHandle m_closeNormal;
     raii::BitmapHandle m_closeHover;
     raii::BitmapHandle m_closePressed;
