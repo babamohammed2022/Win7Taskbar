@@ -95,6 +95,13 @@ namespace Win7Taskbar
             {
                 base.OnStartup(e);
 
+                // Defensive shell check: Win7Taskbar integrates directly with
+                // Explorer. Do not fail startup if Explorer is temporarily
+                // unavailable (for example while Windows is restarting it),
+                // but leave a clear diagnostic entry.
+                StartupGuard.Enter("shell");
+                CheckExplorerShell();
+
                 // I dizionari vanno composti in codice: Base.xaml deve stare DENTRO
                 // i MergedDictionaries di Windows7.xaml, altrimenti i 16 stili con
                 // BasedOn su se stessi non trovano la propria base. Vedi ThemeLoader.
@@ -202,6 +209,46 @@ namespace Win7Taskbar
                     MessageBoxImage.Error);
 
                 Shutdown();
+            }
+        }
+
+        private static void CheckExplorerShell()
+        {
+            try
+            {
+                string explorerPath = System.IO.Path.Combine(
+                    Environment.SystemDirectory,
+                    "explorer.exe");
+
+                if (!System.IO.File.Exists(explorerPath))
+                {
+                    StartupGuard.Note(
+                        "warning: explorer.exe non trovato in " + explorerPath);
+                    return;
+                }
+
+                try
+                {
+                    if (System.Diagnostics.Process.GetProcessesByName("explorer").Length == 0)
+                    {
+                        StartupGuard.Note(
+                            "warning: explorer.exe non è attualmente in esecuzione; " +
+                            "l'avvio continua in attesa della shell.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    StartupGuard.Note(
+                        "warning: impossibile verificare il processo explorer.exe: " +
+                        ex.GetType().Name + ": " + ex.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                // La diagnostica della shell non deve mai impedire l'avvio.
+                StartupGuard.Note(
+                    "warning: controllo shell non riuscito: " +
+                    ex.GetType().Name + ": " + ex.Message);
             }
         }
 
