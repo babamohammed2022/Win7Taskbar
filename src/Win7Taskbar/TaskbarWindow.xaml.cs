@@ -303,6 +303,20 @@ namespace Win7Taskbar
                 };
             });
 
+            RunStage("barra-posizione", () =>
+            {
+                // v4.2: dynamic Bottom/Top switch. When TaskbarPosition changes
+                // in settings, reposition the window and re-register the AppBar
+                // without restarting the application.
+                RetroBar.Utilities.Settings.Instance.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(RetroBar.Utilities.Settings.TaskbarPosition))
+                    {
+                        ApplyTaskbarPosition();
+                    }
+                };
+            });
+
             RunStage("area-di-notifica", () =>
             {
                 _viewModel.NotificationArea.PropertyChanged += (_, _) => UpdateOverflowState();
@@ -1287,13 +1301,28 @@ namespace Win7Taskbar
             Width = screenWidthDip;
             Height = heightDip;
             Left = 0;
-            Top = screenHeightDip - heightDip;
 
-            AppBarEdge = "Bottom";
-            AppBarEdgeIndex = (int)TaskbarEdge.Bottom;
+            // v4.2: position the taskbar at the top or bottom of the screen
+            // based on the user's preference. Bottom is the default and
+            // unchanged behaviour. Top is inspired by m417z's Windhawk mod
+            // "Taskbar on top for Windows 11" (GNU GPL v3.0).
+            bool isTop = RetroBar.Utilities.Settings.Instance.TaskbarPosition == 1;
+            if (isTop)
+            {
+                Top = 0;
+                AppBarEdge = "Top";
+                AppBarEdgeIndex = (int)TaskbarEdge.Top;
+            }
+            else
+            {
+                Top = screenHeightDip - heightDip;
+                AppBarEdge = "Bottom";
+                AppBarEdgeIndex = (int)TaskbarEdge.Bottom;
+            }
+
             Orientation = Orientation.Horizontal;
 
-            SetThumbnailEdge(this, (int)TaskbarEdge.Bottom);
+            SetThumbnailEdge(this, AppBarEdgeIndex);
             SetThumbnailScale(this,
                 _hwndSource?.CompositionTarget?.TransformToDevice.M11 ?? 1.0);
         }
@@ -1308,14 +1337,14 @@ namespace Win7Taskbar
             double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
             int sizePx = Math.Max(1, (int)Math.Round(ThemeTaskbarHeightDip * scale));
 
+            // v4.2: use the current edge (Top or Bottom) from settings.
+            int edge = AppBarEdgeIndex;
             _appBarRegistered = _bridge.RegisterAppBar(
-                _hwndSource.Handle, AppBarEdgeValue.Bottom, sizePx);
+                _hwndSource.Handle, edge, sizePx);
             if (_appBarRegistered)
             {
-                // Il core, dentro la Register, esegue gia' QUERYPOS/SETPOS e
-                // sposta la finestra sul rettangolo confermato dalla shell.
                 _appBarCallbackMessage = _bridge.AppBarCallbackMessage();
-                UpdateAppBarPosition();   // registra _appBarRect
+                UpdateAppBarPosition();
             }
         }
 
@@ -1341,10 +1370,13 @@ namespace Win7Taskbar
             }
             int sizePx = Math.Max(1, (int)Math.Round(ThemeTaskbarHeightDip * scale));
 
+            // v4.2: use the current edge (Top or Bottom) from settings.
+            int edge = AppBarEdgeIndex;
+
             // Il rettangolo confermato dalla shell e' in PIXEL FISICI: il core
             // ci sposta lui stesso la finestra (SetWindowPos con SWP_NOZORDER,
             // lo stato topresta intatto) e notifica ABM_WINDOWPOSCHANGED.
-            if (_bridge.SetAppBarPos(_hwndSource.Handle, AppBarEdgeValue.Bottom,
+            if (_bridge.SetAppBarPos(_hwndSource.Handle, edge,
                                      sizePx, out Rect reserved) && !reserved.IsEmpty)
             {
                 _appBarRect = reserved;
@@ -6262,6 +6294,49 @@ namespace Win7Taskbar
         /// 10/11); il menu di scelta lingue lo apre il core nativo, come le
         /// altre voci della barra.
         /// </summary>
+        /// <summary>
+        /// v4.2: repositions the taskbar between Bottom and Top without
+        /// restarting. Unregisters the old AppBar, moves the window, and
+        /// re-registers with the new edge. Bottom behaviour is unchanged
+        /// when TaskbarPosition is 0.
+        /// </summary>
+        private void ApplyTaskbarPosition()
+        {
+            if (_hwndSource == null)
+            {
+                return;
+            }
+
+            bool isTop = RetroBar.Utilities.Settings.Instance.TaskbarPosition == 1;
+            double heightDip = ThemeTaskbarHeightDip;
+            double screenHeightDip = SystemParameters.PrimaryScreenHeight;
+
+            // Update the dependency properties used by XAML bindings.
+            if (isTop)
+            {
+                Top = 0;
+                AppBarEdge = "Top";
+                AppBarEdgeIndex = (int)TaskbarEdge.Top;
+            }
+            else
+            {
+                Top = screenHeightDip - heightDip;
+                AppBarEdge = "Bottom";
+                AppBarEdgeIndex = (int)TaskbarEdge.Bottom;
+            }
+
+            SetThumbnailEdge(this, AppBarEdgeIndex);
+
+            // Re-register the AppBar with the new edge. The old registration
+            // must be removed first.
+            if (_appBarRegistered)
+            {
+                _bridge.UnregisterAppBar(_hwndSource.Handle);
+                _appBarRegistered = false;
+            }
+            RegisterAppBar();
+        }
+
         private void ApplyInputLanguageMode()
         {
             try
