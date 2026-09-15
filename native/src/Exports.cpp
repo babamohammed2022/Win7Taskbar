@@ -34,6 +34,7 @@
 #include "AudioService.h"
 #include "JumpListWindow.h"     /* v2.38 */
 #include "LanguageSwitcher.h"   /* v1.4: selettore della lingua */
+#include "AeroThumbnailFrame.h" /* v3.10: cornice 9-slice delle anteprime */
 #include "BatteryFlyout.h"      /* v2.38 */
 #include "RaiiWrappers.h"
 #include <thread>
@@ -211,6 +212,47 @@ extern "C" W7T_API int32_t W7T_CALL W7T_GetWindowIconBitmap(uint64_t hwnd, int32
                                                             uint8_t* pixels, int32_t pixelsBytes) {
     return WindowManager::Instance().GetIconBitmap(ToHwnd(hwnd), desiredSize,
                                                    width, height, pixels, pixelsBytes);
+}
+
+/* Aero preview frame rendered by the core (see Win7TaskbarCore.h). The
+ * frontend calls it once per frame size and accent colour and wraps the bytes
+ * in a Pbgra32 BitmapSource; every failure - including "the slice PNGs are not
+ * next to the executable" - is reported as a negative code and the frontend
+ * keeps the frame its XAML template draws. */
+extern "C" W7T_API int32_t W7T_CALL W7T_RenderAeroThumbnailFrame(int32_t width, int32_t height,
+                                                                 uint32_t accentArgb,
+                                                                 uint8_t* pixels,
+                                                                 int32_t pixelsBytes) {
+    if (width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
+        pixelsBytes < 0) {
+        return W7T_ERR_INVALID_ARG;
+    }
+
+    /* Query call: report how big the caller's buffer has to be. 4096*4096*4
+     * is the largest value the checks above allow, so it cannot overflow. */
+    if (pixels == nullptr) {
+        if (pixelsBytes != 0) {
+            return W7T_ERR_INVALID_ARG;
+        }
+        return width * height * 4;
+    }
+
+    int32_t result = W7T_ERR_NOT_FOUND;
+    W7T_SEH_TRY {
+        /* The frontend passes the DWM colorization colour as 0x00RRGGBB; the
+         * renderer wants a COLORREF, whose alpha it ignores because the slices
+         * keep their own (luminance-modulated). 0 means "no tint": the slices
+         * exactly as they are on disk. */
+        const COLORREF accent = (accentArgb == 0)
+            ? 0
+            : RGB((accentArgb >> 16) & 0xFFu, (accentArgb >> 8) & 0xFFu,
+                  accentArgb & 0xFFu);
+        if (w7t::RenderAeroThumbnailFramePbgra(width, height, accent, pixels,
+                                               static_cast<size_t>(pixelsBytes))) {
+            result = width * height * 4;
+        }
+    } W7T_SEH_CATCH { result = W7T_ERR_NOT_FOUND; } W7T_SEH_END
+    return result;
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_ExecuteWindowCommand(uint64_t hwnd, int32_t cmd) {

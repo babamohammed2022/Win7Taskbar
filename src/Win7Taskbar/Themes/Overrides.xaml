@@ -101,80 +101,128 @@
                 <ColumnDefinition Width="17" />
             </Grid.ColumnDefinitions>
 
-            <Rectangle Grid.Row="0" Grid.Column="0"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="0,0,17,38"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
-            <Rectangle Grid.Row="0" Grid.Column="1"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="17,0,202,38"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
-            <Rectangle Grid.Row="0" Grid.Column="2"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="219,0,17,38"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
+            <!-- Accent layer, two interchangeable sources. Either the eight
+                 masked rectangles below (the XAML path, which is also the
+                 fallback) or the single NativeAeroFrameRect that follows,
+                 painted with the frame the core's native 9-slice renderer
+                 hands over. TaskbarWindow shows that rectangle and collapses
+                 this grid when the core can supply the frame, and does the
+                 opposite as soon as it cannot, so the template is complete
+                 and correct on its own. The wrapper repeats the outer 3x3
+                 definitions to keep every slice exactly where it is: 17px
+                 sides, 38px top chrome, 19px bottom. -->
+            <Grid x:Name="AccentSliceLayer"
+                  Grid.Row="0" Grid.RowSpan="3"
+                  Grid.Column="0" Grid.ColumnSpan="3">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="38" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="19" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="17" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="17" />
+                </Grid.ColumnDefinitions>
 
-            <Rectangle Grid.Row="1" Grid.Column="0"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="0,38,17,109"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
-            <Rectangle Grid.Row="1" Grid.Column="2"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="219,38,17,109"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
+                <Rectangle Grid.Row="0" Grid.Column="0"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="0,0,17,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+                <Rectangle Grid.Row="0" Grid.Column="1"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="17,0,202,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+                <Rectangle Grid.Row="0" Grid.Column="2"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="219,0,17,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
 
-            <Rectangle Grid.Row="2" Grid.Column="0"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="0,147,17,19"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
-            <Rectangle Grid.Row="2" Grid.Column="1"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="17,147,202,19"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
-            <Rectangle Grid.Row="2" Grid.Column="2"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="219,147,17,19"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
+                <Rectangle Grid.Row="1" Grid.Column="0"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="0,38,17,109"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+                <Rectangle Grid.Row="1" Grid.Column="2"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="219,38,17,109"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="2" Grid.Column="0"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="0,147,17,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+                <Rectangle Grid.Row="2" Grid.Column="1"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="17,147,202,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+                <Rectangle Grid.Row="2" Grid.Column="2"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="219,147,17,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+            </Grid>
+
+            <!-- The same frame drawn by the core (Utilities/NativePreviewFrame
+                 -> W7T_RenderAeroThumbnailFrame): premultiplied BGRA rendered
+                 at this element's exact device size and DPI, so the brush maps
+                 it 1:1 and the corners are never resampled. Its centre cell is
+                 fully transparent, exactly like the aperture the eight
+                 rectangles leave empty, and the grayscale overlay below stays
+                 on top of it either way: shading and clipped static blur are
+                 untouched.
+
+                 A Shape, not an Image, on purpose. An Image reports its source
+                 as desired size, and a desired size spanning the star row and
+                 the star column of this grid would feed back into the frame's
+                 own measure: a thumbnail that refits smaller (TaskThumbnail
+                 resizes itself after the DWM source-size probe) could then
+                 find a frame that refuses to shrink. A Rectangle with a brush
+                 contributes nothing to the measure, so the frame keeps being
+                 sized only by the ContentPresenter, as it is today. -->
+            <Rectangle x:Name="NativeAeroFrameRect"
+                       Grid.Row="0" Grid.RowSpan="3"
+                       Grid.Column="0" Grid.ColumnSpan="3"
+                       Visibility="Collapsed"
+                       IsHitTestVisible="False" />
 
             <!-- Preserve the exact photographic shading and edge detail of
                  the supplied border above the accent layer. A restrained
