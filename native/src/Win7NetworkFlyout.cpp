@@ -9583,8 +9583,11 @@ void ToggleFlyoutWindow() {
             DetermineLocale();
             LoadSettings();
             ApplyNativeControlsTheme();
+            // GetDpiForWindowSafe: stesso valore di prima su Windows 10/11,
+            // ma l'entry point e' risolto a runtime (assente su Windows 8.1:
+            // un import diretto impediva il caricamento della DLL).
             UINT dpi = haveIconRect ? GetDpiForScreenRect(&rcIconForDpi)
-                                    : GetDpiForWindow(g_hWndFlyout);
+                                    : w7t::GetDpiForWindowSafe(g_hWndFlyout);
             if (dpi < 96) dpi = 96;
             if (dpi != g_dpi) RecalcDpiMetrics(dpi);
             g_SelectedRowIndex = g_HoveredRowIndex = -1;

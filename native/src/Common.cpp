@@ -792,6 +792,38 @@ UINT GetDpiForScreenRect(const RECT& screenRect) {
     return dpiX;
 }
 
+/* Effective DPI of a window (device pixels per 96 DIP), the same ladder
+ * as GetDpiForScreenRect but anchored to the window instead of a screen
+ * rectangle. GetDpiForWindow is a Windows 10 1607+ entry point and is
+ * resolved dynamically here on purpose: a direct import would put
+ * user32!GetDpiForWindow in the import table of Win7TaskbarCore.dll, and
+ * the Windows 8.1 loader refuses a DLL whose imports it cannot bind, so
+ * the whole app would fail to start there. On systems without the
+ * function (Windows 8.1) the scale comes from GetDeviceCaps on the
+ * window's DC (screen DC when the handle is null). Never returns < 96.
+ * Behavior on Windows 10/11 is unchanged: the same function is resolved
+ * and called with the same handle. */
+UINT GetDpiForWindowSafe(HWND hwnd) {
+    typedef UINT(WINAPI* GetDpiForWindowFn)(HWND);
+    static GetDpiForWindowFn fn = []() -> GetDpiForWindowFn {
+        HMODULE m = GetModuleHandleW(L"user32.dll");
+        if (!m) return nullptr;
+        return reinterpret_cast<GetDpiForWindowFn>(
+            GetProcAddress(m, "GetDpiForWindow"));
+    }();
+
+    UINT dpi = (fn != nullptr && hwnd != nullptr) ? fn(hwnd) : 0;
+    if (dpi < 96) {
+        HDC dc = GetDC(hwnd);
+        if (dc != nullptr) {
+            dpi = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSY));
+            ReleaseDC(hwnd, dc);
+        }
+    }
+    if (dpi < 96) dpi = 96;
+    return dpi;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Filtro finestre                                                    */
 /* ------------------------------------------------------------------ */
