@@ -563,10 +563,11 @@
         <Border BorderThickness="1.4" BorderBrush="Transparent"
                 CornerRadius="4">
             <Grid>
-                <!-- v3.7: alone Aero sotto a tutto (l'icona resta nitida sopra) -->
-                <Border x:Name="AeroGlow" Margin="-3,0" CornerRadius="6"
-                        Background="{StaticResource SuperbarAeroGlowBrush}"
-                        Opacity="0" IsHitTestVisible="False" />
+                <!-- v3.7.1: the Aero glow stays OUT of the idle template on
+                     purpose: pinned icons of programs that are not running
+                     keep only the v2.53 hover tile; the radial glow lights up
+                     only on open programs (Running/Active/Notification
+                     templates below). -->
                 <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
                         Background="Transparent" IsHitTestVisible="False" />
                 <Border BorderThickness="1.4" BorderBrush="Transparent"
@@ -594,26 +595,6 @@
                 <Setter TargetName="HoverTile" Property="Background"
                         Value="{DynamicResource TaskButtonBackgroundPressed}" />
             </Trigger>
-            <!-- v3.7: dissolvenza del glow in ingresso/uscita -->
-            <EventTrigger RoutedEvent="MouseEnter">
-                <BeginStoryboard>
-                    <Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
-                                         Storyboard.TargetProperty="Opacity"
-                                         To="1" Duration="0:0:0.18"
-                                         FillBehavior="HoldEnd" />
-                    </Storyboard>
-                </BeginStoryboard>
-            </EventTrigger>
-            <EventTrigger RoutedEvent="MouseLeave">
-                <BeginStoryboard>
-                    <Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
-                                         Storyboard.TargetProperty="Opacity"
-                                         To="0" Duration="0:0:0.35" />
-                    </Storyboard>
-                </BeginStoryboard>
-            </EventTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 

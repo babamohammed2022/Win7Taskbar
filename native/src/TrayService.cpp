@@ -717,6 +717,9 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
     bool anyEmptyBitmap = false;
     bool anyPixelChanged = false;
     bool needNetConfirm = false;   /* v2.38 punto 3: serve una seconda lettura */
+    /* v3.8: un'icona confermata sparita dalla toolbar completa mentre il
+     * suo owner e' ancora vivo chiede il ripiego broadcast FUORI dal lock. */
+    bool vanishedWhileAlive = false;
 
     {
         std::lock_guard<std::recursive_mutex> lock(m_mutex);
@@ -1035,6 +1038,9 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
             }
             if (++entry.missCount >= kConfirmGone) {
                 toRemove.push_back(entry.key);   /* caso (b) */
+                /* v3.8: owner VIVO ma icona confermata assente dalla
+                 * lettura completa: candidato al ripiego broadcast. */
+                vanishedWhileAlive = true;
             }
         }
         for (const TrayIconKey& key : toRemove) {
@@ -1092,6 +1098,29 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
                 m_order.swap(synced);
             }
         }
+    }
+
+    /* v3.8 - ripiego "icone sparite" (ispirazione dalla mod "Disappearing
+     * Tray Icons Fix" della collezione Windhawk, MIT; solo l'idea: niente
+     * codice Windhawk e nessun hook): un'icona e' stata CONFERMATA assente
+     * dalla toolbar letta completamente mentre la finestra del suo owner e'
+     * ancora viva. E' il caso classico della shell che perde le
+     * registrazioni: le applicazioni rispondono a TaskbarCreated
+     * ri-registrando le icone (e' cio' che devono gia' fare al riavvio di
+     * Explorer), quindi il broadcast le fa tornare; la riconciliazione per
+     * GUID ricuce le ri-registrazioni.
+     *
+     * Rispetta la storia di questo file: MAI all'avvio (il broadcast di
+     * andata causava doppie registrazioni: la regola li' resta
+     * ascolto-soltanto), MAI all'uscita del servizio (il broadcast finale
+     * non si tocca), una sola volta per sessione, e fuori dal lock perche'
+     * la destinazione e' l'intero sistema. */
+    if (vanishedWhileAlive && !m_disappearedIconBroadcastDone &&
+        m_taskbarCreatedMsg != 0) {
+        m_disappearedIconBroadcastDone = true;
+        AppendCoreLog(L"reconcile: icona confermata sparita con owner vivo: "
+                      L"broadcast TaskbarCreated di ripiego (una volta)");
+        SendNotifyMessageW(HWND_BROADCAST, m_taskbarCreatedMsg, 0, 0);
     }
 
     if (added > 0 || removed > 0) {

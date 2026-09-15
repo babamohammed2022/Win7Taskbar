@@ -133,7 +133,7 @@
          path is restored while all global shortcuts and shortcut hints stay
          absent; taskmgr.exe is intentionally omitted from overflow because
          its renewed IDs caused large runs of duplicate entries. -->
-    <Version>1.8.0-alpha</Version>
+    <Version>1.11.0-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

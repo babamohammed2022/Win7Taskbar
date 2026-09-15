@@ -58,6 +58,8 @@
                   ClipToBounds="True"
                   MouseEnter="PreviewThumbnail_MouseEnter"
                   MouseLeave="PreviewThumbnail_MouseLeave"
+                  MouseLeftButtonDown="PreviewThumbnail_MouseLeftButtonDown"
+                  MouseMove="PreviewThumbnail_MouseMove"
                   MouseLeftButtonUp="PreviewThumbnail_MouseLeftButtonUp">
                 <!-- Supplied image border, one live preview, a dedicated
                      title/icon band, and one close X. No title element enters
@@ -110,15 +112,17 @@
                 </Grid>
 
                 <!-- Three-state close X in the top image border, outside the
-                     centre cell painted by DWM. At 20x20, margin 16/21 keeps
+                     centre cell painted by DWM. At 20x20, margin 14/21 keeps
                      the full hit target above y=38 and left of the 17px
-                     rounded outer-corner slice while moving it 2px right and
-                     1px up from the previous placement. -->
+                     rounded outer-corner slice; v3.9 moved it a further 2px
+                     up from the previous 16px placement, in BOTH the 9-slice
+                     frame path and the plain-rectangle fallback (the button
+                     is shared by the two paths). -->
                 <Button x:Name="PreviewCloseButton"
                         Style="{DynamicResource TaskPreviewCloseButton}"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Top"
-                        Margin="0,16,21,0"
+                        Margin="0,14,21,0"
                         Panel.ZIndex="99"
                         Click="PreviewCloseButton_Click" />
             </Grid>
