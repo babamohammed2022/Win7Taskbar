@@ -2702,10 +2702,16 @@ namespace Win7Taskbar
             double dx = (targetSize.Width - popupSize.Width) / 2.0;
             double dy;
 
+            /* v4.3: offset verticale dell'1.5% dell'altezza del popup,
+             * ispirato a ExplorerPatcher e alle mod Windhawk per le thumbnail.
+             * Avvicina leggermente l'anteprima alla taskbar per un effetto
+             * piu' compatto e fedele a Windows 7. */
+            double liftOffset = popupSize.Height * 0.015;
+
             switch (edge)
             {
                 case TaskbarEdge.Top:
-                    dy = targetSize.Height + PreviewGapPx;
+                    dy = targetSize.Height + PreviewGapPx - liftOffset;
                     break;
 
                 case TaskbarEdge.Left:
@@ -2719,7 +2725,7 @@ namespace Win7Taskbar
                     break;
 
                 default:   /* barra in basso: anteprima SOPRA il pulsante */
-                    dy = -popupSize.Height - PreviewGapPx;
+                    dy = -popupSize.Height - PreviewGapPx - liftOffset;
                     break;
             }
 

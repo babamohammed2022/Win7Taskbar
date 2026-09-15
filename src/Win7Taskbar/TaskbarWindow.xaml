@@ -887,7 +887,7 @@
                    AllowsTransparency="True"
                    StaysOpen="True"
                    Placement="Custom"
-                   PopupAnimation="None"
+                   PopupAnimation="Fade"
                    SnapsToDevicePixels="True"
                    Opened="TaskPreviewPopup_Opened"
                    Closed="TaskPreviewPopup_Closed">

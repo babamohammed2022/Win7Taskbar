@@ -60,7 +60,7 @@ ScopeExit<F> MakeScopeExit(F f) { return ScopeExit<F>(f); }
  * italiana "Gestione attività"; l'altezza ospita la scheda Barre degli
  * strumenti e la seconda riga del gruppo lingua. */
 constexpr short MAIN_WIDTH  = 278;
-constexpr short MAIN_HEIGHT = 348;   /* v4.2: +22 DLU per la sezione posizione */
+constexpr short MAIN_HEIGHT = 326;   /* v4.3: ripristinato dopo rimozione sezione posizione */
 
 /* v2.50: le tendine di volume e batteria non si chiamano piu' "mixer
  * classico"/"flyout batteria": dicono a quale VERSIONE del sistema
@@ -223,19 +223,10 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_GRP_LANG, p1); vis(IDC_LBL_LANG, p1); vis(IDC_CMB_LANG, p1);
     /* v3.5: riga dell'indicatore della lingua di input. */
     vis(IDC_LBL_LANGBAR, p1); vis(IDC_CMB_LANGBAR, p1);
-    /* v4.2: posizione taskbar — NASCOSTA.
-     *
-     * L'implementazione esiste e funziona parzialmente (la barra si sposta
-     * davvero in alto), ma ci sono troppi effetti collaterali da risolvere:
-     * i flyout di sistema (volume, rete, batteria) appaiono nella posizione
-     * sbagliata, il menu Start non si allinea correttamente, e il ridisegno
-     * della tray non tiene conto della nuova geometria. Serve un testing
-     * approfondito prima di esporre l'opzione agli utenti. Il codice resta
-     * qui, pronto per quando sara' maturo; intanto i controlli sono
-     * invisibili e il valore resta fisso su "Bottom". */
-    vis(IDC_GRP_TASKBAR_POS, false);
-    vis(IDC_LBL_TASKBAR_POS, false);
-    vis(IDC_CMB_TASKBAR_POS, false);
+    /* v4.3: sezione Posizione barra RIMOSSA dal template (vedi commento
+     * nel template). I controlli non esistono piu' nel dialogo; nessuna
+     * chiamata vis() necessaria. Il codice di inizializzazione e SendApply
+     * restano nel file per quando la sezione sara' riattivata. */
     vis(IDC_GRP_NOTIF, p1); vis(IDC_TXT_NOTIF, p1); vis(IDC_BTN_CUSTOMIZE, p1);
 
     /* Pagina 2: informazioni + uscita. */
@@ -346,7 +337,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
             controlCount++;
         };
 
-        addCtrl(TCS_TABS | WS_TABSTOP, 0, 6, 6, 266, 312, IDC_TAB_MAIN,
+        addCtrl(TCS_TABS | WS_TABSTOP, 0, 6, 6, 266, 292, IDC_TAB_MAIN,
                 L"SysTabControl32", L"");
         /* ============================================================
          * PAGINA 1 - "Barra delle applicazioni"
@@ -400,19 +391,17 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(SS_LEFT, 0, 18, 222, 50, 10, IDC_LBL_LANGBAR, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 220, 130, 80, IDC_CMB_LANGBAR, L"ComboBox", L"");
 
-        /* v4.2: GRUPPO POSIZIONE BARRA (Bottom/Top).
-         * NASCOSTO: l'implementazione esiste ma ha problemi irrisolti
-         * (flyout in posizione errata, allineamento menu Start, ecc.).
-         * I controlli restano nel template per quando saranno pronti;
-         * ShowTabPage li nasconde forzatamente. */
-        addCtrl(BS_GROUPBOX, 0, 12, 244, 254, 30, IDC_GRP_TASKBAR_POS, L"Button", L"");
-        addCtrl(SS_LEFT, 0, 18, 254, 50, 10, IDC_LBL_TASKBAR_POS, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 252, 172, 80, IDC_CMB_TASKBAR_POS, L"ComboBox", L"");
+        /* v4.3: sezione Posizione barra RIMOSSA dal template.
+         * L'implementazione esiste nel codice (ComboBox, SendApply, ecc.)
+         * ma ha problemi irrisolti (flyout in posizione errata, allineamento
+         * menu Start, redraw della tray). I controlli restano nell'enum
+         * CtrlId e nel codice di inizializzazione per quando saranno pronti;
+         * qui non vengono creati, cosi' non occupano spazio nel dialogo. */
 
         /* GRUPPO 5 - AREA DI NOTIFICA: testo su due righe (20) + pulsante. */
-        addCtrl(BS_GROUPBOX, 0, 12, 278, 254, 36, IDC_GRP_NOTIF, L"Button", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 286, 242, 20, IDC_TXT_NOTIF, L"Static", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 190, 288, 68, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 244, 254, 36, IDC_GRP_NOTIF, L"Button", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 252, 242, 20, IDC_TXT_NOTIF, L"Static", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 190, 254, 68, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
 
         /* ============================================================
          * PAGINA 2 - "Informazioni"
@@ -457,9 +446,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
 
         // ---- pulsanti standard 50x14, come la mod ----
         /* v3.5: la riga scende di 14 DLU con la finestra. */
-        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 104, 324, 50, 14, IDOK, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 160, 324, 50, 14, IDCANCEL, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 216, 324, 50, 14, IDC_BTN_APPLY, L"Button", L"");
+        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 104, 306, 50, 14, IDOK, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 160, 306, 50, 14, IDCANCEL, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 216, 306, 50, 14, IDC_BTN_APPLY, L"Button", L"");
 
         pDlg->cdit = controlCount;
         m_hWnd = CreateDialogIndirectParamW(GetModuleHandleW(nullptr),
@@ -734,16 +723,19 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             ComboBox_SetCurSel(hTM, self->m_taskManagerMode);
         }
 
-        /* v4.2: taskbar position selector (Bottom/Top).
-         * NASCOSTO: l'implementazione esiste ma richiede testing approfondito
-         * (flyout in posizione errata, allineamento menu Start, ecc.).
-         * Il ComboBox viene inizializzato ma ShowTabPage lo nasconde; il
-         * valore resta fisso su Bottom (0). */
+        /* v4.3: taskbar position selector (Bottom/Top).
+         * RIMOSSO dal template: l'implementazione esiste ma ha problemi
+         * irrisolti (flyout in posizione errata, allineamento menu Start,
+         * redraw della tray). Il codice resta per quando sara' riattivato;
+         * il controllo non esiste nel dialogo, quindi GetDlgItem ritorna
+         * nullptr e l'inizializzazione viene saltata. */
         {
             HWND hTP = GetDlgItem(hwnd, IDC_CMB_TASKBAR_POS);
-            ComboBox_AddString(hTP, S.taskbarPosBottom);
-            ComboBox_AddString(hTP, S.taskbarPosTop);
-            ComboBox_SetCurSel(hTP, self->m_taskbarPosition);
+            if (hTP) {
+                ComboBox_AddString(hTP, S.taskbarPosBottom);
+                ComboBox_AddString(hTP, S.taskbarPosTop);
+                ComboBox_SetCurSel(hTP, self->m_taskbarPosition);
+            }
         }
 
         SendDlgItemMessageW(hwnd, IDC_CHK_SECONDS, BM_SETCHECK,
