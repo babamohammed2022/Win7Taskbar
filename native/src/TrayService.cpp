@@ -1653,6 +1653,16 @@ void TrayService::Stop() {
         m_order.clear();
         m_byGuid.clear();
     }
+
+    /* v4.11: cleanup dell'hook di congelamento flyout. Se Win7Taskbar si
+     * chiude mentre un flyout di sistema (orologio, volume, rete) e' ancora
+     * aperto, il watcher thread potrebbe aver installato l'hook WH_CALLWNDPROC
+     * e iniettato W7TInject.dll dentro Explorer. Senza questo cleanup,
+     * l'hook resta installato e W7TInject_CallWndProc continua a essere
+     * chiamata per ogni messaggio nel thread del flyout, anche dopo che
+     * Win7Taskbar e' terminato. Il subclass si auto-rimuove su WM_NCDESTROY
+     * (quando il flyout viene chiuso), ma l'hook resta un leak. */
+    UninstallFlyoutFreeze();
 }
 
 bool TrayService::CreateWindows() {
