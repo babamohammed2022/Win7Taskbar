@@ -58,6 +58,8 @@
                   ClipToBounds="True"
                   MouseEnter="PreviewThumbnail_MouseEnter"
                   MouseLeave="PreviewThumbnail_MouseLeave"
+                  MouseLeftButtonDown="PreviewThumbnail_MouseLeftButtonDown"
+                  MouseMove="PreviewThumbnail_MouseMove"
                   MouseLeftButtonUp="PreviewThumbnail_MouseLeftButtonUp">
                 <!-- Supplied image border, one live preview, a dedicated
                      title/icon band, and one close X. No title element enters
