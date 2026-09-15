@@ -1198,6 +1198,8 @@ namespace Win7Taskbar
                     if (m.OwnerHwnd == balloon.OwnerHwnd && m.Uid == balloon.Uid
                         && TrayIcons.ItemContainerGenerator.ContainerFromItem(m)
                             is FrameworkElement container
+                        && container.IsLoaded
+                        && container.IsVisible
                         && container.ActualWidth > 0)
                     {
                         iconAnchor = container;

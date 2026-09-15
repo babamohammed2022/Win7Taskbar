@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace Win7Taskbar.Controls
 {
@@ -32,6 +33,21 @@ namespace Win7Taskbar.Controls
         private readonly UIElement _anchor;
         private Popup? _popup;
         private NotifyBalloon? _balloon;
+
+        /* v3.7.2: quando il fumetto e' ancorato a un'icona della tray, qui
+         * teniamo l'elemento e ne verifichiamo periodicamente la validita':
+         * l'icona puo' finire nel pannello di overflow, essere spostata,
+         * disattivata o rimossa MENTRE il fumetto e' a video. Se l'ancora
+         * non vale piu', il fumetto viene ri-ancorato all'area di notifica,
+         * cosi' non compare mai puntato su una posizione sbagliata. */
+        private FrameworkElement? _iconAnchorElement;
+        private DispatcherTimer? _anchorWatch;
+
+        /// <summary>
+        /// Ogni quanto si ricontrolla che l'ancora dell'icona valga ancora.
+        /// </summary>
+        private static readonly TimeSpan AnchorWatchInterval =
+            TimeSpan.FromMilliseconds(400);
 
         /// <param name="anchor">
         /// Elemento di ripiego per il posizionamento: di norma l'area di
@@ -78,6 +94,8 @@ namespace Win7Taskbar.Controls
                 /* v3.7: l'ancora e' l'icona che ha generato la notifica, se
                  * esiste; altrimenti l'area di notifica (ripiego d'origine). */
                 bool anchoredToIcon = iconAnchor is FrameworkElement element
+                                      && element.IsLoaded
+                                      && element.IsVisible
                                       && element.ActualWidth > 0;
                 UIElement effectiveAnchor = anchoredToIcon ? iconAnchor! : _anchor;
 
@@ -99,6 +117,12 @@ namespace Win7Taskbar.Controls
                     PopupAnimation = PopupAnimation.Fade
                 };
 
+                /* v3.7.2: sorveglianza dell'ancora: se l'icona finisce in
+                 * overflow o viene rimossa mentre il fumetto e' visibile, il
+                 * fumetto torna ad ancorarsi all'area di notifica. */
+                _iconAnchorElement = anchoredToIcon ? (FrameworkElement)effectiveAnchor : null;
+                StartAnchorWatch();
+
                 _balloon.Show(title, info, infoFlags, timeoutMs);
                 _popup.IsOpen = true;
             }
@@ -116,6 +140,8 @@ namespace Win7Taskbar.Controls
              * dalla chiusura della barra, punti senza un try/catch attorno. */
             try
             {
+                StopAnchorWatch();
+
                 if (_popup != null)
                 {
                     _popup.IsOpen = false;
@@ -132,6 +158,105 @@ namespace Win7Taskbar.Controls
             _balloon = null;
         }
 
+        // ---------------------------------------------------------------
+        //  v3.7.2 - Sorveglianza dell'ancora dell'icona
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// Avvia il controllo periodico dell'icona a cui il fumetto e'
+        /// ancorato. Senza ancora (ripiego sulla tray) non serve.
+        /// </summary>
+        private void StartAnchorWatch()
+        {
+            StopAnchorWatch();
+            if (_iconAnchorElement == null)
+            {
+                return;
+            }
+
+            _anchorWatch = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = AnchorWatchInterval
+            };
+            _anchorWatch.Tick += (_, _) =>
+            {
+                if (_popup == null || _iconAnchorElement == null)
+                {
+                    StopAnchorWatch();
+                    return;
+                }
+
+                if (IsAnchorStillValid(_iconAnchorElement))
+                {
+                    return;
+                }
+
+                /* L'icona non sta piu' in barra (mandata in overflow,
+                 * spostata, disattivata o rimossa): continuando ad
+                 * ancorare a lei il fumetto punterebbe un punto
+                 * sbagliato. Lo si ri-ancora all'area di notifica. */
+                Debug.WriteLine("balloon: ancora non piu' valida, " +
+                                "ri-ancoraggio all'area di notifica");
+                StopAnchorWatch();
+                RetargetToTrayAnchor();
+            };
+            _anchorWatch.Start();
+        }
+
+        /// <summary>Ferma il controllo periodico e dimentica l'ancora.</summary>
+        private void StopAnchorWatch()
+        {
+            if (_anchorWatch != null)
+            {
+                _anchorWatch.Stop();
+                _anchorWatch = null;
+            }
+
+            _iconAnchorElement = null;
+        }
+
+        /// <summary>
+        /// Verifica che l'elemento dell'icona sia ancora un'ancora
+        /// utilizzabile: caricato, visibile, largo e collegato a una
+        /// finestra vera (PointToScreen alza un'eccezione se l'elemento
+        /// non e' piu' presentato da nessuna finestra).
+        /// </summary>
+        private static bool IsAnchorStillValid(FrameworkElement element)
+        {
+            try
+            {
+                if (!element.IsLoaded || !element.IsVisible ||
+                    element.ActualWidth <= 0)
+                {
+                    return false;
+                }
+
+                element.PointToScreen(new Point(0, 0));
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Sposta il fumetto dall'icona (non piu' valida) all'area di
+        /// notifica: cambia il callback di posizionamento e il target; la
+        /// variazione del target fa ricalcolare subito il piazzamento a WPF.
+        /// </summary>
+        private void RetargetToTrayAnchor()
+        {
+            _iconAnchorElement = null;
+            if (_popup == null)
+            {
+                return;
+            }
+
+            _popup.CustomPopupPlacementCallback = PlaceAboveAnchor;
+            _popup.PlacementTarget = _anchor;
+        }
+
         /// <summary>
         /// v3.7: colloca il fumetto sopra l'icona che lo ha generato, con la
         /// PUNTA centrata sull'icona (la punta sta a TipOffsetFromRightEdge
@@ -146,6 +271,20 @@ namespace Win7Taskbar.Controls
              * collocazione semplice invece di arrivare al dispatcher. */
             try
             {
+                /* v3.7.2: se tra un posizionamento e l'altro l'icona ha
+                 * smesso di essere un'ancora valida, non calcolare
+                 * coordinate relative a lei: si restituisce la collocazione
+                 * semplice (il ri-ancoraggio alla tray arriva dal watch). */
+                if (_iconAnchorElement == null ||
+                    !IsAnchorStillValid(_iconAnchorElement))
+                {
+                    return new[]
+                    {
+                        new CustomPopupPlacement(new Point(0, -popupSize.Height),
+                                                 PopupPrimaryAxis.Horizontal)
+                    };
+                }
+
                 // Bordo destro del fumetto: x + popupWidth; la punta e' a
                 // (x + popupWidth - TipOffsetFromRightEdge). Vogliamo la punta al
                 // centro dell'icona: x + popupWidth - 23.5 = targetWidth/2.
