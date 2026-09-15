@@ -521,15 +521,15 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ShowStartMenu(void) {
     const bool wasHidden = AppBarService::Instance().IsNativeTaskbarHidden();
 
     /* v4.1: sblocca il foreground lock prima di simulare VK_LWIN.
-     * SendInput richiede che il processo abbia il permesso di
-     * foreground per funzionare correttamente. Quando un'altra app
-     * (es. Windhawk, un gioco, un IDE) ha il foreground, il tasto
-     * Windows simulato viene ignorato dal sistema e il menu Start non
-     * si apre. ForegroundUnlock() invia un tap di VK_MENU (Alt) che
-     * convince Windows a concedere temporaneamente il permesso.
-     * Doppio strato: il managed side chiama AllowForegroundChange()
-     * (tasto 0xE8) prima di questa funzione; qui si aggiunge VK_MENU
-     * come backup nel caso il primo unlock non sia bastato. */
+     * Quando un'altra app (es. Windhawk) ha il foreground, SendInput
+     * viene ignorato dal sistema e il menu Start non si apre. Il tap
+     * di VK_MENU (Alt) convince Windows a concedere temporaneamente il
+     * permesso di foreground, esattamente come fa ForegroundUnlock()
+     * per SetForegroundWindow in WindowManager::ExecuteCommand.
+     * N.B.: questo resta nel native side (non nel managed) perche'
+     * SendInput durante un click handler WPF causa regressione:
+     * l'evento di tastiera iniettato interferisce col processing del
+     * click e i programmi non si aprono piu'. */
     {
         INPUT unlock{};
         unlock.type = INPUT_KEYBOARD;
