@@ -2880,7 +2880,7 @@ namespace Win7Taskbar
                 }
 
                 if (frameHost.Template.FindName(NativeFrameRectPart, frameHost)
-                    is not System.Windows.Controls.Shapes.Rectangle frameRect)
+                    is not System.Windows.Shapes.Rectangle frameRect)
                 {
                     /* A theme that does not expose the part: nothing to swap,
                      * and its own frame stays exactly as it is. */
