@@ -1717,8 +1717,11 @@ static void ShowInner(uint64_t ownerHwnd, uint64_t foregroundHwnd,
 
     if (hFlyout && IsWindow(hFlyout)) {
         PositionWindowNearTray(hFlyout);
-        ShowWindow(hFlyout, SW_SHOW);
+        /* v4.5: SetForegroundWindow PRIMA di ShowWindow per evitare che
+         * Windows rifiuti l'attivazione (popup richiede piu' click per
+         * chiudersi). Pattern corretto secondo documentazione Microsoft. */
         SetForegroundWindow(hFlyout);
+        ShowWindow(hFlyout, SW_SHOW);
         InvalidateRect(hFlyout, nullptr, TRUE);
     }
 }

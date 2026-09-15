@@ -9627,12 +9627,16 @@ void ToggleFlyoutWindow() {
             RecalcArrowRect();
             UpdateLayoutGeometry();
             PositionWindowNearTray(g_hWndFlyout);
+            // v4.5: SetForegroundWindow PRIMA di ShowWindow per evitare che
+            // Windows rifiuti l'attivazione (il flyout richiede 2-3 click per
+            // chiudersi se SetForegroundWindow fallisce). Pattern corretto
+            // secondo la documentazione Microsoft per popup topmost.
+            SetForegroundWindow(g_hWndFlyout);
             ShowWindow(g_hWndFlyout, SW_SHOW);
             // ToggleFlyoutWindow is the normal show path. Restore the timer
             // stopped on deactivation.
             if (!g_RefreshTimer && g_Settings.refreshInterval > 0)
                 g_RefreshTimer = SetTimer(g_hWndFlyout, 1000, g_Settings.refreshInterval, NULL);
-            SetForegroundWindow(g_hWndFlyout);
             InvalidateRect(g_hWndFlyout,NULL,TRUE);
         }
     }
