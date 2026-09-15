@@ -551,12 +551,29 @@ namespace Win7Taskbar.Models
                 return;
             }
 
-            Groups.Move(from, to);
+            try
+            {
+                Groups.Move(from, to);
+            }
+            catch (Exception ex)
+            {
+                // Collection was mutated concurrently (e.g. a window
+                // closed between the index check and the move). Log and
+                // bail out — the next RefreshWindows will rebuild.
+                System.Diagnostics.Debug.WriteLine(
+                    $"ReorderGroups: Move({from},{to}) failed: {ex.Message}");
+                return;
+            }
 
             // Rebuild the pin cache in the order that matches the current
             // Groups sequence, so the next RefreshWindows does not undo
             // the user's rearrangement.
-            if (_pinsCache != null)
+            if (_pinsCache == null)
+            {
+                return;
+            }
+
+            try
             {
                 var reordered = new List<PinInfo>(_pinsCache.Count);
 
@@ -584,6 +601,14 @@ namespace Win7Taskbar.Models
                 }
 
                 _pinsCache = reordered;
+            }
+            catch (Exception ex)
+            {
+                // Pin cache rebuild failed: the next InvalidatePins or
+                // PinnedChanged event will reload it from scratch.
+                System.Diagnostics.Debug.WriteLine(
+                    $"ReorderGroups: pin cache rebuild failed: {ex.Message}");
+                _pinsCache = null;
             }
         }
 
