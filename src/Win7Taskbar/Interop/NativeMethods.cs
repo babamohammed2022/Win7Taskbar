@@ -255,6 +255,19 @@ namespace Win7Taskbar.Interop
             ulong hwnd, int desiredSize, out int width, out int height,
             [Out] byte[]? pixels, int pixelsBytes);
 
+        /// <summary>Aero preview frame drawn by the core's 9-slice renderer:
+        /// premultiplied BGRA, top-down, stride = width * 4, i.e. exactly a
+        /// Pbgra32 bitmap. Pass <c>pixels = null</c> and
+        /// <c>pixelsBytes = 0</c> to query the needed byte count.
+        /// <c>accentArgb</c> is a 0x00RRGGBB tint (0 = no tint: the slices as
+        /// they are on disk). Returns a negative <see cref="W7TResult"/> code
+        /// when the frame is not applicable, in which case the caller keeps
+        /// the frame its XAML template draws.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_RenderAeroThumbnailFrame(
+            int width, int height, uint accentArgb,
+            [Out] byte[]? pixels, int pixelsBytes);
+
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_ExecuteWindowCommand(ulong hwnd, int cmd);
 

@@ -150,7 +150,25 @@
          by the 9-slice and the fallback paths. The managed paint path is
          unchanged in this release: the WPF frame template still slices
          DWMBorder.png and the native renderer has no caller yet. -->
-    <Version>1.12.0-alpha</Version>
+    <!-- 1.13.0-alpha: the native 9-slice renderer of 1.12.0-alpha now draws
+         the preview frame it was written for. New export
+         W7T_RenderAeroThumbnailFrame (native/src/Exports.cpp) renders the
+         frame into a caller-owned premultiplied BGRA buffer - top-down,
+         stride width*4, the same layout the icon exports use - through the
+         new w7t::RenderAeroThumbnailFramePbgra, which paints into a top-down
+         DIB section with RAII-owned DC/DIB/selection and hands the bits over
+         with a single memcpy. Utilities/NativePreviewFrame.cs wraps that
+         buffer in a frozen Pbgra32 BitmapSource rendered at the frame's exact
+         device size and DPI, cached per (size, accent). The accent layer of
+         TaskPreviewFrameVista moved into a named AccentSliceLayer grid with a
+         NativeAeroFrameImage next to it: TaskbarWindow shows the image and
+         collapses the eight masked rectangles when the core supplies a frame,
+         and puts them back the moment it does not. The native tint now derives
+         its alpha from the slice luminance with the same integer formula as
+         EnsureDwmPreviewBorderMask, so the two paths draw the same border;
+         the grayscale overlay, the clipped static blur, the title band, the
+         close button and the live DWM thumbnail are untouched. -->
+    <Version>1.13.0-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

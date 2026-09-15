@@ -63,8 +63,18 @@
                   MouseLeftButtonUp="PreviewThumbnail_MouseLeftButtonUp">
                 <!-- Supplied image border, one live preview, a dedicated
                      title/icon band, and one close X. No title element enters
-                     the live DWM destination rectangle. -->
-                <ContentControl Template="{DynamicResource TaskPreviewFrameVista}">
+                     the live DWM destination rectangle.
+
+                     The two handlers give the frame its border from the core's
+                     native 9-slice renderer as soon as it knows its own device
+                     size (Loaded) and again whenever TaskThumbnail refits it
+                     (SizeChanged). Both only reach
+                     TaskbarWindow.ApplyNativePreviewFrame, which leaves the
+                     XAML frame untouched when the core cannot supply one. -->
+                <ContentControl x:Name="PreviewFrameHost"
+                                Template="{DynamicResource TaskPreviewFrameVista}"
+                                Loaded="PreviewFrameHost_Loaded"
+                                SizeChanged="PreviewFrameHost_SizeChanged">
                     <!-- DWMBorder.png already reserves its complete 38px top
                          chrome. The live surface goes directly into the exact
                          202x109 source aperture; no extra spacer, padding,
