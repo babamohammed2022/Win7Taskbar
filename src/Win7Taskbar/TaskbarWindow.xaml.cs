@@ -18,6 +18,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Win7Taskbar.Converters;
 using Win7Taskbar.Interop;
@@ -2461,6 +2462,15 @@ namespace Win7Taskbar
         // the pointer is over a DWM destination (which is not WPF-painted).
         private bool _previewPointerInside;
 
+        /* v4.4: fade ritardato per le anteprime. Il popup WPF si apre subito
+         * ma resta invisibile (opacity=0) finche' la thumbnail DWM non ha
+         * completato la registrazione e il primo frame di composizione.
+         * Un contatore di frame su CompositionTarget.Rendering aspetta N
+         * frame prima di avviare il fade in, evitando il flash del frame
+         * vuoto prima della thumbnail (ispirazione ExplorerPatcher). */
+        private int _previewFadeWaitFrames;
+        private EventHandler? _previewFadeHandler;
+
         /* v3.8: stato del riordino delle anteprime col trascinamento
          * sinistro (ispirazione dalla mod "Taskbar Thumbnail Reorder").
          * Il candidato e' l'elemento premuto; il riordino vero parte solo
@@ -3083,12 +3093,43 @@ namespace Win7Taskbar
             {
                 CaptureTaskPreviewBackdrop();
 
-                /* v2.45: punto unico di controllo dopo che il popup e' davvero a
-                 * schermo. Lo sfondo statico e' gia' stato catturato e limitato
-                 * alle sole bande esterne; ora si riavvia il timer che decide
-                 * la chiusura, cosi' la permanenza non
-                 * dipende dall'ordine con cui WPF alza Opened rispetto al
-                 * codice chiamante. */
+                /* v4.4: fade ritardato. Il popup si apre con opacity=0 per
+                 * nascondere il frame vuoto prima che la thumbnail DWM sia
+                 * pronta. Un handler su CompositionTarget.Rendering conta
+                 * 4 frame (~66ms a 60Hz) per dare tempo alla registrazione
+                 * DWM e al primo Refresh(), poi avvia un fade in di 180ms.
+                 *
+                 * Il numero di frame e' un compromesso: troppo pochi e la
+                 * thumbnail non e' ancora composta (flash vuoto); troppi e
+                 * l'utente percepisce un ritardo. 4 frame sono sufficienti
+                 * per la registrazione DWM + primo Refresh() + composizione. */
+                TaskPreviewPopupRoot.Opacity = 0;
+                _previewFadeWaitFrames = 4;
+
+                _previewFadeHandler = (_, _) =>
+                {
+                    if (_previewFadeWaitFrames > 0)
+                    {
+                        _previewFadeWaitFrames--;
+                        return;
+                    }
+
+                    /* Frame di attesa esauriti: avvia il fade in e stacca
+                     * l'handler (una tantum). */
+                    CompositionTarget.Rendering -= _previewFadeHandler;
+                    _previewFadeHandler = null;
+
+                    var fadeIn = new DoubleAnimation(0, 1,
+                        TimeSpan.FromMilliseconds(180))
+                    {
+                        EasingFunction = new QuadraticEase
+                            { EasingMode = EasingMode.EaseOut }
+                    };
+                    TaskPreviewPopupRoot.BeginAnimation(
+                        UIElement.OpacityProperty, fadeIn);
+                };
+                CompositionTarget.Rendering += _previewFadeHandler;
+
                 _previewWatchTimer ??= new TimerLease(PreviewWatchIntervalMs,
                                                       PreviewWatchTimer_Tick);
                 _previewWatchTimer.Stop();
@@ -3111,6 +3152,20 @@ namespace Win7Taskbar
                 _previewShowTimer?.Stop();
                 _previewWatchTimer?.Stop();
                 ClearPreviewReorderState();
+
+                /* v4.4: pulizia del fade ritardato. Se il popup si chiude
+                 * prima che il fade sia partito (mouse uscito velocemente),
+                 * l'handler su CompositionTarget.Rendering va staccato per
+                 * evitare che scatti su un popup gia' chiuso. L'opacity
+                 * torna a 1 per la prossima apertura. */
+                if (_previewFadeHandler != null)
+                {
+                    CompositionTarget.Rendering -= _previewFadeHandler;
+                    _previewFadeHandler = null;
+                }
+                TaskPreviewPopupRoot.Opacity = 1;
+                TaskPreviewPopupRoot.BeginAnimation(
+                    UIElement.OpacityProperty, null);
 
                 // Release the managed BitmapSource reference after every
                 // short-lived hover popup; the HBITMAP was already released
