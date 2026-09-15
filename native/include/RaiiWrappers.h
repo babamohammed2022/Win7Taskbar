@@ -211,5 +211,30 @@ private:
     CRITICAL_SECTION& cs_;
 };
 
+// ------------------------------------------------------------
+// ScopeGuard: generic cleanup-on-scope-exit
+// v4.9: inspired by GSL ScopeGuard. Executes the cleanup function
+// when the guard goes out of scope, swallowing any exceptions to
+// prevent stack unwinding conflicts. Use for ad-hoc cleanup that
+// doesn't fit a typed RAII wrapper.
+// ------------------------------------------------------------
+template <class Fn>
+class ScopeGuard {
+    Fn fn_;
+    bool active_ = true;
+public:
+    explicit ScopeGuard(Fn fn) : fn_(std::move(fn)) {}
+    ~ScopeGuard() { if (active_) { try { fn_(); } catch (...) {} } }
+    ScopeGuard(const ScopeGuard&) = delete;
+    ScopeGuard& operator=(const ScopeGuard&) = delete;
+    ScopeGuard(ScopeGuard&& other) noexcept : fn_(std::move(other.fn_)), active_(other.active_) {
+        other.active_ = false;
+    }
+    void dismiss() noexcept { active_ = false; }
+};
+
+template <class Fn>
+ScopeGuard<Fn> MakeScopeGuard(Fn fn) { return ScopeGuard<Fn>(std::move(fn)); }
+
 } // namespace raii
 } // namespace w7t

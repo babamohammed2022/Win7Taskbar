@@ -419,6 +419,15 @@ private:
 
     std::thread        m_thread;
     std::atomic<bool>  m_explorerRestarted{ false };
+    /* v4.1: PID di Explorer all'ultima verifica. Se cambia, il Watchdog
+     * triggera una riconciliazione anche senza TaskbarCreated (crash
+     * silenzioso, terminazione manuale, riavvio lento). */
+    DWORD              m_lastExplorerPid = 0;
+    /* v4.1: conteggio dei retry dopo un riavvio di Explorer. Se la prima
+     * riconciliazione fallisce (toolbar non ancora pronta), si rischedula
+     * con backoff (2.5s, 5s, 10s, 15s, 20s) fino a kMaxExplorerRetries. */
+    int                m_explorerRetryCount = 0;
+    static constexpr int kMaxExplorerRetries = 5;
     std::atomic<bool>  m_running{ false };
     std::atomic<bool>  m_startOk{ false };
     /* v2.37 punto 15: segnala che ThreadMain ha davvero finito, cosi'

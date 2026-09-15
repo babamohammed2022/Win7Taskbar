@@ -84,6 +84,7 @@ extern "C" {
 #define W7T_EVT_FULLSCREEN_CHANGED 20
 #define W7T_EVT_OVERFLOW_HIDDEN    21   /* v3.2: il pannello overflow si e' chiuso da solo */
 #define W7T_EVT_PINNED_CHANGED     22   /* v2.25: cambiata la cartella dei pin */
+#define W7T_EVT_EXPLORER_RESTART   23   /* v4.1: Explorer riavviato (PID cambiato o TaskbarCreated) */
 
 /* Comandi jump-list / finestra */
 #define W7T_CMD_RESTORE     1
@@ -411,7 +412,8 @@ W7T_API void    W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t enableSearch, int32_t netFlyout, int32_t classicVolume,
         int32_t batteryFlyout, int32_t aeroPeek, int32_t toolbarDesktop,
         int32_t toolbarAddress, int32_t toolbarLinks,
-        int32_t inputLanguageMode, int32_t taskManagerMode);
+        int32_t inputLanguageMode, int32_t taskManagerMode,
+        int32_t taskbarPosition);
 W7T_API void    W7T_CALL W7T_AppSearchShow(int32_t x, int32_t y);
 W7T_API void    W7T_CALL W7T_AppSearchHide(void);
 W7T_API int32_t W7T_CALL W7T_AppSearchIsVisible(void);

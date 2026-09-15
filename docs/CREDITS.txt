@@ -528,3 +528,15 @@ project is GPL-3.0-or-later (see the LICENSE file).
 3ds
  - Some of the graphic resources of the project.
  - Inspiration for the XAML theme idea.
+
+m417z (https://github.com/m417z)
+ - "Taskbar on top for Windows 11" Windhawk mod (GNU GPL v3.0).
+   Repository: https://github.com/ramensoftware/windhawk-mods
+   Reference for the taskbar Top positioning feature (v4.2).
+   The Win7Taskbar implementation of Top positioning was developed
+   with reference to the concepts and techniques described in the
+   mod's source code. No code was directly copied — Win7Taskbar
+   uses its own WPF + AppBar-based architecture, while the mod
+   hooks Explorer internals — but the approach to monitor-aware
+   positioning and the Top/Bottom switching concept were informed
+   by studying m417z's work.

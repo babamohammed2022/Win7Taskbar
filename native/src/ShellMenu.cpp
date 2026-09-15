@@ -30,6 +30,238 @@ constexpr UINT kGroupMinimizeId = 0xF100;
 constexpr UINT kGroupCloseId    = 0xF101;
 constexpr UINT_PTR kMenuPriorityTimer = 0x574D;
 
+/* ========================================================================
+ * v4.6: ICONE PER I MENU CONTESTUALI DI SISTEMA
+ *
+ * Disegna le icone del menu di sistema (Ripristina, Riduci a icona,
+ * Ingrandisci, Chiudi) con GDI puro, senza dipendenze esterne.
+ * Ispirato a ExplorerPatcher e alle mod Windhawk per i menu di Windows 7.
+ *
+ * Le bitmap sono create una volta (statiche) e riutilizzate per tutti i
+ * menu. SetMenuItemBitmaps richiede due bitmap: una per lo stato normale
+ * e una per lo stato selezionato (highlight). Per semplicita', usiamo la
+ * stessa bitmap per entrambi gli stati (le icone di Windows 7 non cambiano
+ * colore al hover).
+ *
+ * Dimensioni: 16x16 pixel, formato DIB a 32 bit con canale alpha.
+ * ======================================================================== */
+namespace MenuIcons {
+
+/* Le 4 icone del menu di sistema. Sposta e Ridimensiona non hanno icona
+ * (come in Windows 7 originale). */
+static HBITMAP s_restore  = nullptr;
+static HBITMAP s_minimize = nullptr;
+static HBITMAP s_maximize = nullptr;
+static HBITMAP s_close    = nullptr;
+static bool    s_initialized = false;
+
+/* Crea una DIB section 16x16 a 32 bit con canale alpha. Ritorna l'HBITMAP
+ * e un puntatore ai pixel (per il disegno diretto se necessario). */
+HBITMAP CreateAlphaBitmap32(void** pixels = nullptr) {
+    BITMAPINFOHEADER bih = {};
+    bih.biSize        = sizeof(bih);
+    bih.biWidth       = 16;
+    bih.biHeight      = -16;   /* top-down */
+    bih.biPlanes      = 1;
+    bih.biBitCount    = 32;
+    bih.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    HDC dcScreen = GetDC(nullptr);
+    HBITMAP hbm = CreateDIBSection(dcScreen, reinterpret_cast<BITMAPINFO*>(&bih),
+                                    DIB_RGB_COLORS, &bits, nullptr, 0);
+    ReleaseDC(nullptr, dcScreen);
+    if (pixels) *pixels = bits;
+
+    /* Inizializza a trasparente (alpha=0). */
+    if (bits) {
+        DWORD* p = static_cast<DWORD*>(bits);
+        for (int i = 0; i < 16 * 16; ++i) {
+            p[i] = 0x00000000;   /* BGRA: alpha=0 */
+        }
+    }
+    return hbm;
+}
+
+/* Disegna un pixel con alpha blending su una DIB a 32 bit.
+ * Color e' RGB (0x00BBGGRR), alpha e' 0-255. */
+void SetPixelAlpha(DWORD* pixels, int x, int y, DWORD color, BYTE alpha) {
+    if (x < 0 || x >= 16 || y < 0 || y >= 16) return;
+    DWORD& pixel = pixels[y * 16 + x];
+
+    /* Premultiplied alpha: il colore viene moltiplicato per l'alpha.
+     * Per semplicita', usiamo alpha diretto (non premultiplied) perche'
+     * SetMenuItemBitmaps gestisce il blending. */
+    BYTE r = (color >> 16) & 0xFF;
+    BYTE g = (color >>  8) & 0xFF;
+    BYTE b = (color >>  0) & 0xFF;
+    pixel = (static_cast<DWORD>(alpha) << 24) |
+            (static_cast<DWORD>(r) << 16) |
+            (static_cast<DWORD>(g) <<  8) |
+            (static_cast<DWORD>(b) <<  0);
+}
+
+/* Disegna una linea orizzontale con spessore specificato. */
+void DrawHLine(DWORD* pixels, int x1, int x2, int y, DWORD color, BYTE alpha, int thickness = 1) {
+    for (int t = 0; t < thickness; ++t) {
+        for (int x = x1; x <= x2; ++x) {
+            SetPixelAlpha(pixels, x, y + t, color, alpha);
+        }
+    }
+}
+
+/* Disegna una linea verticale con spessore specificato. */
+void DrawVLine(DWORD* pixels, int x, int y1, int y2, DWORD color, BYTE alpha, int thickness = 1) {
+    for (int t = 0; t < thickness; ++t) {
+        for (int y = y1; y <= y2; ++y) {
+            SetPixelAlpha(pixels, x + t, y, color, alpha);
+        }
+    }
+}
+
+/* Disegna un rettangolo vuoto (bordo) con spessore specificato. */
+void DrawRect(DWORD* pixels, int x1, int y1, int x2, int y2, DWORD color, BYTE alpha, int thickness = 1) {
+    DrawHLine(pixels, x1, x2, y1, color, alpha, thickness);
+    DrawHLine(pixels, x1, x2, y2 - thickness + 1, color, alpha, thickness);
+    DrawVLine(pixels, x1, y1, y2, color, alpha, thickness);
+    DrawVLine(pixels, x2 - thickness + 1, y1, y2, color, alpha, thickness);
+}
+
+/* Inizializza le 4 icone. Chiamata una volta sola (lazy init). */
+void Initialize() {
+    if (s_initialized) return;
+    s_initialized = true;
+
+    /* Colore: grigio scuro come le icone di Windows 7 (0x404040).
+     * Le icone Win7 sono piu' scure e bold rispetto a quelle classiche. */
+    const DWORD kColor = 0x00404040;   /* RGB: 0x40, 0x40, 0x40 */
+    const BYTE  kAlpha = 0xE0;         /* ~88% opaco */
+
+    /* --- Ripristina (Restore): due quadrati sovrapposti con bordo spesso ---
+     * Stile Windows 7: bordi spessi 2px, quadrati ben definiti.
+     * Quadrato grande: (2,6) a (11,14) - bordo 2px
+     * Quadrato piccolo: (5,2) a (13,10) - bordo 2px, in alto a destra */
+    {
+        void* pixels = nullptr;
+        s_restore = CreateAlphaBitmap32(&pixels);
+        if (pixels) {
+            DWORD* p = static_cast<DWORD*>(pixels);
+            DrawRect(p, 2, 6, 11, 14, kColor, kAlpha, 2);
+            DrawRect(p, 5, 2, 13, 10, kColor, kAlpha, 2);
+        }
+    }
+
+    /* --- Riduci a icona (Minimize): linea orizzontale spessa ---
+     * Stile Windows 7: barra spessa 3px, centrata verticalmente in basso.
+     * Linea: da (3,11) a (12,13) - spessore 3px */
+    {
+        void* pixels = nullptr;
+        s_minimize = CreateAlphaBitmap32(&pixels);
+        if (pixels) {
+            DWORD* p = static_cast<DWORD*>(pixels);
+            for (int y = 11; y <= 13; ++y) {
+                DrawHLine(p, 3, 12, y, kColor, kAlpha);
+            }
+        }
+    }
+
+    /* --- Ingrandisci (Maximize): quadrato con bordo spesso ---
+     * Stile Windows 7: bordo spesso 2px, riempie buona parte dell'area.
+     * Rettangolo: (3,3) a (12,12) - bordo 2px */
+    {
+        void* pixels = nullptr;
+        s_maximize = CreateAlphaBitmap32(&pixels);
+        if (pixels) {
+            DWORD* p = static_cast<DWORD*>(pixels);
+            DrawRect(p, 3, 3, 12, 12, kColor, kAlpha, 2);
+        }
+    }
+
+    /* --- Chiudi (Close): X con linee spesse ---
+     * Stile Windows 7: linee spesse 2px, diagonali ben visibili.
+     * Due diagonali con spessore: (3,3)-(12,12) e (12,3)-(3,12) */
+    {
+        void* pixels = nullptr;
+        s_close = CreateAlphaBitmap32(&pixels);
+        if (pixels) {
+            DWORD* p = static_cast<DWORD*>(pixels);
+            for (int i = 0; i < 10; ++i) {
+                /* Diagonale principale: spessore 2px (pixel + pixel adiacente) */
+                SetPixelAlpha(p, 3 + i, 3 + i, kColor, kAlpha);
+                SetPixelAlpha(p, 4 + i, 3 + i, kColor, kAlpha);
+                /* Anti-diagonale: spessore 2px */
+                SetPixelAlpha(p, 12 - i, 3 + i, kColor, kAlpha);
+                SetPixelAlpha(p, 12 - i, 4 + i, kColor, kAlpha);
+            }
+        }
+    }
+}
+
+/* Applica le icone al menu per le voci SC_* corrispondenti.
+ * Chiamata dopo aver costruito il menu (sia fallback che copiato).
+ *
+ * v4.6.1: quando il menu originale (systemMenu) e' disponibile, copia le
+ * bitmap originali di Windows per le voci SC_*. Questo garantisce icone
+ * fedeli al 100% allo stile del sistema (Aero, Classic, High Contrast,
+ * ecc.). Le icone GDI disegnate a mano restano come ripiego per il menu
+ * fallback (quando GetSystemMenu fallisce). */
+void ApplyToMenu(HMENU menu, HMENU sourceMenu = nullptr) {
+    Initialize();
+
+    const int count = GetMenuItemCount(menu);
+    for (int i = 0; i < count; ++i) {
+        MENUITEMINFOW info = {};
+        info.cbSize = sizeof(info);
+        info.fMask  = MIIM_ID | MIIM_FTYPE;
+        if (!GetMenuItemInfoW(menu, static_cast<UINT>(i), TRUE, &info)) {
+            continue;
+        }
+        if ((info.fType & MFT_SEPARATOR) != 0) {
+            continue;
+        }
+
+        HBITMAP icon = nullptr;
+
+        /* Se abbiamo il menu sorgente, proviamo a copiare le bitmap
+         * originali di Windows per questa voce. */
+        if (sourceMenu != nullptr) {
+            const int srcCount = GetMenuItemCount(sourceMenu);
+            for (int j = 0; j < srcCount; ++j) {
+                MENUITEMINFOW srcInfo = {};
+                srcInfo.cbSize = sizeof(srcInfo);
+                srcInfo.fMask  = MIIM_ID | MIIM_BITMAP;
+                if (GetMenuItemInfoW(sourceMenu, static_cast<UINT>(j), TRUE, &srcInfo) &&
+                    srcInfo.wID == info.wID && srcInfo.hbmpItem != nullptr &&
+                    srcInfo.hbmpItem != HBMMENU_SYSTEM) {
+                    /* Copia la bitmap originale di Windows. */
+                    icon = srcInfo.hbmpItem;
+                    break;
+                }
+            }
+        }
+
+        /* Se non abbiamo trovato la bitmap originale, usa quella GDI. */
+        if (icon == nullptr) {
+            switch (info.wID) {
+                case SC_RESTORE:   icon = s_restore;  break;
+                case SC_MINIMIZE:  icon = s_minimize; break;
+                case SC_MAXIMIZE:  icon = s_maximize; break;
+                case SC_CLOSE:     icon = s_close;    break;
+                default:           continue;
+            }
+        }
+
+        if (icon != nullptr) {
+            /* SetMenuItemBitmaps: la stessa bitmap per normale e highlight.
+             * Le bitmap sono statiche e non vengono distrutte (riutilizzo). */
+            SetMenuItemBitmaps(menu, static_cast<UINT>(i), MF_BYPOSITION,
+                               icon, icon);
+        }
+    }
+}
+
+} /* namespace MenuIcons */
+
 /* Keep the real #32768 menu at the front for the entire modal tracking
  * loop. The WPF AppBar guard periodically reasserts the taskbar's own
  * topmost position; a one-shot CBT promotion can therefore be undone. */
@@ -313,6 +545,12 @@ int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
         BuildFallbackWindowMenu(popup, ownerHwnd);
     }
 
+    /* v4.6: icone per le voci del menu di sistema (Ripristina, Riduci,
+     * Ingrandisci, Chiudi). Ispirato a ExplorerPatcher e mod Windhawk.
+     * v4.6.1: passa anche il menu sorgente per copiare le bitmap originali
+     * di Windows quando disponibili. */
+    MenuIcons::ApplyToMenu(popup, systemMenu);
+
     int32_t chosen = 0;
     {
         ForegroundMenuScope scope(menuOwner);
@@ -356,6 +594,51 @@ int32_t ShellMenu::ShowGroupMenu(HWND ownerHwnd, int32_t x, int32_t y,
     AppendMenuW(popup, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(popup, MF_STRING, kGroupCloseId,
                 closeText != nullptr ? closeText : S(StrId::GroupClose));
+
+    /* v4.6: icone anche per il menu di gruppo (Riduci a icona gruppo,
+     * Chiudi gruppo). Riutilizza le stesse icone del menu di sistema.
+     * v4.6.2: copia le bitmap originali di Windows dal menu di sistema
+     * di una finestra del gruppo (ownerHwnd) quando disponibile. */
+    {
+        MenuIcons::Initialize();
+
+        /* Prova a ottenere le icone originali dal menu di sistema di una
+         * finestra del gruppo. */
+        HMENU systemMenu = ownerHwnd ? GetSystemMenu(ownerHwnd, FALSE) : nullptr;
+        HBITMAP minimizeIcon = nullptr;
+        HBITMAP closeIcon = nullptr;
+
+        if (systemMenu != nullptr) {
+            const int count = GetMenuItemCount(systemMenu);
+            for (int i = 0; i < count; ++i) {
+                MENUITEMINFOW info = {};
+                info.cbSize = sizeof(info);
+                info.fMask  = MIIM_ID | MIIM_BITMAP;
+                if (GetMenuItemInfoW(systemMenu, static_cast<UINT>(i), TRUE, &info) &&
+                    info.hbmpItem != nullptr && info.hbmpItem != HBMMENU_SYSTEM) {
+                    if (info.wID == SC_MINIMIZE && minimizeIcon == nullptr) {
+                        minimizeIcon = info.hbmpItem;
+                    } else if (info.wID == SC_CLOSE && closeIcon == nullptr) {
+                        closeIcon = info.hbmpItem;
+                    }
+                }
+            }
+        }
+
+        /* Fallback alle icone GDI se non abbiamo trovato quelle originali. */
+        if (minimizeIcon == nullptr) minimizeIcon = MenuIcons::s_minimize;
+        if (closeIcon == nullptr)    closeIcon = MenuIcons::s_close;
+
+        /* Applica le icone al menu di gruppo. */
+        if (minimizeIcon != nullptr) {
+            SetMenuItemBitmaps(popup, kGroupMinimizeId, MF_BYCOMMAND,
+                               minimizeIcon, minimizeIcon);
+        }
+        if (closeIcon != nullptr) {
+            SetMenuItemBitmaps(popup, kGroupCloseId, MF_BYCOMMAND,
+                               closeIcon, closeIcon);
+        }
+    }
 
     int32_t chosen = 0;
     {

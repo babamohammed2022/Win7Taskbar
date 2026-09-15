@@ -303,6 +303,20 @@ namespace Win7Taskbar
                 };
             });
 
+            RunStage("barra-posizione", () =>
+            {
+                // v4.2: dynamic Bottom/Top switch. When TaskbarPosition changes
+                // in settings, reposition the window and re-register the AppBar
+                // without restarting the application.
+                RetroBar.Utilities.Settings.Instance.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(RetroBar.Utilities.Settings.TaskbarPosition))
+                    {
+                        ApplyTaskbarPosition();
+                    }
+                };
+            });
+
             RunStage("area-di-notifica", () =>
             {
                 _viewModel.NotificationArea.PropertyChanged += (_, _) => UpdateOverflowState();
@@ -1287,13 +1301,28 @@ namespace Win7Taskbar
             Width = screenWidthDip;
             Height = heightDip;
             Left = 0;
-            Top = screenHeightDip - heightDip;
 
-            AppBarEdge = "Bottom";
-            AppBarEdgeIndex = (int)TaskbarEdge.Bottom;
+            // v4.2: position the taskbar at the top or bottom of the screen
+            // based on the user's preference. Bottom is the default and
+            // unchanged behaviour. Top is inspired by m417z's Windhawk mod
+            // "Taskbar on top for Windows 11" (GNU GPL v3.0).
+            bool isTop = RetroBar.Utilities.Settings.Instance.TaskbarPosition == 1;
+            if (isTop)
+            {
+                Top = 0;
+                AppBarEdge = "Top";
+                AppBarEdgeIndex = (int)TaskbarEdge.Top;
+            }
+            else
+            {
+                Top = screenHeightDip - heightDip;
+                AppBarEdge = "Bottom";
+                AppBarEdgeIndex = (int)TaskbarEdge.Bottom;
+            }
+
             Orientation = Orientation.Horizontal;
 
-            SetThumbnailEdge(this, (int)TaskbarEdge.Bottom);
+            SetThumbnailEdge(this, AppBarEdgeIndex);
             SetThumbnailScale(this,
                 _hwndSource?.CompositionTarget?.TransformToDevice.M11 ?? 1.0);
         }
@@ -1308,14 +1337,14 @@ namespace Win7Taskbar
             double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
             int sizePx = Math.Max(1, (int)Math.Round(ThemeTaskbarHeightDip * scale));
 
+            // v4.2: use the current edge (Top or Bottom) from settings.
+            int edge = AppBarEdgeIndex;
             _appBarRegistered = _bridge.RegisterAppBar(
-                _hwndSource.Handle, AppBarEdgeValue.Bottom, sizePx);
+                _hwndSource.Handle, edge, sizePx);
             if (_appBarRegistered)
             {
-                // Il core, dentro la Register, esegue gia' QUERYPOS/SETPOS e
-                // sposta la finestra sul rettangolo confermato dalla shell.
                 _appBarCallbackMessage = _bridge.AppBarCallbackMessage();
-                UpdateAppBarPosition();   // registra _appBarRect
+                UpdateAppBarPosition();
             }
         }
 
@@ -1341,10 +1370,13 @@ namespace Win7Taskbar
             }
             int sizePx = Math.Max(1, (int)Math.Round(ThemeTaskbarHeightDip * scale));
 
+            // v4.2: use the current edge (Top or Bottom) from settings.
+            int edge = AppBarEdgeIndex;
+
             // Il rettangolo confermato dalla shell e' in PIXEL FISICI: il core
             // ci sposta lui stesso la finestra (SetWindowPos con SWP_NOZORDER,
             // lo stato topresta intatto) e notifica ABM_WINDOWPOSCHANGED.
-            if (_bridge.SetAppBarPos(_hwndSource.Handle, AppBarEdgeValue.Bottom,
+            if (_bridge.SetAppBarPos(_hwndSource.Handle, edge,
                                      sizePx, out Rect reserved) && !reserved.IsEmpty)
             {
                 _appBarRect = reserved;
@@ -1559,6 +1591,12 @@ namespace Win7Taskbar
                     : st.TaskManagerMode;
                 st.TaskManagerMode = taskManagerMode is >= 0 and <= 2
                     ? taskManagerMode : 0;
+                /* v4.2: taskbar position (Bottom/Top), appended at offset 60.
+                 * Only applied when the taskbar is not locked. */
+                int taskbarPosition = cds.cbData >= 64
+                    ? System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 60)
+                    : st.TaskbarPosition;
+                st.TaskbarPosition = taskbarPosition == 1 ? 1 : 0;
                 if (hasToolbars)
                 {
                     /* Le caselle della scheda "Barre degli strumenti" sono le
@@ -2229,6 +2267,14 @@ namespace Win7Taskbar
             // {
             //     BeginPotentialJumpListDrag(fe, e);
             // }
+
+            // v4.0: task button drag-and-drop reorder. Arms the horizontal
+            // drag detection; a release without crossing the threshold
+            // stays a normal click (see TaskbarWindow.TaskDrag.cs).
+            if (sender is FrameworkElement dragElement)
+            {
+                BeginPotentialTaskDrag(dragElement, e);
+            }
         }
 
         /// <summary>v2.28: avvio robusto: prima la shell nativa con retry,
@@ -2268,6 +2314,14 @@ namespace Win7Taskbar
             // consumes this release: it must not activate the group. A
             // normal click never sets the flag (see TaskbarWindow.JumpList.cs).
             if (ShouldSuppressClickAfterJumpList())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            // v4.0: a consumed task button drag also suppresses the click
+            // (see TaskbarWindow.TaskDrag.cs).
+            if (ShouldSuppressClickAfterTaskDrag())
             {
                 e.Handled = true;
                 return;
@@ -2406,6 +2460,11 @@ namespace Win7Taskbar
         // Explicit item hover ownership keeps the layered popup alive while
         // the pointer is over a DWM destination (which is not WPF-painted).
         private bool _previewPointerInside;
+        /* v4.10: contatore di tick consecutivi in cui il mouse e' dentro
+         * l'HWND del popup ma non sopra un elemento WPF. Serve a chiudere
+         * popup vuoti/trasparenti (thumbnail DWM non composte per processi
+         * elevati) che altrimenti intercettano il mouse indefinitamente. */
+        private int _previewNoWpfHoverTicks;
 
         /* v3.8: stato del riordino delle anteprime col trascinamento
          * sinistro (ispirazione dalla mod "Taskbar Thumbnail Reorder").
@@ -2648,10 +2707,16 @@ namespace Win7Taskbar
             double dx = (targetSize.Width - popupSize.Width) / 2.0;
             double dy;
 
+            /* v4.3: offset verticale dell'1.5% dell'altezza del popup,
+             * ispirato a ExplorerPatcher e alle mod Windhawk per le thumbnail.
+             * Avvicina leggermente l'anteprima alla taskbar per un effetto
+             * piu' compatto e fedele a Windows 7. */
+            double liftOffset = popupSize.Height * 0.015;
+
             switch (edge)
             {
                 case TaskbarEdge.Top:
-                    dy = targetSize.Height + PreviewGapPx;
+                    dy = targetSize.Height + PreviewGapPx - liftOffset;
                     break;
 
                 case TaskbarEdge.Left:
@@ -2665,7 +2730,7 @@ namespace Win7Taskbar
                     break;
 
                 default:   /* barra in basso: anteprima SOPRA il pulsante */
-                    dy = -popupSize.Height - PreviewGapPx;
+                    dy = -popupSize.Height - PreviewGapPx - liftOffset;
                     break;
             }
 
@@ -2721,9 +2786,35 @@ namespace Win7Taskbar
                 }
 
                 bool overAnchor = _previewAnchor?.IsMouseOver == true;
-                bool overPopup = _previewPointerInside ||
-                    (TaskPreviewPopup.Child is FrameworkElement child && child.IsMouseOver) ||
-                    IsPointerInsideTaskPreviewPopup();
+                bool overPopupWpf = _previewPointerInside ||
+                    (TaskPreviewPopup.Child is FrameworkElement child && child.IsMouseOver);
+                /* v4.10: IsPointerInsideTaskPreviewPopup() controlla il
+                 * rettangolo HWND del popup layered. E' necessario per le
+                 * thumbnail DWM attive (il surface DWM non triggera
+                 * IsMouseOver di WPF). Ma per popup con sole thumbnail in
+                 * fallback (processi elevati come taskmgr.exe, windhawk.exe)
+                 * il popup e' vuoto/trasparente e il check HWND intercetta
+                 * il mouse impedendo la chiusura. Soluzione: se il mouse
+                 * e' dentro l'HWND ma NON sopra un elemento WPF per piu'
+                 * di 2 secondi consecutivi, chiudi il popup. */
+                bool overPopupHwnd = IsPointerInsideTaskPreviewPopup();
+
+                if (overPopupWpf)
+                {
+                    _previewNoWpfHoverTicks = 0;
+                }
+                else if (overPopupHwnd)
+                {
+                    /* Mouse dentro l'HWND ma non sopra un elemento WPF:
+                     * potrebbe essere sopra una thumbnail DWM attiva (OK)
+                     * o sopra un'area trasparente del popup (bug).
+                     * Conta i tick consecutivi in questo stato. */
+                    _previewNoWpfHoverTicks++;
+                }
+
+                bool overPopup = overPopupWpf ||
+                    (overPopupHwnd && _previewNoWpfHoverTicks < 10);
+                /* 10 tick × 200ms = 2 secondi di timeout */
 
                 if (!overAnchor && !overPopup)
                 {
@@ -3061,6 +3152,7 @@ namespace Win7Taskbar
                 _previewAnchor = null;
                 _previewGroup = null;
                 _previewPointerInside = false;
+                _previewNoWpfHoverTicks = 0;
                 _openButtonTip = null;
 
                 /* Sgancia i controlli TaskThumbnail, che deregistrano sempre
@@ -6246,6 +6338,49 @@ namespace Win7Taskbar
         /// 10/11); il menu di scelta lingue lo apre il core nativo, come le
         /// altre voci della barra.
         /// </summary>
+        /// <summary>
+        /// v4.2: repositions the taskbar between Bottom and Top without
+        /// restarting. Unregisters the old AppBar, moves the window, and
+        /// re-registers with the new edge. Bottom behaviour is unchanged
+        /// when TaskbarPosition is 0.
+        /// </summary>
+        private void ApplyTaskbarPosition()
+        {
+            if (_hwndSource == null)
+            {
+                return;
+            }
+
+            bool isTop = RetroBar.Utilities.Settings.Instance.TaskbarPosition == 1;
+            double heightDip = ThemeTaskbarHeightDip;
+            double screenHeightDip = SystemParameters.PrimaryScreenHeight;
+
+            // Update the dependency properties used by XAML bindings.
+            if (isTop)
+            {
+                Top = 0;
+                AppBarEdge = "Top";
+                AppBarEdgeIndex = (int)TaskbarEdge.Top;
+            }
+            else
+            {
+                Top = screenHeightDip - heightDip;
+                AppBarEdge = "Bottom";
+                AppBarEdgeIndex = (int)TaskbarEdge.Bottom;
+            }
+
+            SetThumbnailEdge(this, AppBarEdgeIndex);
+
+            // Re-register the AppBar with the new edge. The old registration
+            // must be removed first.
+            if (_appBarRegistered)
+            {
+                _bridge.UnregisterAppBar(_hwndSource.Handle);
+                _appBarRegistered = false;
+            }
+            RegisterAppBar();
+        }
+
         private void ApplyInputLanguageMode()
         {
             try
@@ -6335,7 +6470,8 @@ namespace Win7Taskbar
                     tbAddress ? 1 : 0,
                     tbLinks ? 1 : 0,
                     st.InputLanguageMode,
-                    st.TaskManagerMode);
+                    st.TaskManagerMode,
+                    st.TaskbarPosition);
             }
             catch (Exception ex)
             {

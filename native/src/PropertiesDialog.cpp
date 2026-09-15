@@ -60,7 +60,7 @@ ScopeExit<F> MakeScopeExit(F f) { return ScopeExit<F>(f); }
  * italiana "Gestione attività"; l'altezza ospita la scheda Barre degli
  * strumenti e la seconda riga del gruppo lingua. */
 constexpr short MAIN_WIDTH  = 278;
-constexpr short MAIN_HEIGHT = 326;
+constexpr short MAIN_HEIGHT = 326;   /* v4.3: ripristinato dopo rimozione sezione posizione */
 
 /* v2.50: le tendine di volume e batteria non si chiamano piu' "mixer
  * classico"/"flyout batteria": dicono a quale VERSIONE del sistema
@@ -95,6 +95,8 @@ enum CtrlId {
     IDC_LINK_HELP,
     IDC_TXT_TB_INFO, IDC_CHK_TB_DESKTOP, IDC_CHK_TB_ADDRESS, IDC_CHK_TB_LINKS,
     IDC_LST_TOOLBARS,   /* v2.50: elenco con caselle come nella mod */
+    /* v4.2: posizione della taskbar (Bottom/Top). */
+    IDC_GRP_TASKBAR_POS, IDC_LBL_TASKBAR_POS, IDC_CMB_TASKBAR_POS,
     IDC_BTN_APPLY = 3000,
 };
 
@@ -126,6 +128,26 @@ static ClockFlyoutLabels ClockLabels(int lang) {
         case 10: return { L"السمة الكلاسيكية (أُعيد إنشاؤها)", L"Windows 7" };
         default: return { L"Classic theme (recreated)", L"Windows 7" };
     }
+}
+
+/* v4.2: reads the "TaskbarSizeMove" value from the Explorer Advanced key.
+ * 0 = taskbar locked (default), 1 = taskbar unlocked.
+ * When locked, the position selector must not be shown. */
+bool IsTaskbarUnlocked() {
+    HKEY hKey = nullptr;
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+            0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        if (RegQueryValueExW(hKey, L"TaskbarSizeMove", nullptr, nullptr,
+                reinterpret_cast<LPBYTE>(&value), &size) == ERROR_SUCCESS) {
+            RegCloseKey(hKey);
+            return value != 0;
+        }
+        RegCloseKey(hKey);
+    }
+    return false;   /* default: locked */
 }
 
 HICON GetSystemIcon(int siid) {
@@ -201,6 +223,10 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_GRP_LANG, p1); vis(IDC_LBL_LANG, p1); vis(IDC_CMB_LANG, p1);
     /* v3.5: riga dell'indicatore della lingua di input. */
     vis(IDC_LBL_LANGBAR, p1); vis(IDC_CMB_LANGBAR, p1);
+    /* v4.3: sezione Posizione barra RIMOSSA dal template (vedi commento
+     * nel template). I controlli non esistono piu' nel dialogo; nessuna
+     * chiamata vis() necessaria. Il codice di inizializzazione e SendApply
+     * restano nel file per quando la sezione sara' riattivata. */
     vis(IDC_GRP_NOTIF, p1); vis(IDC_TXT_NOTIF, p1); vis(IDC_BTN_CUSTOMIZE, p1);
 
     /* Pagina 2: informazioni + uscita. */
@@ -232,7 +258,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                             int32_t batteryFlyout, int32_t aeroPeek,
                             int32_t toolbarDesktop, int32_t toolbarAddress,
                             int32_t toolbarLinks, int32_t inputLanguageMode,
-                            int32_t taskManagerMode) {
+                            int32_t taskManagerMode, int32_t taskbarPosition) {
     try {
         if (m_hWnd && IsWindow(m_hWnd)) {
             return;
@@ -257,6 +283,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         m_taskManagerMode = IsWindows11OrBetter() &&
                             taskManagerMode >= 0 && taskManagerMode <= 2
             ? taskManagerMode : 0;
+        m_taskbarPosition = (taskbarPosition == 1) ? 1 : 0;  /* v4.2 */
         m_tbLinks = toolbarLinks ? 1 : 0;
 
         /* v2.47: oltre alle schede e ai controlli standard serve la classe
@@ -364,10 +391,17 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(SS_LEFT, 0, 18, 222, 50, 10, IDC_LBL_LANGBAR, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 220, 130, 80, IDC_CMB_LANGBAR, L"ComboBox", L"");
 
+        /* v4.3: sezione Posizione barra RIMOSSA dal template.
+         * L'implementazione esiste nel codice (ComboBox, SendApply, ecc.)
+         * ma ha problemi irrisolti (flyout in posizione errata, allineamento
+         * menu Start, redraw della tray). I controlli restano nell'enum
+         * CtrlId e nel codice di inizializzazione per quando saranno pronti;
+         * qui non vengono creati, cosi' non occupano spazio nel dialogo. */
+
         /* GRUPPO 5 - AREA DI NOTIFICA: testo su due righe (20) + pulsante. */
-        addCtrl(BS_GROUPBOX, 0, 12, 244, 254, 52, IDC_GRP_NOTIF, L"Button", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 254, 242, 20, IDC_TXT_NOTIF, L"Static", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 18, 276, 76, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 244, 254, 36, IDC_GRP_NOTIF, L"Button", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 252, 242, 20, IDC_TXT_NOTIF, L"Static", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 190, 254, 68, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
 
         /* ============================================================
          * PAGINA 2 - "Informazioni"
@@ -484,6 +518,12 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
         msg.inputLanguageMode =
             (langBarSel >= 0 && langBarSel <= 2) ? langBarSel : 1;
     }
+    /* v4.2: taskbar position (only meaningful when taskbar is unlocked). */
+    {
+        const int32_t posSel = static_cast<int32_t>(
+            SendDlgItemMessageW(m_hWnd, IDC_CMB_TASKBAR_POS, CB_GETCURSEL, 0, 0));
+        msg.taskbarPosition = (posSel == 1) ? 1 : 0;
+    }
     msg.openSearch = openSearch ? 1 : 0;
     msg.closeApp = closeApp ? 1 : 0;
 
@@ -507,6 +547,11 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
     auto* self = reinterpret_cast<PropertiesDialog*>(
         GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
+    /* v4.9: try/catch boundary per la DlgProc. Un'eccezione non gestita
+     * nel dispatch dei messaggi non deve crashare il processo ne' lasciare
+     * lo stato Win32 inconsistente (WM_PAINT non validato = storm di
+     * ripaint). WM_DESTROY deve sempre pulire il puntatore. */
+    try {
     switch (msg) {
     case WM_INITDIALOG: {
         self = reinterpret_cast<PropertiesDialog*>(lp);
@@ -597,6 +642,9 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SetDlgItemTextW(hwnd, IDC_GRP_LANG, S.grpLang);
         SetDlgItemTextW(hwnd, IDC_LBL_LANG, S.lblLang);
         SetDlgItemTextW(hwnd, IDC_LBL_LANGBAR, S.lblLangBar);   /* v3.5 */
+        /* v4.2: sezione posizione barra (GroupBox + label + ComboBox). */
+        SetDlgItemTextW(hwnd, IDC_GRP_TASKBAR_POS, S.grpTaskbarPos);
+        SetDlgItemTextW(hwnd, IDC_LBL_TASKBAR_POS, S.lblTaskbarPos);
         SetDlgItemTextW(hwnd, IDC_GRP_NOTIF, S.grpNotif);
         SetDlgItemTextW(hwnd, IDC_TXT_NOTIF, S.txtNotif);
         SetDlgItemTextW(hwnd, IDC_BTN_CUSTOMIZE, S.btnCustomize);
@@ -680,6 +728,21 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             ComboBox_SetCurSel(hTM, self->m_taskManagerMode);
         }
 
+        /* v4.3: taskbar position selector (Bottom/Top).
+         * RIMOSSO dal template: l'implementazione esiste ma ha problemi
+         * irrisolti (flyout in posizione errata, allineamento menu Start,
+         * redraw della tray). Il codice resta per quando sara' riattivato;
+         * il controllo non esiste nel dialogo, quindi GetDlgItem ritorna
+         * nullptr e l'inizializzazione viene saltata. */
+        {
+            HWND hTP = GetDlgItem(hwnd, IDC_CMB_TASKBAR_POS);
+            if (hTP) {
+                ComboBox_AddString(hTP, S.taskbarPosBottom);
+                ComboBox_AddString(hTP, S.taskbarPosTop);
+                ComboBox_SetCurSel(hTP, self->m_taskbarPosition);
+            }
+        }
+
         SendDlgItemMessageW(hwnd, IDC_CHK_SECONDS, BM_SETCHECK,
                             self->m_seconds ? BST_CHECKED : BST_UNCHECKED, 0);
         SendDlgItemMessageW(hwnd, IDC_CHK_SEARCH, BM_SETCHECK,
@@ -756,6 +819,20 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         return TRUE;
     }
     return FALSE;
+    } catch (...) {
+        /* v4.9: eccezione catturata. Gestisci i messaggi critici per
+         * evitare stato inconsistente: WM_PAINT non validato causa storm
+         * di ripaint, WM_DESTROY deve pulire il puntatore. */
+        if (msg == WM_PAINT) {
+            ValidateRect(hwnd, nullptr);
+            return 0;
+        }
+        if (msg == WM_DESTROY) {
+            if (self) self->m_hWnd = nullptr;
+            return TRUE;
+        }
+        return FALSE;
+    }
 }
 
 } /* namespace w7t */

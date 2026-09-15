@@ -7704,6 +7704,9 @@ void EnsureRowVisible(int index) {
 // Flyout Window Procedure
 // -------------------------------------------------------
 LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    /* v4.9: try/catch boundary. Un'eccezione non gestita non deve crashare
+     * il processo ne' lasciare lo stato Win32 inconsistente. */
+    try {
     switch (uMsg) {
     case WM_NCHITTEST: {
         LRESULT r = DefWindowProc(hwnd, uMsg, wParam, lParam);
@@ -8795,6 +8798,16 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
         break;
     }
     return DefWindowProcW(hwnd,uMsg,wParam,lParam);
+    } catch (...) {
+        /* v4.9: eccezione catturata. WM_PAINT non validato causa storm di
+         * ripaint; WM_DESTROY deve pulire i puntatori globali. */
+        if (uMsg == WM_PAINT) { ValidateRect(hwnd, nullptr); return 0; }
+        if (uMsg == WM_DESTROY) {
+            g_hWndFlyout = g_hWndButtonConnect = g_hWndCheckboxConnect = NULL;
+            return 0;
+        }
+        return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+    }
 }
 
 // =====================================================================
@@ -9627,12 +9640,16 @@ void ToggleFlyoutWindow() {
             RecalcArrowRect();
             UpdateLayoutGeometry();
             PositionWindowNearTray(g_hWndFlyout);
+            // v4.5: SetForegroundWindow PRIMA di ShowWindow per evitare che
+            // Windows rifiuti l'attivazione (il flyout richiede 2-3 click per
+            // chiudersi se SetForegroundWindow fallisce). Pattern corretto
+            // secondo la documentazione Microsoft per popup topmost.
+            SetForegroundWindow(g_hWndFlyout);
             ShowWindow(g_hWndFlyout, SW_SHOW);
             // ToggleFlyoutWindow is the normal show path. Restore the timer
             // stopped on deactivation.
             if (!g_RefreshTimer && g_Settings.refreshInterval > 0)
                 g_RefreshTimer = SetTimer(g_hWndFlyout, 1000, g_Settings.refreshInterval, NULL);
-            SetForegroundWindow(g_hWndFlyout);
             InvalidateRect(g_hWndFlyout,NULL,TRUE);
         }
     }

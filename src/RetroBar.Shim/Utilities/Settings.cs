@@ -217,6 +217,11 @@ namespace RetroBar.Utilities
         private bool _useClassicVolumeMixer;
         private bool _useBatteryFlyout;
 
+        // v4.2: taskbar position. 0 = Bottom (default, unchanged), 1 = Top.
+        // Inspired by m417z's "Taskbar on top for Windows 11" Windhawk mod
+        // (GNU GPL v3.0, https://github.com/m417z/my-windhawk-mods).
+        private int _taskbarPosition;
+
         private int _inputLanguageMode = 1;
 
         /// <summary>
@@ -258,6 +263,19 @@ namespace RetroBar.Utilities
         {
             get => _useBatteryFlyout;
             set => SetField(ref _useBatteryFlyout, value);
+        }
+
+        /// <summary>
+        /// v4.2: taskbar vertical position.
+        /// 0 = Bottom (default, the only stable position before v4.2),
+        /// 1 = Top (new, inspired by m417z's Windhawk mod).
+        /// Changing this value triggers a reposition of the taskbar window
+        /// without requiring a restart.
+        /// </summary>
+        public int TaskbarPosition
+        {
+            get => _taskbarPosition;
+            set => SetField(ref _taskbarPosition, value == 1 ? 1 : 0);
         }
 
         /// <summary>One-time migration flags / Flag migrazione una tantum</summary>

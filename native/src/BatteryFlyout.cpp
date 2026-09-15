@@ -247,12 +247,13 @@ void BatteryFlyout::ShowAt(const RECT& iconRect) {
         int sw = GetSystemMetrics(SM_CXSCREEN);
         if (x < 4) x = 4;
         if (x + kWidth > sw - 4) x = sw - kWidth - 4;
+        /* v4.5: SetForegroundWindow PRIMA di SetWindowPos(SWP_SHOWWINDOW)
+         * per evitare che Windows rifiuti l'attivazione (il flyout richiede
+         * 2-3 click per chiudersi se SetForegroundWindow fallisce). Pattern
+         * corretto secondo la documentazione Microsoft per popup topmost. */
+        SetForegroundWindow(m_hwnd);
         SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, kWidth, kHeight,
                      SWP_SHOWWINDOW);
-        /* v1.7: il riquadro PRENDE il primo piano: cosi' un clic altrove
-         * lo disattiva e WM_ACTIVATE(WA_INACTIVE) lo chiude (prima era
-         * mostrato con NOACTIVATE e restava aperto per sempre). */
-        SetForegroundWindow(m_hwnd);
         InvalidateRect(m_hwnd, nullptr, TRUE);
     W7T_SEH_CATCH
     W7T_SEH_END

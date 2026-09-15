@@ -53,6 +53,7 @@ namespace Win7Taskbar.Models
         /// </summary>
         public event EventHandler<BalloonNotification>? BalloonReceived;
         public event EventHandler? OverflowHidden;   // v3.2
+        public event EventHandler? ExplorerRestarted; // v4.1
 
         public TaskbarViewModel(NativeBridge bridge)
         {
@@ -175,6 +176,19 @@ namespace Win7Taskbar.Models
                     // v3.2: il pannello nativo si e' chiuso da solo (click
                     // interno o fuori): la barra aggiorna freccetta/texture.
                     OverflowHidden?.Invoke(this, EventArgs.Empty);
+                    break;
+
+                case CoreEvent.ExplorerRestart:
+                    // v4.1: Explorer si e' riavviato (TaskbarCreated o PID
+                    // cambiato). Il core nativo sta gia' riconciliando la
+                    // tray; qui si invalida la cache dei pin, si refresha
+                    // la lista delle finestre per allineare i gruppi, e
+                    // si forza un refresh della tray per catturare lo
+                    // stato attuale delle icone.
+                    _pinsCache = null;
+                    RefreshWindows();
+                    RefreshTray();
+                    ExplorerRestarted?.Invoke(this, EventArgs.Empty);
                     break;
             }
         }
@@ -535,6 +549,81 @@ namespace Win7Taskbar.Models
             _bridge.PinnedRefresh();
             _pinsCache = null;
             RefreshWindows();
+        }
+
+        /// <summary>
+        /// v4.0: sposta un gruppo nella collezione e riordina la cache dei
+        /// pin affinche' il prossimo sync non sovrascriva l'ordine scelto
+        /// dall'utente col drag-and-drop. Non tocca la system tray.
+        /// </summary>
+        public void ReorderGroups(int from, int to)
+        {
+            if (from < 0 || from >= Groups.Count ||
+                to < 0 || to >= Groups.Count ||
+                from == to)
+            {
+                return;
+            }
+
+            try
+            {
+                Groups.Move(from, to);
+            }
+            catch (Exception ex)
+            {
+                // Collection was mutated concurrently (e.g. a window
+                // closed between the index check and the move). Log and
+                // bail out — the next RefreshWindows will rebuild.
+                System.Diagnostics.Debug.WriteLine(
+                    $"ReorderGroups: Move({from},{to}) failed: {ex.Message}");
+                return;
+            }
+
+            // Rebuild the pin cache in the order that matches the current
+            // Groups sequence, so the next RefreshWindows does not undo
+            // the user's rearrangement.
+            if (_pinsCache == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var reordered = new List<PinInfo>(_pinsCache.Count);
+
+                // First: pins in the order of pinned groups.
+                foreach (TaskGroup g in Groups)
+                {
+                    if (!g.IsPinned) continue;
+                    foreach (PinInfo pin in _pinsCache)
+                    {
+                        if (PinMatches(pin, g) && !reordered.Contains(pin))
+                        {
+                            reordered.Add(pin);
+                            break;
+                        }
+                    }
+                }
+
+                // Then: any orphan pins (should not happen, but be safe).
+                foreach (PinInfo pin in _pinsCache)
+                {
+                    if (!reordered.Contains(pin))
+                    {
+                        reordered.Add(pin);
+                    }
+                }
+
+                _pinsCache = reordered;
+            }
+            catch (Exception ex)
+            {
+                // Pin cache rebuild failed: the next InvalidatePins or
+                // PinnedChanged event will reload it from scratch.
+                System.Diagnostics.Debug.WriteLine(
+                    $"ReorderGroups: pin cache rebuild failed: {ex.Message}");
+                _pinsCache = null;
+            }
         }
 
         /// <summary>

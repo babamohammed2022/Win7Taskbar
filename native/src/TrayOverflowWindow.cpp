@@ -287,10 +287,19 @@ void TrayOverflowWindow::ForwardClick(int index, bool right) {
 
     if (right) {
         /* A tray application's context menu is external to this window.
-         * Keep overflow open for this specific action: closing it here made
-         * every right-click unnecessarily destroy the user's icon context. */
+         * v4.7: chiudi il pannello dopo aver inviato il click destro, cosi'
+         * non intercetta i click successivi e il menu contestuale puo'
+         * chiudersi correttamente quando l'utente clicca altrove.
+         * Il ritardo di 100ms da' tempo al menu di aprirsi prima che il
+         * pannello scompaia (evita flash visivo). */
         TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
                                           W7T_TRAY_CLICK_RIGHT, x, y);
+        SetTimer(m_hWnd, 0xF001, 100, [](HWND hwnd, UINT, UINT_PTR id, DWORD) {
+            if (id == 0xF001) {
+                KillTimer(hwnd, id);
+                ShowWindow(hwnd, SW_HIDE);
+            }
+        });
     } else {
         TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
                                           W7T_TRAY_CLICK_LEFT_DOWN, x, y);

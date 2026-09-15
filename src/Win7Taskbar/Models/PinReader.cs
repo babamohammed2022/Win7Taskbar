@@ -9,6 +9,9 @@
 // non deve comparire (stesso criterio di RetroBar/Open-Shell).
 
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows.Media.Imaging;
 
 namespace Win7Taskbar.Models
@@ -28,11 +31,17 @@ namespace Win7Taskbar.Models
     internal static class PinReader
     {
         /// <summary>
+        /// Cache per evitare scansioni ripetute del Desktop. Key: target path normalizzato.
+        /// Value: percorso del .lnk Desktop con icona custom, o string.Empty se non trovato.
+        /// </summary>
+        private static readonly Dictionary<string, string> s_desktopShortcutCache = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
         /// Percorso della cartella dei pin reali della shell.
         /// Conservato per riferimento/debug: la lettura la fa il nativo.
         /// </summary>
         public static string PinnedFolder =>
-            System.IO.Path.Combine(
+            Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "Microsoft", "Internet Explorer", "Quick Launch",
                 "User Pinned", "TaskBar");
@@ -41,9 +50,48 @@ namespace Win7Taskbar.Models
         /// Icona grande dell'applicazione pinnata (presentazione), senza
         /// overlay di collegamento. Risolta dal core nativo; se non trova
         /// nulla restituisce null e il pulsante usa il fallback del tema.
+        ///
+        /// Se il .lnk generato nella cartella dei pin punta direttamente
+        /// all'EXE e quindi non contiene l'icona personalizzata dell'utente,
+        /// viene cercato un collegamento Desktop che punti allo stesso target.
+        /// Questo permette, ad esempio, di usare l'icona personalizzata di
+        /// "Roblox.lnk" invece di quella incorporata nell'eseguibile Roblox.
+        /// Il pin mantiene comunque la precedenza quando dichiara gia' una
+        /// propria icona personalizzata.
         /// </summary>
         internal static BitmapSource? ReadIcon(string lnk, string target)
         {
+            try
+            {
+                // First preserve an explicit custom icon already stored in the
+                // real taskbar pin. Only when it is absent/default do we look
+                // for a matching user shortcut on the Desktop.
+                if (HasExplicitCustomIcon(lnk, target) &&
+                    TryReadNativeIcon(lnk, target, out BitmapSource? explicitIcon))
+                {
+                    return explicitIcon;
+                }
+
+                if (TryFindDesktopShortcut(target, out string desktopLnk) &&
+                    TryReadNativeIcon(desktopLnk, target, out BitmapSource? desktopIcon))
+                {
+                    return desktopIcon;
+                }
+
+                return TryReadNativeIcon(lnk, target, out BitmapSource? pinIcon)
+                    ? pinIcon
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool TryReadNativeIcon(
+            string lnk, string target, out BitmapSource? icon)
+        {
+            icon = null;
             IntPtr hicon = IntPtr.Zero;
             try
             {
@@ -52,17 +100,18 @@ namespace Win7Taskbar.Models
                     string.IsNullOrEmpty(target) ? null : target, 1);
                 if (hicon == IntPtr.Zero)
                 {
-                    return null;
+                    return false;
                 }
 
-                return System.Windows.Interop.Imaging
+                icon = System.Windows.Interop.Imaging
                     .CreateBitmapSourceFromHIcon(
                         hicon, System.Windows.Int32Rect.Empty,
                         BitmapSizeOptions.FromEmptyOptions());
+                return icon != null;
             }
             catch
             {
-                return null;
+                return false;
             }
             finally
             {
@@ -70,6 +119,232 @@ namespace Win7Taskbar.Models
                 {
                     Interop.NativeMethods.DestroyIcon(hicon);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Returns true when the pinned .lnk explicitly points its icon to a
+        /// resource/path different from the target EXE, or uses a non-zero
+        /// resource index. WScript.Shell is already used by the taskbar for
+        /// creating/removing pins, so this is a conservative reuse of an
+        /// existing Windows component rather than a new native dependency.
+        /// </summary>
+        private static bool HasExplicitCustomIcon(string lnk, string target)
+        {
+            if (string.IsNullOrWhiteSpace(lnk) || !File.Exists(lnk))
+            {
+                return false;
+            }
+
+            object? shell = null;
+            object? shortcut = null;
+            try
+            {
+                Type? shellType = Type.GetTypeFromProgID("WScript.Shell");
+                if (shellType == null)
+                {
+                    return false;
+                }
+
+                shell = Activator.CreateInstance(shellType);
+                dynamic sh = shell!;
+                shortcut = sh.CreateShortcut(lnk);
+                dynamic sc = shortcut!;
+
+                string iconLocation = Convert.ToString(sc.IconLocation) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(iconLocation))
+                {
+                    return false;
+                }
+
+                int comma = iconLocation.LastIndexOf(',');
+                string iconPath = comma >= 0
+                    ? iconLocation[..comma].Trim().Trim('"')
+                    : iconLocation.Trim().Trim('"');
+                string indexText = comma >= 0
+                    ? iconLocation[(comma + 1)..].Trim()
+                    : "0";
+
+                int index = 0;
+                _ = int.TryParse(indexText, out index);
+
+                if (index != 0)
+                {
+                    return true;
+                }
+
+                iconPath = Environment.ExpandEnvironmentVariables(iconPath);
+                return !PathsEqual(iconPath, target);
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                ReleaseComObject(shortcut);
+                ReleaseComObject(shell);
+            }
+        }
+
+        /// <summary>
+        /// Finds a Desktop .lnk whose target is the same executable and whose
+        /// icon is explicitly customized. Only the user's Desktop is searched;
+        /// there is no recursive filesystem scan.
+        /// v4.7: usa cache per evitare scansioni ripetute del Desktop.
+        /// </summary>
+        private static bool TryFindDesktopShortcut(string target, out string lnk)
+        {
+            lnk = string.Empty;
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                return false;
+            }
+
+            // Normalizza il target per la cache
+            string cacheKey;
+            try
+            {
+                cacheKey = Path.GetFullPath(
+                    Environment.ExpandEnvironmentVariables(target))
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch
+            {
+                cacheKey = target;
+            }
+
+            // Controlla la cache
+            if (s_desktopShortcutCache.TryGetValue(cacheKey, out string? cached))
+            {
+                if (!string.IsNullOrEmpty(cached))
+                {
+                    lnk = cached;
+                    return true;
+                }
+                return false;
+            }
+
+            var folders = new List<string>
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
+            };
+
+            try
+            {
+                string commonDesktop = Environment.GetFolderPath(
+                    Environment.SpecialFolder.CommonDesktopDirectory);
+                if (!string.IsNullOrWhiteSpace(commonDesktop) &&
+                    !folders.Exists(f => string.Equals(f, commonDesktop,
+                        StringComparison.OrdinalIgnoreCase)))
+                {
+                    folders.Add(commonDesktop);
+                }
+            }
+            catch
+            {
+                // Some restricted Windows environments do not expose the
+                // common desktop folder. The user Desktop remains sufficient.
+            }
+
+            foreach (string folder in folders)
+            {
+                if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                {
+                    continue;
+                }
+
+                IEnumerable<string> links;
+                try
+                {
+                    links = Directory.EnumerateFiles(folder, "*.lnk", SearchOption.TopDirectoryOnly);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (string candidate in links)
+                {
+                    if (!TryGetShortcutTarget(candidate, out string candidateTarget) ||
+                        !PathsEqual(candidateTarget, target) ||
+                        !HasExplicitCustomIcon(candidate, target))
+                    {
+                        continue;
+                    }
+
+                    lnk = candidate;
+                    s_desktopShortcutCache[cacheKey] = candidate;
+                    return true;
+                }
+            }
+
+            s_desktopShortcutCache[cacheKey] = string.Empty;
+            return false;
+        }
+
+        private static bool TryGetShortcutTarget(string lnk, out string target)
+        {
+            target = string.Empty;
+            object? shell = null;
+            object? shortcut = null;
+            try
+            {
+                Type? shellType = Type.GetTypeFromProgID("WScript.Shell");
+                if (shellType == null)
+                {
+                    return false;
+                }
+
+                shell = Activator.CreateInstance(shellType);
+                dynamic sh = shell!;
+                shortcut = sh.CreateShortcut(lnk);
+                dynamic sc = shortcut!;
+                target = Convert.ToString(sc.TargetPath) ?? string.Empty;
+                target = Environment.ExpandEnvironmentVariables(target).Trim().Trim('"');
+                return !string.IsNullOrWhiteSpace(target);
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                ReleaseComObject(shortcut);
+                ReleaseComObject(shell);
+            }
+        }
+
+        private static bool PathsEqual(string left, string right)
+        {
+            try
+            {
+                string a = Path.GetFullPath(
+                    Environment.ExpandEnvironmentVariables(left ?? string.Empty))
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string b = Path.GetFullPath(
+                    Environment.ExpandEnvironmentVariables(right ?? string.Empty))
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        private static void ReleaseComObject(object? value)
+        {
+            try
+            {
+                if (value != null && Marshal.IsComObject(value))
+                {
+                    Marshal.FinalReleaseComObject(value);
+                }
+            }
+            catch
+            {
+                // Cleanup must never affect icon loading.
             }
         }
     }

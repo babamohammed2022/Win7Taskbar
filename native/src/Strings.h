@@ -182,6 +182,11 @@ struct PropStrings {
     const wchar_t* taskManagerAuto;
     const wchar_t* taskManagerModern;
     const wchar_t* taskManagerLegacy;
+    /* v4.2: taskbar position selector. */
+    const wchar_t* grpTaskbarPos;
+    const wchar_t* lblTaskbarPos;
+    const wchar_t* taskbarPosBottom;
+    const wchar_t* taskbarPosTop;
 };
 
 const PropStrings& PropStringsFor(Lang lang);

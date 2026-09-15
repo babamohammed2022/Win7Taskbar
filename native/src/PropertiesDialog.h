@@ -37,6 +37,9 @@ struct PropsApplyMsg {
     int32_t inputLanguageMode;
     /* Windows 11 only: 0 automatic, 1 modern, 2 legacy 32-bit. */
     int32_t taskManagerMode;
+    /* v4.2: taskbar position. 0 = Bottom (default), 1 = Top.
+     * Only sent when the taskbar is not locked (TaskbarSizeMove != 0). */
+    int32_t taskbarPosition;
 };
 constexpr DWORD kPropsCopyDataId = 'W7PA';
 
@@ -49,7 +52,7 @@ public:
               int32_t batteryFlyout, int32_t aeroPeek,
               int32_t toolbarDesktop, int32_t toolbarAddress,
               int32_t toolbarLinks, int32_t inputLanguageMode,
-              int32_t taskManagerMode);
+              int32_t taskManagerMode, int32_t taskbarPosition);
 
     /* v2.47: il font del dialogo e' un oggetto GDI: si crea una volta per
      * apertura e si distrugge alla chiusura, nel distruttore della classe
@@ -76,6 +79,7 @@ private:
     int32_t m_tbLinks = 0;
     int32_t m_inputLanguageMode = 1;   /* v3.5: stile Windows 7 di default */
     int32_t m_taskManagerMode = 0;     /* automatico */
+    int32_t m_taskbarPosition = 0;     /* v4.2: 0=Bottom, 1=Top */
     HFONT m_font = nullptr;   /* RAII: vive quanto il dialogo (v2.47) */
 };
 

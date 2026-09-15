@@ -56,6 +56,7 @@ namespace Win7Taskbar.Interop
         public const int TrayDelete = 12;
         public const int OverflowHidden = 21;   // v3.2
         public const int PinnedChanged = 22;    // v2.25
+        public const int ExplorerRestart = 23;  // v4.1
         public const int TrayBalloon = 13;
         public const int FullScreenChanged = 20;
     }
@@ -477,7 +478,8 @@ namespace Win7Taskbar.Interop
             int seconds, int nativeFlyout, int enableSearch, int netFlyout,
             int classicVolume, int batteryFlyout,
             int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
-            int inputLanguageMode, int taskManagerMode);
+            int inputLanguageMode, int taskManagerMode,
+            int taskbarPosition);
 
         // v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
