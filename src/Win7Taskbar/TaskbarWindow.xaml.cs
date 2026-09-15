@@ -1186,8 +1186,27 @@ namespace Win7Taskbar
 
             try
             {
+                /* v3.7: se l'icona che ha generato la notifica sta in barra,
+                 * il fumetto si ancora a LEI (la punta la indica) invece che
+                 * al bordo dell'intera area di notifica: prima capitava che
+                 * la puntina "non cogliesse" l'icona quando non era quella
+                 * piu' a destra. Icona in overflow o rimossa: ripiego
+                 * all'area di notifica (comportamento originale). */
+                UIElement? iconAnchor = null;
+                foreach (TrayIconModel m in _viewModel.NotificationArea.AllIcons)
+                {
+                    if (m.OwnerHwnd == balloon.OwnerHwnd && m.Uid == balloon.Uid
+                        && TrayIcons.ItemContainerGenerator.ContainerFromItem(m)
+                            is FrameworkElement container
+                        && container.ActualWidth > 0)
+                    {
+                        iconAnchor = container;
+                        break;
+                    }
+                }
+
                 _balloonHost.Show(balloon.Title, balloon.Text,
-                                  balloon.InfoFlags, balloon.Timeout);
+                                  balloon.InfoFlags, balloon.Timeout, iconAnchor);
             }
             catch (Exception)
             {
