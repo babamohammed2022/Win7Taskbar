@@ -4776,58 +4776,72 @@ namespace Win7Taskbar
                 return;
             }
 
-            double scale = _hwndSource.CompositionTarget.TransformToDevice.M11;
-            if (scale <= 0)
+            /* v3.7.1: il rapporto periodico dei rettangoli gira da un timer
+             * e tocca sia gli elementi visivi (PointToScreen) sia il core
+             * nativo (SetIconRect): un elemento che sparisce a meta' giro o
+             * una chiamata nativa fallita non devono abbattere la barra.
+             * In caso di errore si salta il giro: il core tiene l'ultimo
+             * rettangolo noto e si riprova al prossimo tick, come gia'
+             * avviene nel rapporto al clic (ReportClickedIconRect). */
+            try
             {
-                scale = 1.0;
-            }
-
-            var seen = new HashSet<(ulong, uint)>();
-
-            foreach (var model in _viewModel.NotificationArea.PinnedIcons)
-            {
-                if (TrayIcons.ItemContainerGenerator
-                        .ContainerFromItem(model) is not FrameworkElement element
-                    || element.ActualWidth <= 0)
+                double scale = _hwndSource.CompositionTarget.TransformToDevice.M11;
+                if (scale <= 0)
                 {
-                    continue;
+                    scale = 1.0;
                 }
 
-                seen.Add((model.OwnerHwnd, model.Uid));
+                var seen = new HashSet<(ulong, uint)>();
 
-                Point origin = element.PointToScreen(new Point(0, 0));
-                var rect = ((int)origin.X,
-                            (int)origin.Y,
-                            (int)(origin.X + element.ActualWidth * scale),
-                            (int)(origin.Y + element.ActualHeight * scale));
-
-                if (_lastReportedRects.TryGetValue((model.OwnerHwnd, model.Uid), out (int, int, int, int) previous)
-                    && previous == rect)
+                foreach (var model in _viewModel.NotificationArea.PinnedIcons)
                 {
-                    continue;   // nessuna variazione: nessuna chiamata nativa
-                }
-
-                _lastReportedRects[(model.OwnerHwnd, model.Uid)] = rect;
-                _bridge.SetIconRect(model.OwnerHwnd, model.Uid,
-                                    rect.Item1, rect.Item2, rect.Item3, rect.Item4);
-            }
-
-            // Icone uscite dalla barra (overflow, rimozione): la memoria
-            // del "gia' riportato" va pulita per non crescere per sempre.
-            if (_lastReportedRects.Count > seen.Count)
-            {
-                var stale = new List<(ulong, uint)>();
-                foreach (var kv in _lastReportedRects)
-                {
-                    if (!seen.Contains(kv.Key))
+                    if (TrayIcons.ItemContainerGenerator
+                            .ContainerFromItem(model) is not FrameworkElement element
+                        || element.ActualWidth <= 0)
                     {
-                        stale.Add(kv.Key);
+                        continue;
+                    }
+
+                    seen.Add((model.OwnerHwnd, model.Uid));
+
+                    Point origin = element.PointToScreen(new Point(0, 0));
+                    var rect = ((int)origin.X,
+                                (int)origin.Y,
+                                (int)(origin.X + element.ActualWidth * scale),
+                                (int)(origin.Y + element.ActualHeight * scale));
+
+                    if (_lastReportedRects.TryGetValue((model.OwnerHwnd, model.Uid), out (int, int, int, int) previous)
+                        && previous == rect)
+                    {
+                        continue;   // nessuna variazione: nessuna chiamata nativa
+                    }
+
+                    _lastReportedRects[(model.OwnerHwnd, model.Uid)] = rect;
+                    _bridge.SetIconRect(model.OwnerHwnd, model.Uid,
+                                        rect.Item1, rect.Item2, rect.Item3, rect.Item4);
+                }
+
+                // Icone uscite dalla barra (overflow, rimozione): la memoria
+                // del "gia' riportato" va pulita per non crescere per sempre.
+                if (_lastReportedRects.Count > seen.Count)
+                {
+                    var stale = new List<(ulong, uint)>();
+                    foreach (var kv in _lastReportedRects)
+                    {
+                        if (!seen.Contains(kv.Key))
+                        {
+                            stale.Add(kv.Key);
+                        }
+                    }
+                    foreach (var key in stale)
+                    {
+                        _lastReportedRects.Remove(key);
                     }
                 }
-                foreach (var key in stale)
-                {
-                    _lastReportedRects.Remove(key);
-                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"rapporto rettangoli icone: {ex.Message}");
             }
         }
 

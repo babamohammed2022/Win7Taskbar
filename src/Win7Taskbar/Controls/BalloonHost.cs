@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
@@ -65,44 +66,66 @@ namespace Win7Taskbar.Controls
 
             Hide();
 
-            _balloon = new NotifyBalloon();
-            _balloon.Closed += (_, _) => Hide();
-
-            /* v3.7: l'ancora e' l'icona che ha generato la notifica, se
-             * esiste; altrimenti l'area di notifica (ripiego d'origine). */
-            bool anchoredToIcon = iconAnchor is FrameworkElement element
-                                  && element.ActualWidth > 0;
-            UIElement effectiveAnchor = anchoredToIcon ? iconAnchor! : _anchor;
-
-            _popup = new Popup
+            /* v3.7.1: costruzione e apertura del popup protette: un errore
+             * qui (ancora scollegata dall'albero visivo, tema non pronto,
+             * configurazione video ostile...) non deve abbattere la barra;
+             * si rinuncia al fumetto e basta. */
+            try
             {
-                Child = _balloon,
-                AllowsTransparency = true,
-                StaysOpen = true,
-                // Senza questo il Popup ruberebbe il fuoco e l'utente si
-                // ritroverebbe a digitare nel vuoto.
-                Focusable = false,
-                PlacementTarget = effectiveAnchor,
-                Placement = PlacementMode.Custom,
-                CustomPopupPlacementCallback = anchoredToIcon
-                    ? PlaceTipOnIcon
-                    : PlaceAboveAnchor,
-                // Le ombre hardware falliscono su alcune configurazioni video
-                // (e sotto Xvfb fanno terminare il processo).
-                PopupAnimation = PopupAnimation.Fade
-            };
+                _balloon = new NotifyBalloon();
+                _balloon.Closed += (_, _) => Hide();
 
-            _balloon.Show(title, info, infoFlags, timeoutMs);
-            _popup.IsOpen = true;
+                /* v3.7: l'ancora e' l'icona che ha generato la notifica, se
+                 * esiste; altrimenti l'area di notifica (ripiego d'origine). */
+                bool anchoredToIcon = iconAnchor is FrameworkElement element
+                                      && element.ActualWidth > 0;
+                UIElement effectiveAnchor = anchoredToIcon ? iconAnchor! : _anchor;
+
+                _popup = new Popup
+                {
+                    Child = _balloon,
+                    AllowsTransparency = true,
+                    StaysOpen = true,
+                    // Senza questo il Popup ruberebbe il fuoco e l'utente si
+                    // ritroverebbe a digitare nel vuoto.
+                    Focusable = false,
+                    PlacementTarget = effectiveAnchor,
+                    Placement = PlacementMode.Custom,
+                    CustomPopupPlacementCallback = anchoredToIcon
+                        ? PlaceTipOnIcon
+                        : PlaceAboveAnchor,
+                    // Le ombre hardware falliscono su alcune configurazioni video
+                    // (e sotto Xvfb fanno terminare il processo).
+                    PopupAnimation = PopupAnimation.Fade
+                };
+
+                _balloon.Show(title, info, infoFlags, timeoutMs);
+                _popup.IsOpen = true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"balloon: fumetto non mostrato: {ex.Message}");
+                Hide();
+            }
         }
 
         /// <summary>Rimuove il fumetto attualmente visibile, se c'e'.</summary>
         public void Hide()
         {
-            if (_popup != null)
+            /* v3.7.1: protetta: gira anche dall'evento Closed del fumetto e
+             * dalla chiusura della barra, punti senza un try/catch attorno. */
+            try
             {
-                _popup.IsOpen = false;
-                _popup.Child = null;
+                if (_popup != null)
+                {
+                    _popup.IsOpen = false;
+                    _popup.Child = null;
+                    _popup = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"balloon: errore chiudendo il fumetto: {ex.Message}");
                 _popup = null;
             }
 
@@ -118,24 +141,38 @@ namespace Win7Taskbar.Controls
         private CustomPopupPlacement[] PlaceTipOnIcon(Size popupSize, Size targetSize,
                                                       Point offset)
         {
-            // Bordo destro del fumetto: x + popupWidth; la punta e' a
-            // (x + popupWidth - TipOffsetFromRightEdge). Vogliamo la punta al
-            // centro dell'icona: x + popupWidth - 23.5 = targetWidth/2.
-            double x = targetSize.Width / 2.0 - popupSize.Width
-                       + TipOffsetFromRightEdge;
+            /* v3.7.1: il callback gira dentro il posizionamento di WPF, che
+             * non perdona le eccezioni: qualsiasi errore ripiega su una
+             * collocazione semplice invece di arrivare al dispatcher. */
+            try
+            {
+                // Bordo destro del fumetto: x + popupWidth; la punta e' a
+                // (x + popupWidth - TipOffsetFromRightEdge). Vogliamo la punta al
+                // centro dell'icona: x + popupWidth - 23.5 = targetWidth/2.
+                double x = targetSize.Width / 2.0 - popupSize.Width
+                           + TipOffsetFromRightEdge;
 
-            var above = new CustomPopupPlacement(
-                new Point(x, -popupSize.Height - IconAnchorGap),
-                PopupPrimaryAxis.Horizontal);
+                var above = new CustomPopupPlacement(
+                    new Point(x, -popupSize.Height - IconAnchorGap),
+                    PopupPrimaryAxis.Horizontal);
 
-            // Ripiego se non c'e' spazio sopra (barra ancorata in alto):
-            // il fumetto scende sotto l'icona, la punta rovesciata dal tema
-            // (AppBarEdge=Top) indica l'icona da sopra.
-            var below = new CustomPopupPlacement(
-                new Point(x, IconAnchorGap),
-                PopupPrimaryAxis.Horizontal);
+                // Ripiego se non c'e' spazio sopra (barra ancorata in alto):
+                // il fumetto scende sotto l'icona, la punta rovesciata dal tema
+                // (AppBarEdge=Top) indica l'icona da sopra.
+                var below = new CustomPopupPlacement(
+                    new Point(x, IconAnchorGap),
+                    PopupPrimaryAxis.Horizontal);
 
-            return new[] { above, below };
+                return new[] { above, below };
+            }
+            catch
+            {
+                return new[]
+                {
+                    new CustomPopupPlacement(new Point(0, -popupSize.Height),
+                                             PopupPrimaryAxis.Horizontal)
+                };
+            }
         }
 
         /// <summary>
@@ -146,20 +183,32 @@ namespace Win7Taskbar.Controls
         private CustomPopupPlacement[] PlaceAboveAnchor(Size popupSize, Size targetSize,
                                                         Point offset)
         {
-            // La punta del riquadro sta a destra: allineiamo il bordo destro del
-            // fumetto con quello dell'area di notifica.
-            double x = targetSize.Width - popupSize.Width;
-            double y = -popupSize.Height;
+            /* v3.7.1: stesso ripiego difensivo di PlaceTipOnIcon. */
+            try
+            {
+                // La punta del riquadro sta a destra: allineiamo il bordo destro del
+                // fumetto con quello dell'area di notifica.
+                double x = targetSize.Width - popupSize.Width;
+                double y = -popupSize.Height;
 
-            var above = new CustomPopupPlacement(new Point(x, y),
-                                                 PopupPrimaryAxis.Horizontal);
+                var above = new CustomPopupPlacement(new Point(x, y),
+                                                     PopupPrimaryAxis.Horizontal);
 
-            // Ripiego se non c'e' spazio sopra (barra ancorata in alto):
-            // il fumetto scende sotto la barra.
-            var below = new CustomPopupPlacement(new Point(x, targetSize.Height),
-                                                 PopupPrimaryAxis.Horizontal);
+                // Ripiego se non c'e' spazio sopra (barra ancorata in alto):
+                // il fumetto scende sotto la barra.
+                var below = new CustomPopupPlacement(new Point(x, targetSize.Height),
+                                                     PopupPrimaryAxis.Horizontal);
 
-            return new[] { above, below };
+                return new[] { above, below };
+            }
+            catch
+            {
+                return new[]
+                {
+                    new CustomPopupPlacement(new Point(0, -popupSize.Height),
+                                             PopupPrimaryAxis.Horizontal)
+                };
+            }
         }
     }
 }
