@@ -107,13 +107,11 @@ HICON TrayOverflowWindow::IconFromArgb(const ArgbBitmap& bmp) const {
 
 void TrayOverflowWindow::UpdateMetrics() {
     // v3.2: gestione DPI seria: tutte le misure fisse passano di qui.
-    UINT dpi = 0;
-    if (m_hWnd != nullptr) dpi = GetDpiForWindow(m_hWnd);
-    if (dpi == 0) {
-        HDC dc = GetDC(nullptr);
-        if (dc) { dpi = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSY)); ReleaseDC(nullptr, dc); }
-    }
-    if (dpi == 0 || dpi > 480) dpi = 96;
+    // GetDpiForWindowSafe risolve GetDpiForWindow dinamicamente: user32 di
+    // Windows 8.1 non lo esporta e un import diretto impediva al
+    // caricatore di aprire Win7TaskbarCore.dll su quel sistema.
+    UINT dpi = GetDpiForWindowSafe(m_hWnd);
+    if (dpi > 480) dpi = 96;
     m_dpi = dpi;
     m_cell    = MulDiv(kCellSize, static_cast<int>(m_dpi), 96);
     m_pad     = MulDiv(kPadding,  static_cast<int>(m_dpi), 96);

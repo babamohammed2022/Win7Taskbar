@@ -159,6 +159,16 @@ int32_t GetMonitorIndexForWindow(HWND hwnd);
  * crossing the managed boundary of this project. */
 UINT GetDpiForScreenRect(const RECT& screenRect);
 
+/* Effective DPI (device pixels per 96 DIP) of the window's monitor, in
+ * PHYSICAL pixels. GetDpiForWindow (user32, Windows 10 1607+) is resolved
+ * dynamically and never imported directly: Windows 8.1's user32.dll does
+ * not export the entry point, and a hard import in the import table makes
+ * the loader refuse the whole Win7TaskbarCore.dll, so the app cannot start
+ * on that system. Without the function the scale comes from
+ * GetDeviceCaps on the window's DC (screen DC when hwnd is null).
+ * Never returns < 96. */
+UINT GetDpiForWindowSafe(HWND hwnd);
+
 /* ------------------------------------------------------------------ */
 /*  Versione di Windows                                                */
 /*                                                                     */
