@@ -542,6 +542,13 @@ W7T_API const wchar_t* W7T_CALL W7T_GetLanguageName(int32_t index);
 W7T_API int32_t W7T_CALL W7T_GetLanguageIndex(void);
 W7T_API int32_t W7T_CALL W7T_DetectSystemLanguageIndex(void);
 
+/* v4.8: rileva se lo Strumento di Cattura (Snipping Tool / Snip & Sketch)
+ * e' attivo con una finestra di cattura visibile. Ritorna 1 se attivo,
+ * 0 altrimenti. Usato dal frontend per bloccare l'input sulla taskbar
+ * durante gli screenshot, evitando che hover/click interferiscano con
+ * la selezione dell'area di cattura. */
+W7T_API int32_t W7T_CALL W7T_IsScreenCaptureActive(void);
+
 
 #ifdef __cplusplus
 } /* extern "C" */

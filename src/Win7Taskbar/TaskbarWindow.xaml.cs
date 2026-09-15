@@ -437,7 +437,50 @@ namespace Win7Taskbar
                 _batteryMonitor.Start();
             });
 
+            /* v4.8: timer di controllo Strumento di Cattura. Quando lo
+             * Snipping Tool / Snip & Sketch e' attivo, la taskbar deve
+             * essere visibile ma NON interagibile (hover, click, preview
+             * devono essere ignorati). Un DispatcherTimer a 500ms controlla
+             * lo stato del native core e imposta IsHitTestVisible. */
+            _screenCaptureTimer = new DispatcherTimer(
+                TimeSpan.FromMilliseconds(500),
+                DispatcherPriority.Background,
+                ScreenCaptureTimer_Tick,
+                Dispatcher);
+
             StartupGuard.Complete();
+        }
+
+        /* v4.8: timer e stato per il blocco input durante screenshot. */
+        private DispatcherTimer? _screenCaptureTimer;
+        private bool _screenCaptureActive;
+
+        private void ScreenCaptureTimer_Tick(object? sender, EventArgs e)
+        {
+            try
+            {
+                bool active = false;
+                try
+                {
+                    active = Interop.NativeMethods.W7T_IsScreenCaptureActive() != 0;
+                }
+                catch
+                {
+                    // DLL non caricata o funzione non disponibile: ignora.
+                }
+
+                if (active == _screenCaptureActive) return;
+
+                _screenCaptureActive = active;
+                /* IsHitTestVisible = false fa si' che la finestra non riceva
+                 * input del mouse ma resti visibile (e quindi catturabile
+                 * dallo screenshot). Quando la cattura finisce, ripristina. */
+                IsHitTestVisible = !active;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"screen capture check: {ex.Message}");
+            }
         }
 
         // ===============================================================
@@ -1176,6 +1219,10 @@ namespace Win7Taskbar
                 _previewShowTimer = null;
                 _previewWatchTimer?.Dispose();
                 _previewWatchTimer = null;
+
+                /* v4.8: ferma il timer di controllo screen capture. */
+                _screenCaptureTimer?.Stop();
+                _screenCaptureTimer = null;
 
                 if (TaskPreviewPopup != null)
                 {

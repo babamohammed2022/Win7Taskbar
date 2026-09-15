@@ -507,6 +507,10 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppSearchIsVisible();
 
+        // v4.8: rileva se lo Strumento di Cattura e' attivo.
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_IsScreenCaptureActive();
+
         // v2.37 punto 16: lingua del flyout di rete = lingua dell'app.
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_NetFlyoutSetLanguage(int appLanguageIndex);
