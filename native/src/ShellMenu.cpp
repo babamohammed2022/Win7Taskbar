@@ -198,8 +198,14 @@ void Initialize() {
 }
 
 /* Applica le icone al menu per le voci SC_* corrispondenti.
- * Chiamata dopo aver costruito il menu (sia fallback che copiato). */
-void ApplyToMenu(HMENU menu) {
+ * Chiamata dopo aver costruito il menu (sia fallback che copiato).
+ *
+ * v4.6.1: quando il menu originale (systemMenu) e' disponibile, copia le
+ * bitmap originali di Windows per le voci SC_*. Questo garantisce icone
+ * fedeli al 100% allo stile del sistema (Aero, Classic, High Contrast,
+ * ecc.). Le icone GDI disegnate a mano restano come ripiego per il menu
+ * fallback (quando GetSystemMenu fallisce). */
+void ApplyToMenu(HMENU menu, HMENU sourceMenu = nullptr) {
     Initialize();
 
     const int count = GetMenuItemCount(menu);
@@ -215,12 +221,34 @@ void ApplyToMenu(HMENU menu) {
         }
 
         HBITMAP icon = nullptr;
-        switch (info.wID) {
-            case SC_RESTORE:   icon = s_restore;  break;
-            case SC_MINIMIZE:  icon = s_minimize; break;
-            case SC_MAXIMIZE:  icon = s_maximize; break;
-            case SC_CLOSE:     icon = s_close;    break;
-            default:           continue;
+
+        /* Se abbiamo il menu sorgente, proviamo a copiare le bitmap
+         * originali di Windows per questa voce. */
+        if (sourceMenu != nullptr) {
+            const int srcCount = GetMenuItemCount(sourceMenu);
+            for (int j = 0; j < srcCount; ++j) {
+                MENUITEMINFOW srcInfo = {};
+                srcInfo.cbSize = sizeof(srcInfo);
+                srcInfo.fMask  = MIIM_ID | MIIM_BITMAP;
+                if (GetMenuItemInfoW(sourceMenu, static_cast<UINT>(j), TRUE, &srcInfo) &&
+                    srcInfo.wID == info.wID && srcInfo.hbmpItem != nullptr &&
+                    srcInfo.hbmpItem != HBMMENU_SYSTEM) {
+                    /* Copia la bitmap originale di Windows. */
+                    icon = srcInfo.hbmpItem;
+                    break;
+                }
+            }
+        }
+
+        /* Se non abbiamo trovato la bitmap originale, usa quella GDI. */
+        if (icon == nullptr) {
+            switch (info.wID) {
+                case SC_RESTORE:   icon = s_restore;  break;
+                case SC_MINIMIZE:  icon = s_minimize; break;
+                case SC_MAXIMIZE:  icon = s_maximize; break;
+                case SC_CLOSE:     icon = s_close;    break;
+                default:           continue;
+            }
         }
 
         if (icon != nullptr) {
@@ -518,8 +546,10 @@ int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
     }
 
     /* v4.6: icone per le voci del menu di sistema (Ripristina, Riduci,
-     * Ingrandisci, Chiudi). Ispirato a ExplorerPatcher e mod Windhawk. */
-    MenuIcons::ApplyToMenu(popup);
+     * Ingrandisci, Chiudi). Ispirato a ExplorerPatcher e mod Windhawk.
+     * v4.6.1: passa anche il menu sorgente per copiare le bitmap originali
+     * di Windows quando disponibili. */
+    MenuIcons::ApplyToMenu(popup, systemMenu);
 
     int32_t chosen = 0;
     {
