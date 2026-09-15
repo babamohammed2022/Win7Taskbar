@@ -31,6 +31,12 @@ namespace Win7Taskbar.Models
     internal static class PinReader
     {
         /// <summary>
+        /// Cache per evitare scansioni ripetute del Desktop. Key: target path normalizzato.
+        /// Value: percorso del .lnk Desktop con icona custom, o string.Empty se non trovato.
+        /// </summary>
+        private static readonly Dictionary<string, string> s_desktopShortcutCache = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
         /// Percorso della cartella dei pin reali della shell.
         /// Conservato per riferimento/debug: la lettura la fa il nativo.
         /// </summary>
@@ -185,12 +191,37 @@ namespace Win7Taskbar.Models
         /// Finds a Desktop .lnk whose target is the same executable and whose
         /// icon is explicitly customized. Only the user's Desktop is searched;
         /// there is no recursive filesystem scan.
+        /// v4.7: usa cache per evitare scansioni ripetute del Desktop.
         /// </summary>
         private static bool TryFindDesktopShortcut(string target, out string lnk)
         {
             lnk = string.Empty;
             if (string.IsNullOrWhiteSpace(target))
             {
+                return false;
+            }
+
+            // Normalizza il target per la cache
+            string cacheKey;
+            try
+            {
+                cacheKey = Path.GetFullPath(
+                    Environment.ExpandEnvironmentVariables(target))
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch
+            {
+                cacheKey = target;
+            }
+
+            // Controlla la cache
+            if (s_desktopShortcutCache.TryGetValue(cacheKey, out string? cached))
+            {
+                if (!string.IsNullOrEmpty(cached))
+                {
+                    lnk = cached;
+                    return true;
+                }
                 return false;
             }
 
@@ -243,10 +274,12 @@ namespace Win7Taskbar.Models
                     }
 
                     lnk = candidate;
+                    s_desktopShortcutCache[cacheKey] = candidate;
                     return true;
                 }
             }
 
+            s_desktopShortcutCache[cacheKey] = string.Empty;
             return false;
         }
 
