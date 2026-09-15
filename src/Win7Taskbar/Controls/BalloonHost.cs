@@ -109,8 +109,12 @@ namespace Win7Taskbar.Controls
                 Focusable = false,
                 PlacementTarget = effectiveAnchor,
                 Placement = PlacementMode.Custom,
+                // Cast esplicito su un ramo: rende il ternario indipendente
+                // dalla target-typing dei method group (compila su ogni
+                // versione di C#, non solo sulle recenti).
                 CustomPopupPlacementCallback =
-                    anchoredToIcon ? PlaceTipOnIcon : PlaceAboveAnchor,
+                    anchoredToIcon ? (CustomPopupPlacementCallback)PlaceTipOnIcon
+                                   : PlaceAboveAnchor,
                 // Le ombre hardware falliscono su alcune configurazioni video
                 // (e sotto Xvfb fanno terminare il processo).
                 PopupAnimation = PopupAnimation.Fade
