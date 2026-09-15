@@ -133,7 +133,24 @@
          path is restored while all global shortcuts and shortcut hints stay
          absent; taskmgr.exe is intentionally omitted from overflow because
          its renewed IDs caused large runs of duplicate entries. -->
-    <Version>1.11.0-alpha</Version>
+    <!-- 1.12.0-alpha: the Aero preview frame gains a native 9-slice
+         renderer (w7t::DrawAeroThumbnailFrame9Slice and
+         DrawAeroThumbnailFrameFallback, native/src/AeroThumbnailFrame.cpp):
+         the four corners are drawn 1:1, the four edges stretch only along
+         the direction they run, the centre is left untouched for the live
+         thumbnail, and an optional accent colour tints the grayscale slices
+         while keeping their alpha. The eight border slices cut from the
+         unchanged Resources/DWMBorder.png (source margins left/right 17,
+         top 38, bottom 19) ship next to the executable from both Resources/
+         trees; WIC and GDI only, no hooks into Explorer. When the
+         destination is smaller than the border sum, or any slice fails to
+         load, the renderer reports itself not applicable and the caller
+         falls back to the plain dark rectangle with a simple border. The
+         preview close button moves 2px up (margin 16 -> 14), a shift shared
+         by the 9-slice and the fallback paths. The managed paint path is
+         unchanged in this release: the WPF frame template still slices
+         DWMBorder.png and the native renderer has no caller yet. -->
+    <Version>1.12.0-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
