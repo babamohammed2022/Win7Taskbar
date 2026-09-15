@@ -547,6 +547,11 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
     auto* self = reinterpret_cast<PropertiesDialog*>(
         GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
+    /* v4.9: try/catch boundary per la DlgProc. Un'eccezione non gestita
+     * nel dispatch dei messaggi non deve crashare il processo ne' lasciare
+     * lo stato Win32 inconsistente (WM_PAINT non validato = storm di
+     * ripaint). WM_DESTROY deve sempre pulire il puntatore. */
+    try {
     switch (msg) {
     case WM_INITDIALOG: {
         self = reinterpret_cast<PropertiesDialog*>(lp);
@@ -814,6 +819,20 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         return TRUE;
     }
     return FALSE;
+    } catch (...) {
+        /* v4.9: eccezione catturata. Gestisci i messaggi critici per
+         * evitare stato inconsistente: WM_PAINT non validato causa storm
+         * di ripaint, WM_DESTROY deve pulire il puntatore. */
+        if (msg == WM_PAINT) {
+            ValidateRect(hwnd, nullptr);
+            return 0;
+        }
+        if (msg == WM_DESTROY) {
+            if (self) self->m_hWnd = nullptr;
+            return TRUE;
+        }
+        return FALSE;
+    }
 }
 
 } /* namespace w7t */

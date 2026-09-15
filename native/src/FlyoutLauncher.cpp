@@ -415,6 +415,9 @@ LRESULT CALLBACK FlyoutNoResizeProc(HWND hWnd, UINT msg, WPARAM wParam,
     (void)uIdSubclass;
     (void)dwRefData;
 
+    /* v4.9: try/catch boundary per la subclass proc. */
+    try {
+
     /* v2.32: il pannello overflow ha il proprio gestore (bordi Aero +
      * HTBORDER + resize di layout legittimo quando cambiano le icone):
      * il clamp qui sotto lo congelava a una larghezza sbagliata. Lo si
@@ -453,6 +456,11 @@ LRESULT CALLBACK FlyoutNoResizeProc(HWND hWnd, UINT msg, WPARAM wParam,
         }
     }
     return DefSubclassProc(hWnd, msg, wParam, lParam);
+
+    } catch (...) {
+        if (msg == WM_PAINT) { ValidateRect(hWnd, nullptr); return 0; }
+        return DefSubclassProc(hWnd, msg, wParam, lParam);
+    }
 }
 
 // Applica bordi Aero (thick frame) a un flyout classico gia' individuato via

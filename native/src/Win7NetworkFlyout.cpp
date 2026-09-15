@@ -7704,6 +7704,9 @@ void EnsureRowVisible(int index) {
 // Flyout Window Procedure
 // -------------------------------------------------------
 LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    /* v4.9: try/catch boundary. Un'eccezione non gestita non deve crashare
+     * il processo ne' lasciare lo stato Win32 inconsistente. */
+    try {
     switch (uMsg) {
     case WM_NCHITTEST: {
         LRESULT r = DefWindowProc(hwnd, uMsg, wParam, lParam);
@@ -8795,6 +8798,16 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
         break;
     }
     return DefWindowProcW(hwnd,uMsg,wParam,lParam);
+    } catch (...) {
+        /* v4.9: eccezione catturata. WM_PAINT non validato causa storm di
+         * ripaint; WM_DESTROY deve pulire i puntatori globali. */
+        if (uMsg == WM_PAINT) { ValidateRect(hwnd, nullptr); return 0; }
+        if (uMsg == WM_DESTROY) {
+            g_hWndFlyout = g_hWndButtonConnect = g_hWndCheckboxConnect = NULL;
+            return 0;
+        }
+        return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+    }
 }
 
 // =====================================================================
