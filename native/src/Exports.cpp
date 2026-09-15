@@ -981,17 +981,14 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t enableSearch, int32_t netFlyout, int32_t classicVolume,
         int32_t batteryFlyout, int32_t aeroPeek, int32_t toolbarDesktop,
         int32_t toolbarAddress, int32_t toolbarLinks,
-        int32_t inputLanguageMode, int32_t taskManagerMode) {
+        int32_t inputLanguageMode, int32_t taskManagerMode,
+        int32_t taskbarPosition) {
     try {
-        /* v3.6: l'ordine DEVE essere quello della firma Show(): nativeFlyout,
-         * enableSearch, netFlyout. Prima erano invertiti (netFlyout al posto
-         * di enableSearch e viceversa): la spunta "ricerca" accendeva il
-         * flyout di rete e il selettore flyout di rete accendeva la ricerca. */
         g_properties.Show(reinterpret_cast<HWND>(ownerTaskbar), lang,
                           seconds, nativeFlyout, enableSearch,
                           netFlyout, classicVolume, batteryFlyout, aeroPeek,
                           toolbarDesktop, toolbarAddress, toolbarLinks,
-                          inputLanguageMode, taskManagerMode);
+                          inputLanguageMode, taskManagerMode, taskbarPosition);
     } catch (...) { /* mai propagare */ }
 }
 

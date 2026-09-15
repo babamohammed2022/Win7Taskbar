@@ -1591,6 +1591,12 @@ namespace Win7Taskbar
                     : st.TaskManagerMode;
                 st.TaskManagerMode = taskManagerMode is >= 0 and <= 2
                     ? taskManagerMode : 0;
+                /* v4.2: taskbar position (Bottom/Top), appended at offset 60.
+                 * Only applied when the taskbar is not locked. */
+                int taskbarPosition = cds.cbData >= 64
+                    ? System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 60)
+                    : st.TaskbarPosition;
+                st.TaskbarPosition = taskbarPosition == 1 ? 1 : 0;
                 if (hasToolbars)
                 {
                     /* Le caselle della scheda "Barre degli strumenti" sono le
@@ -6426,7 +6432,8 @@ namespace Win7Taskbar
                     tbAddress ? 1 : 0,
                     tbLinks ? 1 : 0,
                     st.InputLanguageMode,
-                    st.TaskManagerMode);
+                    st.TaskManagerMode,
+                    st.TaskbarPosition);
             }
             catch (Exception ex)
             {

@@ -95,6 +95,8 @@ enum CtrlId {
     IDC_LINK_HELP,
     IDC_TXT_TB_INFO, IDC_CHK_TB_DESKTOP, IDC_CHK_TB_ADDRESS, IDC_CHK_TB_LINKS,
     IDC_LST_TOOLBARS,   /* v2.50: elenco con caselle come nella mod */
+    /* v4.2: posizione della taskbar (Bottom/Top). */
+    IDC_LBL_TASKBAR_POS, IDC_CMB_TASKBAR_POS,
     IDC_BTN_APPLY = 3000,
 };
 
@@ -126,6 +128,26 @@ static ClockFlyoutLabels ClockLabels(int lang) {
         case 10: return { L"السمة الكلاسيكية (أُعيد إنشاؤها)", L"Windows 7" };
         default: return { L"Classic theme (recreated)", L"Windows 7" };
     }
+}
+
+/* v4.2: reads the "TaskbarSizeMove" value from the Explorer Advanced key.
+ * 0 = taskbar locked (default), 1 = taskbar unlocked.
+ * When locked, the position selector must not be shown. */
+bool IsTaskbarUnlocked() {
+    HKEY hKey = nullptr;
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+            0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        if (RegQueryValueExW(hKey, L"TaskbarSizeMove", nullptr, nullptr,
+                reinterpret_cast<LPBYTE>(&value), &size) == ERROR_SUCCESS) {
+            RegCloseKey(hKey);
+            return value != 0;
+        }
+        RegCloseKey(hKey);
+    }
+    return false;   /* default: locked */
 }
 
 HICON GetSystemIcon(int siid) {
@@ -201,6 +223,10 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_GRP_LANG, p1); vis(IDC_LBL_LANG, p1); vis(IDC_CMB_LANG, p1);
     /* v3.5: riga dell'indicatore della lingua di input. */
     vis(IDC_LBL_LANGBAR, p1); vis(IDC_CMB_LANGBAR, p1);
+    /* v4.2: posizione taskbar (visibile solo se la barra non e' bloccata). */
+    const bool showTaskbarPos = p1 && IsTaskbarUnlocked();
+    vis(IDC_LBL_TASKBAR_POS, showTaskbarPos);
+    vis(IDC_CMB_TASKBAR_POS, showTaskbarPos);
     vis(IDC_GRP_NOTIF, p1); vis(IDC_TXT_NOTIF, p1); vis(IDC_BTN_CUSTOMIZE, p1);
 
     /* Pagina 2: informazioni + uscita. */
@@ -232,7 +258,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                             int32_t batteryFlyout, int32_t aeroPeek,
                             int32_t toolbarDesktop, int32_t toolbarAddress,
                             int32_t toolbarLinks, int32_t inputLanguageMode,
-                            int32_t taskManagerMode) {
+                            int32_t taskManagerMode, int32_t taskbarPosition) {
     try {
         if (m_hWnd && IsWindow(m_hWnd)) {
             return;
@@ -257,6 +283,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         m_taskManagerMode = IsWindows11OrBetter() &&
                             taskManagerMode >= 0 && taskManagerMode <= 2
             ? taskManagerMode : 0;
+        m_taskbarPosition = (taskbarPosition == 1) ? 1 : 0;  /* v4.2 */
         m_tbLinks = toolbarLinks ? 1 : 0;
 
         /* v2.47: oltre alle schede e ai controlli standard serve la classe
@@ -364,10 +391,16 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(SS_LEFT, 0, 18, 222, 50, 10, IDC_LBL_LANGBAR, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 220, 130, 80, IDC_CMB_LANGBAR, L"ComboBox", L"");
 
+        /* v4.2: POSIZIONE TASKBAR (Bottom/Top). Visibile solo se la barra
+         * non e' bloccata (TaskbarSizeMove != 0 nel registro). Posizionata
+         * prima del gruppo Area di notifica. */
+        addCtrl(SS_LEFT, 0, 18, 244, 50, 10, IDC_LBL_TASKBAR_POS, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 242, 172, 80, IDC_CMB_TASKBAR_POS, L"ComboBox", L"");
+
         /* GRUPPO 5 - AREA DI NOTIFICA: testo su due righe (20) + pulsante. */
-        addCtrl(BS_GROUPBOX, 0, 12, 244, 254, 52, IDC_GRP_NOTIF, L"Button", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 254, 242, 20, IDC_TXT_NOTIF, L"Static", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 18, 276, 76, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 260, 254, 36, IDC_GRP_NOTIF, L"Button", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 268, 242, 20, IDC_TXT_NOTIF, L"Static", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 190, 270, 68, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
 
         /* ============================================================
          * PAGINA 2 - "Informazioni"
@@ -483,6 +516,12 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
             SendDlgItemMessageW(m_hWnd, IDC_CMB_LANGBAR, CB_GETCURSEL, 0, 0));
         msg.inputLanguageMode =
             (langBarSel >= 0 && langBarSel <= 2) ? langBarSel : 1;
+    }
+    /* v4.2: taskbar position (only meaningful when taskbar is unlocked). */
+    {
+        const int32_t posSel = static_cast<int32_t>(
+            SendDlgItemMessageW(m_hWnd, IDC_CMB_TASKBAR_POS, CB_GETCURSEL, 0, 0));
+        msg.taskbarPosition = (posSel == 1) ? 1 : 0;
     }
     msg.openSearch = openSearch ? 1 : 0;
     msg.closeApp = closeApp ? 1 : 0;
@@ -678,6 +717,15 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             ComboBox_AddString(hTM, S.taskManagerModern);
             ComboBox_AddString(hTM, S.taskManagerLegacy);
             ComboBox_SetCurSel(hTM, self->m_taskManagerMode);
+        }
+
+        /* v4.2: taskbar position selector (Bottom/Top). Only populated
+         * when the taskbar is unlocked; ShowTabPage handles visibility. */
+        {
+            HWND hTP = GetDlgItem(hwnd, IDC_CMB_TASKBAR_POS);
+            ComboBox_AddString(hTP, S.taskbarPosBottom);
+            ComboBox_AddString(hTP, S.taskbarPosTop);
+            ComboBox_SetCurSel(hTP, self->m_taskbarPosition);
         }
 
         SendDlgItemMessageW(hwnd, IDC_CHK_SECONDS, BM_SETCHECK,
