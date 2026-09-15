@@ -596,18 +596,47 @@ int32_t ShellMenu::ShowGroupMenu(HWND ownerHwnd, int32_t x, int32_t y,
                 closeText != nullptr ? closeText : S(StrId::GroupClose));
 
     /* v4.6: icone anche per il menu di gruppo (Riduci a icona gruppo,
-     * Chiudi gruppo). Riutilizza le stesse icone del menu di sistema. */
+     * Chiudi gruppo). Riutilizza le stesse icone del menu di sistema.
+     * v4.6.2: copia le bitmap originali di Windows dal menu di sistema
+     * di una finestra del gruppo (ownerHwnd) quando disponibile. */
     {
         MenuIcons::Initialize();
-        /* kGroupMinimizeId usa l'icona minimize, kGroupCloseId usa close.
-         * Cerchiamo per ID (MF_BYCOMMAND) invece che per posizione. */
-        if (MenuIcons::s_minimize) {
-            SetMenuItemBitmaps(popup, kGroupMinimizeId, MF_BYCOMMAND,
-                               MenuIcons::s_minimize, MenuIcons::s_minimize);
+
+        /* Prova a ottenere le icone originali dal menu di sistema di una
+         * finestra del gruppo. */
+        HMENU systemMenu = ownerHwnd ? GetSystemMenu(ownerHwnd, FALSE) : nullptr;
+        HBITMAP minimizeIcon = nullptr;
+        HBITMAP closeIcon = nullptr;
+
+        if (systemMenu != nullptr) {
+            const int count = GetMenuItemCount(systemMenu);
+            for (int i = 0; i < count; ++i) {
+                MENUITEMINFOW info = {};
+                info.cbSize = sizeof(info);
+                info.fMask  = MIIM_ID | MIIM_BITMAP;
+                if (GetMenuItemInfoW(systemMenu, static_cast<UINT>(i), TRUE, &info) &&
+                    info.hbmpItem != nullptr && info.hbmpItem != HBMMENU_SYSTEM) {
+                    if (info.wID == SC_MINIMIZE && minimizeIcon == nullptr) {
+                        minimizeIcon = info.hbmpItem;
+                    } else if (info.wID == SC_CLOSE && closeIcon == nullptr) {
+                        closeIcon = info.hbmpItem;
+                    }
+                }
+            }
         }
-        if (MenuIcons::s_close) {
+
+        /* Fallback alle icone GDI se non abbiamo trovato quelle originali. */
+        if (minimizeIcon == nullptr) minimizeIcon = MenuIcons::s_minimize;
+        if (closeIcon == nullptr)    closeIcon = MenuIcons::s_close;
+
+        /* Applica le icone al menu di gruppo. */
+        if (minimizeIcon != nullptr) {
+            SetMenuItemBitmaps(popup, kGroupMinimizeId, MF_BYCOMMAND,
+                               minimizeIcon, minimizeIcon);
+        }
+        if (closeIcon != nullptr) {
             SetMenuItemBitmaps(popup, kGroupCloseId, MF_BYCOMMAND,
-                               MenuIcons::s_close, MenuIcons::s_close);
+                               closeIcon, closeIcon);
         }
     }
 
