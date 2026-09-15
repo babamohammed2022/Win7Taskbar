@@ -75,30 +75,6 @@ namespace Win7Taskbar.Controls
                                   && iconAnchor.ActualWidth > 0;
             UIElement effectiveAnchor = anchoredToIcon ? (UIElement)iconAnchor! : _anchor;
 
-            /* MISURARE PRIMA DI APERIRE. Il posizionamento del Popup viene
-             * calcolato dal callback SOLO quando il popup entra in scena;
-             * se nel frattempo l'area di notifica stava ancora cambiando
-             * (icona appena aggiunta/rimossa, layout in corso), il primo
-             * frame partiva con coordinate vecchie: "il fumetto non coglie
-             * l'icona". UpdateLayout finalizza la posizione dell'ancora
-             * ADESSO, in sincrono, e la misura del fumetto gli da' la sua
-             * dimensione finale prima del primo disegno: le coordinate sono
-             * quindi gia' corrette quando il fumetto compare. */
-            try
-            {
-                effectiveAnchor.UpdateLayout();
-                if (_balloon is FrameworkElement child)
-                {
-                    child.Measure(new Size(double.PositiveInfinity,
-                                           double.PositiveInfinity));
-                }
-            }
-            catch
-            {
-                /* la misura e' un affare di layout: se fallisce il popup
-                 * si posiziona con il meccanismo normale di WPF. */
-            }
-
             _popup = new Popup
             {
                 Child = _balloon,
