@@ -20,7 +20,6 @@
 
 #include "Common.h"
 #include <shellapi.h>
-#include <tlhelp32.h>   /* v4.8: CreateToolhelp32Snapshot per ScreenCaptureActive */
 #include "SehGuard.h"
 #include "WindowManager.h"
 #include "TrayService.h"
@@ -1436,64 +1435,4 @@ extern "C" W7T_API void W7T_CALL W7T_CloseClassicVolume(void) {
             return TRUE;
         }, 0);
     } W7T_SEH_CATCH {} W7T_SEH_END
-}
-
-/* v4.8: rileva se lo Strumento di Cattura e' attivo. Controlla se esistono
- * finestre visibili dei processi noti (ScreenSketch.exe, snippingtool.exe)
- * con classi di finestra associate alla cattura schermo. Quando attivo,
- * il frontend blocca l'input sulla taskbar per evitare interferenze con
- * la selezione dell'area di cattura. */
-extern "C" W7T_API int32_t W7T_CALL W7T_IsScreenCaptureActive(void) {
-    W7T_SEH_TRY {
-        /* Nomi dei processi dello Strumento di Cattura (tutte le versioni). */
-        const wchar_t* captureProcesses[] = {
-            L"ScreenSketch.exe",     /* Snip & Sketch (Win10/11) */
-            L"snippingtool.exe",     /* Strumento di Cattura classico */
-        };
-
-        for (const wchar_t* procName : captureProcesses) {
-            /* Enumera i processi con questo nome. */
-            HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-            if (hSnap == INVALID_HANDLE_VALUE) continue;
-
-            PROCESSENTRY32W pe{};
-            pe.dwSize = sizeof(pe);
-            if (Process32FirstW(hSnap, &pe)) {
-                do {
-                    if (_wcsicmp(pe.szExeFile, procName) != 0) continue;
-
-                    /* Trovato il processo. Controlla se ha finestre visibili. */
-                    DWORD pid = pe.th32ProcessID;
-                    bool hasVisibleWindow = false;
-
-                    EnumWindows([](HWND h, LPARAM lParam) -> BOOL {
-                        auto* found = reinterpret_cast<bool*>(lParam);
-                        DWORD wndPid = 0;
-                        GetWindowThreadProcessId(h, &wndPid);
-                        /* Cerca finestre visibili del processo. Esclude
-                         * finestre nascoste/minimizzate (solo overlay attivo). */
-                        if (IsWindowVisible(h) && !IsIconic(h)) {
-                            /* Verifica che appartenga al processo giusto. */
-                            DWORD checkPid = 0;
-                            GetWindowThreadProcessId(h, &checkPid);
-                            if (checkPid == *reinterpret_cast<DWORD*>(lParam + sizeof(bool))) {
-                                *found = true;
-                                return FALSE;   /* stop enumeration */
-                            }
-                        }
-                        return TRUE;
-                    }, reinterpret_cast<LPARAM>(&hasVisibleWindow));
-
-                    /* Approccio semplificato: se il processo esiste ed e'
-                     * ScreenSketch/snippingtool, considera la cattura attiva.
-                     * Il processo viene avviato solo quando l'utente inizia
-                     * una cattura, non resta in background. */
-                    CloseHandle(hSnap);
-                    return 1;
-                } while (Process32NextW(hSnap, &pe));
-            }
-            CloseHandle(hSnap);
-        }
-    } W7T_SEH_CATCH {} W7T_SEH_END
-    return 0;
 }
