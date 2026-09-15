@@ -69,36 +69,6 @@ namespace Win7Taskbar.Controls
             _balloon = new NotifyBalloon();
             _balloon.Closed += (_, _) => Hide();
 
-            /* v3.7: l'ancora e' l'icona che ha generato la notifica, se
-             * esiste; altrimenti l'area di notifica (ripiego d'origine). */
-            bool anchoredToIcon = iconAnchor != null
-                                  && iconAnchor.ActualWidth > 0;
-            UIElement effectiveAnchor = anchoredToIcon ? (UIElement)iconAnchor! : _anchor;
-
-            /* MISURARE PRIMA DI APERIRE. Il posizionamento del Popup viene
-             * calcolato dal callback SOLO quando il popup entra in scena;
-             * se nel frattempo l'area di notifica stava ancora cambiando
-             * (icona appena aggiunta/rimossa, layout in corso), il primo
-             * frame partiva con coordinate vecchie: "il fumetto non coglie
-             * l'icona". UpdateLayout finalizza la posizione dell'ancora
-             * ADESSO, in sincrono, e la misura del fumetto gli da' la sua
-             * dimensione finale prima del primo disegno: le coordinate sono
-             * quindi gia' corrette quando il fumetto compare. */
-            try
-            {
-                effectiveAnchor.UpdateLayout();
-                if (_balloon is FrameworkElement child)
-                {
-                    child.Measure(new Size(double.PositiveInfinity,
-                                           double.PositiveInfinity));
-                }
-            }
-            catch
-            {
-                /* la misura e' un affare di layout: se fallisce il popup
-                 * si posiziona con il meccanismo normale di WPF. */
-            }
-
             _popup = new Popup
             {
                 Child = _balloon,
@@ -107,14 +77,9 @@ namespace Win7Taskbar.Controls
                 // Senza questo il Popup ruberebbe il fuoco e l'utente si
                 // ritroverebbe a digitare nel vuoto.
                 Focusable = false,
-                PlacementTarget = effectiveAnchor,
+                PlacementTarget = _anchor,
                 Placement = PlacementMode.Custom,
-                // Cast esplicito su un ramo: rende il ternario indipendente
-                // dalla target-typing dei method group (compila su ogni
-                // versione di C#, non solo sulle recenti).
-                CustomPopupPlacementCallback =
-                    anchoredToIcon ? (CustomPopupPlacementCallback)PlaceTipOnIcon
-                                   : PlaceAboveAnchor,
+                CustomPopupPlacementCallback = PlaceAboveAnchor,
                 // Le ombre hardware falliscono su alcune configurazioni video
                 // (e sotto Xvfb fanno terminare il processo).
                 PopupAnimation = PopupAnimation.Fade
