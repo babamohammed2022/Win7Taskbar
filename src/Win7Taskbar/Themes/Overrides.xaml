@@ -24,38 +24,6 @@
          che l'icona cambi dimensione. -->
     <system:Double x:Key="TaskButtonMinWidthOverride">52</system:Double>
 
-    <!-- ==================================================================
-         v3.7: GLOW AERO DEL PULSANTE (il "luminoso radiale" di Windows 7).
-
-         Quando il puntatore e' sopra un pulsante della barra, Windows 7
-         disegnava attorno all'icona un alone radiale morbido (la taskbar
-         lo tracciava con DrawRadialGradient, TASKBAND_RADIALGRADIENT):
-         luce bianco-blu piu' intensa verso il basso, che sfuma fino a
-         diventare trasparente ai bordi. Qui e' lo stesso effetto con un
-         RadialGradientBrush nativo di WPF, nessun hook in Explorer.
-
-         - Coordinate proporzionali (0..1): il gradiale scala con la
-           larghezza/altezza del pulsante, quindi e' corretto a 100/125/
-           150% di scala e a qualsiasi altezza della barra.
-         - La palette riprende il #D6F0FF gia' usato dal tema per il glow
-           inferiore dei pulsanti (TaskButtonBottomBackgroundHover),
-           esteso in un alone completo centrato un po' sotto il mezzo,
-           come la luce che in Windows 7 partiva dal bordo inferiore.
-         - Opacita' gestita dalle animazioni dei template Superbar*
-           (dissolvenza in ingresso 0.18 s, in uscita 0.35 s, HoldEnd),
-           lo stesso pattern gia' usato dall'orb del menu Start nel tema.
-         ================================================================== -->
-    <RadialGradientBrush x:Key="SuperbarAeroGlowBrush"
-                         GradientOrigin="0.5,0.62"
-                         Center="0.5,0.62"
-                         RadiusX="0.78"
-                         RadiusY="0.66">
-        <GradientStop Color="#A8FFFFFF" Offset="0.0" />
-        <GradientStop Color="#66E4F1FF" Offset="0.3" />
-        <GradientStop Color="#2AD6F0FF" Offset="0.62" />
-        <GradientStop Color="#00D6F0FF" Offset="1.0" />
-    </RadialGradientBrush>
-
     <conv:ToolTipHorizontalOffsetConverter x:Key="ToolTipHorizontalOffset" />
     <conv:ToolTipVerticalOffsetConverter x:Key="ToolTipVerticalOffset" />
     <conv:ToolTipPlacementConverter x:Key="ToolTipPlacement" />
@@ -563,10 +531,6 @@
         <Border BorderThickness="1.4" BorderBrush="Transparent"
                 CornerRadius="4">
             <Grid>
-                <!-- v3.7: alone Aero sotto a tutto (l'icona resta nitida sopra) -->
-                <Border x:Name="AeroGlow" Margin="-3,0" CornerRadius="6"
-                        Background="{StaticResource SuperbarAeroGlowBrush}"
-                        Opacity="0" IsHitTestVisible="False" />
                 <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
                         Background="Transparent" IsHitTestVisible="False" />
                 <Border BorderThickness="1.4" BorderBrush="Transparent"
@@ -594,26 +558,6 @@
                 <Setter TargetName="HoverTile" Property="Background"
                         Value="{DynamicResource TaskButtonBackgroundPressed}" />
             </Trigger>
-            <!-- v3.7: dissolvenza del glow in ingresso/uscita -->
-            <EventTrigger RoutedEvent="MouseEnter">
-                <BeginStoryboard>
-                    <Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
-                                         Storyboard.TargetProperty="Opacity"
-                                         To="1" Duration="0:0:0.18"
-                                         FillBehavior="HoldEnd" />
-                    </Storyboard>
-                </BeginStoryboard>
-            </EventTrigger>
-            <EventTrigger RoutedEvent="MouseLeave">
-                <BeginStoryboard>
-                    <Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
-                                         Storyboard.TargetProperty="Opacity"
-                                         To="0" Duration="0:0:0.35" />
-                    </Storyboard>
-                </BeginStoryboard>
-            </EventTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
@@ -629,10 +573,6 @@
                 <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
                         Background="Transparent" IsHitTestVisible="False"
                         Opacity="0" />
-                <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
-                <Border x:Name="AeroGlow" Margin="-3,0" CornerRadius="6"
-                        Background="{StaticResource SuperbarAeroGlowBrush}"
-                        Opacity="0" IsHitTestVisible="False" />
                 <ContentPresenter Margin="8.45,0" VerticalAlignment="Center"
                                   x:Name="Content" />
             </Grid>
@@ -652,26 +592,6 @@
                         Value="{DynamicResource ButtonPressedForeground}" />
                 <Setter TargetName="Frame" Property="Opacity" Value="0.85" />
             </Trigger>
-            <!-- v3.7: dissolvenza del glow in ingresso/uscita -->
-            <EventTrigger RoutedEvent="MouseEnter">
-                <BeginStoryboard>
-                    <Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
-                                         Storyboard.TargetProperty="Opacity"
-                                         To="1" Duration="0:0:0.18"
-                                         FillBehavior="HoldEnd" />
-                    </Storyboard>
-                </BeginStoryboard>
-            </EventTrigger>
-            <EventTrigger RoutedEvent="MouseLeave">
-                <BeginStoryboard>
-                    <Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
-                                         Storyboard.TargetProperty="Opacity"
-                                         To="0" Duration="0:0:0.35" />
-                    </Storyboard>
-                </BeginStoryboard>
-            </EventTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
@@ -686,10 +606,6 @@
                 <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
                         Background="Transparent" IsHitTestVisible="False"
                         Opacity="0" />
-                <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
-                <Border x:Name="AeroGlow" Margin="-3,0" CornerRadius="6"
-                        Background="{StaticResource SuperbarAeroGlowBrush}"
-                        Opacity="0" IsHitTestVisible="False" />
                 <ContentPresenter Margin="8.45,0,8.45,0.7" VerticalAlignment="Center"
                                   x:Name="Content" />
                 <Rectangle Height="2" VerticalAlignment="Bottom" Margin="1,0,1,0"
@@ -715,26 +631,6 @@
                 <Setter TargetName="Frame" Property="Opacity" Value="0.85" />
                 <Setter TargetName="BottomHighlight" Property="Opacity" Value="0.35" />
             </Trigger>
-            <!-- v3.7: dissolvenza del glow in ingresso/uscita -->
-            <EventTrigger RoutedEvent="MouseEnter">
-                <BeginStoryboard>
-                    <Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
-                                         Storyboard.TargetProperty="Opacity"
-                                         To="1" Duration="0:0:0.18"
-                                         FillBehavior="HoldEnd" />
-                    </Storyboard>
-                </BeginStoryboard>
-            </EventTrigger>
-            <EventTrigger RoutedEvent="MouseLeave">
-                <BeginStoryboard>
-                    <Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
-                                         Storyboard.TargetProperty="Opacity"
-                                         To="0" Duration="0:0:0.35" />
-                    </Storyboard>
-                </BeginStoryboard>
-            </EventTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
@@ -749,10 +645,6 @@
                 <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
                         Background="Transparent" IsHitTestVisible="False"
                         Opacity="0" />
-                <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
-                <Border x:Name="AeroGlow" Margin="-3,0" CornerRadius="6"
-                        Background="{StaticResource SuperbarAeroGlowBrush}"
-                        Opacity="0" IsHitTestVisible="False" />
                 <ContentPresenter Margin="8.45,0" VerticalAlignment="Center"
                                   x:Name="Content" />
             </Grid>
@@ -770,26 +662,6 @@
             <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="Frame" Property="Opacity" Value="0.85" />
             </Trigger>
-            <!-- v3.7: dissolvenza del glow in ingresso/uscita -->
-            <EventTrigger RoutedEvent="MouseEnter">
-                <BeginStoryboard>
-                    <Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
-                                         Storyboard.TargetProperty="Opacity"
-                                         To="1" Duration="0:0:0.18"
-                                         FillBehavior="HoldEnd" />
-                    </Storyboard>
-                </BeginStoryboard>
-            </EventTrigger>
-            <EventTrigger RoutedEvent="MouseLeave">
-                <BeginStoryboard>
-                    <Storyboard>
-                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
-                                         Storyboard.TargetProperty="Opacity"
-                                         To="0" Duration="0:0:0.35" />
-                    </Storyboard>
-                </BeginStoryboard>
-            </EventTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 

@@ -1,6 +1,5 @@
 using System;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 
@@ -15,27 +14,13 @@ namespace Win7Taskbar.Controls
     /// </summary>
     public sealed class BalloonHost
     {
-        /// <summary>
-        /// Distanza del vertice della "puntina" dal bordo DESTRO del fumetto.
-        /// Deriva dal tema (stile NotifyBalloon): freccia 21x21 con margine
-        /// destro 13, quindi 13 + 21/2. Servirebbe per allineare la punta
-        /// all'icona che ha generato la notifica.
-        /// </summary>
-        private const double TipOffsetFromRightEdge = 23.5;
-
-        /// <summary>
-        /// Distacco verticale della punta dall'icona quando si ancorano
-        /// direttamente all'icona che ha generato la notifica.
-        /// </summary>
-        private const double IconAnchorGap = 2;
-
         private readonly UIElement _anchor;
         private Popup? _popup;
         private NotifyBalloon? _balloon;
 
         /// <param name="anchor">
-        /// Elemento di ripiego per il posizionamento: di norma l'area di
-        /// notifica, cosi' il fumetto resta allineato alla tray.
+        /// Elemento sopra il quale far comparire il fumetto: di norma l'area di
+        /// notifica, cosi' la puntina del riquadro indica l'icona giusta.
         /// </param>
         public BalloonHost(UIElement anchor)
         {
@@ -46,14 +31,7 @@ namespace Win7Taskbar.Controls
         /// Mostra una notifica. Se un fumetto e' gia' visibile viene sostituito:
         /// Windows ne tiene a video uno solo per volta.
         /// </summary>
-        /// <param name="iconAnchor">
-        /// v3.7: l'elemento dell'icona che HA GENERATO la notifica (quando
-        /// e' in barra). Il fumetto si ancora a LUI: la punta indica l'icona
-        /// giusta, non il bordo dell'intera area di notifica. Null se l'icona
-        /// non c'e' (overflow, icona rimossa): si usa il ripiego.
-        /// </param>
-        public void Show(string title, string info, uint infoFlags, uint timeoutMs,
-                         UIElement? iconAnchor = null)
+        public void Show(string title, string info, uint infoFlags, uint timeoutMs)
         {
             // Un fumetto senza testo non ha nulla da dire: alcune applicazioni
             // inviano NIF_INFO con stringhe vuote solo per cancellare quello
@@ -69,36 +47,6 @@ namespace Win7Taskbar.Controls
             _balloon = new NotifyBalloon();
             _balloon.Closed += (_, _) => Hide();
 
-            /* v3.7: l'ancora e' l'icona che ha generato la notifica, se
-             * esiste; altrimenti l'area di notifica (ripiego d'origine). */
-            bool anchoredToIcon = iconAnchor != null
-                                  && iconAnchor.ActualWidth > 0;
-            UIElement effectiveAnchor = anchoredToIcon ? (UIElement)iconAnchor! : _anchor;
-
-            /* MISURARE PRIMA DI APERIRE. Il posizionamento del Popup viene
-             * calcolato dal callback SOLO quando il popup entra in scena;
-             * se nel frattempo l'area di notifica stava ancora cambiando
-             * (icona appena aggiunta/rimossa, layout in corso), il primo
-             * frame partiva con coordinate vecchie: "il fumetto non coglie
-             * l'icona". UpdateLayout finalizza la posizione dell'ancora
-             * ADESSO, in sincrono, e la misura del fumetto gli da' la sua
-             * dimensione finale prima del primo disegno: le coordinate sono
-             * quindi gia' corrette quando il fumetto compare. */
-            try
-            {
-                effectiveAnchor.UpdateLayout();
-                if (_balloon is FrameworkElement child)
-                {
-                    child.Measure(new Size(double.PositiveInfinity,
-                                           double.PositiveInfinity));
-                }
-            }
-            catch
-            {
-                /* la misura e' un affare di layout: se fallisce il popup
-                 * si posiziona con il meccanismo normale di WPF. */
-            }
-
             _popup = new Popup
             {
                 Child = _balloon,
@@ -107,10 +55,9 @@ namespace Win7Taskbar.Controls
                 // Senza questo il Popup ruberebbe il fuoco e l'utente si
                 // ritroverebbe a digitare nel vuoto.
                 Focusable = false,
-                PlacementTarget = effectiveAnchor,
+                PlacementTarget = _anchor,
                 Placement = PlacementMode.Custom,
-                CustomPopupPlacementCallback =
-                    anchoredToIcon ? PlaceTipOnIcon : PlaceAboveAnchor,
+                CustomPopupPlacementCallback = PlaceAboveAnchor,
                 // Le ombre hardware falliscono su alcune configurazioni video
                 // (e sotto Xvfb fanno terminare il processo).
                 PopupAnimation = PopupAnimation.Fade
@@ -134,38 +81,8 @@ namespace Win7Taskbar.Controls
         }
 
         /// <summary>
-        /// v3.7: colloca il fumetto sopra l'icona che lo ha generato, con la
-        /// PUNTA centrata sull'icona (la punta sta a TipOffsetFromRightEdge
-        /// dal bordo destro del fumetto, quindi il bordo destro va spostato
-        /// di quella distanza a destra del centro icona).
-        /// </summary>
-        private CustomPopupPlacement[] PlaceTipOnIcon(Size popupSize, Size targetSize,
-                                                      Point offset)
-        {
-            // Bordo destro del fumetto: x + popupWidth; la punta e' a
-            // (x + popupWidth - TipOffsetFromRightEdge). Vogliamo la punta al
-            // centro dell'icona: x + popupWidth - 23.5 = targetWidth/2.
-            double x = targetSize.Width / 2.0 - popupSize.Width
-                       + TipOffsetFromRightEdge;
-
-            var above = new CustomPopupPlacement(
-                new Point(x, -popupSize.Height - IconAnchorGap),
-                PopupPrimaryAxis.Horizontal);
-
-            // Ripiego se non c'e' spazio sopra (barra ancorata in alto):
-            // il fumetto scende sotto l'icona, la punta rovesciata dal tema
-            // (AppBarEdge=Top) indica l'icona da sopra.
-            var below = new CustomPopupPlacement(
-                new Point(x, IconAnchorGap),
-                PopupPrimaryAxis.Horizontal);
-
-            return new[] { above, below };
-        }
-
-        /// <summary>
         /// Colloca il fumetto appena sopra l'area di notifica, allineato a
-        /// destra come nella barra di Windows 7 (ripiego quando non c'e'
-        /// un'icona specifica a cui ancorarsi).
+        /// destra come nella barra di Windows 7.
         /// </summary>
         private CustomPopupPlacement[] PlaceAboveAnchor(Size popupSize, Size targetSize,
                                                         Point offset)
