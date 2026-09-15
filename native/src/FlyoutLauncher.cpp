@@ -21,7 +21,7 @@
  *   - via classica (Aero Clock): equivalente a
  *     RetroBar/Utilities/ClockFlyoutLauncher.cs (dremin/RetroBar, Apache-2.0)
  *     e a ManagedShell.UWPInterop/ImmersiveShellHelper.cs
- *     (cairoshell/ManagedShell, Apache-2.0).
+ *     (cairoshell/ManagedShell, Apache-2.0). Credits to Anixx for the Volume flyout mod in the Windhawk store
  * In entrambi i casi il codice C++ e' stato scritto da zero; nessuna riga di
  * C o di C# e' stata copiata. Vedi CREDITS.txt e THIRD-PARTY-NOTICES.md.
  */
