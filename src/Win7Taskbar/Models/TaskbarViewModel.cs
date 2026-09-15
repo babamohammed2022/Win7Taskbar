@@ -53,6 +53,7 @@ namespace Win7Taskbar.Models
         /// </summary>
         public event EventHandler<BalloonNotification>? BalloonReceived;
         public event EventHandler? OverflowHidden;   // v3.2
+        public event EventHandler? ExplorerRestarted; // v4.1
 
         public TaskbarViewModel(NativeBridge bridge)
         {
@@ -175,6 +176,19 @@ namespace Win7Taskbar.Models
                     // v3.2: il pannello nativo si e' chiuso da solo (click
                     // interno o fuori): la barra aggiorna freccetta/texture.
                     OverflowHidden?.Invoke(this, EventArgs.Empty);
+                    break;
+
+                case CoreEvent.ExplorerRestart:
+                    // v4.1: Explorer si e' riavviato (TaskbarCreated o PID
+                    // cambiato). Il core nativo sta gia' riconciliando la
+                    // tray; qui si invalida la cache dei pin, si refresha
+                    // la lista delle finestre per allineare i gruppi, e
+                    // si forza un refresh della tray per catturare lo
+                    // stato attuale delle icone.
+                    _pinsCache = null;
+                    RefreshWindows();
+                    RefreshTray();
+                    ExplorerRestarted?.Invoke(this, EventArgs.Empty);
                     break;
             }
         }
