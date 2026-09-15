@@ -75,14 +75,17 @@
                                 Template="{DynamicResource TaskPreviewFrameVista}"
                                 Loaded="PreviewFrameHost_Loaded"
                                 SizeChanged="PreviewFrameHost_SizeChanged">
-                    <!-- DWMBorder.png already reserves its complete 38px top
-                         chrome. The live surface goes directly into the exact
-                         202x109 source aperture; no extra spacer, padding,
-                         background or invisible geometry is inserted. -->
+                    <!-- v3.9: DWMBorder.png riserva 38px top chrome. La live
+                         surface riempie sempre l'apertura fissa 202x109
+                         (Stretch) invece di ridimensionare il frame esterno;
+                         l'aspect ratio e' gestito via rcSource/rcDestination
+                         in TaskThumbnail.Refresh(). -->
                     <w7controls:TaskThumbnail x:Name="Thumb"
                                               SourceWindowHandle="{Binding HandlePtr}"
                                               ApplicationName="{Binding ApplicationName}"
-                                              Title="{Binding Title}" />
+                                              Title="{Binding Title}"
+                                              HorizontalAlignment="Stretch"
+                                              VerticalAlignment="Stretch" />
                 </ContentControl>
 
                 <!-- Title chrome occupies only y=0..37. Microsoft defines the
