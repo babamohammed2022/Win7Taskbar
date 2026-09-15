@@ -538,6 +538,56 @@ namespace Win7Taskbar.Models
         }
 
         /// <summary>
+        /// v4.0: sposta un gruppo nella collezione e riordina la cache dei
+        /// pin affinche' il prossimo sync non sovrascriva l'ordine scelto
+        /// dall'utente col drag-and-drop. Non tocca la system tray.
+        /// </summary>
+        public void ReorderGroups(int from, int to)
+        {
+            if (from < 0 || from >= Groups.Count ||
+                to < 0 || to >= Groups.Count ||
+                from == to)
+            {
+                return;
+            }
+
+            Groups.Move(from, to);
+
+            // Rebuild the pin cache in the order that matches the current
+            // Groups sequence, so the next RefreshWindows does not undo
+            // the user's rearrangement.
+            if (_pinsCache != null)
+            {
+                var reordered = new List<PinInfo>(_pinsCache.Count);
+
+                // First: pins in the order of pinned groups.
+                foreach (TaskGroup g in Groups)
+                {
+                    if (!g.IsPinned) continue;
+                    foreach (PinInfo pin in _pinsCache)
+                    {
+                        if (PinMatches(pin, g) && !reordered.Contains(pin))
+                        {
+                            reordered.Add(pin);
+                            break;
+                        }
+                    }
+                }
+
+                // Then: any orphan pins (should not happen, but be safe).
+                foreach (PinInfo pin in _pinsCache)
+                {
+                    if (!reordered.Contains(pin))
+                    {
+                        reordered.Add(pin);
+                    }
+                }
+
+                _pinsCache = reordered;
+            }
+        }
+
+        /// <summary>
         /// v2.25: il modello pin arriva dal core (C++/Shell); qui si aggiunge
         /// solo l'icona di presentazione estratta dal .lnk: la UI non fa
         /// discovery.
