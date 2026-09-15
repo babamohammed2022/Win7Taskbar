@@ -3,9 +3,16 @@
 //
 // Allows the user to reorder pinned and running task buttons by pressing
 // the left mouse button on a task button and dragging it horizontally.
-// The mechanism mirrors the v3.8 thumbnail reorder pattern: mouse capture,
-// system drag threshold, position-based insertion, click suppression after
-// a consumed drag.
+//
+// IMPORTANT: this subsystem does NOT use Mouse.Capture(). Capturing the
+// mouse in PreviewMouseDown prevents the WPF Button from receiving its
+// own MouseDown/MouseUp and generating the Click event — which breaks
+// normal task button clicks (programs no longer open). Instead, the
+// drag is tracked entirely via PreviewMouseMove / PreviewMouseLeftButtonUp
+// on the window (tunneling events that fire regardless of capture).
+// The Button keeps its own capture and Click works normally. If a drag
+// crosses the threshold, the subsequent Click is suppressed by the
+// _taskDragSuppressClick flag checked in TaskButton_Click.
 //
 // This subsystem does NOT touch the notification area (system tray) or
 // the tray overflow. It only operates on the task button strip (TaskList).
@@ -39,19 +46,13 @@ namespace Win7Taskbar
         /// <summary>Set after a consumed drag to suppress the subsequent Click.</summary>
         private bool _taskDragSuppressClick;
 
-        /// <summary>Re-entrancy guard for CancelTaskDrag (same pattern as
-        /// _jumpEnding in TaskbarWindow.JumpList.cs): a ReleaseMouseCapture
-        /// can fire LostMouseCapture synchronously, which must not recurse
-        /// back into CancelTaskDrag.</summary>
-        private bool _taskDragEnding;
-
         // ---------------------------------------------------------------
         //  Entry point (called from TaskButton_PreviewMouseDown)
         // ---------------------------------------------------------------
 
         /// <summary>Left button pressed on a task button: arm the drag
-        /// detection. Nothing moves yet — the click still works normally
-        /// if the user releases without dragging.</summary>
+        /// detection. No mouse capture — the WPF Button must keep its
+        /// own capture so Click fires normally.</summary>
         private void BeginPotentialTaskDrag(FrameworkElement element,
                                              MouseButtonEventArgs e)
         {
@@ -72,8 +73,6 @@ namespace Win7Taskbar
             _taskDragGroup = group;
             _taskDragActive = false;
 
-            // PointToScreen can throw if the element is disconnected from
-            // the visual tree (rapid open/close races). Guard it.
             try
             {
                 _taskDragStartScreen = element.PointToScreen(
@@ -87,20 +86,19 @@ namespace Win7Taskbar
                 return;
             }
 
-            // Attach capture handlers on the window. Each += is preceded
-            // by -= so a missed teardown cannot stack duplicates.
+            // Attach handlers on the window (tunneling events). No mouse
+            // capture: the Button needs its own capture for Click to work.
             try
             {
-                PreviewMouseMove -= TaskDrag_CapturedMouseMove;
-                PreviewMouseLeftButtonUp -= TaskDrag_CapturedMouseUp;
+                PreviewMouseMove -= TaskDrag_PreviewMouseMove;
+                PreviewMouseLeftButtonUp -= TaskDrag_PreviewMouseUp;
 
-                element.CaptureMouse();
-                PreviewMouseMove += TaskDrag_CapturedMouseMove;
-                PreviewMouseLeftButtonUp += TaskDrag_CapturedMouseUp;
+                PreviewMouseMove += TaskDrag_PreviewMouseMove;
+                PreviewMouseLeftButtonUp += TaskDrag_PreviewMouseUp;
             }
             catch (Exception ex)
             {
-                DiagnosticLogger.WriteException("TASKDRAG", ex, "capture");
+                DiagnosticLogger.WriteException("TASKDRAG", ex, "attach");
                 ClearTaskDragState();
             }
         }
@@ -109,7 +107,7 @@ namespace Win7Taskbar
         //  Movement
         // ---------------------------------------------------------------
 
-        private void TaskDrag_CapturedMouseMove(object sender, MouseEventArgs e)
+        private void TaskDrag_PreviewMouseMove(object sender, MouseEventArgs e)
         {
             if (_taskDragSource == null)
             {
@@ -118,15 +116,13 @@ namespace Win7Taskbar
 
             if (e.LeftButton != MouseButtonState.Pressed)
             {
-                // The button went up without a preview-up: end the drag.
-                CancelTaskDrag("left button released elsewhere");
+                // The button went up without our seeing it: clean up.
+                CancelTaskDrag("left button no longer pressed");
                 return;
             }
 
             try
             {
-                // PointToScreen can throw if the element was disconnected
-                // from the visual tree (the app closed mid-drag).
                 Point screenNow;
                 try
                 {
@@ -141,8 +137,6 @@ namespace Win7Taskbar
 
                 if (!_taskDragActive)
                 {
-                    // Check whether the movement has crossed the system
-                    // drag threshold (DPI-aware).
                     double dx = screenNow.X - _taskDragStartScreen.X;
                     double dy = screenNow.Y - _taskDragStartScreen.Y;
                     double threshold = SystemParameters.MinimumHorizontalDragDistance;
@@ -154,8 +148,6 @@ namespace Win7Taskbar
                     _taskDragActive = true;
                     DiagnosticLogger.Write("TASKDRAG", "drag threshold reached");
 
-                    // Close any open preview popup — dragging with a tooltip
-                    // or thumbnail on screen is not the Windows 7 way.
                     try { CloseTaskPreview(); }
                     catch (Exception ex)
                     {
@@ -177,7 +169,7 @@ namespace Win7Taskbar
         //  Release
         // ---------------------------------------------------------------
 
-        private void TaskDrag_CapturedMouseUp(object sender, MouseButtonEventArgs e)
+        private void TaskDrag_PreviewMouseUp(object sender, MouseButtonEventArgs e)
         {
             if (e.ChangedButton != MouseButton.Left || _taskDragSource == null)
             {
@@ -188,8 +180,9 @@ namespace Win7Taskbar
 
             if (wasActive)
             {
-                // A consumed drag: suppress the Click that the button
-                // will fire on release, then clean up.
+                // A consumed drag: suppress the Click that the Button
+                // will fire after this event. The flag is checked in
+                // TaskButton_Click.
                 _taskDragSuppressClick = true;
                 try
                 {
@@ -197,9 +190,6 @@ namespace Win7Taskbar
                         System.Windows.Threading.DispatcherPriority.Input,
                         new Action(() =>
                         {
-                            // Belt and braces: clear the flag at end of
-                            // frame if no Click ever arrived. Guard
-                            // against shutdown races.
                             if (!_shuttingDown)
                             {
                                 _taskDragSuppressClick = false;
@@ -208,8 +198,6 @@ namespace Win7Taskbar
                 }
                 catch (Exception ex)
                 {
-                    // Dispatcher rejected (shutdown in progress): clear
-                    // the flag immediately so it cannot leak.
                     DiagnosticLogger.WriteException("TASKDRAG", ex,
                         "suppress-click deferred clear");
                     _taskDragSuppressClick = false;
@@ -240,9 +228,6 @@ namespace Win7Taskbar
         //  Reorder logic
         // ---------------------------------------------------------------
 
-        /// <summary>Moves the dragged TaskGroup to the position indicated
-        /// by the cursor. The insertion point is the first task button
-        /// whose horizontal centre is to the right of the cursor.</summary>
         private void ReorderTaskButtonsAtCursor(Point screenPoint)
         {
             if (_taskDragGroup == null || TaskList == null || _viewModel == null)
@@ -254,13 +239,10 @@ namespace Win7Taskbar
             int from = groups.IndexOf(_taskDragGroup);
             if (from < 0)
             {
-                // The group was removed mid-drag (app closed): nothing to
-                // reorder. The next CancelTaskDrag will clean up.
                 return;
             }
 
-            // Find the insertion index by scanning all other buttons.
-            int insertAt = groups.Count; // after the last one
+            int insertAt = groups.Count;
             for (int i = 0; i < groups.Count; i++)
             {
                 if (ReferenceEquals(groups[i], _taskDragGroup))
@@ -289,12 +271,10 @@ namespace Win7Taskbar
                 }
                 catch
                 {
-                    // Container in transition or disconnected: skip.
+                    // Container in transition: skip.
                 }
             }
 
-            // ObservableCollection.Move wants the destination index in
-            // the list AFTER the dragged element has been removed.
             int to = insertAt > from ? insertAt - 1 : insertAt;
             if (to != from && to >= 0 && to < groups.Count)
             {
@@ -314,63 +294,31 @@ namespace Win7Taskbar
         //  Teardown
         // ---------------------------------------------------------------
 
-        /// <summary>Ends the drag without activating anything: detach
-        /// handlers, release capture, clear state. Safe to call twice
-        /// (re-entrancy guard like the tray drag and the jump list).</summary>
+        /// <summary>Detach handlers and clear state. No capture to
+        /// release — we never captured.</summary>
         private void CancelTaskDrag(string reason)
         {
             if (_taskDragSource == null && !_taskDragActive)
             {
-                return;   /* already finished */
+                return;
             }
-            if (_taskDragEnding)
-            {
-                return;   /* re-entrant call from ReleaseMouseCapture */
-            }
-            _taskDragEnding = true;
+
             try
             {
-                PreviewMouseMove -= TaskDrag_CapturedMouseMove;
-                PreviewMouseLeftButtonUp -= TaskDrag_CapturedMouseUp;
-
-                if (_taskDragSource != null)
-                {
-                    try
-                    {
-                        if (_taskDragSource.IsMouseCaptured)
-                        {
-                            _taskDragSource.ReleaseMouseCapture();
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        // ReleaseMouseCapture can throw if the element is
-                        // disconnected. Log but do not propagate.
-                        DiagnosticLogger.WriteException("TASKDRAG", ex,
-                            "release capture");
-                    }
-                }
-                else
-                {
-                    try { ReleaseMouseCapture(); }
-                    catch { /* best effort */ }
-                }
+                PreviewMouseMove -= TaskDrag_PreviewMouseMove;
+                PreviewMouseLeftButtonUp -= TaskDrag_PreviewMouseUp;
             }
             catch (Exception ex)
             {
-                DiagnosticLogger.WriteException("TASKDRAG", ex,
-                    "teardown (capture may need next press)");
+                DiagnosticLogger.WriteException("TASKDRAG", ex, "detach");
             }
             finally
             {
-                _taskDragEnding = false;
                 ClearTaskDragState();
             }
         }
 
-        /// <summary>Clears all drag state without touching capture or
-        /// handlers. Called from CancelTaskDrag (finally) and from
-        /// BeginPotentialTaskDrag when an early check fails.</summary>
+        /// <summary>Clears all drag state.</summary>
         private void ClearTaskDragState()
         {
             _taskDragSource = null;
