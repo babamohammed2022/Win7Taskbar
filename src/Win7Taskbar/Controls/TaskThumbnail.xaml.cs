@@ -188,6 +188,10 @@ namespace Win7Taskbar.Controls
                         _thumbHandle, out NativeMethods.SIZE size) < 0 ||
                     size.cx <= 0 || size.cy <= 0 || DpiScale <= 0)
                 {
+                    // v3.9: fallimento DWM = finestra sorgente non esiste piu'
+                    // Evita riquadro vuoto persistente: mostra fallback identita'
+                    StopDwmThumbnail();
+                    ShowIdentityFallback();
                     return;
                 }
 
@@ -200,51 +204,56 @@ namespace Win7Taskbar.Controls
                 };
                 ApplyExtremeAspectCrop(ref sourceRect);
 
-                double sourceWidth =
-                    (sourceRect.Right - sourceRect.Left) / DpiScale;
-                double sourceHeight =
-                    (sourceRect.Bottom - sourceRect.Top) / DpiScale;
-                double scale;
-
-                if (sourceWidth <= RetroWidth && sourceHeight <= RetroHeight)
+                // v3.9: fix letterboxing - la preview riempie sempre l'apertura
+                // fissa 202x109. Invece di ridimensionare il riquadro esterno in
+                // base all'aspect ratio, si adatta la sorgente con crop centrale
+                // per coprire (cover) l'apertura, preservando l'aspect senza
+                // bande nere. Mantiene ApplyExtremeAspectCrop e adatta il floor
+                // minimo al comportamento "sempre pieno".
+                int srcW = sourceRect.Right - sourceRect.Left;
+                int srcH = sourceRect.Bottom - sourceRect.Top;
+                if (srcW > 0 && srcH > 0)
                 {
-                    if (sourceWidth < MinScaledWidth || sourceHeight < MinScaledHeight)
+                    double apertureAspect = RetroWidth / RetroHeight;
+                    double srcAspect = (double)srcW / srcH;
+                    if (srcAspect > apertureAspect)
                     {
-                        // Third scale band: enlarge tiny windows toward the
-                        // minimum, but never overflow the fixed frame. Extreme
-                        // aspect ratios therefore stop at the first bound.
-                        double requested = Math.Max(
-                            MinScaledWidth / sourceWidth,
-                            MinScaledHeight / sourceHeight);
-                        double fit = Math.Min(
-                            RetroWidth / sourceWidth,
-                            RetroHeight / sourceHeight);
-                        scale = Math.Min(requested, fit);
+                        // Sorgente piu' larga: crop orizzontale centrale
+                        int desiredW = (int)Math.Round(srcH * apertureAspect);
+                        desiredW = Math.Max(1, Math.Min(desiredW, srcW));
+                        int crop = (srcW - desiredW) / 2;
+                        sourceRect.Left += crop;
+                        sourceRect.Right = sourceRect.Left + desiredW;
                     }
-                    else
+                    else if (srcAspect < apertureAspect)
                     {
-                        // Medium windows retain their useful 1:1 sharpness.
-                        scale = 1.0;
+                        // Sorgente piu' alta: crop verticale centrale
+                        int desiredH = (int)Math.Round(srcW / apertureAspect);
+                        desiredH = Math.Max(1, Math.Min(desiredH, srcH));
+                        int crop = (srcH - desiredH) / 2;
+                        sourceRect.Top += crop;
+                        sourceRect.Bottom = sourceRect.Top + desiredH;
                     }
                 }
-                else
-                {
-                    // Large windows scale down to the aperture.
-                    scale = Math.Min(
-                        RetroWidth / sourceWidth,
-                        RetroHeight / sourceHeight);
-                }
 
-                double displayWidth = Math.Max(1, sourceWidth * scale);
-                double displayHeight = Math.Max(1, sourceHeight * scale);
-                Width = displayWidth;
-                Height = displayHeight;
+                // Il controllo riempie sempre l'area "*" del template (Stretch),
+                // dimensione guidata dal layout (202x109 fissi). Non si imposta
+                // piu' Width/Height variabili calcolati qui per evitare
+                // letterboxing esterno; la superficie DWM riempie sempre
+                // l'apertura fissa.
+                Width = RetroWidth;
+                Height = RetroHeight;
 
                 NativeMethods.RECT destination = Rect;
-                destination.Right = destination.Left +
-                    Math.Max(1, (int)Math.Round(displayWidth * DpiScale));
-                destination.Bottom = destination.Top +
-                    Math.Max(1, (int)Math.Round(displayHeight * DpiScale));
+                // Se ActualWidth/Height non ancora misurati, usa apertura fissa
+                if (destination.Right - destination.Left < 1 ||
+                    destination.Bottom - destination.Top < 1)
+                {
+                    destination.Right = destination.Left +
+                        Math.Max(1, (int)Math.Round(RetroWidth * DpiScale));
+                    destination.Bottom = destination.Top +
+                        Math.Max(1, (int)Math.Round(RetroHeight * DpiScale));
+                }
 
                 var props = new NativeMethods.DWM_THUMBNAIL_PROPERTIES
                 {
@@ -255,13 +264,21 @@ namespace Win7Taskbar.Controls
                     rcDestination = destination,
                     rcSource = sourceRect
                 };
-                _ = NativeMethods.DwmUpdateThumbnailProperties(
-                    _thumbHandle, ref props);
+                if (NativeMethods.DwmUpdateThumbnailProperties(
+                        _thumbHandle, ref props) < 0)
+                {
+                    // v3.9: se anche l'update finale fallisce, tratta come
+                    // finestra chiusa: evita riquadro vuoto persistente
+                    StopDwmThumbnail();
+                    ShowIdentityFallback();
+                }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"TaskThumbnail.Refresh: {ex.Message}");
+                StopDwmThumbnail();
+                ShowIdentityFallback();
             }
         }
 
@@ -426,18 +443,12 @@ namespace Win7Taskbar.Controls
                 return;
             }
 
-            double sourceWidth = pixelWidth / DpiScale;
-            double sourceHeight = pixelHeight / DpiScale;
-            double scale = Math.Min(RetroWidth / sourceWidth,
-                                    RetroHeight / sourceHeight);
-            if (scale > 1.0)
-            {
-                double requested = Math.Max(MinScaledWidth / sourceWidth,
-                                            MinScaledHeight / sourceHeight);
-                scale = Math.Min(scale, Math.Max(1.0, requested));
-            }
-            Width = Math.Max(1, sourceWidth * scale);
-            Height = Math.Max(1, sourceHeight * scale);
+            // v3.9: anche il fallback riempie sempre l'apertura fissa
+            // 202x109 (comportamento "sempre pieno"). Il floor minimo
+            // viene adattato: finestre piccole vengono ingrandite per
+            // riempire l'intera area, invece di restare al 65%.
+            Width = RetroWidth;
+            Height = RetroHeight;
         }
 
         private bool TryGetSourceClientScreenRect(out NativeMethods.RECT rect)

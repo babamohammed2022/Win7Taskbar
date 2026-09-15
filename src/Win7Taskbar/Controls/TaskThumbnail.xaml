@@ -3,6 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Width="202"
              Height="109"
+             HorizontalAlignment="Stretch"
+             VerticalAlignment="Stretch"
              Loaded="UserControl_Loaded"
              Unloaded="UserControl_Unloaded">
     <!-- The hover tooltip identifies the application; the parent preview
@@ -15,10 +17,12 @@
          needs the destination left untouched. These children become visible
          only after the delayed DWM probe fails and the live thumbnail has
          first been unregistered. -->
+    <!-- v3.9: fallback riempie sempre l'apertura fissa con cover (UniformToFill)
+         per evitare letterboxing, coerente con il comportamento DWM sempre pieno -->
     <Grid ClipToBounds="True">
         <Image x:Name="CaptureFallbackImage"
                Visibility="Collapsed"
-               Stretch="Fill"
+               Stretch="UniformToFill"
                RenderOptions.BitmapScalingMode="HighQuality" />
 
         <Border x:Name="IdentityFallback"

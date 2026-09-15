@@ -293,8 +293,13 @@
                 </Rectangle.Fill>
             </Rectangle>
 
-            <!-- DWM occupies exactly the bitmap's transparent aperture. -->
-            <ContentPresenter Grid.Row="1" Grid.Column="1" />
+            <!-- v3.9: DWM occupa sempre l'intera apertura fissa 202x109.
+                 Il ContentPresenter riempie sempre l'area "*" disponibile
+                 (Stretch), cosi' la superficie live copre tutta la finestra
+                 del riquadro invece di ridimensionare il frame esterno. -->
+            <ContentPresenter Grid.Row="1" Grid.Column="1"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch" />
         </Grid>
     </ControlTemplate>
 

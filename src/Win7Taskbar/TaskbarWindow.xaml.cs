@@ -492,6 +492,13 @@ namespace Win7Taskbar
                 foreach (TaskGroup g in e.OldItems.OfType<TaskGroup>())
                 {
                     g.PropertyChanged -= OnTaskGroupPropertyChanged;
+                    // v3.9: se il gruppo mostrato nel popup viene rimosso
+                    // (app chiusa con anteprima aperta), chiudi subito il
+                    // popup invece di lasciarlo vuoto o ancorato al nulla.
+                    if (ReferenceEquals(g, _previewGroup))
+                    {
+                        CloseTaskPreview();
+                    }
                 }
             }
             if (e.NewItems != null)
@@ -2698,6 +2705,18 @@ namespace Win7Taskbar
                 if (TaskPreviewPopup?.IsOpen != true)
                 {
                     _previewWatchTimer?.Stop();
+                    return;
+                }
+
+                // v3.9: se il gruppo mostrato non esiste piu' (finestra
+                // chiusa, gruppo rimosso o svuotato) chiudi subito il popup.
+                // Evita riquadri vuoti persistenti quando l'app si chiude
+                // con l'anteprima aperta.
+                if (_previewGroup == null ||
+                    _previewGroup.Windows.Count == 0 ||
+                    !_viewModel.Groups.Contains(_previewGroup))
+                {
+                    CloseTaskPreview();
                     return;
                 }
 
