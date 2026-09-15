@@ -97,6 +97,7 @@ constexpr PropStrings kPropIt = {
     /* Task Manager selector (Windows 11 only). */
     L"Gestione attività:", L"Automatico (predefinito)", L"Gestione attività", L"Gestione attività (classico)",
     /* v4.2: taskbar position. */
+    L"Posizione barra",
     L"Posizione barra:", L"In basso", L"In alto",
 };
 constexpr PropStrings kPropEn = {
@@ -150,6 +151,7 @@ constexpr PropStrings kPropEn = {
     /* Task Manager selector (Windows 11 only). */
     L"Task Manager:", L"Automatic (default)", L"Task Manager (Windows 11)", L"Task Manager (Legacy)",
     /* v4.2: taskbar position. */
+    L"Taskbar position",
     L"Taskbar position:", L"Bottom", L"Top",
 };
 constexpr PropStrings kPropEs = {
@@ -203,6 +205,7 @@ constexpr PropStrings kPropEs = {
     /* Task Manager selector (Windows 11 only). */
     L"Administrador de tareas:", L"Automático (predeterminado)", L"Administrador de tareas (Windows 11)", L"Administrador de tareas (heredado)",
     /* v4.2: taskbar position. */
+    L"Posición de la barra",
     L"Posición de la barra:", L"Abajo", L"Arriba",
 };
 constexpr PropStrings kPropFr = {
@@ -256,6 +259,7 @@ constexpr PropStrings kPropFr = {
     /* Task Manager selector (Windows 11 only). */
     L"Gestionnaire des tâches:", L"Automatique (par défaut)", L"Gestionnaire des tâches (Windows 11)", L"Gestionnaire des tâches (hérité)",
     /* v4.2: taskbar position. */
+    L"Position de la barre",
     L"Position de la barre:", L"En bas", L"En haut",
 };
 constexpr PropStrings kPropDe = {
@@ -359,6 +363,7 @@ constexpr PropStrings kPropPt = {
     /* Task Manager selector (Windows 11 only). */
     L"Gestor de Tarefas:", L"Automático (predefinição)", L"Gestor de Tarefas (Windows 11)", L"Gestor de Tarefas (Legado)",
     /* v4.2: taskbar position. */
+    L"Posição da barra",
     L"Posição da barra:", L"Em baixo", L"Em cima",
 };
 constexpr PropStrings kPropPl = {
@@ -410,6 +415,7 @@ constexpr PropStrings kPropPl = {
     /* Task Manager selector (Windows 11 only). */
     L"Menedżer zadań:", L"Automatycznie (domyślne)", L"Menedżer zadań (Windows 11)", L"Menedżer zadań (starszy)",
     /* v4.2: taskbar position. */
+    L"Pozycja paska zadań",
     L"Pozycja paska zadań:", L"Na dole", L"Na górze",
 };
 constexpr PropStrings kPropRu = {
@@ -461,6 +467,7 @@ constexpr PropStrings kPropRu = {
     /* Task Manager selector (Windows 11 only). */
     L"Диспетчер задач:", L"Автоматически (по умолчанию)", L"Диспетчер задач (Windows 11)", L"Диспетчер задач (классический)",
     /* v4.2: taskbar position. */
+    L"Положение панели задач",
     L"Положение панели задач:", L"Внизу", L"Вверху",
 };
 constexpr PropStrings kPropJa = {
@@ -508,6 +515,7 @@ constexpr PropStrings kPropJa = {
     /* Task Manager selector (Windows 11 only). */
     L"タスク マネージャー:", L"自動 (既定)", L"タスク マネージャー (Windows 11)", L"タスク マネージャー (レガシ)",
     /* v4.2: taskbar position. */
+    L"タスクバーの位置",
     L"タスクバーの位置:", L"下", L"上",
 };
 constexpr PropStrings kPropZh = {
@@ -553,6 +561,7 @@ constexpr PropStrings kPropZh = {
     /* Task Manager selector (Windows 11 only). */
     L"任务管理器:", L"自动（默认）", L"任务管理器 (Windows 11)", L"任务管理器（旧版）",
     /* v4.2: taskbar position. */
+    L"任务栏位置",
     L"任务栏位置:", L"底部", L"顶部",
 };
 
@@ -599,6 +608,7 @@ constexpr PropStrings kPropAr = {
     /* Task Manager selector (Windows 11 only). */
     L"إدارة المهام:", L"تلقائي (افتراضي)", L"إدارة المهام (Windows 11)", L"إدارة المهام (قديم)",
     /* v4.2: taskbar position. */
+    L"موضع شريط المهام",
     L"موضع شريط المهام:", L"الأسفل", L"الأعلى",
 };
 

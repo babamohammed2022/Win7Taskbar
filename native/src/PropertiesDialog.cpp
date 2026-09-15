@@ -60,7 +60,7 @@ ScopeExit<F> MakeScopeExit(F f) { return ScopeExit<F>(f); }
  * italiana "Gestione attività"; l'altezza ospita la scheda Barre degli
  * strumenti e la seconda riga del gruppo lingua. */
 constexpr short MAIN_WIDTH  = 278;
-constexpr short MAIN_HEIGHT = 326;
+constexpr short MAIN_HEIGHT = 348;   /* v4.2: +22 DLU per la sezione posizione */
 
 /* v2.50: le tendine di volume e batteria non si chiamano piu' "mixer
  * classico"/"flyout batteria": dicono a quale VERSIONE del sistema
@@ -96,7 +96,7 @@ enum CtrlId {
     IDC_TXT_TB_INFO, IDC_CHK_TB_DESKTOP, IDC_CHK_TB_ADDRESS, IDC_CHK_TB_LINKS,
     IDC_LST_TOOLBARS,   /* v2.50: elenco con caselle come nella mod */
     /* v4.2: posizione della taskbar (Bottom/Top). */
-    IDC_LBL_TASKBAR_POS, IDC_CMB_TASKBAR_POS,
+    IDC_GRP_TASKBAR_POS, IDC_LBL_TASKBAR_POS, IDC_CMB_TASKBAR_POS,
     IDC_BTN_APPLY = 3000,
 };
 
@@ -223,10 +223,10 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_GRP_LANG, p1); vis(IDC_LBL_LANG, p1); vis(IDC_CMB_LANG, p1);
     /* v3.5: riga dell'indicatore della lingua di input. */
     vis(IDC_LBL_LANGBAR, p1); vis(IDC_CMB_LANGBAR, p1);
-    /* v4.2: posizione taskbar (visibile solo se la barra non e' bloccata). */
-    const bool showTaskbarPos = p1 && IsTaskbarUnlocked();
-    vis(IDC_LBL_TASKBAR_POS, showTaskbarPos);
-    vis(IDC_CMB_TASKBAR_POS, showTaskbarPos);
+    /* v4.2: posizione taskbar (sempre visibile nella pagina 1). */
+    vis(IDC_GRP_TASKBAR_POS, p1);
+    vis(IDC_LBL_TASKBAR_POS, p1);
+    vis(IDC_CMB_TASKBAR_POS, p1);
     vis(IDC_GRP_NOTIF, p1); vis(IDC_TXT_NOTIF, p1); vis(IDC_BTN_CUSTOMIZE, p1);
 
     /* Pagina 2: informazioni + uscita. */
@@ -337,7 +337,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
             controlCount++;
         };
 
-        addCtrl(TCS_TABS | WS_TABSTOP, 0, 6, 6, 266, 292, IDC_TAB_MAIN,
+        addCtrl(TCS_TABS | WS_TABSTOP, 0, 6, 6, 266, 312, IDC_TAB_MAIN,
                 L"SysTabControl32", L"");
         /* ============================================================
          * PAGINA 1 - "Barra delle applicazioni"
@@ -391,16 +391,17 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(SS_LEFT, 0, 18, 222, 50, 10, IDC_LBL_LANGBAR, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 220, 130, 80, IDC_CMB_LANGBAR, L"ComboBox", L"");
 
-        /* v4.2: POSIZIONE TASKBAR (Bottom/Top). Visibile solo se la barra
-         * non e' bloccata (TaskbarSizeMove != 0 nel registro). Posizionata
-         * prima del gruppo Area di notifica. */
-        addCtrl(SS_LEFT, 0, 18, 244, 50, 10, IDC_LBL_TASKBAR_POS, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 242, 172, 80, IDC_CMB_TASKBAR_POS, L"ComboBox", L"");
+        /* v4.2: GRUPPO POSIZIONE BARRA (Bottom/Top). Sempre visibile.
+         * Sezione dedicata con GroupBox, posizionata dopo il gruppo Lingua
+         * e prima del gruppo Area di notifica. */
+        addCtrl(BS_GROUPBOX, 0, 12, 244, 254, 30, IDC_GRP_TASKBAR_POS, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 254, 50, 10, IDC_LBL_TASKBAR_POS, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 252, 172, 80, IDC_CMB_TASKBAR_POS, L"ComboBox", L"");
 
         /* GRUPPO 5 - AREA DI NOTIFICA: testo su due righe (20) + pulsante. */
-        addCtrl(BS_GROUPBOX, 0, 12, 260, 254, 36, IDC_GRP_NOTIF, L"Button", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 268, 242, 20, IDC_TXT_NOTIF, L"Static", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 190, 270, 68, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 278, 254, 36, IDC_GRP_NOTIF, L"Button", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 286, 242, 20, IDC_TXT_NOTIF, L"Static", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 190, 288, 68, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
 
         /* ============================================================
          * PAGINA 2 - "Informazioni"
@@ -445,9 +446,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
 
         // ---- pulsanti standard 50x14, come la mod ----
         /* v3.5: la riga scende di 14 DLU con la finestra. */
-        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 104, 306, 50, 14, IDOK, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 160, 306, 50, 14, IDCANCEL, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 216, 306, 50, 14, IDC_BTN_APPLY, L"Button", L"");
+        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 104, 324, 50, 14, IDOK, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 160, 324, 50, 14, IDCANCEL, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 216, 324, 50, 14, IDC_BTN_APPLY, L"Button", L"");
 
         pDlg->cdit = controlCount;
         m_hWnd = CreateDialogIndirectParamW(GetModuleHandleW(nullptr),
@@ -636,6 +637,9 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SetDlgItemTextW(hwnd, IDC_GRP_LANG, S.grpLang);
         SetDlgItemTextW(hwnd, IDC_LBL_LANG, S.lblLang);
         SetDlgItemTextW(hwnd, IDC_LBL_LANGBAR, S.lblLangBar);   /* v3.5 */
+        /* v4.2: sezione posizione barra (GroupBox + label + ComboBox). */
+        SetDlgItemTextW(hwnd, IDC_GRP_TASKBAR_POS, S.grpTaskbarPos);
+        SetDlgItemTextW(hwnd, IDC_LBL_TASKBAR_POS, S.lblTaskbarPos);
         SetDlgItemTextW(hwnd, IDC_GRP_NOTIF, S.grpNotif);
         SetDlgItemTextW(hwnd, IDC_TXT_NOTIF, S.txtNotif);
         SetDlgItemTextW(hwnd, IDC_BTN_CUSTOMIZE, S.btnCustomize);
