@@ -101,26 +101,30 @@ void SetPixelAlpha(DWORD* pixels, int x, int y, DWORD color, BYTE alpha) {
             (static_cast<DWORD>(b) <<  0);
 }
 
-/* Disegna una linea orizzontale con spessore 1. */
-void DrawHLine(DWORD* pixels, int x1, int x2, int y, DWORD color, BYTE alpha) {
-    for (int x = x1; x <= x2; ++x) {
-        SetPixelAlpha(pixels, x, y, color, alpha);
+/* Disegna una linea orizzontale con spessore specificato. */
+void DrawHLine(DWORD* pixels, int x1, int x2, int y, DWORD color, BYTE alpha, int thickness = 1) {
+    for (int t = 0; t < thickness; ++t) {
+        for (int x = x1; x <= x2; ++x) {
+            SetPixelAlpha(pixels, x, y + t, color, alpha);
+        }
     }
 }
 
-/* Disegna una linea verticale con spessore 1. */
-void DrawVLine(DWORD* pixels, int x, int y1, int y2, DWORD color, BYTE alpha) {
-    for (int y = y1; y <= y2; ++y) {
-        SetPixelAlpha(pixels, x, y, color, alpha);
+/* Disegna una linea verticale con spessore specificato. */
+void DrawVLine(DWORD* pixels, int x, int y1, int y2, DWORD color, BYTE alpha, int thickness = 1) {
+    for (int t = 0; t < thickness; ++t) {
+        for (int y = y1; y <= y2; ++y) {
+            SetPixelAlpha(pixels, x + t, y, color, alpha);
+        }
     }
 }
 
-/* Disegna un rettangolo vuoto (bordo). */
-void DrawRect(DWORD* pixels, int x1, int y1, int x2, int y2, DWORD color, BYTE alpha) {
-    DrawHLine(pixels, x1, x2, y1, color, alpha);
-    DrawHLine(pixels, x1, x2, y2, color, alpha);
-    DrawVLine(pixels, x1, y1, y2, color, alpha);
-    DrawVLine(pixels, x2, y1, y2, color, alpha);
+/* Disegna un rettangolo vuoto (bordo) con spessore specificato. */
+void DrawRect(DWORD* pixels, int x1, int y1, int x2, int y2, DWORD color, BYTE alpha, int thickness = 1) {
+    DrawHLine(pixels, x1, x2, y1, color, alpha, thickness);
+    DrawHLine(pixels, x1, x2, y2 - thickness + 1, color, alpha, thickness);
+    DrawVLine(pixels, x1, y1, y2, color, alpha, thickness);
+    DrawVLine(pixels, x2 - thickness + 1, y1, y2, color, alpha, thickness);
 }
 
 /* Inizializza le 4 icone. Chiamata una volta sola (lazy init). */
@@ -128,57 +132,66 @@ void Initialize() {
     if (s_initialized) return;
     s_initialized = true;
 
-    /* Colore: grigio scuro come le icone di Windows 7 (0x606060). */
-    const DWORD kColor = 0x00606060;   /* RGB: 0x60, 0x60, 0x60 */
-    const BYTE  kAlpha = 0xC0;         /* ~75% opaco */
+    /* Colore: grigio scuro come le icone di Windows 7 (0x404040).
+     * Le icone Win7 sono piu' scure e bold rispetto a quelle classiche. */
+    const DWORD kColor = 0x00404040;   /* RGB: 0x40, 0x40, 0x40 */
+    const BYTE  kAlpha = 0xE0;         /* ~88% opaco */
 
-    /* --- Ripristina (Restore): due quadrati sovrapposti ---
-     * Quadrato grande: (3,5) a (12,14)
-     * Quadrato piccolo: (6,2) a (13,9) - in alto a destra, sovrapposto */
+    /* --- Ripristina (Restore): due quadrati sovrapposti con bordo spesso ---
+     * Stile Windows 7: bordi spessi 2px, quadrati ben definiti.
+     * Quadrato grande: (2,6) a (11,14) - bordo 2px
+     * Quadrato piccolo: (5,2) a (13,10) - bordo 2px, in alto a destra */
     {
         void* pixels = nullptr;
         s_restore = CreateAlphaBitmap32(&pixels);
         if (pixels) {
             DWORD* p = static_cast<DWORD*>(pixels);
-            DrawRect(p, 3, 5, 12, 14, kColor, kAlpha);
-            DrawRect(p, 6, 2, 13, 9,  kColor, kAlpha);
+            DrawRect(p, 2, 6, 11, 14, kColor, kAlpha, 2);
+            DrawRect(p, 5, 2, 13, 10, kColor, kAlpha, 2);
         }
     }
 
-    /* --- Riduci a icona (Minimize): linea orizzontale ---
-     * Linea: da (3,12) a (12,12) */
+    /* --- Riduci a icona (Minimize): linea orizzontale spessa ---
+     * Stile Windows 7: barra spessa 3px, centrata verticalmente in basso.
+     * Linea: da (3,11) a (12,13) - spessore 3px */
     {
         void* pixels = nullptr;
         s_minimize = CreateAlphaBitmap32(&pixels);
         if (pixels) {
             DWORD* p = static_cast<DWORD*>(pixels);
-            DrawHLine(p, 3, 12, 12, kColor, kAlpha);
-            /* Spessore 2 per visibilita'. */
-            DrawHLine(p, 3, 12, 13, kColor, kAlpha);
+            for (int y = 11; y <= 13; ++y) {
+                DrawHLine(p, 3, 12, y, kColor, kAlpha);
+            }
         }
     }
 
-    /* --- Ingrandisci (Maximize): quadrato vuoto ---
-     * Rettangolo: (3,3) a (12,12) */
+    /* --- Ingrandisci (Maximize): quadrato con bordo spesso ---
+     * Stile Windows 7: bordo spesso 2px, riempie buona parte dell'area.
+     * Rettangolo: (3,3) a (12,12) - bordo 2px */
     {
         void* pixels = nullptr;
         s_maximize = CreateAlphaBitmap32(&pixels);
         if (pixels) {
             DWORD* p = static_cast<DWORD*>(pixels);
-            DrawRect(p, 3, 3, 12, 12, kColor, kAlpha);
+            DrawRect(p, 3, 3, 12, 12, kColor, kAlpha, 2);
         }
     }
 
-    /* --- Chiudi (Close): X ---
-     * Due diagonali: (4,4)-(11,11) e (11,4)-(4,11) */
+    /* --- Chiudi (Close): X con linee spesse ---
+     * Stile Windows 7: linee spesse 2px, diagonali ben visibili.
+     * Due diagonali con spessore: (3,3)-(12,12) e (12,3)-(3,12) */
     {
         void* pixels = nullptr;
         s_close = CreateAlphaBitmap32(&pixels);
         if (pixels) {
             DWORD* p = static_cast<DWORD*>(pixels);
-            for (int i = 0; i < 8; ++i) {
-                SetPixelAlpha(p, 4 + i, 4 + i, kColor, kAlpha);
-                SetPixelAlpha(p, 11 - i, 4 + i, kColor, kAlpha);
+            for (int i = 0; i < 10; ++i) {
+                /* Diagonale principale: spessore 2px (pixel + pixel adiacente) */
+                SetPixelAlpha(p, 3 + i, 3 + i, kColor, kAlpha);
+                SetPixelAlpha(p, 4 + i, 3 + i, kColor, kAlpha);
+                /* Anti-diagonale: spessore 2px */
+                SetPixelAlpha(p, 12 - i, 3 + i, kColor, kAlpha);
+                SetPixelAlpha(p, 12 - i, 4 + i, kColor, kAlpha);
             }
         }
     }

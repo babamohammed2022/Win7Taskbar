@@ -168,7 +168,7 @@
          EnsureDwmPreviewBorderMask, so the two paths draw the same border;
          the grayscale overlay, the clipped static blur, the title band, the
          close button and the live DWM thumbnail are untouched. -->
-    <Version>1.19.0-alpha</Version>
+    <Version>1.19.1-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
