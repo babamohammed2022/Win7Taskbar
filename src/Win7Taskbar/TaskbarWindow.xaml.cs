@@ -1987,12 +1987,20 @@ namespace Win7Taskbar
                     // 10/11, e non serve armare alcun ripiego.
                     CancelStartWatchdog();
                     toggle.IsChecked = false;
+                    // v4.1: sblocca il foreground lock prima di simulare
+                    // VK_LWIN. Senza questo, SendInput nel native side
+                    // fallisce silenziosamente quando un'altra app (es.
+                    // Windhawk) ha il foreground.
+                    AllowForegroundChange();
                     _bridge.ShowStartMenu();
                     StartTaskbarGuard();
                     return;
                 }
 
                 // Aprire
+                // v4.1: sblocca il foreground lock prima di simulare
+                // VK_LWIN (vedi sopra).
+                AllowForegroundChange();
                 _bridge.ShowStartMenu();
                 StartTaskbarGuard();
 
@@ -2314,6 +2322,10 @@ namespace Win7Taskbar
             {
                 if (!string.IsNullOrEmpty(group.LaunchPath))
                 {
+                    // v4.1: sblocca il foreground lock prima del lancio.
+                    // Senza questo, l'app si avvia ma non va in primo
+                    // piano quando un'altra finestra ha il foreground.
+                    AllowForegroundChange();
                     LaunchPathSafe(group.LaunchPath);
 
                     // v2.27: avvio dalla barra: le finestre che compaiono
@@ -2344,6 +2356,9 @@ namespace Win7Taskbar
                 {
                     int index = group.Windows.IndexOf(active);
                     TaskWindow next = group.Windows[(index + 1) % group.Windows.Count];
+                    // v4.1: sblocca il foreground lock prima di attivare
+                    // la finestra successiva del gruppo.
+                    AllowForegroundChange();
                     _viewModel.ActivateWindow(next);
                     return;
                 }
