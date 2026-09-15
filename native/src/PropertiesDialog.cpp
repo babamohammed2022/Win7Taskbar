@@ -223,10 +223,19 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_GRP_LANG, p1); vis(IDC_LBL_LANG, p1); vis(IDC_CMB_LANG, p1);
     /* v3.5: riga dell'indicatore della lingua di input. */
     vis(IDC_LBL_LANGBAR, p1); vis(IDC_CMB_LANGBAR, p1);
-    /* v4.2: posizione taskbar (sempre visibile nella pagina 1). */
-    vis(IDC_GRP_TASKBAR_POS, p1);
-    vis(IDC_LBL_TASKBAR_POS, p1);
-    vis(IDC_CMB_TASKBAR_POS, p1);
+    /* v4.2: posizione taskbar — NASCOSTA.
+     *
+     * L'implementazione esiste e funziona parzialmente (la barra si sposta
+     * davvero in alto), ma ci sono troppi effetti collaterali da risolvere:
+     * i flyout di sistema (volume, rete, batteria) appaiono nella posizione
+     * sbagliata, il menu Start non si allinea correttamente, e il ridisegno
+     * della tray non tiene conto della nuova geometria. Serve un testing
+     * approfondito prima di esporre l'opzione agli utenti. Il codice resta
+     * qui, pronto per quando sara' maturo; intanto i controlli sono
+     * invisibili e il valore resta fisso su "Bottom". */
+    vis(IDC_GRP_TASKBAR_POS, false);
+    vis(IDC_LBL_TASKBAR_POS, false);
+    vis(IDC_CMB_TASKBAR_POS, false);
     vis(IDC_GRP_NOTIF, p1); vis(IDC_TXT_NOTIF, p1); vis(IDC_BTN_CUSTOMIZE, p1);
 
     /* Pagina 2: informazioni + uscita. */
@@ -391,9 +400,11 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(SS_LEFT, 0, 18, 222, 50, 10, IDC_LBL_LANGBAR, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 220, 130, 80, IDC_CMB_LANGBAR, L"ComboBox", L"");
 
-        /* v4.2: GRUPPO POSIZIONE BARRA (Bottom/Top). Sempre visibile.
-         * Sezione dedicata con GroupBox, posizionata dopo il gruppo Lingua
-         * e prima del gruppo Area di notifica. */
+        /* v4.2: GRUPPO POSIZIONE BARRA (Bottom/Top).
+         * NASCOSTO: l'implementazione esiste ma ha problemi irrisolti
+         * (flyout in posizione errata, allineamento menu Start, ecc.).
+         * I controlli restano nel template per quando saranno pronti;
+         * ShowTabPage li nasconde forzatamente. */
         addCtrl(BS_GROUPBOX, 0, 12, 244, 254, 30, IDC_GRP_TASKBAR_POS, L"Button", L"");
         addCtrl(SS_LEFT, 0, 18, 254, 50, 10, IDC_LBL_TASKBAR_POS, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 252, 172, 80, IDC_CMB_TASKBAR_POS, L"ComboBox", L"");
@@ -723,8 +734,11 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             ComboBox_SetCurSel(hTM, self->m_taskManagerMode);
         }
 
-        /* v4.2: taskbar position selector (Bottom/Top). Only populated
-         * when the taskbar is unlocked; ShowTabPage handles visibility. */
+        /* v4.2: taskbar position selector (Bottom/Top).
+         * NASCOSTO: l'implementazione esiste ma richiede testing approfondito
+         * (flyout in posizione errata, allineamento menu Start, ecc.).
+         * Il ComboBox viene inizializzato ma ShowTabPage lo nasconde; il
+         * valore resta fisso su Bottom (0). */
         {
             HWND hTP = GetDlgItem(hwnd, IDC_CMB_TASKBAR_POS);
             ComboBox_AddString(hTP, S.taskbarPosBottom);
