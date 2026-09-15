@@ -2460,6 +2460,11 @@ namespace Win7Taskbar
         // Explicit item hover ownership keeps the layered popup alive while
         // the pointer is over a DWM destination (which is not WPF-painted).
         private bool _previewPointerInside;
+        /* v4.10: contatore di tick consecutivi in cui il mouse e' dentro
+         * l'HWND del popup ma non sopra un elemento WPF. Serve a chiudere
+         * popup vuoti/trasparenti (thumbnail DWM non composte per processi
+         * elevati) che altrimenti intercettano il mouse indefinitamente. */
+        private int _previewNoWpfHoverTicks;
 
         /* v3.8: stato del riordino delle anteprime col trascinamento
          * sinistro (ispirazione dalla mod "Taskbar Thumbnail Reorder").
@@ -2781,9 +2786,35 @@ namespace Win7Taskbar
                 }
 
                 bool overAnchor = _previewAnchor?.IsMouseOver == true;
-                bool overPopup = _previewPointerInside ||
-                    (TaskPreviewPopup.Child is FrameworkElement child && child.IsMouseOver) ||
-                    IsPointerInsideTaskPreviewPopup();
+                bool overPopupWpf = _previewPointerInside ||
+                    (TaskPreviewPopup.Child is FrameworkElement child && child.IsMouseOver);
+                /* v4.10: IsPointerInsideTaskPreviewPopup() controlla il
+                 * rettangolo HWND del popup layered. E' necessario per le
+                 * thumbnail DWM attive (il surface DWM non triggera
+                 * IsMouseOver di WPF). Ma per popup con sole thumbnail in
+                 * fallback (processi elevati come taskmgr.exe, windhawk.exe)
+                 * il popup e' vuoto/trasparente e il check HWND intercetta
+                 * il mouse impedendo la chiusura. Soluzione: se il mouse
+                 * e' dentro l'HWND ma NON sopra un elemento WPF per piu'
+                 * di 2 secondi consecutivi, chiudi il popup. */
+                bool overPopupHwnd = IsPointerInsideTaskPreviewPopup();
+
+                if (overPopupWpf)
+                {
+                    _previewNoWpfHoverTicks = 0;
+                }
+                else if (overPopupHwnd)
+                {
+                    /* Mouse dentro l'HWND ma non sopra un elemento WPF:
+                     * potrebbe essere sopra una thumbnail DWM attiva (OK)
+                     * o sopra un'area trasparente del popup (bug).
+                     * Conta i tick consecutivi in questo stato. */
+                    _previewNoWpfHoverTicks++;
+                }
+
+                bool overPopup = overPopupWpf ||
+                    (overPopupHwnd && _previewNoWpfHoverTicks < 10);
+                /* 10 tick × 200ms = 2 secondi di timeout */
 
                 if (!overAnchor && !overPopup)
                 {
@@ -3121,6 +3152,7 @@ namespace Win7Taskbar
                 _previewAnchor = null;
                 _previewGroup = null;
                 _previewPointerInside = false;
+                _previewNoWpfHoverTicks = 0;
                 _openButtonTip = null;
 
                 /* Sgancia i controlli TaskThumbnail, che deregistrano sempre
