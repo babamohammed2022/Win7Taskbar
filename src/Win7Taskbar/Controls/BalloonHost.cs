@@ -1,6 +1,5 @@
 using System;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 
@@ -71,9 +70,9 @@ namespace Win7Taskbar.Controls
 
             /* v3.7: l'ancora e' l'icona che ha generato la notifica, se
              * esiste; altrimenti l'area di notifica (ripiego d'origine). */
-            bool anchoredToIcon = iconAnchor != null
-                                  && iconAnchor.ActualWidth > 0;
-            UIElement effectiveAnchor = anchoredToIcon ? (UIElement)iconAnchor! : _anchor;
+            bool anchoredToIcon = iconAnchor is FrameworkElement element
+                                  && element.ActualWidth > 0;
+            UIElement effectiveAnchor = anchoredToIcon ? iconAnchor! : _anchor;
 
             _popup = new Popup
             {
@@ -85,7 +84,9 @@ namespace Win7Taskbar.Controls
                 Focusable = false,
                 PlacementTarget = effectiveAnchor,
                 Placement = PlacementMode.Custom,
-                CustomPopupPlacementCallback = PlaceAboveAnchor,
+                CustomPopupPlacementCallback = anchoredToIcon
+                    ? PlaceTipOnIcon
+                    : PlaceAboveAnchor,
                 // Le ombre hardware falliscono su alcune configurazioni video
                 // (e sotto Xvfb fanno terminare il processo).
                 PopupAnimation = PopupAnimation.Fade
