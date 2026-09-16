@@ -124,7 +124,7 @@
          lived only in the repo-root Resources folder, which the project
          never copies to the output - THAT was why every loading mechanism
          found nothing. It now sits next to the tile PNGs that demonstrably
-         ship and render, and loads with the same relative UriSource. -->
+         ship and render via GraphicalResourceBundle (no loose PNG URI). -->
     <x:Static x:Key="Win7_WindowStackBorderImage" Member="bundle:GraphicalResourceBundle.multiplewindowborder" />
     <x:Static x:Key="ClockTileHoverImage" Member="bundle:GraphicalResourceBundle.win7_clock_tilehover" />
     <x:Static x:Key="ClockTilePressedImage" Member="bundle:GraphicalResourceBundle.win7_clock_tilepressed" />

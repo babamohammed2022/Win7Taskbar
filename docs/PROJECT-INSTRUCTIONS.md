@@ -119,11 +119,14 @@ published binary and fails the build if step 1 was skipped.
 
 ## 3. How the theme is loaded
 
-`Themes/Windows7.xaml` is **byte-identical** to the original (MD5
-`1bf56a8e4d67107acdbbd9440e0a320a`) and must not be edited: it is a project constraint.
+`Themes/Windows7.xaml` (the copy under `src/Win7Taskbar/Themes/`, also mirrored at the
+repository root) is loaded from disk at runtime. Image keys no longer use relative
+`UriSource` paths: they resolve through `x:Static` members of
+`Win7Taskbar.Utilities.GraphicalResourceBundle`, which holds the original PNG bytes as
+Base64. See `docs/GRAPHICAL-RESOURCES.md`.
 
-The theme contains 16 styles whose `BasedOn` points at same-named keys expected in a base
-dictionary, plus a few keys and strings it does not define. While building a key, WPF
+The theme still contains 16 styles whose `BasedOn` points at same-named keys expected in a
+base dictionary, plus a few keys and strings it does not define. While building a key, WPF
 deliberately skips the entry with the same name and does **not** fall back to sibling
 dictionaries, which is where the `Cannot find resource named 'TaskbarWindow'` error came
 from. `ThemeLoader.cs` therefore:
@@ -134,10 +137,10 @@ from. `ThemeLoader.cs` therefore:
    pack URI);
 3. serializes to a `MemoryStream` and calls `XamlReader.Load(stream, new ParserContext { BaseUri = <file path> })`.
 
-`BaseUri` is what resolves the relative PNG `UriSource`s (`../Resources/...`). The file on
-disk is never rewritten, which is why the theme ships as `Content` (copied next to the
-executable) and is **not compiled into BAML** - it is excluded from `Page`/`Resource` in
-the `.csproj`.
+The theme ships as `Content` (copied next to the executable) and is **not compiled into
+BAML** — it is excluded from `Page`/`Resource` in the `.csproj`. The `Resources/` folder
+next to the executable still ships the eight native Aero 9-slice PNGs required by the
+C++/WIC frame renderer; WPF theme images do not come from that folder.
 
 ---
 

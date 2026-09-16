@@ -67,10 +67,9 @@ namespace Win7Taskbar
         /// </summary>
         public static ResourceDictionary Build()
         {
-            // Controllo preliminare: il tema e le PNG stanno su disco accanto
-            // all'eseguibile, quindi l'errore di gran lunga piu' frequente
-            // e' uno ZIP estratto senza mantenere le sottocartelle. Meglio un
-            // messaggio che dice cosa manca di una XamlParseException criptica.
+            // Controllo preliminare: il tema e la cartella Resources (slice
+            // native) stanno su disco accanto all'eseguibile. L'errore piu'
+            // frequente e' uno ZIP estratto senza le sottocartelle.
             VerifyLayoutOnDisk();
 
             var root = new ResourceDictionary();
@@ -113,16 +112,16 @@ namespace Win7Taskbar
 
         /// <summary>
         /// Percorso di Themes/Windows7.xaml accanto all'eseguibile.
-        /// Il tema resta un file su disco perche' referenzia le PNG con URI
-        /// relativi ("../Resources/..."), esattamente come nel repository.
+        /// Il tema resta un file su disco (Content, non BAML); le immagini WPF
+        /// arrivano da GraphicalResourceBundle, le otto slice native da Resources/.
         /// </summary>
         public static string ThemeFilePath => Path.Combine(
             AppDomain.CurrentDomain.BaseDirectory, "Themes", "Windows7.xaml");
 
         /// <summary>
-        /// Verifica che accanto all'eseguibile ci siano Themes\ e Resources\,
-        /// e che dentro Resources\ ci siano davvero le PNG del tema. Senza di
-        /// esse il tema carica ma i pulsanti restano vuoti.
+        /// Verifica che accanto all'eseguibile ci siano Themes\ e Resources\.
+        /// Resources\ deve esistere per le otto slice native Aero; le immagini
+        /// WPF del tema arrivano dal bundle Base64, non da quella cartella.
         /// </summary>
         private static void VerifyLayoutOnDisk()
         {
@@ -148,7 +147,7 @@ namespace Win7Taskbar
                     "Estrazione incompleta: mancano " + string.Join(", ", missing) +
                     " accanto a Win7Taskbar.exe (cartella " + baseDir + "). " +
                     "Estrai di nuovo lo ZIP mantenendo la struttura delle cartelle: " +
-                    "il tema e le immagini vengono letti da disco a runtime.",
+                    "il tema e le slice native Aero vengono letti da disco a runtime.",
                     ThemeFilePath);
             }
         }
@@ -179,8 +178,8 @@ namespace Win7Taskbar
 
             document.Root.AddFirst(mergedElement);
 
-            // BaseUri fa risolvere gli UriSource relativi delle PNG
-            // ("../Resources/...") rispetto alla cartella Themes.
+            // BaseUri resta impostato sul file tema (compatibilità parser);
+            // le immagini WPF non usano più UriSource relativi alle PNG.
             var context = new ParserContext
             {
                 BaseUri = new Uri(path, UriKind.Absolute)

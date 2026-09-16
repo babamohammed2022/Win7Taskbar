@@ -5908,8 +5908,8 @@ namespace Win7Taskbar
         /// v2.46: la sorgente e' l'icona fornita dall'utente (cartella di
         /// documenti con la lente), incorporata come PNG base64
         /// (EmbeddedAssets.SearchIcon: 64x74, ritagliata sul contenuto reale).
-        /// Il file Resources/win7search.png resta come ripiego, cosi' una
-        /// risorsa incorporata illeggibile non lascia il pulsante vuoto.</summary>
+        /// Il ripiego su Resources/win7search.png e' stato rimosso: quel PNG e'
+        /// nel GraphicalResourceBundle e non e' piu' un file runtime.</summary>
         private void LoadSearchIconPixels()
         {
             try
