@@ -50,6 +50,14 @@ namespace Win7Taskbar
     ///     &lt;ResourceDictionary.MergedDictionaries&gt;
     /// che punta a Base.xaml, e il risultato viene passato a XamlReader.
     /// Il file Themes/Windows7.xaml su disco resta byte-identico all'originale.
+    /// 
+    /// IL SECONDO PROBLEMA
+    /// -------------------
+    /// Il tema contiene StaticResource su Win7Taskbar.Utilities.GraphicalResourceBundle,
+    /// che WPF risolve via reflection. Quando XamlReader.Load() parse il tema a runtime,
+    /// il ParserContext non ha informazioni sui namespace CLR, quindi la risoluzione
+    /// fallisce con "Type reference cannot find type named". La soluzione e' aggiungere
+    /// un XamlTypeMapper al ParserContext che mappa il namespace al nostro assembly.
     /// </summary>
     public static class ThemeLoader
     {
@@ -180,9 +188,17 @@ namespace Win7Taskbar
 
             // BaseUri resta impostato sul file tema (compatibilità parser);
             // le immagini WPF non usano più UriSource relativi alle PNG.
+            // XamlTypeMapper: risolvi i tipi CLR del namespace Win7Taskbar.Utilities
+            // (GraphicalResourceBundle) quando il parser incontra StaticExtension.
+            var typeMapper = new XamlTypeMapper(new string[]
+            {
+                "clr-namespace:Win7Taskbar.Utilities;assembly=Win7Taskbar"
+            });
+
             var context = new ParserContext
             {
-                BaseUri = new Uri(path, UriKind.Absolute)
+                BaseUri = new Uri(path, UriKind.Absolute),
+                XamlTypeMapper = typeMapper
             };
 
             // XamlReader.Load accetta ParserContext solo con uno Stream:
