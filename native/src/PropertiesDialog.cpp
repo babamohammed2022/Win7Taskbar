@@ -71,10 +71,10 @@ constexpr short MAIN_HEIGHT = 326;
  * prodotto, come "Windows 7" e "Windows 10/11"). */
 constexpr const wchar_t* kFlyoutWin7  = L"Windows 7";
 constexpr const wchar_t* kFlyoutWin10 = L"Windows 10/11";
-/* v1.4: la tendina della BATTERIA non ha piu' la voce "Windows 11":
- * il riquadro reale che si apre e' quello di Windows 10 (Win32), con la
- * chiave legacy applicata solo attorno al tentativo di apertura. */
-constexpr const wchar_t* kFlyoutBatteryWin10 = L"Windows 10";
+/* v1.7: la voce "Windows 7" apre SEMPRE il riquadro ricreato; la voce
+ * "Windows 10/11" punta al riquadro reale della shell (con la chiave
+ * legacy applicata solo attorno al tentativo di apertura). */
+constexpr const wchar_t* kFlyoutBatteryWin10 = L"Windows 10/11";
 
 enum CtrlId {
     IDC_TAB_MAIN = 100,
@@ -462,11 +462,14 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
         msg.lang = (langSel >= 0 && langSel <= 10) ? langSel : 0;
     }
     {
-        /* v3.5: stile dell'indicatore della lingua di input. */
+        /* v3.5: input language indicator style.
+         * v1.7.6: the dropdown no longer offers value 3 ("Windows 10/11"),
+         * so the read stops at 2 too; a CB_ERR (invalid selection) falls
+         * back to the Windows 7 default, as before. */
         const int32_t langBarSel = static_cast<int32_t>(
             SendDlgItemMessageW(m_hWnd, IDC_CMB_LANGBAR, CB_GETCURSEL, 0, 0));
         msg.inputLanguageMode =
-            (langBarSel >= 0 && langBarSel <= 3) ? langBarSel : 1;
+            (langBarSel >= 0 && langBarSel <= 2) ? langBarSel : 1;
     }
     msg.openSearch = openSearch ? 1 : 0;
     msg.closeApp = closeApp ? 1 : 0;
@@ -639,14 +642,21 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         ComboBox_AddString(hCB, kFlyoutBatteryWin10); /* 1 = riquadro reale di Windows 10 */
         ComboBox_SetCurSel(hCB, self->m_batteryFlyout ? 0 : 1);
 
-        /* v3.5: stile dell'indicatore della lingua di input.
-         * 0 nascosta, 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11. */
+        /* v3.5: input language indicator style.
+         * 0 hidden, 1 Windows 7, 2 Windows 8.1.
+         * v1.7.6: the "Windows 10/11" option (value 3) is HIDDEN as
+         * requested: the item is gone from the dropdown. A 3 saved in the
+         * past keeps working until Properties is opened and applied again:
+         * the combo shows it as Windows 8.1 (the nearest available option)
+         * and a fresh Apply normalizes it to 2. The packet field and the
+         * managed-side validation still accept 0..3 for settings files
+         * already written. */
         HWND hCLB = GetDlgItem(hwnd, IDC_CMB_LANGBAR);
         ComboBox_AddString(hCLB, S.langHidden);    /* 0 = nascosta */
         ComboBox_AddString(hCLB, S.langWin7);      /* 1 = Windows 7 */
         ComboBox_AddString(hCLB, S.langWin81);     /* 2 = Windows 8.1 */
-        ComboBox_AddString(hCLB, S.langWin10);     /* 3 = Windows 10/11 */
-        ComboBox_SetCurSel(hCLB, self->m_inputLanguageMode);
+        ComboBox_SetCurSel(hCLB, self->m_inputLanguageMode >= 3
+                                     ? 2 : self->m_inputLanguageMode);
 
         SendDlgItemMessageW(hwnd, IDC_CHK_SECONDS, BM_SETCHECK,
                             self->m_seconds ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -693,18 +703,9 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             self->SendApply(false, true);
             DestroyWindow(hwnd);
         } else if (id == IDC_BTN_CUSTOMIZE) {
-            /* "Personalizza..." dell'area di notifica: STESSO comando del menu
-             * di overflow della barra. E' il core nativo che apre la pagina
-             * vera di Windows (CLSID shell:::{05D7B0F4-2121-4EFF-BF6B-ED3F69B894D9},
-             * con i suoi ripieghi): qui non si inventa nessun percorso
-             * alternativo, perche' il comportamento deve essere identico a
-             * quello che l'utente ottiene dall'altro ingresso. */
+            /* Open Windows' native Notification Area settings page
+             * directly; the removed in-process imitation is not involved. */
             if (W7T_OpenNotificationIconsSettings() != W7T_OK) {
-                /* v2.50: ULTIMO ripiego identico a quello del link
-                 * "Personalizza..." della barra (OpenNotificationAreaIconsApplet):
-                 * se la pagina classica non si apre, si apre l'equivalente
-                 * moderno. Cosi' i due ingressi fanno esattamente la stessa
-                 * cosa, nello stesso ordine. */
                 ShellExecuteW(nullptr, L"open", L"ms-settings:taskbar",
                               nullptr, nullptr, SW_SHOW);
             }

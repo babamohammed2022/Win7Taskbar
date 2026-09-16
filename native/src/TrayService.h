@@ -103,6 +103,14 @@ struct TrayIconEntry {
     bool    lastReadFailed   = false;  /* l'ultima lettura non era valida    */
     uint32_t toolbarId       = 0;      /* idCommand del pulsante reale      */
 
+    /* Persisted explicit visibility choice for this icon:
+     * -1 never chosen, 0 show icon and notifications, 1 only show
+     * notifications (icon lives in the overflow), 2 hide icon and
+     * notifications. Lives in TrayPrefsStore (a file, never the
+     * registry) and outranks everything except the "Always show all
+     * icons" checkbox. */
+    int32_t userBehavior = -1;
+
     /* v2.38 punto 3: isteresi anti-sfarfallio sull'icona di RETE. Un
      * cambio di pixel (es. roaming Wi-Fi tra access point) si adotta solo
      * dopo kConfirmReads letture concordi, stesso principio di
@@ -205,6 +213,9 @@ public:
                           uint8_t* pixels, int32_t pixelsBytes);
     int32_t SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickType, int32_t x, int32_t y);
     int32_t SetPinned(uint64_t ownerHwnd, uint32_t uid, int32_t pinned);
+
+    /* Persisted three-state behavior used by tray drag and overflow. */
+    int32_t SetBehavior(uint64_t ownerHwnd, uint32_t uid, int32_t behavior);
 
     /* v2.62: il frontend dichiara pronta (o no) l'esperienza del riquadro di
      * rete di Windows 7: vedi SendClick. */
@@ -328,6 +339,15 @@ private:
      * la mod apra il suo flyout classico. TRUE = clic gia' gestito. */
     bool TryWindhawkNetFlyoutClick(uint64_t ownerHwnd, uint32_t uid);
     void RemoveEntryLocked(const TrayIconKey& key);
+
+    /* v1.7.6: the SINGLE resolution of an entry's visibility: saved
+     * choice + "Always show all icons" + the system-icon switches.
+     * barVisible = the icon shows on the bar; presentSomewhere = the icon
+     * lives in any view (bar or overflow): false means invisible
+     * everywhere, and its balloons stay silent too. Requires m_mutex. */
+    void ResolveVisibilityLocked(const TrayIconEntry& entry,
+                                  bool& barVisible,
+                                  bool& presentSomewhere) const;
     void PurgeDuplicateIdentityLocked(const TrayIconKey& key,
                                       const std::wstring& tooltip,
                                       const std::wstring& ownerPath);

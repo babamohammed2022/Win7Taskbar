@@ -30,23 +30,67 @@ constexpr UINT kGroupMinimizeId = 0xF100;
 constexpr UINT kGroupCloseId    = 0xF101;
 
 /*
- * TrackPopupMenu ha una stranezza storica: se la finestra proprietaria non
- * e' in primo piano, il menu resta aperto anche dopo un click fuori. La
- * soluzione documentata da Microsoft e' SetForegroundWindow prima e un
- * PostMessage(WM_NULL) dopo.
+ * Historical TrackPopupMenu quirk: if the owner window is not in the
+ * foreground, the menu stays open even after a click outside. Microsoft
+ * documents SetForegroundWindow before and PostMessage(WM_NULL) after.
+ *
+ * v1.7.6 - THE MENU OUTRANKS THE TASKBAR. The popup menu window is
+ * placed directly above its owner window in the z-order, INSIDE the owner's
+ * band: with a non-topmost owner the menu sits in the normal band while
+ * the taskbar (WS_EX_TOPMOST, always-on-top by design) paints over it -
+ * the menu looked "cut off" by the bar and clicks on covered items hit the
+ * buttons instead. Context menus therefore get PRIORITY over the taskbar:
+ * the owner is created topmost (see GetMenuOwnerWindow) and is pushed to
+ * the front of the topmost band right before every TrackPopupMenuEx,
+ * exactly like the tray drag-ghost does against the overflow panel. The
+ * owner window is a 0x0, never-visible popup, so its topmost flag has no
+ * other effect; the menu dies with the tracking call and never outlives
+ * the scope.
  */
+LRESULT CALLBACK MenuPriorityCbtProc(int code, WPARAM wParam, LPARAM lParam) {
+    if (code == HCBT_CREATEWND || code == HCBT_ACTIVATE) {
+        HWND hwnd = reinterpret_cast<HWND>(wParam);
+        wchar_t className[32] = {};
+        if (hwnd != nullptr &&
+            GetClassNameW(hwnd, className, static_cast<int>(std::size(className))) > 0 &&
+            lstrcmpW(className, L"#32768") == 0) {
+            /* A tracked menu is its own #32768 window. Put that actual
+             * window, not only its invisible owner, at the front of the
+             * topmost band. This outranks the WS_EX_TOPMOST taskbar even
+             * when its AppBar guard reasserts the taskbar during tracking. */
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE,
+                GetWindowLongPtrW(hwnd, GWL_EXSTYLE) | WS_EX_TOPMOST);
+            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+                         SWP_NOOWNERZORDER);
+        }
+    }
+    return CallNextHookEx(nullptr, code, wParam, lParam);
+}
+
 class ForegroundMenuScope {
 public:
     explicit ForegroundMenuScope(HWND owner) : m_owner(owner) {
+        /* Track the menu window creation on this thread. Merely making the
+         * hidden owner topmost is insufficient: Windows can create #32768
+         * below a taskbar which has just reasserted its own z priority. */
+        m_cbtHook = SetWindowsHookExW(WH_CBT, MenuPriorityCbtProc, nullptr,
+                                      GetCurrentThreadId());
         SetForegroundWindow(m_owner);
+        SetWindowPos(m_owner, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER);
     }
 
     ~ForegroundMenuScope() {
+        if (m_cbtHook != nullptr) {
+            UnhookWindowsHookEx(m_cbtHook);
+        }
         PostMessageW(m_owner, WM_NULL, 0, 0);
     }
 
 private:
     HWND m_owner;
+    HHOOK m_cbtHook = nullptr;
 };
 
 /*
@@ -73,7 +117,11 @@ HWND GetMenuOwnerWindow() {
         }
     }
 
-    s_owner = CreateWindowExW(WS_EX_TOOLWINDOW, L"Win7TaskbarMenuOwner", L"",
+    /* v1.7.6: WS_EX_TOPMOST carries the menu into the topmost band, so a
+     * context menu always opens ABOVE the taskbar window itself (see
+     * ForegroundMenuScope for the full story). */
+    s_owner = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+                              L"Win7TaskbarMenuOwner", L"",
                               WS_POPUP, 0, 0, 0, 0,
                               nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
     return s_owner;
@@ -179,73 +227,75 @@ int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
     }
 
     /* GetSystemMenu puo' fallire quando la finestra appartiene a un altro
-     * processo con integrita' piu' alta (app elevate, UWP) oppure quando la
+     * processo con integrita' piu' alta (app elevate) oppure quando la
      * finestra non ha un menu di sistema proprio. In quel caso Windows 7
      * mostra comunque il menu: lo ricostruiamo con le voci standard e lo
      * stato corretto, invece di non mostrare nulla. */
     if (systemMenu == nullptr) {
         BuildFallbackWindowMenu(popup, ownerHwnd);
+    } else {
+        /* Copia voce per voce: cosi' rispettiamo esattamente cio' che
+         * l'applicazione espone, comprese le voci personalizzate. */
+        const int count = GetMenuItemCount(systemMenu);
+        for (int i = 0; i < count; ++i) {
+            wchar_t text[256] = {};
+            MENUITEMINFOW info = {};
+            info.cbSize     = sizeof(info);
+            info.fMask      = MIIM_ID | MIIM_STATE | MIIM_FTYPE | MIIM_STRING;
+            info.dwTypeData = text;
+            info.cch        = static_cast<UINT>(std::size(text));
 
-        if (GetMenuItemCount(popup) == 0) {
-            DestroyMenu(popup);
-            return W7T_ERR_NOT_FOUND;
+            if (!GetMenuItemInfoW(systemMenu, static_cast<UINT>(i), TRUE, &info)) {
+                continue;
+            }
+
+            if ((info.fType & MFT_SEPARATOR) != 0) {
+                AppendMenuW(popup, MF_SEPARATOR, 0, nullptr);
+                continue;
+            }
+
+            UINT flags = MF_STRING;
+            if ((info.fState & MFS_DISABLED) != 0 ||
+                (info.fState & MFS_GRAYED) != 0) {
+                flags |= MF_GRAYED;
+            }
+            if ((info.fState & MFS_CHECKED) != 0) {
+                flags |= MF_CHECKED;
+            }
+            if ((info.fState & MFS_DEFAULT) != 0) {
+                flags |= MF_DEFAULT;
+            }
+
+            /* info.cch viene azzerato per le voci senza testo. */
+            info.dwTypeData = text;
+            AppendMenuW(popup, flags, info.wID, text);
         }
-
-        int32_t picked = 0;
-        {
-            ForegroundMenuScope scope(menuOwner);
-            picked = static_cast<int32_t>(TrackPopupMenuEx(
-                popup, CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
-        }
-
-        DestroyMenu(popup);
-
-        if (picked != 0) {
-            PostMessageW(ownerHwnd, WM_SYSCOMMAND, static_cast<WPARAM>(picked),
-                         MAKELPARAM(x, y));
-        }
-        return W7T_OK;
     }
 
-    /* Copia voce per voce: cosi' rispettiamo esattamente cio' che
-     * l'applicazione espone, comprese le voci personalizzate. */
-    const int count = GetMenuItemCount(systemMenu);
-    for (int i = 0; i < count; ++i) {
-        wchar_t text[256] = {};
-        MENUITEMINFOW info = {};
-        info.cbSize     = sizeof(info);
-        info.fMask      = MIIM_ID | MIIM_STATE | MIIM_FTYPE | MIIM_STRING;
-        info.dwTypeData = text;
-        info.cch        = static_cast<UINT>(std::size(text));
-
-        if (!GetMenuItemInfoW(systemMenu, static_cast<UINT>(i), TRUE, &info)) {
-            continue;
+    /* v1.7.1: a copied system menu can come back EMPTY or with every item
+     * disabled (packaged/UWP frame windows such as Snipping Tool on
+     * Windows 11 24H2 expose a stub menu). Windows 7 always shows
+     * something there: rebuild the standard menu instead of showing
+     * nothing, so Close/Minimize are always available. */
+    bool usable = false;
+    const int copiedCount = GetMenuItemCount(popup);
+    for (int i = 0; i < copiedCount && !usable; ++i) {
+        MENUITEMINFOW state = {};
+        state.cbSize = sizeof(state);
+        state.fMask  = MIIM_STATE | MIIM_FTYPE;
+        if (GetMenuItemInfoW(popup, static_cast<UINT>(i), TRUE, &state) &&
+            (state.fType & MFT_SEPARATOR) == 0 &&
+            (state.fState & (MFS_DISABLED | MFS_GRAYED)) == 0) {
+            usable = true;
         }
-
-        if ((info.fType & MFT_SEPARATOR) != 0) {
-            AppendMenuW(popup, MF_SEPARATOR, 0, nullptr);
-            continue;
-        }
-
-        UINT flags = MF_STRING;
-        if ((info.fState & MFS_DISABLED) != 0 || (info.fState & MFS_GRAYED) != 0) {
-            flags |= MF_GRAYED;
-        }
-        if ((info.fState & MFS_CHECKED) != 0) {
-            flags |= MF_CHECKED;
-        }
-        if ((info.fState & MFS_DEFAULT) != 0) {
-            flags |= MF_DEFAULT;
-        }
-
-        /* info.cch viene azzerato per le voci senza testo. */
-        info.dwTypeData = text;
-        AppendMenuW(popup, flags, info.wID, text);
     }
-
-    if (GetMenuItemCount(popup) == 0) {
+    if (!usable) {
         DestroyMenu(popup);
-        return W7T_ERR_NOT_FOUND;
+        popup = CreatePopupMenu();
+        if (popup == nullptr) {
+            return W7T_ERR_APPBAR;
+        }
+        BuildFallbackWindowMenu(popup, ownerHwnd);
     }
 
     int32_t chosen = 0;

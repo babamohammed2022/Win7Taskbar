@@ -48,21 +48,90 @@
     <Description>Taskbar in stile Windows 7 per Windows 10/11</Description>
     <Copyright>Copyright (c) 2026 Win7Taskbar contributors</Copyright>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
-    <!-- 1.4.0-alpha: il selettore della lingua e' il port del mod
-         "Windows 7/8.1 Language Switcher Restorer" (popup nativo
-         GDI/GDI+ con menu Windows 7 e targhetta Windows 8.1, cambio
-         layout alla finestra col primo piano, 25 lingue dei piedi); la
-         sigla della lingua attiva e' disegnata nella tray XAML e non
-         sparisce piu'; la chiave legacy della batteria e' TRANSITORIA
-         (scritta solo attorno al tentativo, poi ripristinata); il clic
-         dei pulsanti di sistema della tray Win11 ha il ripiego per
-         coordinate; la tendina batteria perde la voce "Windows 11"
-         (il riquadro reale e' quello di Windows 10); i separatori di
-         gruppo tornano piu' vicini all'icona e a spessore uniforme;
-         "Centro mobility" tradotto "Centro PC portatile". -->
-    <Version>1.4.0-alpha</Version>
-    <AssemblyVersion>1.4.0.0</AssemblyVersion>
-    <FileVersion>1.4.0.0</FileVersion>
+    <!-- 1.7.0-alpha: il popup del selettore lingue vive su un thread
+         nativo dedicato (il click sulla sigla non crea piu' finestre sul
+         thread WPF; ripiego inline se il thread non parte); le eccezioni
+         non gestite dell'interfaccia gestita vengono ingoiate col
+         rapporto diagnostico (la barra resta viva); batteria: la voce
+         "Windows 7" apre SEMPRE il ricreato e la tendina torna
+         "Windows 7" / "Windows 10/11"; il riquadro ricreato cresce del
+         2,5%, si apre del 2% piu' in alto, copia i colori del pannello
+         overflow, si chiude col click fuori e ha hover e cursore a mano
+         sul link; separatori neri con la base dell'una-scheda aumentata
+         dell'1,5% (2 finestre) e del 2% (3+) piu' bordo destro al
+         limite; i lettori UIA registrano solo i cambiamenti del numero
+         di icone. -->
+    <!-- 1.7.1-alpha: the app-button context menu falls back to the
+         standard items when a window's copied system menu is empty or
+         fully disabled (packaged Snipping Tool on Windows 11 24H2 opened
+         no menu at all); the battery flyout opens 7% higher (footer text
+         no longer clipped) and hover only tints the power-link text (the
+         footer keeps its gradient at rest and under the mouse); window
+         separators switch to the soft-edged native strip at
+         Resources/multiplewindowborder.png drawn as a no-layout overlay
+         at the button's right edge (1 line with 2 windows, 2 lines with
+         3+), so the icon keeps its exact size; the SEH vector-handler
+         installs once per process; the battery-flyout teardown is skipped
+         when the flyout was never created; GDI objects in the flyout
+         paint are RAII-managed; app-button click and menu handlers catch
+         and log their failures. -->
+    <!-- 1.7.2-alpha: packaged (UWP) apps get their REAL icon - the
+         window's AppUserModelID + the shell Apps Folder item
+         (IShellItemImageFactory), also used for store shortcuts whose
+         .lnk has no icon location; the tray pin toggle (the small gray
+         square with the "move between tray and overflow" tooltip) is
+         hidden (Visibility=Collapsed, code untouched); the search button
+         gets an explicit hover tint; the outer window-separator line
+         drifts right by 2% of the button per open window, counted up to
+         3 windows; the language switcher only invokes its managed
+         callback from the thread that registered it (the WPF thread -
+         invoking it from the dedicated popup thread could kill the
+         process on click); MSVC invalid-parameter/abort dialogs are
+         demoted to logged, survivable errors (the "Exception Processing
+         Message 0xc0000005" box was a CRT abort, not an access
+         violation); repeated tray "uid renewed" log lines collapse into
+         one line with a suppressed counter. -->
+    <!-- 1.7.3-alpha: the window-separator strip now loads with the same
+         relative BitmapImage mechanism as every other theme PNG
+         (pack://siteoforigin did not render on real machines, so the
+         separators were invisible); the language-change delegate gets a
+         process-wide GC root and the popup tick/thread bodies are SEH
+         guarded (another attempt at the ITA-click process exit), with a
+         LANGSW export probe in the diagnostics log to settle whether the
+         core DLL next to the exe really exports the switcher; the
+         taskbar buttons show the "forbidden" cursor and skip unsupported
+         files when an executable declares SupportedTypes in the
+         registry. -->
+    <!-- 1.7.4-alpha: window previews are back (live DWM thumbnail with the
+         positive confirmation timeout that falls back to the app icon -
+         registration success alone never proved the compositor painted
+         anything); the window-separator strip finally ships (the PNG sat
+         only in the repo-root Resources folder, which the project never
+         copies: it now lives next to the other theme PNGs); the ITA
+         indicator opens a plain Win32 menu through W7T_ShowContextMenuEx
+         and applies the layout with WM_INPUTLANGCHANGEREQUEST - no
+         dedicated thread, no managed callback across the boundary (the
+         crash class is removed by construction); the app bar re-asserts
+         its topmost position on every foreground change (fullscreen apps
+         could cover the taskbar). -->
+    <!-- 1.7.5-alpha: the native language popup is back as the ITA-click
+         UI, hardened: the hand-loaded GDI+ machinery (fifteen raw proc
+         pointers), the SEH longjmp wrappers, the managed change callback
+         and the critical-section healing hack are all REMOVED from the
+         switcher; the remaining paint paths use RAII guards (ScopeGuards.h)
+         and every entry point catches. The v1.7.4 shell menu stays as the
+         automatic fallback if the popup path cannot be reached. -->
+    <!-- 1.8.0-alpha follow-up: tracked #32768 context-menu windows are
+         promoted above the topmost AppBar; the private notification-area
+         settings imitation and its ABI/resources are removed in favor of
+         the native Windows page; stacked separators move 2% right and the
+         3+ pair is tightened by 1.5%; the language-restorer GDI+ checkmark
+         path is restored while all global shortcuts and shortcut hints stay
+         absent; taskmgr.exe is intentionally omitted from overflow because
+         its renewed IDs caused large runs of duplicate entries. -->
+    <Version>1.8.0-alpha</Version>
+    <AssemblyVersion>1.7.0.0</AssemblyVersion>
+    <FileVersion>1.7.0.0</FileVersion>
   
     <!-- v2.57: application icon (the classic Windows 7 flag in a single azure
          blue). Setting ApplicationIcon gives the executable the icon and, in

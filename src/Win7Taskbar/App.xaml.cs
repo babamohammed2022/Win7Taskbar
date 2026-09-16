@@ -46,6 +46,43 @@ namespace Win7Taskbar
             StartupGuard.DetectPreviousCrash(e.Args);
             StartupGuard.Enter("avvio");
 
+            // v1.7 - LE ECCEZIONI DELL'INTERFACCIA VENGONO INGOIATE: la
+            // barra non si chiude piu' per un'eccezione non gestita su un
+            // gestore eventi (es. il click su una voce della tray). L'
+            // evento viene scritto nel rapporto diagnostico e l'esecuzione
+            // continua: e' il richiesto "deve ingoiare le eccezioni e
+            // aprire normalmente".
+            DispatcherUnhandledException += (_, e) =>
+            {
+                try
+                {
+                    DiagnosticLogger.Snapshot("dispatcher-exception");
+                    StartupGuard.Note(
+                        "eccezione interfaccia ingoiata: " +
+                        e.Exception.GetType().Name + ": " +
+                        e.Exception.Message);
+                }
+                catch
+                {
+                    // il rapporto non deve mai diventare il problema
+                }
+                e.Handled = true;
+            };
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            {
+                try
+                {
+                    var ex = e.ExceptionObject as Exception;
+                    DiagnosticLogger.Snapshot("domain-exception: " +
+                        (ex != null ? ex.GetType().Name + ": " + ex.Message
+                                    : "sconosciuta"));
+                }
+                catch
+                {
+                    // anche qui: il log non deve mai fallire
+                }
+            };
+
             if (StartupGuard.PreviousRunCrashed)
             {
                 StartupGuard.Note(

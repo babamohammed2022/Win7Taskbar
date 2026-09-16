@@ -6,14 +6,25 @@ A Windows 7-inspired taskbar recreation for Windows 10 and 11.
 
 Win7Taskbar is a software that recreates the Windows 7 taskbar on Windows 10 and Windows 11. It combines a XAML frontend with a native C++/Win32 backend to reproduce the Windows 7 Superbar, including grouped task buttons, the notification area, system flyouts, overflow handling, and a very similar Properties interface.
 
-This software has been tested on Windows 10 21H2 and Windows 10 22H2.
+This software has been tested on Windows 10 21H2, Windows 10 22H2, Windows 11 24H2 and Windows 11 25H2. However, on Windows 11, some functionality, particularly the system tray, is implemented as a recreation because the newer versions of the operating system no longer expose the same taskbar elements that were available on previous versions of Windows, so the system tray behavior on Windows 11 is replicated rather than directly provided by the native taskbar.
+
+On Windows 11, **ExplorerPatcher is recommended for the best experience**. Win7Taskbar can work without it, but ExplorerPatcher provides a more compatible Windows 10-style taskbar/shell environment and can expose the notification-area elements that Win7Taskbar can use directly. This can avoid falling back to recreated notification-area icons on Windows 11. ExplorerPatcher is optional and is not required for Win7Taskbar to run.
+
+> ⚠️ **Compatibility warning: RetroBar**
+>
+> **Do not run Win7Taskbar together with RetroBar.**
+>
+> Both applications hide and replace the Windows taskbar. Running them simultaneously can cause taskbar conflicts, unexpected behavior, duplicate UI elements, or an apparently missing taskbar.
+>
+> **Use one or the other, not both at the same time.**
+>
+> **Note:** ExplorerPatcher is different. On Windows 11, it can complement Win7Taskbar by restoring or exposing native Explorer taskbar functionality that Win7Taskbar can use.
 
 **Current state: `Alpha`**
 
 ## Screenshot
 
 <img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
-
 
 ## Requirements
 
@@ -31,9 +42,31 @@ This software has been tested on Windows 10 21H2 and Windows 10 22H2.
 
 ## Current status
 
-Win7Taskbar is still under development. Window thumbnail previews are temporarily disabled because the previous preview implementations were not reliable on real systems. Additionally, jump lists are not implemented yet. The application-name tooltip remains available.
+Win7Taskbar is still under development. Window thumbnail previews are temporarily disabled because the previous preview implementations were not reliable on real systems. Jump Lists are implemented as a dedicated subsystem - press and hold the left button on a taskbar button and drag upward past the taskbar to open the list, then release over an item to activate it (the data comes from the real Shell jump list APIs, and the right-click menu is unchanged); the interaction still needs verification on real hardware at all display scales. The application-name tooltip remains available.
+
+The tray's "Notification Area Icons" page (opened by *Customize notification area...* in the taskbar/clock menu, by the *Customize...* button in Properties, or by the *Customize...* link in the tray overflow) is a recreation of the Windows 7 page - see the [zero-footprint note](#zero-footprint-notification-area-icons-page) below.
 
 Other known limitations include unsupported decorative taskbar rotation and system windows that are hooked and repositioned rather than fully recreated.
+
+## Zero-footprint: "Notification Area Icons" page
+
+The page that selects which tray icons show, only notify, or stay hidden is
+fully owned by Win7Taskbar:
+
+* it lists and configures **only the icons of this program's tray** - it
+  never touches Windows' own tray, its Settings pages, or the `TrayNotify`
+  registry keys, and it never appears in the Control Panel;
+* every choice is stored in **`%LOCALAPPDATA%\Win7Taskbar\trayicons.ini`**
+  (the same folder as `toolbars.ini`) - nothing about it is written to the
+  registry, so deleting the program's folder removes the whole feature's
+  effect and the system is left exactly as it was;
+* the page is **modeless, in-process** (no `control.exe` host, no CLSID
+  registration, not even a temporary one) - therefore there is no
+  registration that a crash could orphan;
+* on the first run of this version, the **legacy key** older builds used to
+  keep per-icon pin state in (`HKCU\SOFTWARE\Win7Taskbar\TrayIconPrefs2`)
+  is imported into the ini file and then deleted by the program itself; if
+  the deletion ever fails, the cleanup is retried at the next start.
 
 ## Build
 
@@ -42,37 +75,6 @@ For the normal one-click build on Windows, double-click **`build.bat`** inside t
 For complete build, packaging, architecture, and development instructions, see [`docs/PROJECT-INSTRUCTIONS.md`](./docs/PROJECT-INSTRUCTIONS.md).
 
 For a concise user and build guide, see [`docs/QUICK-START.md`](./docs/QUICK-START.md).
-
-### Icon assets
-
-The tray icons the application draws by itself (volume, network, battery — see
-`native/src/TrayFallbackIcons.cpp`) and the battery glyphs of the flyout are
-compiled into the native DLL: `native/src/TrayIconAssets.inc` and
-`native/src/BatteryAssets.inc` are generated files and the only icon files the
-repository carries.
-
-The PNG sources are kept outside the history in `assets/icon-sources/` (ignored
-by git) and turned into the tables by
-[`compilation files/icons_to_base64.py`](./compilation%20files/icons_to_base64.py):
-
-```bash
-# tray icons (the names are the order of the generated table)
-python3 "compilation files/icons_to_base64.py" \
-  --icon kVolume0=assets/icon-sources/volume-0.png ... \
-  --icon kNetworkNotWorking=assets/icon-sources/network-not-working.png \
-  --cpp-out native/src/TrayIconAssets.inc
-
-# battery strip: the drawings are picked on the alpha bounding box, no
-# coordinate is written by hand; --cells chooses which drawing goes where
-python3 "compilation files/icons_to_base64.py" --style battery \
-  --strip assets/icon-sources/Bitmap303.png \
-  --cells 0,1,2,3,4,5,6,7,8,8,32,... --names kLevel1,... \
-  --cpp-out native/src/BatteryAssets.inc
-```
-
-`--list-runs` prints the inventory of a strip (index, position, size) and the
-header of the generated file records the mapping that was used, so replacing
-the artwork does not require guessing which drawing was which.
 
 ## Contributing
 
@@ -84,11 +86,10 @@ Please read [`AGENTS.md`](./docs/AGENTS.md) before making changes.
 
 - MAHMOGAMER - Arabic translation
 - WinBoeing777 - Testing on Windows 10 22H2 and providing resouces
+- AdministratoX - Testing on Windows 11 25H2
 
 Win7Taskbar was created using work from projects including RetroBar, ExplorerPatcher and ManagedShell.
 For additional information, please refer to the docs folder.
 
-
-
-## License 
+## License
 The project is licensed under **GNU GPL v3.0 or later**. See [`LICENSE`](./docs/LICENSE), [`CREDITS.txt`](./docs/CREDITS.txt), and [`THIRD-PARTY-NOTICES.md`](./docs/THIRD-PARTY-NOTICES.md) for licensing and attribution details.

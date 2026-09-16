@@ -82,7 +82,7 @@ namespace Win7Taskbar.Utilities
 
         private static readonly HashSet<string> StartHostClasses = new(StringComparer.Ordinal)
         {
-            "DV2ControlHost",                  // Win7 classico, StartIsBack, StartAllBack
+            "DV2ControlHost",                  // Win7 classico e i menu start ricreati
             "OpenShell.CMenuContainer",        // Open-Shell
             "XamlExplorerHostIslandWindow",    // Win11 (StartMenuExperienceHost)
             "Windows.UI.Core.CoreWindow",      // Win10 (ShellExperienceHost / SearchApp)
@@ -169,7 +169,7 @@ namespace Win7Taskbar.Utilities
 
         /// <summary>v2.7: chiude il menu mandando ESC alla sola finestra host
         /// aperta (mirato, nessuna iniezione globale): e' il tasto che ogni
-        /// implementazione del menu start (Win7/10/11, Open-Shell, StartAllBack)
+        /// implementazione del menu start (Win7/10/11, Open-Shell e simili)
         /// usa per chiudersi.</summary>
         [DllImport("user32.dll")]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
@@ -219,7 +219,7 @@ namespace Win7Taskbar.Utilities
             }
 
             // 1) ESC mirato al solo host aperto: chiude Win7 classico,
-            //    Open-Shell, StartAllBack e il menu Start "classico".
+            //    Open-Shell e i menu Start "classici".
             const uint WM_KEYDOWN = 0x0100;
             const uint WM_KEYUP = 0x0101;
             const uint VK_ESCAPE = 0x1B;

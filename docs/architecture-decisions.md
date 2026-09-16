@@ -58,29 +58,17 @@ close button, icon metrics) live in `Themes/Overrides.xaml`, never in the upstre
 obvious which values are ours: measured frames, paddings and gradients in the overrides
 file can be traced back to a changelog entry and a screenshot.
 
-## 5. Window previews: disabled until they can be verified
+## 5. Window previews: direct DWM surface, parent-owned chrome
 
-**Decision.** The preview popup is not opened at all (`TaskPreviewsEnabled` in
-`TaskbarWindow.xaml.cs`); hovering a task button shows the app-name tooltip only. Both
-previous implementations are kept, commented out, in `Controls/TaskThumbnail.cs`.
+**Decision.** `Controls/TaskThumbnail.xaml.cs` contains only the essential
+RetroBar DWM path: register the source window, fit it into 180×120, update the
+destination rectangle while rendering, and always deregister on unload.
+`TaskbarWindow.xaml` continues to own the Aero frame, close button, popup
+placement, activation and navigation.
 
-**Why.** *Unwanted rectangles* inside the popup were reported on real hardware in both
-variants. The live DWM thumbnail (up to v2.54) can fail **silently**: `DwmRegisterThumbnail`
-succeeds and the compositor then never paints, so the only thing visible is the popup
-backdrop, identical for every window. The static `PrintWindow` capture (v2.55) fails
-*loudly* (it returns `FALSE` and we fall back to the app icon), but a `TRUE` return still
-does not prove that the captured surface is the window content - several applications
-answer with an empty or stale surface - and the result also cannot move, which makes the
-popup feel frozen.
-
-**What a future implementation has to prove before this decision is reversed.**
-
-1. A **positive** confirmation that real content was drawn (a pixel read-back, a
-   non-uniformity check), not just a successful return code.
-2. A documented fallback that is invisible to the user: if the check fails, the popup must
-   look intentional (icon + title), not like an empty box.
-3. A single switch to turn the feature back on, so it can be tested per machine without
-   shipping it half-broken.
+The former confirmation timer, geometry proof, icon fallback and static
+`PrintWindow` paths were removed. DWM failures are isolated with `try/catch`
+and leave no registered thumbnail behind.
 
 ## 6. The overflow panel is a native popup, its behaviour mirrors Windows 7
 
@@ -194,38 +182,113 @@ fallback was chosen although the real surface was reachable.
 already absent from the newest Windows 11 Insider builds): then the battery
 entry keeps the chain but always lands on the recreated panel.
 
-## 11. v1.3.0-alpha: the input indicator is a full port, hosted by a thin managed slot
+## 11. v1.4/1.5: the language entry is the switcher port; the battery click is physically delivered
 
-**Decision (proposed fix, batch C).** The input language indicator stops
-being a WPF control that draws its own text. The three Windhawk mods that
-shaped the indicator on Windows (layout control, more space, fix rotated
-text) are ported one-to-one into the native core (`LanguageBar.cpp`), which
-creates the same window structure Windows uses: a `TrayInputIndicatorWClass`
-frame containing an `InputIndicatorButton` text child (recursive child
-search and cache, as in the reference port). The managed side keeps only the
-layout slot and forwards the on-screen rectangle (`W7T_LangBarPlace`).
+**Language entry.** The v1.3 native indicator slot (`LanguageBar.cpp`) is gone.
+The tray entry is a thin WPF `Border` (`InputLanguageBar`) that draws the active
+abbreviation and opens the core's native popup — the full port of the
+"Windows 7/8.1 Language Switcher Restorer" mod in `LanguageSwitcher.cpp`
+(GDI/GDI+ Win32 window, Win7 menu or Win8.1 card, layout switching for the
+window that had focus). One lesson is encoded twice: a `DependencyProperty`
+ignores no-op writes, so the mode is applied through an unconditional
+`ApplyMode()` that re-syncs visibility even when the value did not change —
+that exact case kept the entry collapsed forever with the default mode.
 
-Ported behaviours: the four layout-control modes (keepLayoutOnly / hide /
-show / windowsDefault) with the inverted `SPI_GETSYSTEMLANGUAGEBAR` reading
-and the BOOL-cast-to-`PVOID` `SPI_SETSYSTEMLANGUAGEBAR` write; the temporary
-hide (Remote Desktop in the foreground) is redirected to the text child so
-the tray never jumps; frame height never goes below 32 px (the DeferWindowPos
-rule of the more-space mod, enforced in `WM_WINDOWPOSCHANGING`); the code is
-drawn straight, centred with `DrawTextW(DT_CENTER|DT_VCENTER|DT_SINGLELINE|
-DT_NOPREFIX)`, only when it is a 2-4 letter alphabetic code, on a background
-sampled from the taskbar corner pixel with a `COLOR_BTNFACE` fallback (the
-fix-legacy mod's drawing rule). The ManagedShell mechanics stay: a 200 ms
-poll of the foreground thread's `HKL` and layout switching via
-`LoadKeyboardLayout(KLF_SUBSTITUTE_OK|KLF_ACTIVATE)` plus a
-`WM_INPUTLANGCHANGEREQUEST` broadcast; the picker menu lists installed
-layouts plus the four layout-control choices, translated from the core
-tables (all 11 languages).
+**Battery ("Windows 10" option).** The real Windows-10-style Win32 battery
+flyout still lives in explorer's own `stobject.dll` and is reachable with the
+`UseWin32BatteryFlyout` legacy value, which we assert ONLY around the open
+attempt and restore afterwards (the registry is left untouched between
+attempts; a purely in-memory override cannot work here, because the reader of
+that value is explorer's process, not ours). The missing piece was delivery:
+the accessibility patterns of the Windows 11 battery button are silent, and a
+synthetic click at the button's coordinates hit OUR taskbar, which covers the
+native one. v1.5 makes our windows at that point mouse-transparent for the
+instant of the click (`WS_EX_TRANSPARENT` + opaque layered style, restored by
+a reader-thread timer together with the cursor), so the click lands on the
+real button.
 
-**Why.** A recreated indicator drawn by WPF could not reproduce the mods'
-behaviours (they depend on the real window structure and on the system
-setting). The user required a complete port, with only the on-taskbar text
-drawn by our port.
+**Why not a downloaded Windows 10 `stobject.dll`.** Evaluated and rejected for
+now: `stobject.dll` exports only the standard COM surface
+(`DllGetClassObject`/`DllRegisterServer`/...), so hosting the Win10 binary
+in-process would require undocumented RVAs into C++ objects with no stable
+contract — strictly more fragile than the sanctioned in-memory key plus a
+physically delivered click on the real button. Revisit only if a Windows
+build removes the legacy flyout path from explorer's own `stobject.dll`.
 
-**Revisit if.** Windows changes the indicator classes again or removes the
-`SPI_SETSYSTEMLANGUAGEBAR` effect: the policy engine is isolated in
-`LanguageBar.cpp` and can follow.
+## 12. v1.6: our own windows swallow hardware faults (anti-mod hardening)
+
+**Decision.** The language-switcher popup's window procedure and the public
+entry points of its module run under the portable `W7T_SEH_*` guard: a
+hardware exception raised inside them (typically a third-party Windhawk mod
+hooking the same system APIs we call, and faulting) is logged and swallowed.
+Because swallowing skips the `Enter`/`Leave` pairs, every critical-section
+acquisition in the module goes through depth-counting helpers and the catch
+path releases whatever is left open; an interrupted paint validates its
+update region so Windows does not spin in an endless repaint. The entry
+points are guarded twice (here and at the C exports) on purpose.
+
+**Why.** A field crash happened with the language popup open: an unhandled
+exception from a window procedure kills the process that hosts it, and the
+taskbar must survive third-party software it does not control. The tray
+window procedure already had this shape (its `Inner` split dates from v2.6).
+
+**Limits.** Swallowing skips C++ unwinding: objects alive at the fault point
+leak once, and a `std::mutex` held across the fault would stay locked - that
+is why the guarded module uses raw critical sections with heal-on-fault and
+no locks are taken across the guarded boundary elsewhere.
+
+**Revisit if.** A fault repeats in one spot: the log line names the module
+phase, and the guard can then be narrowed to the exact call.
+
+## 13. Jump Lists: managed gesture state machine, native data + popup
+
+**Decision.** The Windows 7 Jump List opens exclusively from the left-button
+press + drag-up gesture on a task button (never from the right-click menu),
+and the implementation is split the way the rest of the project is:
+
+- `TaskbarWindow.JumpList.cs` runs the small state machine
+  (`Idle -> PotentialDrag -> Opening -> Open`) on the UI thread. Input uses
+  ordinary WPF mouse capture plus window-level tunneling handlers and manual
+  hit-test forwarding - the same mechanism the tray drag has used since v2.7.
+  No global mouse hook is introduced.
+- The popup itself is a native `WS_POPUP | WS_EX_NOACTIVATE` window with the
+  shared Aero flyout border (`JumpListWindow.cpp`), so it can show and
+  repaint while the WPF window keeps the capture, exactly like the tray
+  overflow panel (point 6).
+- Data comes only from documented Shell APIs: application identity via
+  `SHGetPropertyStoreForWindow` (window) and
+  `SHGetPropertyStoreFromParsingName` (the pinned .lnk) for the
+  AppUserModelID, and `IApplicationDocumentLists` for the Recent/Frequent
+  destinations. When the Shell exposes no list, no document rows appear -
+  nothing is invented.
+- Every coordinate crossing the interop boundary is a **screen physical
+  pixel**; the WPF side converts with `PointToScreen` only (both button
+  corners, never a size multiplied by a scale a second time), and the native
+  side scales its 96-DPI geometry with `GetDpiForScreenRect` for the monitor
+  of the button. The release-activates rule replaces the "click inside the
+  popup" flow: the popup never takes focus, so activation is the gesture's
+  own left-button release, forwarded by position.
+
+**Why.** The old v2.38/v2.40 shape (right-click opening a popup that grabs
+foreground and reads the hardware cursor itself) fought the WPF capture
+model, double-scaled coordinates at non-100% DPI, clamped only against the
+primary monitor, and shipped the document list disabled. A separate
+subsystem with one choke point per responsibility (identity, read, show,
+hover, commit, cancel) is what lets every failure path end quietly:
+capture always released, popup always hidden, exceptions always logged
+under the `JUMPLIST` tag.
+
+**Revisit if.** Windows removes or renames the automatic-destination read
+APIs, or the bar ever needs per-monitor instances: the pixel-space contract
+stays the same, only the monitor lookup of the anchor changes.
+
+## 14. Notification Area settings: delegate to Windows
+
+**Decision.** Every notification-area “Customize...” entry delegates directly
+to the native Windows page through `W7T_OpenNotificationIconsSettings`. The
+core first opens the shell namespace and retains the existing system fallbacks
+for Windows versions that redirect that namespace. Win7Taskbar does not create,
+register, host, or imitate a Control Panel applet.
+
+Per-icon placement selected by dragging between the taskbar and overflow remains
+portable in `trayicons.ini`; it is taskbar state, not a replacement settings UI.

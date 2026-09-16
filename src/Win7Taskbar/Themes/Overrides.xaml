@@ -33,6 +33,7 @@
          risponde Visible finche' il gruppo ha almeno tante finestre quante
          ne indica la posizione, e non disegna nulla con una sola finestra. -->
     <conv:WindowStackVisibilityConverter x:Key="WindowStackVisibility" />
+    <conv:WindowStackOuterBorderOffsetConverter x:Key="WindowStackOuterBorderOffset" />
 
     <!-- v2.61: sposta di una percentuale della larghezza del pulsante (5%)
          le linee dell'indicatore "finestre impilate". Proporzionale alla
@@ -57,7 +58,16 @@
          ================================================================== -->
     <ControlTemplate x:Key="TaskPreviewFrameVista"
                      TargetType="ContentControl">
-        <Grid SnapsToDevicePixels="True">
+        <!-- v1.7.6: the template now CONSUMES the control's Background
+             (TemplateBinding on the root Grid). The instance declares
+             #FFDCEBF9 - the same blue as the top of the frame images - and
+             until now the template ignored it: an unused declaration plus a
+             seam risk wherever the nine PNG pieces do not tile perfectly.
+             With the binding the frame rectangle is guaranteed painted
+             end to end, so no extra uncovered surface can appear next to
+             the Aero frame (the "white strip" family of defects). -->
+        <Grid SnapsToDevicePixels="True"
+              Background="{TemplateBinding Background}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -169,123 +179,94 @@
          cosa ci finisce dentro (icona + titolo + contatore di gruppo).
          ================================================================== -->
     <DataTemplate x:Key="TaskButtonContentTemplate">
-        <!-- VerticalAlignment=Stretch (non Center): il pannello del contenuto
-             deve occupare tutta l'altezza che il pulsante gli concede. Con
-             Center il pannello si stringe attorno all'icona da 24px e la
-             cornice del pulsante rimane alta ~28px su 40, cioe' il 70% della
-             barra. L'icona resta comunque centrata: e' l'Image ad avere
-             VerticalAlignment=Center dentro un pannello ora elastico. -->
-        <!-- v2.58: la cornice cresce di un altro 4% per lato (8.12 -> 8.45 px)
-             e con lei il pulsante: richiesta "pulsanti leggermente piu' larghi",
-             misurata sulla foto del pulsante di riferimento (57 px di larghezza
-             per un'icona da 32, cioe' ~12 px di aria per lato). Il pulsante
-             singolo passa da 50 a 52 px (il minimo e' risalito del 4%: vedi
-             SuperbarButtonMinWidth in TaskbarWindow.xaml) e il gruppo con
-             finestre impilate da 60.2 a 61.1 px. L'icona resta 32 px.
-
-             v2.56: la cornice cresce dell'1.5% per lato (8 -> 8.12 px), cosi'
-             il pulsante si allarga verso destra e verso sinistra come chiesto.
-
-             v2.55: la CORNICE attorno all'icona e' quella cerchiata in rosso
-             nella foto dell'utente: 8 px di aria per lato attorno all'icona
-             da 32 (pulsante da 48 px), simmetrica. L'imbottitura sta sul
-             ContentPresenter dei tre template (idle/running/active), cosi'
-             il pulsante ha la STESSA larghezza in tutti e tre gli stati e
-             non "salta" quando la finestra diventa attiva.
-
-             v2.51: il pannello del contenuto e' CENTRATO nel pulsante.
-             Prima stava a sinistra (HorizontalContentAlignment=Stretch del
-             bottone) e l'icona finiva spostata: l'indicatore "finestre
-             impilate" qui sotto e' una colonna da 10 px che esisteva anche
-             con UNA sola finestra, quindi l'icona risultava ~5 px a
-             sinistra del centro. -->
-        <StackPanel Orientation="Horizontal"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Stretch">
-            <!-- v2.53: 36 px. Il tema dichiara 32 e nei riquadri la misura
-                 resta quella; sulla barra l'utente le vuole graficamente
-                 come Windows 7, quindi leggermente piu' grandi. -->
-            <!-- v2.54: icona riportata a 32 px. La v2.53 l'aveva portata a 36
-                 e l'effetto era "icone ciccione": la richiesta era di
-                 allargare la CORNICE, non l'icona. -->
-            <Image Source="{Binding Icon}"
-                   Width="32"
-                   Height="32"
-                   Stretch="Uniform"
-                   SnapsToDevicePixels="True"
-                   RenderOptions.BitmapScalingMode="HighQuality"
-                   VerticalAlignment="Center" />
-
-            <!-- v3.5: indicatore "finestre impilate" di Windows 7 = i
-                 SEPARATORI di gruppo. Il pulsante disegna, subito a destra
-                 dell'icona, fino a DUE linee verticali sottili: una fra la
-                 prima e la seconda finestra, una fra la seconda e la terza.
-                 Oltre la terza finestra i separatori non crescono piu': le
-                 altre si raggiungono dalle anteprime. Colore: #1F314F.
-
-                 Misure prese dalla foto di riferimento: linee larghe 3 px,
-                 alte 30 px (qui l'intera altezza del pannello, come da
-                 stile esistente), la visibilita' della N-esima linea la
-                 decide WindowStackVisibilityConverter su WindowCount. -->
-            <!-- v2.51: con UNA sola finestra l'indicatore non esiste piu' per
-                 il layout (Collapsed), non solo per i pixel: il pulsante si
-                 stringe di 10 px e l'icona resta al centro esatto. La regola
-                 e' quella di Windows 7 e la stessa del converter. -->
-            <!-- v3.5: SEPARATORI DI GRUPPO in stile Superbar di Windows 7.
-                 Le linee verticali sottili fra le finestre dello stesso
-                 gruppo. La regola visiva e' quella della Superbar:
-                   1 finestra  -> 0 separatori
-                   2 finestre  -> 1 separatore
-                   3+ finestre -> 2 separatori (massimo, sempre)
-                 Colore richiesto dall'utente: #1F314F. Il rettangolo resta
-                 quello esistente (3 px, intera altezza): cambia solo il
-                 colore e il numero massimo di linee. -->
-            <!-- v1.4: le linee tornano piu' VICINE all'icona (dal 13% al
-                 9% della larghezza del pulsante: la richiesta e' di
-                 stringere da destra verso sinistra) e lo spessore torna
-                 UNIFORME a 3 px, sia con due finestre che con tre o piu'.
-                 E' una RenderTransform: non tocca il layout, quindi
-                 l'icona e il pulsante restano esattamente dove sono, si
-                 muovono solo le linee. -->
-            <Grid Width="12"
-                  Height="40"
-                  Margin="1,0,0,0"
-                  VerticalAlignment="Center"
-                  SnapsToDevicePixels="True"
-                  Visibility="{Binding WindowCount,
-                               Converter={StaticResource WindowStackVisibility},
-                               ConverterParameter=1}">
-                <Grid.RenderTransform>
-                    <TranslateTransform X="{Binding ActualWidth,
-                        RelativeSource={RelativeSource AncestorType=Button},
-                        Converter={StaticResource WidthRatio},
-                        ConverterParameter=0.09}" />
-                </Grid.RenderTransform>
-                <Border Width="3"
-                        Height="40"
-                        HorizontalAlignment="Left"
-                        CornerRadius="1"
-                        Background="#1F314F"
-                        BorderBrush="#1F314F"
-                        BorderThickness="1"
-                        SnapsToDevicePixels="True"
-                        Visibility="{Binding WindowCount,
-                                     Converter={StaticResource WindowStackVisibility},
-                                     ConverterParameter=1}" />
-                <Border Width="3"
-                        Height="40"
-                        Margin="4,0,0,0"
-                        HorizontalAlignment="Left"
-                        CornerRadius="1"
-                        Background="#1F314F"
-                        BorderBrush="#1F314F"
-                        BorderThickness="1"
-                        SnapsToDevicePixels="True"
-                        Visibility="{Binding WindowCount,
-                                     Converter={StaticResource WindowStackVisibility},
-                                     ConverterParameter=2}" />
+        <!-- v1.7.1: the template root is a Grid so the window-count
+             separators are a RIGHT-ALIGNED OVERLAY that takes no layout
+             space: the icon keeps exactly the size and position it has
+             with a single open window (the previous 12px column pushed
+             the icon off-centre). The lines are the native soft-edged
+             strip the user shipped at Resources/multiplewindowborder.png
+             (3x43, feathered alpha): no more hard 1px black rects.
+             Rules (Superbar): 2 windows -> 1 line, 3+ windows -> 2 lines,
+             the second one a small step further left. The overlay never
+             hittests, so clicks go through to the button. -->
+        <Grid>
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Stretch">
+                <!-- v2.54: icona a 32 px (la v2.53 l'aveva portata a 36 e
+                     l'effetto era "icone ciccione": la richiesta era di
+                     allargare la CORNICE, non l'icona). -->
+                <Image Source="{Binding Icon}"
+                       Width="32"
+                       Height="32"
+                       Stretch="Uniform"
+                       SnapsToDevicePixels="True"
+                       RenderOptions.BitmapScalingMode="HighQuality"
+                       VerticalAlignment="Center" />
+            </StackPanel>
+            <Grid IsHitTestVisible="False">
+                <!-- linea piu' vicina al bordo destro (2 finestre) -->
+                <!-- v1.7.2: the OUTER line slid slightly right as sheets
+                     opened: +2% of the button width per sheet, counted up
+                     to 3 (4+ behaves as 3). v1.7.6: +2.5% right for ALL
+                     lines at 2+ sheets, and a FURTHER +3% right for the
+                     outer line only when MORE THAN 2 sheets are open
+                     (3+ is one single case - no new per-sheet cases were
+                     invented above 3). Outer line totals: 4.5% at 2
+                     sheets, 9.5% at 3+. RenderTransform: zero layout
+                     impact, like the rest of the overlay. -->
+                <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
+                       Width="3" Height="40"
+                       Stretch="Fill"
+                       HorizontalAlignment="Right"
+                       VerticalAlignment="Center"
+                       Margin="0,0,1,0"
+                       SnapsToDevicePixels="True"
+                       Visibility="{Binding WindowCount,
+                                    Converter={StaticResource WindowStackVisibility},
+                                    ConverterParameter=1}">
+                    <Image.RenderTransform>
+                        <TranslateTransform>
+                            <TranslateTransform.X>
+                                <MultiBinding Converter="{StaticResource WindowStackOuterBorderOffset}">
+                                    <Binding RelativeSource="{RelativeSource AncestorType=Button}"
+                                             Path="ActualWidth" />
+                                    <Binding Path="WindowCount" />
+                                </MultiBinding>
+                            </TranslateTransform.X>
+                        </TranslateTransform>
+                    </Image.RenderTransform>
+                </Image>
+                <!-- seconda linea, un gradino piu' a sinistra (3+ finestre) -->
+                <!-- v1.7.6: this line slides +2.5% right as well
+                     (parameter "inner": it never gets the outer line's
+                     extra +3% at 3+ sheets). RenderTransform again:
+                     zero layout impact. -->
+                <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
+                       Width="3" Height="40"
+                       Stretch="Fill"
+                       HorizontalAlignment="Right"
+                       VerticalAlignment="Center"
+                       Margin="0,0,6,0"
+                       SnapsToDevicePixels="True"
+                       Visibility="{Binding WindowCount,
+                                    Converter={StaticResource WindowStackVisibility},
+                                    ConverterParameter=2}">
+                    <Image.RenderTransform>
+                        <TranslateTransform>
+                            <TranslateTransform.X>
+                                <MultiBinding Converter="{StaticResource WindowStackOuterBorderOffset}"
+                                              ConverterParameter="inner">
+                                    <Binding RelativeSource="{RelativeSource AncestorType=Button}"
+                                             Path="ActualWidth" />
+                                    <Binding Path="WindowCount" />
+                                </MultiBinding>
+                            </TranslateTransform.X>
+                        </TranslateTransform>
+                    </Image.RenderTransform>
+                </Image>
             </Grid>
-        </StackPanel>
+        </Grid>
     </DataTemplate>
 
     <!-- ==================================================================

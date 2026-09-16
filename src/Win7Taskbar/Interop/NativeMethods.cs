@@ -438,7 +438,7 @@ namespace Win7Taskbar.Interop
         // v1.4: selettore della lingua (port del mod switcher). Il testo
         // nella tray lo disegna il controllo gestito con la sigla che il
         // core legge dal thread col primo piano; il click apre il popup
-        // nativo (finestra Win32 GDI/GDI+ del core).
+        // nativo (finestra Win32 GDI del core).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_LangSwitcherShow(ulong ownerHwnd,
             ulong foregroundHwnd, int styleMode);
@@ -514,15 +514,41 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_CloseClassicVolume();
 
-        /// <summary>Jump List stile Windows 7. iconArgb = BGRA dritto,
-        /// top-down (puo' essere null se l'icona non e' disponibile).</summary>
+        // Jump List stile Windows 7 - sistema del gesto (clic sinistro +
+        // trascinamento verso l'alto,vedi TaskbarWindow.JumpList.cs).
+        // TUTTE le coordinate (rettangolo pulsante, punti hover/release)
+        // sono PIXEL FISICI DELLO SCHERMO: PointToScreen del WPF le produce
+        // gia' in quel sistema su un processo Per-Monitor-V2, quindi qui
+        // NON si moltiplica nessuna scala. La geometria del popup e' scalata
+        // dal nativo sul DPI del monitor del pulsante.
+
+        /// <summary>Apre il popup ancorato al pulsante e carica le voci
+        /// reali dalla shell. Ritorna il numero di voci (>=0) o un codice
+        /// negativo di fallimento. iconArgb = BGRA dritto, top-down (puo'
+        /// essere null). outAppId riceve l'AppUserModelID risolta.</summary>
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
                    CharSet = CharSet.Unicode)]
-        public static extern void W7T_JumpListShow(ref RECT buttonRect,
+        public static extern int W7T_JumpListOpen(ref RECT buttonRect,
+            int edge,
             [MarshalAs(UnmanagedType.LPWStr)] string title,
             [MarshalAs(UnmanagedType.LPWStr)] string launchPath,
             [MarshalAs(UnmanagedType.LPWStr)] string pinnedLnk,
-            int isPinned, [Out] uint[]? iconArgb, int iconW, int iconH, int lang);
+            int isPinned, ulong hwnd,
+            [MarshalAs(UnmanagedType.LPWStr)] string exePath,
+            [In] uint[]? iconArgb, int iconW, int iconH, int lang,
+            [Out] System.Text.StringBuilder? outAppId, int outAppIdCap);
+
+        /// <summary>1 se il punto schermo e' ancora nell'area di
+        /// interazione del gesto (popup + pulsante + corridoio).</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_JumpListSetHover(int screenX, int screenY);
+
+        /// <summary>Attiva la riga sotto il punto al rilascio del pulsante
+        /// sinistro; chiude sempre il popup. bits: 1 documento, 2 riga app,
+        /// 4 pin invertito. Ritorna 1 se il popup era aperto.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_JumpListActivateAt(int screenX, int screenY,
+            out int bits);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_JumpListHide();
@@ -625,6 +651,79 @@ namespace Win7Taskbar.Interop
         [DllImport("user32.dll")]
         public static extern IntPtr GetForegroundWindow();
 
+        // ---------------- v1.7.4: language bar via shell menu ----------------
+        // The ITA indicator now opens a plain Win32 menu (the same
+        // W7T_ShowContextMenuEx path the clock and the bar use, which never
+        // took the process down) and applies the picked layout with the
+        // canonical WM_INPUTLANGCHANGEREQUEST post. Public Win32 only; the
+        // dedicated popup thread and its managed callback stay untouched in
+        // the core but are no longer exercised.
+        internal const uint WM_INPUTLANGCHANGEREQUEST = 0x0050;
+        private const uint LOCALE_SLOCALIZEDDISPLAYNAME = 0x00000002;
+
+        [DllImport("user32.dll")]
+        public static extern uint GetKeyboardLayoutList(int nBuff,
+            [Out] IntPtr[]? lpList);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetKeyboardLayout(uint idThread);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd,
+            out uint processId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetLocaleInfoW(uint locale, uint lcType,
+            [Out] System.Text.StringBuilder data, int size);
+
+        [DllImport("user32.dll")]
+        public static extern bool PostMessageW(IntPtr hWnd, uint msg,
+            IntPtr wParam, IntPtr lParam);
+
+        /// <summary>Installed HKLs (may contain duplicates for different
+        /// keyboards of the same language: they are all offered).</summary>
+        internal static IntPtr[] GetInstalledKeyboardLayouts()
+        {
+            try
+            {
+                uint count = GetKeyboardLayoutList(0, null);
+                if (count == 0 || count > 64)
+                {
+                    return Array.Empty<IntPtr>();
+                }
+                var list = new IntPtr[count];
+                uint filled = GetKeyboardLayoutList((int)count, list);
+                if (filled == 0)
+                {
+                    return Array.Empty<IntPtr>();
+                }
+                Array.Resize(ref list, (int)filled);
+                return list;
+            }
+            catch (Exception)
+            {
+                return Array.Empty<IntPtr>();
+            }
+        }
+
+        /// <summary>Localized language name for an HKL (low word = language
+        /// identifier), e.g. "Italiano" for 0x0410. Empty on failure.</summary>
+        internal static string GetLanguageDisplayName(IntPtr hkl)
+        {
+            try
+            {
+                uint langId = (uint)(hkl.ToInt64() & 0xFFFF);
+                var sb = new System.Text.StringBuilder(128);
+                int n = GetLocaleInfoW(langId, LOCALE_SLOCALIZEDDISPLAYNAME,
+                    sb, sb.Capacity);
+                return n > 0 ? sb.ToString() : ("0x" + langId.ToString("X4"));
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
+        }
+
         // --- DWM: anteprime live delle finestre ---
         //
         // Stesse API usate dalla Superbar di Windows 7 e da RetroBar
@@ -666,27 +765,6 @@ namespace Win7Taskbar.Interop
             public int cy;
             public uint flags;
         }
-
-        /* =================================================================
-         * v2.55: cattura STATICA della finestra sorgente (PrintWindow).
-         *
-         * Sostituisce il thumbnail LIVE del DWM: quello poteva restare
-         * "silenzioso" (handle registrato ma mai reso visibile) e lasciava
-         * un rettangolo vuoto identico per qualunque finestra, senza un
-         * errore da intercettare. La cattura, invece, o restituisce pixel
-         * veri o fallisce in modo esplicito. Motivazione completa in
-         * Controls/TaskThumbnail.cs.
-         * ================================================================= */
-
-        public const uint PW_CLIENTONLY = 0x00000001;
-        // Necessario per le finestre con superfici accelerate (DirectX,
-        // DirectComposition: Chrome, Edge, molte app moderne): senza questo
-        // flag PrintWindow le cattura nere o vuote. Da Windows 8.1 in poi.
-        public const uint PW_RENDERFULLCONTENT = 0x00000002;
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
