@@ -5642,6 +5642,6 @@ namespace Win7Taskbar.Utilities
         public static BitmapImage? win7showdesktop => Get("win7showdesktop");
         public static BitmapImage? win7taskbar => Get("win7taskbar");
         public static int Count => Payloads.Count;
-        public static IReadOnlyCollection<string> Keys => Payloads.Keys;
+        public static IReadOnlyCollection<string> Keys => new List<string>(Payloads.Keys);
     }
 }
