@@ -5880,11 +5880,6 @@ namespace Win7Taskbar
             try
             {
                 // Spunte: tre barre visibili + "Blocca la barra" quando bloccata.
-                // v1.21.9: sottomenu Tema - stessa pelle con e senza vetro; la
-                // voce attiva porta la spunta. "Aero"/"Aero Basic" sono nomi
-                // propri: niente chiave di traduzione.
-                string currentTheme = RetroBar.Utilities.Settings.Instance.Theme;
-                bool aeroActive = currentTheme == RetroBar.Utilities.Settings.ThemeWindows7;
                 string items =
                     ">" + L("lang_menu_toolbars", "Toolbars") + "\n" +
                     (DesktopBandHost.Visibility == Visibility.Visible ? "*" : "") +
@@ -5902,10 +5897,6 @@ namespace Win7Taskbar
                     "-\n" +
                     L("lang_task_manager", "Start Task Manager") + "\n" +
                     "-\n" +
-                    ">" + L("lang_menu_theme", "Theme") + "\n" +
-                    (aeroActive ? "*" : "") + "Aero\n" +
-                    (!aeroActive ? "*" : "") + "Aero Basic\n" +
-                    "<\n" +
                     (_taskbarLocked ? "*" : "") +
                         L("lang_menu_lock", "Lock the taskbar") + "\n" +
                     L("lang_properties", "Properties");
@@ -5949,15 +5940,9 @@ namespace Win7Taskbar
                         _bridge.ShowTaskManager();
                         break;
                     case 9:
-                        SwitchTheme(RetroBar.Utilities.Settings.ThemeWindows7);
-                        break;
-                    case 10:
-                        SwitchTheme(RetroBar.Utilities.Settings.ThemeAeroBasic);
-                        break;
-                    case 11:
                         _taskbarLocked = !_taskbarLocked;
                         break;
-                    case 12:
+                    case 10:
                         ShowPropertiesWindow();
                         break;
                 }
@@ -5965,48 +5950,6 @@ namespace Win7Taskbar
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Menu barra: {ex}");
-            }
-        }
-
-        /// <summary>
-        /// v1.21.9: cambio tema dal menu contestuale. La scelta e' persistita
-        /// (vale ai prossimi avvii, dove il tema viene caricato intero allo
-        /// startup come sempre) e applicata SUBITO alla sessione corrente:
-        /// i pennelli del tema sono referenziati ovunque via DynamicResource,
-        /// quindi sostituire le voci in Application.Current.Resources
-        /// ridipinge barra, pulsanti, tray e anteprime da solo - e' la stessa
-        /// via con cui il pennello accento DWM si aggiorna a caldo. Nessun
-        /// ricaricamento di stili, nessun riavvio.
-        /// </summary>
-        private void SwitchTheme(string theme)
-        {
-            try
-            {
-                var st = RetroBar.Utilities.Settings.Instance;
-                if (st.Theme == theme)
-                {
-                    return;   // gia' attivo: era solo una rilettura
-                }
-
-                st.Theme = theme;
-
-                var dictionary = ThemeLoader.TryLoadSelectedThemeDictionary();
-                if (dictionary == null)
-                {
-                    /* File del tema assente/non leggibile: la scelta resta
-                     * salvata per il prossimo avvio; la sessione corrente
-                     * tiene il tema gia' disegnato. */
-                    return;
-                }
-
-                foreach (System.Collections.DictionaryEntry entry in dictionary)
-                {
-                    Application.Current.Resources[entry.Key] = entry.Value;
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Cambio tema: {ex}");
             }
         }
 

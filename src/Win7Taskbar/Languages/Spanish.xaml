@@ -39,7 +39,6 @@
     <s:String x:Key="lang_about_text">Win7Taskbar es un proyecto best-effort en constante mejora que recrea la barra de tareas de Windows 7 sobre la moderna: la precisión mejorará con el tiempo. Limitaciones conocidas: la rotación de la barra de tareas (lados/superior) no es compatible, por lo que la opción correspondiente es actualmente decorativa; las ventanas del sistema (paneles, menú Inicio) se anclan y reposicionan, no se recrean.</s:String>
     <s:String x:Key="lang_credits">Créditos: 3ds por algunos de los recursos gráficos y por la inspiración de la idea XAML.</s:String>
     <s:String x:Key="lang_menu_toolbars">Barras de herramientas</s:String>
-    <s:String x:Key="lang_menu_theme">Tema</s:String>
     <s:String x:Key="lang_menu_desktop">Escritorio</s:String>
     <s:String x:Key="lang_menu_links">Vínculos</s:String>
     <s:String x:Key="lang_menu_address">Dirección</s:String>

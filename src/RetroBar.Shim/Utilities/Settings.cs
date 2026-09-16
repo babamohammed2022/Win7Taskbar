@@ -52,11 +52,6 @@ namespace RetroBar.Utilities
         // fallback. Keep it on by default; setting JSON to false restores the
         // pure RetroBar/DWM path without maintaining two separate policies.
         private bool _useThumbnailCaptureFallback = true;
-        // v1.21.9: tema della barra. "Windows7" = Aero con vetro trasparente
-        // (predefinito); "AeroBasic" = stessa identica pelle ma con lo sfondo
-        // grigio opaco di Windows 7 Basic. Qualunque altro valore ricade sul
-        // predefinito: mai un file inventato dal JSON.
-        private string _theme = ThemeWindows7;
 
         /// <summary>
         /// Show seconds in clock, persisted to file / Mostra i secondi nell'orologio, persistita su file.
@@ -143,22 +138,6 @@ namespace RetroBar.Utilities
         {
             get => _useThumbnailCaptureFallback;
             set => SetField(ref _useThumbnailCaptureFallback, value);
-        }
-
-        /// <summary>v1.21.9: nomi dei temi selezionabili (file in Themes/).</summary>
-        public const string ThemeWindows7 = "Windows7";
-        public const string ThemeAeroBasic = "AeroBasic";
-
-        /// <summary>
-        /// Selected taskbar theme / Tema della barra selezionato:
-        /// "Windows7" (Aero, vetro trasparente) o "AeroBasic" (stessa pelle,
-        /// sfondo grigio opaco). Persistita in settings.json.
-        /// </summary>
-        public string Theme
-        {
-            get => _theme;
-            set => SetField(ref _theme,
-                value == ThemeAeroBasic ? ThemeAeroBasic : ThemeWindows7);
         }
 
         /// <summary>

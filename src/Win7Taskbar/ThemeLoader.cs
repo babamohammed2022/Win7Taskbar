@@ -151,48 +151,6 @@ namespace Win7Taskbar
             AppDomain.CurrentDomain.BaseDirectory, "Themes", "Windows7.xaml");
 
         /// <summary>
-        /// v1.21.9: file del tema scelto nelle impostazioni ("AeroBasic" ->
-        /// Themes/AeroBasic.xaml). Se quel file non viaggia col pacchetto si
-        /// ricade SEMPRE sul tema predefinito: un JSON manomesso non deve mai
-        /// produrre una barra invisibile. La scelta arriva qui e basta: il
-        /// caricamento, la verifica del layout e il merge con Base.xaml sono
-        /// gli stessi per entrambi i temi.
-        /// </summary>
-        public static string SelectedThemeFilePath
-        {
-            get
-            {
-                string fileName =
-                    RetroBar.Utilities.Settings.Instance.Theme ==
-                    RetroBar.Utilities.Settings.ThemeAeroBasic
-                        ? "AeroBasic.xaml"
-                        : "Windows7.xaml";
-                string path = Path.Combine(
-                    AppDomain.CurrentDomain.BaseDirectory, "Themes", fileName);
-                return File.Exists(path) ? path : ThemeFilePath;
-            }
-        }
-
-        /// <summary>
-        /// v1.21.9: dizionario del tema ORA selezionato, per lo scambio a
-        /// caldo (voce di menu Tema): chi aveva gia' aperto la barra la vede
-        /// ridipingersi senza riavvio, perche' i pennelli sono referenziati
-        /// via DynamicResource ovunque. Null se il file non si carica: il
-        /// chiamante lascia lo stato com'e'.
-        /// </summary>
-        public static ResourceDictionary? TryLoadSelectedThemeDictionary()
-        {
-            try
-            {
-                return LoadThemeWithBase();
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        /// <summary>
         /// Verifica che accanto all'eseguibile ci siano Themes\ e Resources\.
         /// Resources\ deve esistere per le otto slice native Aero; le immagini
         /// WPF del tema arrivano dal bundle Base64, non da quella cartella.
@@ -228,7 +186,7 @@ namespace Win7Taskbar
 
         private static ResourceDictionary LoadThemeWithBase()
         {
-            string path = SelectedThemeFilePath;
+            string path = ThemeFilePath;
             if (!File.Exists(path))
             {
                 throw new FileNotFoundException(

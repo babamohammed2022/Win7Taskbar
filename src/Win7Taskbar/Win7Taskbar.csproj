@@ -202,17 +202,12 @@
          200 ms watch tick, so the frame re-tints itself on real drift.
          Render logic untouched: same brush path, same native 9-slice
          renderer, same XAML fallback. -->
-    <!-- 1.21.9-alpha: new "Aero Basic" theme - the very same skin with the
-         opaque blue-grey background Windows 7 shows with glass off instead
-         of the transparent glass. Themes/AeroBasic.xaml is Windows7.xaml
-         byte-identical except the TaskbarWindowBackground brush (sampled
-         #B8C9DA mid-band gradient, light top highlight to the deeper bottom
-         edge); texture, sheen gradient, buttons and previews are unchanged.
-         Selectable from the taskbar context menu (Theme submenu, localized
-         in all 11 languages), persisted in settings.json and applied live:
-         theme brushes are DynamicResource everywhere, so swapping the
-         entries in Application.Current.Resources repaints without restart. -->
-    <Version>1.21.9-alpha</Version>
+    <!-- 1.21.10-alpha: the 1.21.9 "Aero Basic" experiment is rolled back
+         in full (it did not work in practice): theme file, context-menu
+         Theme submenu, Settings.Theme and the live-swap loader are gone.
+         The bar is the single Aero glass theme again, loaded from
+         Themes/Windows7.xaml exactly as before. -->
+    <Version>1.21.10-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
@@ -273,13 +268,6 @@
     <Page Remove="Themes\Windows7.xaml" />
     <Resource Remove="Themes\Windows7.xaml" />
     <Content Include="Themes\Windows7.xaml">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <!-- 1.21.9: anche la variante Aero Basic viaggia su disco accanto al
-         tema Aero (stesse regole: mai BAML, copiata nell'output). -->
-    <Page Remove="Themes\AeroBasic.xaml" />
-    <Resource Remove="Themes\AeroBasic.xaml" />
-    <Content Include="Themes\AeroBasic.xaml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

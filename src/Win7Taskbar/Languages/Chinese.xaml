@@ -39,7 +39,6 @@
     <s:String x:Key="lang_about_text">Win7Taskbar 是一个持续改进的尽力而为（best-effort）项目，在现代任务栏之上重现 Windows 7 任务栏：精确度会随时间提高。已知限制：不支持任务栏旋转（侧边/顶部），因此相关选项目前仅起装饰作用；系统窗口（弹出面板、开始菜单）是被钩取并重新定位的，并非重新创建。</s:String>
     <s:String x:Key="lang_credits">致谢：感谢 3ds 提供的部分图形资源以及 XAML 创意的启发。</s:String>
     <s:String x:Key="lang_menu_toolbars">工具栏</s:String>
-    <s:String x:Key="lang_menu_theme">主题</s:String>
     <s:String x:Key="lang_menu_desktop">桌面</s:String>
     <s:String x:Key="lang_menu_links">链接</s:String>
     <s:String x:Key="lang_menu_address">地址</s:String>
