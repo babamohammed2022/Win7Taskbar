@@ -6,7 +6,7 @@ A Windows 7-inspired taskbar recreation and for Windows 10 and 11.
 
 Win7Taskbar is a system utility that recreates the Windows 7-style taskbar and Superbar using a XAML frontend with a native C++/Win32 backend. It includes grouped task buttons, the notification area, system flyouts, overflow handling, Jump Lists, and a Windows 7-inspired Properties interface.
 
-The software has been tested on Windows 8.1, Windows 10 21H2, Windows 10 22H2, Windows 11 24H2 and Windows 11 25H2. Some functionality on Windows 11, particularly the notification area, is recreated because newer versions of Windows no longer expose all of the same taskbar functionality available on previous versions. On Windows 8.1 the native core loads and the taskbar runs normally; note that the .NET 8 runtime it ships with is officially supported by Microsoft only on Windows 10 and later, so Windows 8.1 is a best-effort target.
+The software has been tested on Windows 10 21H2, Windows 10 22H2, Windows 11 24H2 and Windows 11 25H2. Some functionality on Windows 11, particularly the notification area, is recreated because newer versions of Windows no longer expose all of the same taskbar functionality available on previous versions.
 
 On Windows 11, **ExplorerPatcher is recommended for the best experience**, but it is optional. It can provide a more compatible Windows 10-style taskbar environment and allow Win7Taskbar to use more native notification-area functionality.
 
@@ -23,7 +23,7 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 
 ## Requirements
 
-* Windows 8.1, 10 or 11 (64 bit)
+* Windows 10 or Windows 11 (64 bit)
 * Official releases are self-contained and do not require a separate .NET installation
 
 

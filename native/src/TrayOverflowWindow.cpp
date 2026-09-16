@@ -267,23 +267,6 @@ void TrayOverflowWindow::ForwardClick(int index, bool right) {
     const int32_t x = rc.left + m_pad + col * m_cell + m_cell / 2;
     const int32_t y = rc.top + m_pad + row * m_cell + m_cell / 2;
 
-    /* v3.7: il rettangolo ADESSO dell'icona nel pannello, prima del clic.
-     * I riquadri ricreati (rete, volume, batteria) si ancorano al
-     * rettangolo che il frontend ha riportato con W7T_SetIconRect; per le
-     * icone del pannello di overflow quel rapporto non esiste (il pannello
-     * e' una finestra nativa, non un elemento WPF), quindi la cache
-     * conservava l'ultima posizione dell'icona SULLA barra: il flyout si
-     * apriva per qualche millisecondo ancorato la e poi saltava qui.
-     * Riportando la cella al momento del clic - stessa thread, pochi
-     * microsecondi prima che il riquadro si apra - l'ancora e' quella
-     * giusta gia' nel primo frame. */
-    {
-        const int ix = rc.left + m_pad + col * m_cell + (m_cell - m_icon) / 2;
-        const int iy = rc.top + m_pad + row * m_cell + (m_cell - m_icon) / 2;
-        RECT iconCell{ ix, iy, ix + m_icon, iy + m_icon };
-        TrayService::Instance().SetIconRect(e.ownerHwnd, e.uid, iconCell);
-    }
-
     if (right) {
         /* A tray application's context menu is external to this window.
          * Keep overflow open for this specific action: closing it here made
