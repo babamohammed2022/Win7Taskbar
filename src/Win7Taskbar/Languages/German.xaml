@@ -39,6 +39,7 @@
     <s:String x:Key="lang_about_text">Win7Taskbar ist ein Best-Effort-Projekt in ständiger Verbesserung, das die Windows-7-Taskleiste über der modernen nachbildet: Die Genauigkeit wird sich mit der Zeit verbessern. Bekannte Einschränkungen: Das Drehen der Taskleiste (seitlich/oben) wird nicht unterstützt, die entsprechende Option ist daher derzeit nur dekorativ; Systemfenster (Flyouts, Startmenü) werden angeheftet und neu positioniert, nicht nachgebaut.</s:String>
     <s:String x:Key="lang_credits">Danksagung: 3ds für einige der Grafikressourcen und für die Inspiration hinter der XAML-Idee.</s:String>
     <s:String x:Key="lang_menu_toolbars">Symbolleisten</s:String>
+    <s:String x:Key="lang_menu_theme">Design</s:String>
     <s:String x:Key="lang_menu_desktop">Desktop</s:String>
     <s:String x:Key="lang_menu_links">Links</s:String>
     <s:String x:Key="lang_menu_address">Adresse</s:String>

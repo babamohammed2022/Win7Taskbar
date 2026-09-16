@@ -39,6 +39,7 @@
     <s:String x:Key="lang_about_text">Win7Taskbar to projekt typu best-effort, stale ulepszany, który odtwarza pasek zadań systemu Windows 7 na nowoczesnym pasku: dokładność będzie się z czasem poprawiać. Znane ograniczenia: obracanie paska zadań (bok/góra) nie jest obsługiwane, więc odpowiednia opcja jest obecnie dekoracyjna; okna systemowe (panele, menu Start) są przechwytywane i przenoszone, a nie odtwarzane.</s:String>
     <s:String x:Key="lang_credits">Podziękowania: 3ds za część zasobów graficznych i za inspirację pomysłem XAML.</s:String>
     <s:String x:Key="lang_menu_toolbars">Paski narzędzi</s:String>
+    <s:String x:Key="lang_menu_theme">Motyw</s:String>
     <s:String x:Key="lang_menu_desktop">Pulpit</s:String>
     <s:String x:Key="lang_menu_links">Łącza</s:String>
     <s:String x:Key="lang_menu_address">Adres</s:String>
