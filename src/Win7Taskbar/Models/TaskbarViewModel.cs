@@ -635,55 +635,8 @@ namespace Win7Taskbar.Models
             return _autoTrayCache.Value;
         }
 
-        /// <summary>
-        /// v2.62: vero mentre RefreshTray sta applicando lo stato letto dal
-        /// core. Serve a NON rimandare indietro al core cio' che il core ci
-        /// ha appena detto: senza questa distinzione ogni allineamento
-        /// veniva riscritto come se fosse una scelta dell'utente e finiva
-        /// salvato come preferenza, congelando per sempre la disposizione
-        /// letta da Explorer.
-        /// </summary>
-        internal bool ApplyingTrayState { get; private set; }
-
-        /// <summary>
-        /// v2.62: letture della tray sospese (trascinamento in corso).
-        ///
-        /// Mentre l'utente trascina un'icona il modello non deve cambiare:
-        /// un aggiornamento in quel momento ricrea i contenitori delle icone,
-        /// il mouse perde la cattura e il trascinamento si interrompe da solo.
-        /// La lettura non si perde: si rimanda a quando il trascinamento
-        /// finisce (vedi ResumeTrayRefresh).
-        /// </summary>
-        public void SuspendTrayRefresh()
-        {
-            _trayRefreshSuspended = true;
-        }
-
-        public void ResumeTrayRefresh()
-        {
-            if (!_trayRefreshSuspended)
-            {
-                return;
-            }
-            _trayRefreshSuspended = false;
-            if (_trayRefreshPending)
-            {
-                _trayRefreshPending = false;
-                RefreshTray();
-            }
-        }
-
-        private bool _trayRefreshSuspended;
-        private bool _trayRefreshPending;
-
         public void RefreshTray()
         {
-            if (_trayRefreshSuspended)
-            {
-                _trayRefreshPending = true;
-                return;
-            }
-
             IReadOnlyList<W7TTrayIconInfo> icons = _bridge.GetTrayIcons();
             bool changed = false;
             bool showAll = !AutoTrayEnabled();
@@ -700,90 +653,81 @@ namespace Win7Taskbar.Models
             }
 
             // Aggiungi/aggiorna.
-            ApplyingTrayState = true;
-            try
+            foreach (W7TTrayIconInfo info in icons)
             {
-                foreach (W7TTrayIconInfo info in icons)
+                TrayIconModel? model = NotificationArea.AllIcons.FirstOrDefault(
+                    x => x.OwnerHwnd == info.OwnerHwnd && x.Uid == info.Uid);
+
+                if (model == null)
                 {
-                    TrayIconModel? model = NotificationArea.AllIcons.FirstOrDefault(
-                        x => x.OwnerHwnd == info.OwnerHwnd && x.Uid == info.Uid);
+                    model = new TrayIconModel(info.OwnerHwnd, info.Uid);
 
-                    if (model == null)
+                    /* Lo spillo del tema sposta l'icona fra barra e overflow
+                     * scrivendo IsPinned sul modello. La scelta deve arrivare
+                     * anche al core: senza questa propagazione il refresh
+                     * periodico la sovrascriveva (il core la credeva ancora
+                     * appuntata) e il menu di overflow si svuotava da solo.
+                     * RetroBar persiste allo stesso modo l'ordine e i pin
+                     * (NotifyIconList.UpdateIconOrder). */
+                    model.PropertyChanged += (_, ev) =>
                     {
-                        model = new TrayIconModel(info.OwnerHwnd, info.Uid);
-
-                        /* Lo spillo del tema sposta l'icona fra barra e overflow
-                         * scrivendo IsPinned sul modello. La scelta deve arrivare
-                         * anche al core: senza questa propagazione il refresh
-                         * periodico la sovrascriveva (il core la credeva ancora
-                         * appuntata) e il menu di overflow si svuotava da solo.
-                         * RetroBar persiste allo stesso modo l'ordine e i pin
-                         * (NotifyIconList.UpdateIconOrder). */
-                        model.PropertyChanged += (_, ev) =>
+                        if (ev.PropertyName == nameof(TrayIconModel.IsPinned))
                         {
-                            if (ev.PropertyName == nameof(TrayIconModel.IsPinned) &&
-                                !ApplyingTrayState)
-                            {
-                                _bridge.SetTrayIconPinned(model.OwnerHwnd, model.Uid, model.IsPinned);
-                            }
-                        };
-
-                        NotificationArea.AllIcons.Add(model);
-                        changed = true;
-                    }
-
-                    model.Tooltip = info.Tooltip ?? string.Empty;
-
-                    if (model.IsPinned != (info.IsPinned != 0))
-                    {
-                        model.IsPinned = info.IsPinned != 0;
-                        changed = true;
-                    }
-
-                    if (model.IsHidden != (info.IsHidden != 0))
-                    {
-                        model.IsHidden = info.IsHidden != 0;
-                        changed = true;
-                    }
-
-                    // v2.24: Explorer mostra TUTTE le icone: niente freccetta.
-                    if (showAll && !model.IsPinned)
-                    {
-                        model.IsPinned = true;
-                    }
-
-                    // Ricarica il bitmap solo quando il core segnala una revisione
-                    // diversa: evita di ricostruire BitmapSource a ogni giro.
-                    //
-                    // v2.1: MAI sovrascrivere un'icona buona con null. Se il core
-                    // in questo momento non ha pixel per l'icona (CopyIcon
-                    // rifiutata da Explorer, cattura PrintWindow non riuscita),
-                    // GetTrayIcon restituisce null: si tiene l'ultimo fotogramma
-                    // buono e si riprova al giro successivo, come fa la shell
-                    // (l'icona non deve SPARIRE per un aggiornamento vuoto).
-                    if (model.Icon == null || model.IconRevision != info.IconRevision)
-                    {
-                        var fresh = _bridge.GetTrayIcon(info.OwnerHwnd, info.Uid);
-                        if (fresh != null)
-                        {
-                            model.Icon = fresh;
-                            model.IconRevision = info.IconRevision;
-
+                            _bridge.SetTrayIconPinned(model.OwnerHwnd, model.Uid, model.IsPinned);
                         }
-                        else if (model.Icon == null)
-                        {
-                            // Mai avuta un'immagine: lascia IconRevision a 0 cosi'
-                            // il prossimo refresh riprova subito (il core intanto
-                            // pianifica da solo la ricattura dei pixel mancanti).
-                            model.IconRevision = 0;
-                        }
-                        // else: icona buona gia' presente -> non toccare nulla.
-                    }
+                    };
+
+                    NotificationArea.AllIcons.Add(model);
+                    changed = true;
                 }
-            }
-            finally
-            {
-                ApplyingTrayState = false;
+
+                model.Tooltip = info.Tooltip ?? string.Empty;
+
+                if (model.IsPinned != (info.IsPinned != 0))
+                {
+                    model.IsPinned = info.IsPinned != 0;
+                    changed = true;
+                }
+
+                if (model.IsHidden != (info.IsHidden != 0))
+                {
+                    model.IsHidden = info.IsHidden != 0;
+                    changed = true;
+                }
+
+                // v2.24: Explorer mostra TUTTE le icone: niente freccetta.
+                if (showAll && !model.IsPinned)
+                {
+                    model.IsPinned = true;
+                }
+
+                // Ricarica il bitmap solo quando il core segnala una revisione
+                // diversa: evita di ricostruire BitmapSource a ogni giro.
+                //
+                // v2.1: MAI sovrascrivere un'icona buona con null. Se il core
+                // in questo momento non ha pixel per l'icona (CopyIcon
+                // rifiutata da Explorer, cattura PrintWindow non riuscita),
+                // GetTrayIcon restituisce null: si tiene l'ultimo fotogramma
+                // buono e si riprova al giro successivo, come fa la shell
+                // (l'icona non deve SPARIRE per un aggiornamento vuoto).
+                if (model.Icon == null || model.IconRevision != info.IconRevision)
+                {
+                    var fresh = _bridge.GetTrayIcon(info.OwnerHwnd, info.Uid);
+                    if (fresh != null)
+                    {
+                        model.Icon = fresh;
+                        model.IconRevision = info.IconRevision;
+
+                    }
+                    else if (model.Icon == null)
+                    {
+                        // Mai avuta un'immagine: lascia IconRevision a 0 cosi'
+                        // il prossimo refresh riprova subito (il core intanto
+                        // pianifica da solo la ricattura dei pixel mancanti).
+                        model.IconRevision = 0;
+                    }
+                    // else: icona buona gia' presente -> non toccare nulla.
+                }
             }
 
             if (changed)

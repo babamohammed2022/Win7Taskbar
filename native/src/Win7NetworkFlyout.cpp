@@ -37,8 +37,6 @@
 #include <shellapi.h>
 #include <commctrl.h>
 #include "WinhawkShim.h"
-#include "Common.h"      /* v3.5: LogTagged - diagnostica nel log del core */
-#include "SehGuard.h"   /* v2.63: lanci protetti (SEH + try/catch) */
 #include <netlistmgr.h>
 #include <process.h>
 // 1.0.0-alpha: NTSTATUS (usato da RtlGetVersion) arriva da <winternl.h>.
@@ -2430,13 +2428,6 @@ static BOOL  g_EthernetHasInternet = FALSE;
 static GUID  g_EthernetAdapterGuid = {0};
 static BOOL  g_HasEthernetAdapterGuid = FALSE;
 
-/* v2.63: quello che dice Windows sulla connessione, chiesto a ogni
- * aggiornamento. E' l'ultima parola dell'intestazione: se Ethernet e Wi-Fi
- * non hanno saputo dire niente, questo si'. */
-static BOOL  g_NlmConnected = FALSE;
-static BOOL  g_NlmHasInternet = FALSE;
-static WCHAR g_NlmNetworkName[64] = {0};
-
 struct NetworkStateSnapshot {
     int networkCount;
     WifiNetworkItem networks[50];
@@ -2448,10 +2439,6 @@ struct NetworkStateSnapshot {
     int currentNetworkCategory;
     int lastReliableNetworkCategory;
     DWORD lastReliableNetworkCategoryTick;
-    /* v2.63 */
-    BOOL nlmConnected;
-    BOOL nlmHasInternet;
-    WCHAR nlmNetworkName[64];
 };
 
 static void CaptureNetworkState(NetworkStateSnapshot* snapshot) {
@@ -2483,10 +2470,6 @@ static void CaptureNetworkState(NetworkStateSnapshot* snapshot) {
     snapshot->currentNetworkCategory = g_CurrentNetworkCategory;
     snapshot->lastReliableNetworkCategory = g_LastReliableNetworkCategory;
     snapshot->lastReliableNetworkCategoryTick = g_LastReliableNetworkCategoryTick;
-    snapshot->nlmConnected = g_NlmConnected;
-    snapshot->nlmHasInternet = g_NlmHasInternet;
-    StringCchCopyW(snapshot->nlmNetworkName, ARRAYSIZE(snapshot->nlmNetworkName),
-                   g_NlmNetworkName);
     LeaveCriticalSection(&g_Ctx.csLock);
 }
 
@@ -3211,10 +3194,6 @@ static BOOL XmlTagEqualsCI(const WCHAR* xml, const WCHAR* tagName, const WCHAR* 
 static BOOL ProfileSecurityMatches(const WCHAR* profileXml, DOT11_AUTH_ALGORITHM authAlgorithm, DOT11_CIPHER_ALGORITHM cipherAlgorithm);
 LRESULT CALLBACK ToolbarWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, DWORD_PTR uIdSubclass);
 void RefreshWifiData(HANDLE hClient);
-/* v3.5: se il riquadro si apre con la lista vuota si ordina una scansione
- * WLAN, cosi' le reti arrivano entro pochi secondi (WlanScan e'
- * asincrona: il risultato entra dalla notifica gia' registrata). */
-void TriggerWlanScanIfNeeded(void);
 void UpdateLayoutGeometry(int scrollbarOffset = 0);
 void ConnectToNetwork(int index);
 void DisconnectFromNetwork(int index);
@@ -3488,73 +3467,6 @@ static void DrawTextWithWrap(HDC hdc, LPCWSTR text, int x, int y, int maxWidth, 
         currentY += lineHeight;
         if (currentY > y + lineHeight * 5) break;
     }
-}
-
-// -------------------------------------------------------
-// Connessione secondo Windows (nlm), chiesta OGNI VOLTA
-// -------------------------------------------------------
-static void SafeSysFreeString(BSTR bstr);   /* definita piu' sotto */
-
-/* v2.63: lanci protetti (SEH + try/catch). Definiti piu' sotto, usati sia
- * dal menu contestuale sia dal collegamento in fondo al riquadro. */
-static BOOL ShellExecuteInner(HWND hwnd, const WCHAR* file, const WCHAR* params);
-static BOOL SafeShellExecuteOpen(HWND hwnd, const WCHAR* file, const WCHAR* params);
-/*  v2.63 - PERCHE' IL RIQUADRO DICEVA "Non connesso" MENTRE SI ERA CONNESSI.
- *
- *  L'intestazione decideva "connesso" solo da due letture nostre: la scheda
- *  Ethernet rilevata con GetAdaptersAddresses e la prima rete Wi-Fi marcata
- *  come connessa da WlanGetAvailableNetworkList. Basta che una delle due non
- *  risponda (servizio WLAN che parte in ritardo, scheda che non rientra nel
- *  filtro, driver che non marca il flag CONNECTED) perche' l'utente
- *  connesso veda "Non connesso".
- *
- *  La verita' ce l'ha Windows: INetworkListManager::GetConnectivity(). Qui
- *  la si chiede a OGNI aggiornamento (non una volta all'avvio, come faceva
- *  la lettura una-tantum) e si tiene anche il nome della rete connessa, per
- *  l'intestazione quando ne' Ethernet ne' Wi-Fi hanno saputo dirlo. */
-struct NlmConnectivitySnapshot {
-    BOOL  connected;
-    BOOL  hasInternet;
-    WCHAR name[64];
-};
-
-static NlmConnectivitySnapshot QueryNlmConnectivity() {
-    NlmConnectivitySnapshot out = { FALSE, FALSE, L"" };
-
-    INetworkListManager* pNLM = NULL;
-    if (FAILED(CoCreateInstance(CLSID_NetworkListManager, NULL, CLSCTX_INPROC_SERVER,
-                                IID_INetworkListManager, (void**)&pNLM)) || !pNLM) {
-        return out;
-    }
-
-    NLM_CONNECTIVITY connectivity = NLM_CONNECTIVITY_DISCONNECTED;
-    if (SUCCEEDED(pNLM->GetConnectivity(&connectivity))) {
-        out.connected = (connectivity != NLM_CONNECTIVITY_DISCONNECTED);
-        out.hasInternet = (connectivity & NLM_CONNECTIVITY_IPV4_INTERNET) != 0 ||
-                          (connectivity & NLM_CONNECTIVITY_IPV6_INTERNET) != 0;
-    }
-
-    if (out.connected) {
-        IEnumNetworks* pEnum = NULL;
-        if (SUCCEEDED(pNLM->GetNetworks(NLM_ENUM_NETWORK_CONNECTED, &pEnum)) && pEnum) {
-            INetwork* pNet = NULL;
-            ULONG fetched = 0;
-            while (pEnum->Next(1, &pNet, &fetched) == S_OK && pNet) {
-                BSTR bstrName = NULL;
-                if (out.name[0] == L'\0' &&
-                    SUCCEEDED(pNet->GetName(&bstrName)) && bstrName && bstrName[0] != L'\0') {
-                    StringCchCopyW(out.name, ARRAYSIZE(out.name), bstrName);
-                }
-                if (bstrName) SafeSysFreeString(bstrName);
-                pNet->Release();
-                if (out.name[0] != L'\0') break;
-            }
-            pEnum->Release();
-        }
-    }
-
-    pNLM->Release();
-    return out;
 }
 
 // -------------------------------------------------------
@@ -4746,74 +4658,6 @@ void RefreshWifiData(HANDLE hClient) {
         if (pProfList) WlanFreeMemory(pProfList);
     }
     WlanFreeMemory(pIfList);
-    /* v3.5 - LA LISTA NON DEVE MAI RESTARE VUOTA COL PC COLLEGATO.
-     * Alcuni adattatori (driver lenti al logon, radio appena riattivata
-     * dal risparmio energetico, filtri di rete aziendali) rispondono a
-     * WlanGetAvailableNetworkList con una lista vuota ANCHE quando il PC
-     * e' collegato a una rete: il riquadro mostrava l'intestazione con la
-     * connessione e NESSUNA voce. Qui, per ogni interfaccia WLAN che non
-     * ha prodotto voci, si chiede a Windows la CONNESSIONE CORRENTE e la
-     * si aggiunge in lista come rete collegata: e' la garanzia che
-     * l'utente veda sempre almeno la rete in uso. */
-    if (tempCount == 0 && hClient && localWlanIfCount > 0) {
-        for (int i = 0; i < localWlanIfCount && tempCount < 50; i++) {
-            WLAN_CONNECTION_ATTRIBUTES* pConn = nullptr;
-            DWORD connSize = 0;
-            WLAN_OPCODE_VALUE_TYPE opType = wlan_opcode_value_type_invalid;
-            if (WlanQueryInterface(hClient, &localWlanIfGuids[i],
-                                   wlan_intf_opcode_current_connection,
-                                   NULL, &connSize, (PVOID*)&pConn,
-                                   &opType) != ERROR_SUCCESS || !pConn) {
-                continue;
-            }
-            const DOT11_SSID& ssid = pConn->wlanAssociationAttributes.dot11Ssid;
-            const bool isConnected =
-                pConn->isState == wlan_interface_state_connected;
-            if (!isConnected || ssid.uSSIDLength == 0) {
-                WlanFreeMemory(pConn);
-                continue;
-            }
-            WifiNetworkItem& item = tempList[tempCount];
-            size_t len = (size_t)ssid.uSSIDLength;
-            BYTE cleanSsid[33] = {0};
-            size_t cleanLen = (len < 32u) ? len : 32u;
-            for (size_t k = 0; k < cleanLen; k++)
-                cleanSsid[k] = (ssid.ucSSID[k] == 0) ? (BYTE)' ' : ssid.ucSSID[k];
-            cleanSsid[cleanLen] = 0;
-            int converted = MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)cleanSsid,
-                                                (int)cleanLen, item.ssid, 32);
-            if (converted <= 0) {
-                for (size_t k = 0; k < cleanLen; k++)
-                    item.ssid[k] = (WCHAR)cleanSsid[k];
-                converted = (int)cleanLen;
-            }
-            item.ssid[converted] = L'\0';
-            item.isSecured = pConn->wlanSecurityAttributes.bSecurityEnabled
-                                 ? TRUE : FALSE;
-            /* Qualita' del segnale non richiesta dalla connessione
-             * corrente: si usa un valore pieno ma non estremo, e alla
-             * prima scansione riuscita la lista torna ai dati veri. */
-            item.signalQuality = 80;
-            item.interfaceGuid = localWlanIfGuids[i];
-            item.dot11BssType = dot11_BSS_type_infrastructure;
-            item.hasProfile = FALSE;
-            item.hasInternetAccess = FALSE;
-            item.connState = CONN_STATE_CONNECTED;
-            item.operationStartTime = 0;
-            item.authAlgorithm =
-                pConn->wlanSecurityAttributes.dot11AuthAlgorithm;
-            item.cipherAlgorithm =
-                pConn->wlanSecurityAttributes.dot11CipherAlgorithm;
-            item.displaySuffix = 0;
-            item.hasBssid = FALSE;
-            ZeroMemory(item.bssid, sizeof(item.bssid));
-            tempCount++;
-            w7t::LogTagged(L"NET",
-                      L"lista WLAN vuota dallo scan: aggiunta la connessione corrente '%s'",
-                      item.ssid);
-            WlanFreeMemory(pConn);
-        }
-    }
     {
         bool seenConnectedForInterface[64] = {false};
         GUID seenGuids[64];
@@ -5227,38 +5071,11 @@ void RefreshNetworkData(BOOL forceDetection = FALSE, INetworkListManager* pNLMOv
     if (g_Ctx.hWlanClient) {
         RefreshWifiData(g_Ctx.hWlanClient);
     } else {
-        /* v3.5: la ragione del riquadro vuoto va nel log del core, non
-         * solo in OutputDebugString: e' la prima cosa da chiedere
-         * all'utente quando la lista non si riempie. */
-        static bool loggedMissingWlan = false;
-        if (!loggedMissingWlan) {
-            loggedMissingWlan = true;
-            w7t::LogTagged(L"NET",
-                      L"RefreshNetworkData: nessun handle WLAN (servizio WlanSvc assente o rifiutato): lista wifi vuota");
-        }
         EnterCriticalSection(&g_Ctx.csLock);
         g_NetworkCount = 0;
         LeaveCriticalSection(&g_Ctx.csLock);
     }
     UpdateEthernetStatus(pNLMOverride, useOnlyOverride);
-
-    /* v2.63: la connessione secondo Windows, richiesta ORA (ogni apertura e
-     * ogni tick di aggiornamento). Non e' un valore preso all'avvio: se la
-     * rete cade o torna, il riquadro lo vede al primo aggiornamento. */
-    {
-        const NlmConnectivitySnapshot nlm = QueryNlmConnectivity();
-        EnterCriticalSection(&g_Ctx.csLock);
-        g_NlmConnected = nlm.connected;
-        g_NlmHasInternet = nlm.hasInternet;
-        StringCchCopyW(g_NlmNetworkName, ARRAYSIZE(g_NlmNetworkName), nlm.name);
-        LeaveCriticalSection(&g_Ctx.csLock);
-
-        if (nlm.connected && GetNetworkCountSafe() == 0) {
-            /* Solo quando le letture nostre non hanno visto nulla: e' il caso
-             * in cui l'intestazione diceva "Non connesso" a torto. */
-            Wh_Log(L"connessione: NLM dice connesso ('%s'), le letture locali no", nlm.name);
-        }
-    }
     
     // Detect network location category (Home / Public / Work).
     // Skip the COM query entirely when the feature is disabled, and also
@@ -7535,9 +7352,13 @@ case IDM_PROPERTIES:
     }
 
     if (!launched) {
-        /* v2.63: stesso motivo del collegamento in fondo al riquadro. */
-        SafeShellExecuteOpen(
-            hwnd, L"shell:::{7007ACC7-3202-11D1-AAD2-00805FC1270E}", NULL);
+        ShellExecuteW(
+            hwnd,
+            L"open",
+            L"shell:::{7007ACC7-3202-11D1-AAD2-00805FC1270E}",
+            NULL,
+            NULL,
+            SW_SHOWNORMAL);
     }
 
     ShowWindow(hwnd, SW_HIDE);
@@ -7551,52 +7372,6 @@ break;
 static RECT GetFooterRect() {
     RECT rc = { 0, WINDOW_HEIGHT - FOOTER_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT };
     return rc;
-}
-
-/* ---------------------------------------------------------------------- */
-/*  v2.63 - I LANCI DAL RIQUADRO NON DEVONO FAR CADERE LA BARRA           */
-/* ---------------------------------------------------------------------- */
-/*  "Apri Centro connessioni di rete e condivisione" chiudeva il programma.
- *  Il lancio e' affidato alla shell, che sotto il cofano carica COM, i
- *  gestori dei verbi e il pannello di controllo: ogni passo puo' fallire in
- *  modi che una eccezione C++ non intercetta (violazione di accesso dentro
- *  un modulo di terze parti, per esempio).
- *
- *  Qui si combinano le due protezioni, ognuna nel proprio blocco e senza
- *  mescolarle nello stesso corpo (regola MSVC: try C++ e __try SEH non
- *  convivono in una funzione):
- *    - ShellExecuteInner: guardia SEH sull'API della shell;
- *    - SafeShellExecuteOpen: try/catch C++ attorno a quella.
- *  Ogni esito viene scritto nel log: se il pannello non si apre si sa
- *  perche', e la barra resta viva. */
-static BOOL ShellExecuteInner(HWND hwnd, const WCHAR* file, const WCHAR* params) {
-    BOOL ok = FALSE;
-    W7T_SEH_TRY
-    {
-        const HINSTANCE result =
-            ShellExecuteW(hwnd, L"open", file, params, NULL, SW_SHOWNORMAL);
-        ok = reinterpret_cast<INT_PTR>(result) > 32 ? TRUE : FALSE;
-    }
-    W7T_SEH_CATCH
-    {
-        ok = FALSE;
-    }
-    W7T_SEH_END
-    return ok;
-}
-
-static BOOL SafeShellExecuteOpen(HWND hwnd, const WCHAR* file, const WCHAR* params) {
-    BOOL ok = FALSE;
-    try {
-        ok = ShellExecuteInner(hwnd, file, params);
-    } catch (...) {
-        ok = FALSE;
-    }
-    if (!ok) {
-        Wh_Log(L"lancio non riuscito: %s %s", file != NULL ? file : L"?",
-               params != NULL ? params : L"");
-    }
-    return ok;
 }
 
 void EnsureRowVisible(int index) {
@@ -7987,12 +7762,7 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
 
         BOOL isWifiConnected = (paintNetworkCount > 0 &&
                                 paintState.networks[0].connState == CONN_STATE_CONNECTED);
-        /* v2.63: l'ultima parola e' di Windows. Se le letture nostre non
-         * vedono la connessione ma il sistema dice che c'e' (e' il caso
-         * segnalato: "Non connesso" mentre si era connessi), si mostra
-         * l'intestazione da connessi con il nome che da' Windows. */
-        BOOL isAnyConnected = (paintState.ethernetConnected || isWifiConnected ||
-                               paintState.nlmConnected != FALSE);
+        BOOL isAnyConnected = (paintState.ethernetConnected || isWifiConnected);
         SetBkMode(hdc, TRANSPARENT);
         
         if (isAnyConnected) {
@@ -8003,18 +7773,7 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
             
             WCHAR displayName[64] = {0};
             BOOL showEthernetInHeader = paintState.ethernetConnected;
-            const BOOL connectedOnlyAccordingToWindows =
-                (!showEthernetInHeader && !isWifiConnected);
-            if (connectedOnlyAccordingToWindows) {
-                /* Connessione riconosciuta solo da Windows: si mostra il nome
-                 * della rete connessa secondo NLM. */
-                StringCchCopyW(displayName, ARRAYSIZE(displayName),
-                               paintState.nlmNetworkName);
-                if (displayName[0] == L'\0') {
-                    StringCchPrintfW(displayName, ARRAYSIZE(displayName),
-                                     LOC(STR_NETWORK_PRIVACY_FMT), 2);
-                }
-            } else if (showEthernetInHeader) {
+            if (showEthernetInHeader) {
                 if (g_Settings.privacyMode) {
                     StringCchPrintfW(displayName, ARRAYSIZE(displayName), LOC(STR_NETWORK_PRIVACY_FMT), 1);
                 } else {
@@ -8621,10 +8380,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             break;
         }
         if (PtInRect(&rcF,pt)) {
-            /* v2.63: con la guardia SEH/try-catch: aprire il pannello di
-             * controllo non deve far cadere la barra (difetto segnalato). */
-            SafeShellExecuteOpen(NULL, L"control.exe",
-                                 L"/name Microsoft.NetworkAndSharingCenter");
+            ShellExecuteW(NULL,L"open",L"control.exe",L"/name Microsoft.NetworkAndSharingCenter",NULL,SW_SHOWNORMAL);
             ShowWindow(hwnd,SW_HIDE);
             break;
         }
@@ -9391,39 +9147,6 @@ void RemoveTrayInterception() {
 // -------------------------------------------------------
 // Toggle flyout
 // -------------------------------------------------------
-
-/* v3.5 - Scansione WLAN quando il riquadro apre la lista vuota. Il Native
- * WiFi a volte serve la lista delle reti disponibili solo DOPO una
- * scansione (subito dopo il logon, radio appena riattivata): senza questo
- * ordine l'utente vedeva "Connesso" in testa e nessuna voce. Il ritmo e'
- * limitato (una scansione ogni 5 secondi al massimo) perche' WlanScan
- * costa alla radio. */
-void TriggerWlanScanIfNeeded(void) {
-    static DWORD lastScanRequest = 0;
-    const DWORD now = GetTickCount();
-    if (lastScanRequest != 0 && now - lastScanRequest < 5000) {
-        return;
-    }
-    lastScanRequest = now;
-    HANDLE hClient = g_Ctx.hWlanClient;
-    if (!hClient) {
-        return;
-    }
-    PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
-    if (WlanEnumInterfaces(hClient, NULL, &pIfList) != ERROR_SUCCESS
-        || !pIfList) {
-        w7t::LogTagged(L"NET", L"scansione WLAN: WlanEnumInterfaces non riuscito");
-        return;
-    }
-    for (DWORD i = 0; i < pIfList->dwNumberOfItems; i++) {
-        WlanScan(hClient, &pIfList->InterfaceInfo[i].InterfaceGuid,
-                 NULL, NULL, NULL);
-    }
-    w7t::LogTagged(L"NET",
-              L"riquadro aperto con lista vuota: scansione WLAN ordinata su %lu interfaccia/e",
-              (unsigned long)pIfList->dwNumberOfItems);
-    WlanFreeMemory(pIfList);
-}
 void ToggleFlyoutWindow() {
     DWORD dwCurrentThreadId = GetCurrentThreadId();
     BOOL flyoutAlreadyExists = (g_hWndFlyout && IsWindow(g_hWndFlyout));
@@ -9528,22 +9251,6 @@ void ToggleFlyoutWindow() {
             // on every single open (not just at startup) and always fall
             // back to the generic PC icon.
             RefreshNetworkData(/*forceDetection=*/TRUE);
-            /* v3.5: diagnostica nel log del core + scansione se la lista e'
-             * rimasta vuota. Sono le righe che dicono PERCHE' la lista non
-             * si riempiva (servizio WLAN, adattatore, driver). */
-            {
-                int netCountNow = -1;
-                EnterCriticalSection(&g_Ctx.csLock);
-                netCountNow = g_NetworkCount;
-                LeaveCriticalSection(&g_Ctx.csLock);
-                w7t::LogTagged(L"NET",
-                          L"apertura riquadro: %d rete/i in lista, WLAN %s",
-                          netCountNow,
-                          g_Ctx.hWlanClient ? L"attivo" : L"non disponibile");
-                if (netCountNow == 0) {
-                    TriggerWlanScanIfNeeded();
-                }
-            }
             RecalcArrowRect();
             UpdateLayoutGeometry();
             PositionWindowNearTray(g_hWndFlyout);

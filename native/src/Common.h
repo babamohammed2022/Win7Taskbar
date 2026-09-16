@@ -109,13 +109,6 @@ bool BitmapSane(const ArgbBitmap& bmp);
  * l'ultima riga dice esattamente in quale messaggio e' avvenuto. */
 void AppendCoreLog(const wchar_t* line);
 
-/* v2.63: riga di log CON ETICHETTA, per ritrovare una classe di problemi
- * senza leggere tutto il file: LogTagged(L"SETTINGS", L"...") scrive
- * "[SETTINGS] ...". Formattazione printf-style come wsprintfW (che il core
- * usa gia'): nessuna macro variadica, cosi' MSVC e MinGW-w64 si comportano
- * allo stesso modo. */
-void LogTagged(const wchar_t* tag, const wchar_t* fmt, ...);
-
 /* v2.26: resolver icone UNICO del progetto (pin + ricerca). Estrae
  * l'icona SENZA overlay freccia: GetIconLocation/ExtractIconEx dal lnk,
  * poi icona dell'eseguibile target. Mai SHGetFileInfo sul .lnk (la shell

@@ -216,36 +216,23 @@
                    RenderOptions.BitmapScalingMode="HighQuality"
                    VerticalAlignment="Center" />
 
-            <!-- v3.5: indicatore "finestre impilate" di Windows 7 = i
-                 SEPARATORI di gruppo. Il pulsante disegna, subito a destra
-                 dell'icona, fino a DUE linee verticali sottili: una fra la
-                 prima e la seconda finestra, una fra la seconda e la terza.
-                 Oltre la terza finestra i separatori non crescono piu': le
-                 altre si raggiungono dalle anteprime. Colore: #1F314F.
+            <!-- v2.46: indicatore "finestre impilate" di Windows 7.
+                 Al posto del numero (che l'utente vedeva sempre troppo a
+                 destra e a meta' fuori dalla cornice) il pulsante disegna
+                 fino a TRE rettangolini affiancati subito a destra
+                 dell'icona: e' quello che fa la Superbar vera, dove le
+                 "schede" sono le finestre del gruppo messe in pila. Oltre la
+                 terza finestra l'indicatore non cresce piu': le altre si
+                 raggiungono dalle anteprime.
 
-                 Misure prese dalla foto di riferimento: linee larghe 3 px,
-                 alte 30 px (qui l'intera altezza del pannello, come da
-                 stile esistente), la visibilita' della N-esima linea la
+                 Misure prese dalla foto di riferimento: schede larghe 3 px,
+                 alte 30 px, distanza di 3 px fra gli assi, la piu' esterna
+                 2 px piu' corta. La visibilita' della N-esima scheda la
                  decide WindowStackVisibilityConverter su WindowCount. -->
             <!-- v2.51: con UNA sola finestra l'indicatore non esiste piu' per
                  il layout (Collapsed), non solo per i pixel: il pulsante si
                  stringe di 10 px e l'icona resta al centro esatto. La regola
                  e' quella di Windows 7 e la stessa del converter. -->
-            <!-- v3.5: SEPARATORI DI GRUPPO in stile Superbar di Windows 7.
-                 Le linee verticali sottili fra le finestre dello stesso
-                 gruppo. La regola visiva e' quella della Superbar:
-                   1 finestra  -> 0 separatori
-                   2 finestre  -> 1 separatore
-                   3+ finestre -> 2 separatori (massimo, sempre)
-                 Colore richiesto dall'utente: #1F314F. Il rettangolo resta
-                 quello esistente (3 px, intera altezza): cambia solo il
-                 colore e il numero massimo di linee. -->
-            <!-- v2.61: le due linee si spostano del 9% della larghezza del
-                 pulsante verso destra: erano al 5% (v2.61) e la richiesta
-                 e' di altre 4 punti percentuali a destra (v3.5). E' una
-                 RenderTransform: non tocca il layout, quindi l'icona e il
-                 pulsante restano esattamente dove sono, si muovono solo le
-                 linee. -->
             <Grid Width="12"
                   Height="40"
                   Margin="1,0,0,0"
@@ -254,18 +241,23 @@
                   Visibility="{Binding WindowCount,
                                Converter={StaticResource WindowStackVisibility},
                                ConverterParameter=1}">
+                <!-- v2.61: le tre linee si spostano del 5% della larghezza del
+                     pulsante verso destra, come chiesto (riferimento: il
+                     Windows 11 Taskbar Styler). E' una RenderTransform: non
+                     tocca il layout, quindi l'icona e il pulsante restano
+                     esattamente dove sono, si muovono solo le linee. -->
                 <Grid.RenderTransform>
                     <TranslateTransform X="{Binding ActualWidth,
                         RelativeSource={RelativeSource AncestorType=Button},
                         Converter={StaticResource WidthRatio},
-                        ConverterParameter=0.09}" />
+                        ConverterParameter=0.05}" />
                 </Grid.RenderTransform>
                 <Border Width="3"
                         Height="40"
                         HorizontalAlignment="Left"
                         CornerRadius="1"
-                        Background="#1F314F"
-                        BorderBrush="#1F314F"
+                        Background="#CCE4F2FF"
+                        BorderBrush="#FF15334D"
                         BorderThickness="1"
                         SnapsToDevicePixels="True"
                         Visibility="{Binding WindowCount,
@@ -276,13 +268,25 @@
                         Margin="4,0,0,0"
                         HorizontalAlignment="Left"
                         CornerRadius="1"
-                        Background="#1F314F"
-                        BorderBrush="#1F314F"
+                        Background="#CCE9F5FF"
+                        BorderBrush="#FF15334D"
                         BorderThickness="1"
                         SnapsToDevicePixels="True"
                         Visibility="{Binding WindowCount,
                                      Converter={StaticResource WindowStackVisibility},
                                      ConverterParameter=2}" />
+                <Border Width="3"
+                        Height="40"
+                        Margin="8,0,0,0"
+                        HorizontalAlignment="Left"
+                        CornerRadius="1"
+                        Background="#CCEFF8FF"
+                        BorderBrush="#FF15334D"
+                        BorderThickness="1"
+                        SnapsToDevicePixels="True"
+                        Visibility="{Binding WindowCount,
+                                     Converter={StaticResource WindowStackVisibility},
+                                     ConverterParameter=3}" />
             </Grid>
         </StackPanel>
     </DataTemplate>

@@ -48,19 +48,13 @@
     <Description>Taskbar in stile Windows 7 per Windows 10/11</Description>
     <Copyright>Copyright (c) 2026 Win7Taskbar contributors</Copyright>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
-    <!-- 1.2.0-alpha: flyout batteria VERO di Windows 7 (catena in
-         cascata: icona reale -> pulsante UIA -> ricreato, con la chiave
-         UseWin32BatteryFlyout riaffermata al clic), menu contestuali
-         Windows 7 sulle icone di sistema ricreate, riquadro di rete che
-         non mostra mai una lista vuota (connessione corrente garantita +
-         scansione WLAN + diagnostica nel log), indicatore della lingua di
-         input con tre stili (Windows 7, Windows 8.1, Windows 10/11) e
-         selettore nelle Proprieta', ripiego visibility per lo Strumento
-         di cattura, separatori di gruppo in colore #1F314F spostati a
-         destra e al massimo due per gruppo. -->
-    <Version>1.2.0-alpha</Version>
-    <AssemblyVersion>1.2.0.0</AssemblyVersion>
-    <FileVersion>1.2.0.0</FileVersion>
+    <!-- 1.0.0-alpha: prima release pubblica del codice v2.58 reso autonomo
+         (pacchetto self-contained + build a un clic). Il numero di versione
+         riparte da 1.0.0 perche' e' la prima release distribuita come
+         pacchetto installabile e documentato, non un "refresh" della 2.x. -->
+    <Version>1.0.0-alpha</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
   
     <!-- v2.57: application icon (the classic Windows 7 flag in a single azure
          blue). Setting ApplicationIcon gives the executable the icon and, in

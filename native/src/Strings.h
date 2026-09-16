@@ -112,22 +112,6 @@ enum class StrId {
     /* Menu di gruppo della barra (ShellMenu.cpp). */
     GroupMinimize,
     GroupClose,
-
-    /* Pannello delle icone nascoste (TrayOverflowWindow.cpp): il collegamento
-     * in fondo, quello che in Windows 7 si chiama "Personalizza...". */
-    OverflowCustomize,
-
-    /* v3.5: menu contestuali delle icone di sistema ricreate (volume,
-     * rete, batteria). Sono le voci che Windows 7 mostrava con il tasto
-     * destro su quelle tre icone della tray. */
-    CtxVolMixer,
-    CtxPlayback,
-    CtxRecording,
-    CtxSounds,
-    CtxTroubleshoot,
-    CtxNetCenter,
-    CtxMobility,
-    CtxPower,
 };
 
 /* Imposta la lingua corrente (dal managed, o all'avvio col rilevamento). */
@@ -166,12 +150,6 @@ struct PropStrings {
     const wchar_t* lblClock; const wchar_t* lblNetwork;
     const wchar_t* lblVolume; const wchar_t* lblBattery;
     const wchar_t* grpTaskbar; const wchar_t* lblLang;
-    /* v3.5: indicatore della lingua di input (riga del gruppo lingua). */
-    const wchar_t* lblLangBar;
-    const wchar_t* langHidden;
-    const wchar_t* langWin7;
-    const wchar_t* langWin81;
-    const wchar_t* langWin10;
     const wchar_t* grpNotif; const wchar_t* txtNotif; const wchar_t* btnCustomize;
     const wchar_t* grpAero; const wchar_t* txtAero; const wchar_t* chkAeroPeek;
     const wchar_t* linkHelp;

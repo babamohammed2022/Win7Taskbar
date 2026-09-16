@@ -206,10 +206,6 @@ public:
     int32_t SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickType, int32_t x, int32_t y);
     int32_t SetPinned(uint64_t ownerHwnd, uint32_t uid, int32_t pinned);
 
-    /* v2.62: il frontend dichiara pronta (o no) l'esperienza del riquadro di
-     * rete di Windows 7: vedi SendClick. */
-    void SetWin7NetworkFlyout(bool ready);
-
     /* Riordino del modello dal trascinamento del livello gestito: sposta
      * l'icona accanto a un'altra e muove il pulsante reale con
      * TB_MOVEBUTTON, come fa la shell. */
@@ -353,29 +349,6 @@ private:
      * stati fatti all'avvio. Si azzera alla prima lettura valida: da quel
      * momento vale il backoff normale e non si sonda piu' di frequente. */
     int                                  m_uiaFastRetries = 0;
-
-    /* v2.62: il riquadro di rete di Windows 7 e' pronto all'uso (modulo
-     * inizializzato dal frontend). */
-    void StartBatteryOpenWatch(const RECT& anchor);
-    void FinishBatteryOpenWatch();
-    /* v3.5: cerca nel modello un'icona VERA di stobject.dll (la batteria
-     * reale importata dalla tray di Explorer). Ritorna true e riempie i
-     * parametri quando la trova. */
-    bool FindRealStobjectIcon(uint64_t* owner, uint32_t* uid,
-                              uint32_t* callback, uint32_t* version);
-
-    bool                                 m_win7NetworkFlyoutReady = false;
-
-    /* v2.63: batteria - stato della verifica differita. */
-    RECT                                 m_pendingBatteryAnchor = {};
-    int                                  m_pendingBatteryPopups = 0;
-    /* v3.5: istantanea delle finestre esterne visibili PRIMA del clic
-     * sulla batteria. Il confronto e' per insieme, non per numero: il
-     * riquadro Win32 di Windows 7 a volte arriva senza lo stile WS_POPUP
-     * (o dentro una finestra gia' contata), quindi contare solo i popup
-     * faceva credere che la shell non avesse aperto niente e il riquadro
-     * ricreato si impilava sopra quello vero. */
-    std::set<uint64_t>                   m_pendingBatteryWindows;
     std::vector<TrayIconKey>        m_order;
 
     /* Indice GUID -> chiave, per il riaggancio delle re-registrazioni:
@@ -413,10 +386,6 @@ private:
      * corrente, cosi' il livello del volume si aggiorna anche senza eventi
      * della tray. */
     static constexpr UINT kTimerSynthetic   = 0xB3;
-    /* v2.63: verifica differita dell'apertura del riquadro batteria di
-     * Windows (vedi SendClick). Un solo colpo: se la shell non ha aperto
-     * nulla, il riquadro ricreato compare lo stesso. */
-    static constexpr UINT kTimerBatteryFallback = 0xB4;
 
     std::atomic<uint32_t> m_pendingSources{ 0 };
     std::atomic<bool>     m_importDone{ false };

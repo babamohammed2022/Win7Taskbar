@@ -638,19 +638,6 @@ std::vector<Win11TrayItem> Win11TrayReader::TakeSnapshot() {
     return m_snapshot;
 }
 
-uint32_t Win11TrayReader::UidOfKind(SystemIconKind kind) const {
-    if (kind == SystemIconKind::None) {
-        return 0;
-    }
-    std::lock_guard<std::mutex> lock(m_mutex);
-    for (const Win11TrayItem& item : m_snapshot) {
-        if (item.kind == kind) {
-            return item.uid;
-        }
-    }
-    return 0;
-}
-
 SystemIconKind Win11TrayReader::KindOf(uint32_t uid) const {
     std::lock_guard<std::mutex> lock(m_mutex);
     for (const Win11TrayItem& item : m_snapshot) {
@@ -659,6 +646,22 @@ SystemIconKind Win11TrayReader::KindOf(uint32_t uid) const {
         }
     }
     return SystemIconKind::None;
+}
+
+bool Win11TrayReader::FindByKind(SystemIconKind kind, uint32_t* outUid) const {
+    if (kind == SystemIconKind::None) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (const Win11TrayItem& item : m_snapshot) {
+        if (item.kind == kind) {
+            if (outUid != nullptr) {
+                *outUid = item.uid;
+            }
+            return true;
+        }
+    }
+    return false;
 }
 
 /* ------------------------------------------------------------------ */
