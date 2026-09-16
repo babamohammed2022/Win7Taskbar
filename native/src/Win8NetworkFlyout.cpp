@@ -7844,6 +7844,27 @@ void UpdateLayoutGeometry(int scrollbarOffset) {
     }
 }
 
+/* Porting: le lambda con convenzione WINAPI non sono digerite da MSVC
+ * (x64 espande la convenzione come __cdecl in posizione di lambda, errore
+ * sintattico): i callback diventano funzioni statiche che ricevono il
+ * puntatore via LPARAM, identico contratto di EnumThreadWindows. */
+struct W8EnumWindowsData {
+    HWND hwnd;
+};
+
+static BOOL CALLBACK W8CollectVisibleWindowProc(HWND h, LPARAM lp) {
+    W8EnumWindowsData* data = reinterpret_cast<W8EnumWindowsData*>(lp);
+    if (!IsWindowVisible(h))
+        return TRUE;
+    data->hwnd = h;
+    return FALSE;
+}
+
+static BOOL CALLBACK W8PostCloseToWindowProc(HWND h, LPARAM) {
+    PostMessageW(h, WM_CLOSE, 0, 0);
+    return TRUE;
+}
+
 static BOOL BringProfileDialogToForeground() {
     if (!g_hProfileDialogThread)
         return FALSE;
@@ -7856,14 +7877,9 @@ static BOOL BringProfileDialogToForeground() {
         HWND hwnd;
     } data = {};
 
-    EnumThreadWindows(tid, [](HWND h, LPARAM lp) WINAPI -> BOOL {
-        EnumData* data = reinterpret_cast<EnumData*>(lp);
-        if (!IsWindowVisible(h))
-            return TRUE;
-
-        data->hwnd = h;
-        return FALSE;
-    }, reinterpret_cast<LPARAM>(&data));
+    W8EnumWindowsData wdata = {};
+    EnumThreadWindows(tid, W8CollectVisibleWindowProc, reinterpret_cast<LPARAM>(&wdata));
+    data.hwnd = wdata.hwnd;
 
     if (!data.hwnd)
         return FALSE;
@@ -11174,10 +11190,8 @@ void SafeCleanup() {
         // while the thread can still be executing code in this mod image.
         while (WaitForSingleObject(g_hProfileDialogThread, 250) == WAIT_TIMEOUT) {
             if (tid) {
-                EnumThreadWindows(tid, [](HWND h, LPARAM) WINAPI -> BOOL {
-                    PostMessageW(h, WM_CLOSE, 0, 0);
-                    return TRUE;
-                }, 0);
+                /* Porting: vedi nota MSVC su W8CollectVisibleWindowProc. */
+                EnumThreadWindows(tid, W8PostCloseToWindowProc, 0);
             }
         }
         CloseHandle(g_hProfileDialogThread);
