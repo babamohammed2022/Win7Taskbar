@@ -210,6 +210,30 @@ W7T_API int32_t  W7T_CALL W7T_GetWindowIconBitmap(uint64_t hwnd, int32_t desired
                                                   int32_t* width, int32_t* height,
                                                   uint8_t* pixels, int32_t pixelsBytes);
 
+/* Aero preview frame drawn by the core's 9-slice renderer
+ * (native/src/AeroThumbnailFrame.cpp) instead of by the frontend's XAML
+ * frame template. Output: premultiplied BGRA, top-down, stride = width * 4 -
+ * the same layout W7T_GetWindowIconBitmap uses, so the frontend wraps it in a
+ * Pbgra32 BitmapSource with no conversion. The four corners keep their pixel
+ * size, the four edges stretch only along their own direction and the centre
+ * cell stays fully transparent for the live DWM thumbnail.
+ *
+ * accentArgb: 0x00RRGGBB tint applied to the grayscale slices (its alpha is
+ * ignored, the slices keep their own, modulated by luminance exactly like the
+ * frontend's derived mask). 0 leaves the slices as they are on disk.
+ *
+ * Call with pixels=NULL and pixelsBytes=0 to query: the return value is then
+ * the number of bytes the render needs (width * height * 4). A real call
+ * returns the number of bytes written, or a negative W7T_ERR_* code when the
+ * 9-slice set is not applicable (slices missing next to the executable,
+ * size smaller than the border sum, DC/DIB failure). On any error the
+ * frontend keeps its XAML frame: this export is an opportunity, never a
+ * requirement. */
+W7T_API int32_t  W7T_CALL W7T_RenderAeroThumbnailFrame(int32_t width, int32_t height,
+                                                       uint32_t accentArgb,
+                                                       uint8_t* pixels,
+                                                       int32_t pixelsBytes);
+
 W7T_API int32_t  W7T_CALL W7T_ExecuteWindowCommand(uint64_t hwnd, int32_t cmd);
 W7T_API int32_t  W7T_CALL W7T_MinimizeGroup(const wchar_t* appId);
 W7T_API int32_t  W7T_CALL W7T_CloseGroup(const wchar_t* appId);

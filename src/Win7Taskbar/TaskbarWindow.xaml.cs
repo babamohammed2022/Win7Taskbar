@@ -1687,6 +1687,12 @@ namespace Win7Taskbar
                 }
 
                 Application.Current.Resources[DwmPreviewAccentBrushKey] = brush;
+
+                /* The XAML slices pick the new brush up on their own through
+                 * their DynamicResource; the frames the core already rendered
+                 * were tinted with the previous accent, so they are dropped
+                 * and re-rendered (only when a popup is actually open). */
+                RefreshNativePreviewFrames();
             }
             catch (Exception ex)
             {
@@ -2825,6 +2831,171 @@ namespace Win7Taskbar
             }
 
             TaskPreviewBlurHost.Clip = frameBands;
+        }
+
+        /* ------------------------------------------------------------------ */
+        /*  Preview frame drawn by the core's native 9-slice renderer           */
+        /* ------------------------------------------------------------------ */
+
+        /// <summary>Template parts of TaskPreviewFrameVista: the rectangle the
+        /// core's renderer paints into, and the eight-rectangle XAML accent
+        /// layer that paint replaces while it is in use.</summary>
+        private const string NativeFrameRectPart = "NativeAeroFrameRect";
+        private const string AccentSliceLayerPart = "AccentSliceLayer";
+
+        private void PreviewFrameHost_Loaded(object sender, RoutedEventArgs e)
+            => ApplyNativePreviewFrame(sender as ContentControl);
+
+        private void PreviewFrameHost_SizeChanged(object sender, SizeChangedEventArgs e)
+            => ApplyNativePreviewFrame(sender as ContentControl);
+
+        /// <summary>
+        /// Offers one preview frame the chance to draw its border with the
+        /// core's native 9-slice renderer (native/src/AeroThumbnailFrame.cpp,
+        /// reached through W7T_RenderAeroThumbnailFrame and cached by
+        /// Utilities/NativePreviewFrame).
+        ///
+        /// The swap is limited to the accent layer: the grayscale overlay, the
+        /// clipped static blur, the title band, the close button and the live
+        /// DWM thumbnail are not touched. When the core cannot supply the
+        /// frame - not initialized, slice PNGs missing next to the executable,
+        /// size below the border sum, translucent accent brush - the eight
+        /// masked rectangles are put back and the border is drawn exactly as
+        /// it was before this path existed. Both states are re-checked on
+        /// every call, so a frame that loses its native render recovers by
+        /// itself on the next size change.
+        ///
+        /// Called from the frame's Loaded and SizeChanged, so it runs while
+        /// the popup is being laid out; every path through it is either a
+        /// property assignment or an early return, and the whole body is
+        /// guarded because a cosmetic border must never reach the caller.
+        /// </summary>
+        private void ApplyNativePreviewFrame(ContentControl? frameHost)
+        {
+            try
+            {
+                if (frameHost?.Template == null)
+                {
+                    return;
+                }
+
+                if (frameHost.Template.FindName(NativeFrameRectPart, frameHost)
+                    is not System.Windows.Shapes.Rectangle frameRect)
+                {
+                    /* A theme that does not expose the part: nothing to swap,
+                     * and its own frame stays exactly as it is. */
+                    return;
+                }
+
+                var accentLayer = frameHost.Template.FindName(
+                    AccentSliceLayerPart, frameHost) as UIElement;
+
+                var rendered = NativePreviewFrame.TryRender(frameHost);
+                if (rendered != null)
+                {
+                    /* One frozen brush per rendered frame: the rectangle is
+                     * repainted on every layout pass and must not rebuild its
+                     * brush then. Fill maps the bitmap - rendered at this
+                     * element's own device size and DPI - onto the frame 1:1,
+                     * so the corners are not resampled. The reference check
+                     * works because the cache hands back the same frozen
+                     * bitmap until the size or the accent changes. */
+                    if (!ReferenceEquals((frameRect.Fill as ImageBrush)?.ImageSource,
+                                         rendered))
+                    {
+                        var brush = new ImageBrush(rendered)
+                        {
+                            Stretch = System.Windows.Media.Stretch.Fill
+                        };
+                        brush.Freeze();
+                        frameRect.Fill = brush;
+                    }
+
+                    frameRect.Visibility = Visibility.Visible;
+                    if (accentLayer != null)
+                    {
+                        accentLayer.Visibility = Visibility.Collapsed;
+                    }
+                    return;
+                }
+
+                /* No native frame: the XAML accent layer draws the border. */
+                frameRect.Fill = null;
+                frameRect.Visibility = Visibility.Collapsed;
+                if (accentLayer != null)
+                {
+                    accentLayer.Visibility = Visibility.Visible;
+                }
+            }
+            catch (Exception ex)
+            {
+                /* Cosmetic path: the XAML frame is the fallback and stays up,
+                 * so this is logged and swallowed like the other preview
+                 * helpers around it. */
+                Debug.WriteLine($"native preview frame: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Re-applies the native frame to every preview of the open popup
+        /// after the DWM colorization colour changed: the cached bitmaps were
+        /// tinted with the previous accent, while the XAML layer re-evaluates
+        /// its DynamicResource brush on its own.
+        /// </summary>
+        private void RefreshNativePreviewFrames()
+        {
+            try
+            {
+                NativePreviewFrame.Invalidate();
+
+                if (TaskPreviewPopup is not { IsOpen: true } || TaskPreviewItems == null)
+                {
+                    return;
+                }
+
+                for (int index = 0; index < TaskPreviewItems.Items.Count; index++)
+                {
+                    if (TaskPreviewItems.ItemContainerGenerator
+                            .ContainerFromIndex(index) is FrameworkElement container)
+                    {
+                        ApplyNativePreviewFrame(FindPreviewFrameHost(container, 0));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"preview frame refresh: {ex.Message}");
+            }
+        }
+
+        /// <summary>The frame ContentControl of one preview item: the first
+        /// ContentControl in the item's visual tree, a couple of levels below
+        /// the container. Depth-capped because the popup tree is shallow and a
+        /// cosmetic lookup must never walk far.</summary>
+        private static ContentControl? FindPreviewFrameHost(DependencyObject parent, int depth)
+        {
+            if (depth > 6)
+            {
+                return null;
+            }
+
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(parent, i);
+                if (child is ContentControl contentControl)
+                {
+                    return contentControl;
+                }
+
+                ContentControl? found = FindPreviewFrameHost(child, depth + 1);
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+
+            return null;
         }
 
         private void TaskPreviewPopup_Opened(object? sender, EventArgs e)

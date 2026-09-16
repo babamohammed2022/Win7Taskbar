@@ -19,6 +19,8 @@
 
 #pragma once
 #include <windows.h>
+#include <cstddef>   /* size_t  */
+#include <cstdint>   /* uint8_t */
 
 namespace w7t {
 
@@ -30,28 +32,45 @@ constexpr int kAeroFrameRight  = 17;
 constexpr int kAeroFrameTop    = 38;
 constexpr int kAeroFrameBottom = 19;
 
-/* Disegna la cornice a 9 parti in `dst`.
+/* Draws the 9-part frame into `dst`.
  *
- * - i 4 angoli sono disegnati 1:1, senza scaling, ancorati agli angoli;
- * - i 4 bordi sono stirati SOLO nella direzione lungo cui corrono
- *   (top_center/bottom_center in orizzontale, mid_left/mid_right in
- *   verticale), mantenendo lo spessore fisso nell'altra direzione;
- * - il centro NON viene toccato: li' ci va il contenuto della thumbnail.
+ * - the 4 corners are drawn 1:1, unscaled, anchored to the four corners;
+ * - the 4 edges are stretched ONLY along the direction they run
+ *   (top_center/bottom_center horizontally, mid_left/mid_right vertically),
+ *   keeping their source thickness in the other direction;
+ * - the centre is never touched: that is where the thumbnail content lives.
  *
- * `accent` == 0: le slice sono disegnate come sono su disco.
- * `accent` != 0: le slice (che nascono come maschera grigia, come
- * DWMBorder.png) vengono tinte con quel colore mantenendo l'alfa:
- * e' l'equivalente GDI di cio' che fa il percorso WPF con
- * DwmPreviewAccentBrush + opacity mask.
+ * `accent` == 0: the slices are drawn exactly as they are on disk.
+ * `accent` != 0: the slices are born as a grayscale mask (they are cut from
+ * DWMBorder.png) and get tinted with that colour. The alpha is not copied
+ * verbatim: it is the source alpha modulated by the slice luminance with the
+ * same integer formula the frontend uses to build its shaded mask
+ * (TaskbarWindow.EnsureDwmPreviewBorderMask), because the WPF frame fills
+ * DwmPreviewAccentBrush through that derived mask. Same input, same output:
+ * the two paths draw the same border.
  *
- * Ritorna false se lo spazio e' insufficiente (larghezza < left+right
- * oppure altezza < top+bottom) o se le immagini non si sono caricate:
- * il chiamante ripiega sul rettangolo tradizionale. */
+ * Returns false when there is not enough room (width < left+right or
+ * height < top+bottom) or when the images did not load: the caller then falls
+ * back to the plain rectangle. */
 bool DrawAeroThumbnailFrame9Slice(HDC hdc, const RECT& dst,
                                   COLORREF accent = 0);
 
-/* Ripiego "rettangolo tradizionale": fill pieno scuro + bordo semplice.
- * Ha senso solo quando DrawAeroThumbnailFrame9Slice ha ritornato false. */
+/* Plain-rectangle fallback: solid dark fill + simple border.
+ * Only meaningful when DrawAeroThumbnailFrame9Slice returned false. */
 void DrawAeroThumbnailFrameFallback(HDC hdc, const RECT& dst);
+
+/* Renders the frame into a caller-owned buffer instead of a window DC:
+ * premultiplied BGRA, top-down, stride = width * 4 - the byte layout the
+ * other bitmap exports of the core already use (W7T_GetWindowIconBitmap), so
+ * a WPF frontend can wrap the result in a Pbgra32 BitmapSource with no
+ * conversion. This is the entry point that lets the managed preview popup use
+ * the 9-slice renderer: the frame is drawn here, once per size and accent,
+ * and handed over as an image.
+ *
+ * Returns false - without touching the buffer - when the 9-slice set is not
+ * applicable: slices missing, size below the border sum, or a failed DC/DIB
+ * creation. The caller then keeps its own frame path. */
+bool RenderAeroThumbnailFramePbgra(int width, int height, COLORREF accent,
+                                   uint8_t* pixels, size_t pixelsBytes);
 
 } /* namespace w7t */
