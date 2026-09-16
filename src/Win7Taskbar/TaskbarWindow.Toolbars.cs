@@ -33,20 +33,6 @@ namespace Win7Taskbar
             public BitmapSource? Icon { get; init; }
         }
 
-        /// <summary>RAII ownership for SHGetFileInfo's copied HICON. This also
-        /// covers exceptions during WPF BitmapSource conversion.</summary>
-        private sealed class SafeShellIconHandle
-            : Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid
-        {
-            internal SafeShellIconHandle(IntPtr handle) : base(true)
-            {
-                SetHandle(handle);
-            }
-
-            protected override bool ReleaseHandle()
-                => Interop.NativeMethods.DestroyIcon(handle);
-        }
-
         // ------------------------------------------------------------------
         // v2.5: preferenze delle barre salvate in un INI leggibile a mano:
         //   %LocalAppData%\Win7Taskbar\toolbars.ini
@@ -327,7 +313,7 @@ namespace Win7Taskbar
         /// usa lo stesso meccanismo: ShellExecute sul testo digitato).</summary>
         private static void OpenShellPath(string path)
         {
-            string target = Environment.ExpandEnvironmentVariables(path.Trim());
+            string target = path.Trim();
             if (target.Length == 0)
             {
                 return;
@@ -364,72 +350,11 @@ namespace Win7Taskbar
                     FileName = target,
                     UseShellExecute = true,
                 });
-                return;
             }
-            catch (Exception directError)
+            catch (Exception ex)
             {
-                // ShellExecute treats the entire string as one file. The
-                // Windows 7 Address toolbar also accepted an executable plus
-                // arguments, so retry only that conservative command shape.
-                try
-                {
-                    if (TrySplitAddressCommand(target,
-                                               out string executable,
-                                               out string arguments))
-                    {
-                        Process.Start(new ProcessStartInfo
-                        {
-                            FileName = executable,
-                            Arguments = arguments,
-                            UseShellExecute = true,
-                        });
-                        return;
-                    }
-                }
-                catch (Exception commandError)
-                {
-                    Debug.WriteLine(
-                        $"Address command ('{target}'): {commandError.Message}");
-                    return;
-                }
-
-                Debug.WriteLine($"OpenShellPath('{target}'): {directError.Message}");
+                Debug.WriteLine($"OpenShellPath('{target}'): {ex.Message}");
             }
-        }
-
-        private static bool TrySplitAddressCommand(
-            string text, out string executable, out string arguments)
-        {
-            executable = string.Empty;
-            arguments = string.Empty;
-            string value = text.Trim();
-            if (value.Length == 0 || Uri.TryCreate(value, UriKind.Absolute, out _))
-            {
-                return false;
-            }
-
-            if (value[0] == '"')
-            {
-                int closingQuote = value.IndexOf('"', 1);
-                if (closingQuote <= 1)
-                {
-                    return false;
-                }
-                executable = value.Substring(1, closingQuote - 1);
-                arguments = value.Substring(closingQuote + 1).TrimStart();
-            }
-            else
-            {
-                int separator = value.IndexOfAny(new[] { ' ', '\t' });
-                if (separator <= 0)
-                {
-                    return false; // direct ShellExecute already tried it
-                }
-                executable = value.Substring(0, separator);
-                arguments = value.Substring(separator + 1).TrimStart();
-            }
-
-            return executable.Length > 0 && arguments.Length > 0;
         }
 
         /// <summary>Icona REALE del file/cartella dalla shell (SHGetFileInfo),
@@ -446,14 +371,9 @@ namespace Win7Taskbar
                         (uint)System.Runtime.InteropServices.Marshal.SizeOf<Interop.NativeMethods.SHFILEINFOW>(),
                         flags) != IntPtr.Zero && shfi.hIcon != IntPtr.Zero)
                 {
-                    using var icon = new SafeShellIconHandle(shfi.hIcon);
-                    var bmp = Imaging.CreateBitmapSourceFromHIcon(
-                        icon.DangerousGetHandle(), Int32Rect.Empty,
-                        BitmapSizeOptions.FromEmptyOptions());
-                    if (bmp.CanFreeze)
-                    {
-                        bmp.Freeze();
-                    }
+                    var bmp = Imaging.CreateBitmapSourceFromHIcon(shfi.hIcon, Int32Rect.Empty,
+                                                                  BitmapSizeOptions.FromEmptyOptions());
+                    Interop.NativeMethods.DestroyIcon(shfi.hIcon);
                     return bmp;
                 }
             }

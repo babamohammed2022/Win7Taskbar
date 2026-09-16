@@ -32,9 +32,6 @@ namespace Win7Taskbar
         private readonly TaskbarViewModel _viewModel;
 
         private HwndSource? _hwndSource;
-        private const string DwmPreviewAccentBrushKey = "DwmPreviewAccentBrush";
-        private const string DwmPreviewBorderMaskImageKey = "DwmPreviewBorderMaskImage";
-        private bool _dwmPreviewMaskReady;
         private bool _appBarRegistered;
         private bool _shuttingDown;
 
@@ -218,11 +215,6 @@ namespace Win7Taskbar
             var helper = new WindowInteropHelper(this);
             _hwndSource = HwndSource.FromHwnd(helper.Handle);
             _hwndSource?.AddHook(WndProc);
-
-            // The documented DWM API supplies the current glass/accent color.
-            // The same hook receives WM_DWMCOLORIZATIONCOLORCHANGED later, so
-            // previews already open update without restarting the application.
-            UpdateDwmPreviewAccentColor();
 
             // v2.7: pannello overflow nativo con vetro Aero vero
             // (SetWindowCompositionAttribute + blur-behind, come le mod
@@ -1524,13 +1516,6 @@ namespace Win7Taskbar
                     : st.InputLanguageMode;
                 st.InputLanguageMode =
                     (inputLanguageMode is < 0 or > 3) ? 1 : inputLanguageMode;
-                /* Windows 11-only Task Manager selector, appended at offset
-                 * 56. Older native cores and Windows 10 retain Automatic. */
-                int taskManagerMode = cds.cbData >= 60
-                    ? System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 56)
-                    : st.TaskManagerMode;
-                st.TaskManagerMode = taskManagerMode is >= 0 and <= 2
-                    ? taskManagerMode : 0;
                 if (hasToolbars)
                 {
                     /* Le caselle della scheda "Barre degli strumenti" sono le
@@ -1562,127 +1547,12 @@ namespace Win7Taskbar
             }
         }
 
-        /// <summary>
-        /// WPF opacity masks use only brush alpha; grayscale luminance is not
-        /// converted to opacity. Keep the source PNG untouched and derive a
-        /// readable Aero-style alpha mask from its shading once in memory.
-        /// </summary>
-        private void EnsureDwmPreviewBorderMask()
-        {
-            if (_dwmPreviewMaskReady)
-            {
-                return;
-            }
-
-            try
-            {
-                if (TryFindResource("DwmPreviewBorderImage") is not
-                    System.Windows.Media.Imaging.BitmapSource source ||
-                    source.PixelWidth <= 0 || source.PixelHeight <= 0)
-                {
-                    return;
-                }
-
-                var converted = new System.Windows.Media.Imaging.FormatConvertedBitmap(
-                    source, PixelFormats.Bgra32, null, 0);
-                int stride = checked(converted.PixelWidth * 4);
-                byte[] pixels = new byte[checked(stride * converted.PixelHeight)];
-                converted.CopyPixels(pixels, stride, 0);
-
-                for (int i = 0; i < pixels.Length; i += 4)
-                {
-                    int blue = pixels[i];
-                    int green = pixels[i + 1];
-                    int red = pixels[i + 2];
-                    int sourceAlpha = pixels[i + 3];
-                    // Integer Rec.709 approximation. Pure luminance produced
-                    // about 21% median opacity and was a little too faint.
-                    // A very small floor keeps the typical frame near 23%:
-                    // slightly more transparent than the previous 25%, but
-                    // still readable compared with the original 21% result.
-                    int luminance = (54 * red + 183 * green + 19 * blue + 128) >> 8;
-                    int maskCoverage = 8 + ((247 * luminance + 127) / 255);
-                    pixels[i] = 0xFF;
-                    pixels[i + 1] = 0xFF;
-                    pixels[i + 2] = 0xFF;
-                    pixels[i + 3] = (byte)((sourceAlpha * maskCoverage + 127) / 255);
-                }
-
-                var mask = System.Windows.Media.Imaging.BitmapSource.Create(
-                    converted.PixelWidth, converted.PixelHeight,
-                    converted.DpiX, converted.DpiY,
-                    PixelFormats.Bgra32, null, pixels, stride);
-                if (mask.CanFreeze)
-                {
-                    mask.Freeze();
-                }
-
-                Application.Current.Resources[DwmPreviewBorderMaskImageKey] = mask;
-                _dwmPreviewMaskReady = true;
-            }
-            catch (Exception ex)
-            {
-                // The original PNG alpha remains a valid fallback mask.
-                try { _bridge.Log($"preview accent mask: {ex.Message}"); }
-                catch { }
-            }
-        }
-
-        /// <summary>
-        /// Publishes a new brush object instead of mutating the fallback brush.
-        /// WPF DynamicResource expressions then re-evaluate the key for every
-        /// frame slice, including slices in an already-open preview popup.
-        /// </summary>
-        private void UpdateDwmPreviewAccentColor(uint? messageArgb = null)
-        {
-            try
-            {
-                EnsureDwmPreviewBorderMask();
-
-                uint argb;
-                if (messageArgb.HasValue)
-                {
-                    argb = messageArgb.Value;
-                }
-                else if (NativeMethods.DwmGetColorizationColor(
-                             out argb, out _) < 0)
-                {
-                    // Keep the XAML fallback if DWM cannot supply a color.
-                    return;
-                }
-
-                // Opacity comes from the derived shaded-alpha mask. Keep
-                // this brush opaque: using the DWM alpha here as well
-                // would multiply frame transparency a second time.
-                Color accent = Color.FromArgb(
-                    0xFF,
-                    (byte)((argb >> 16) & 0xFF),
-                    (byte)((argb >> 8) & 0xFF),
-                    (byte)(argb & 0xFF));
-                var brush = new SolidColorBrush(accent);
-                if (brush.CanFreeze)
-                {
-                    brush.Freeze();
-                }
-
-                Application.Current.Resources[DwmPreviewAccentBrushKey] = brush;
-            }
-            catch (Exception ex)
-            {
-                // Accent color is cosmetic: failure must never affect taskbar
-                // startup or the live DWM thumbnail relationship.
-                try { _bridge.Log($"preview accent update: {ex.Message}"); }
-                catch { }
-            }
-        }
-
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             const int WM_DISPLAYCHANGE = 0x007E;
-            const int WM_DWMCOLORIZATIONCOLORCHANGED = 0x0320;
             const int WM_DPICHANGED = 0x02E0;
             const int WM_MOUSEACTIVATE = 0x0021;
             const int WM_ACTIVATE = 0x0006;
@@ -1722,14 +1592,6 @@ namespace Win7Taskbar
 
             switch (msg)
             {
-                case WM_DWMCOLORIZATIONCOLORCHANGED:
-                    // Microsoft documents wParam as the new 0xAARRGGBB
-                    // colorization color. This hook runs on WPF's UI thread,
-                    // where ResourceDictionary updates are valid.
-                    UpdateDwmPreviewAccentColor(
-                        unchecked((uint)wParam.ToInt64()));
-                    handled = true;
-                    return IntPtr.Zero;
                 case WM_COPYDATA:
                     handled = HandlePropsCopyData(lParam);
                     return IntPtr.Zero;
@@ -2188,13 +2050,13 @@ namespace Win7Taskbar
                 sender is FrameworkElement { DataContext: TaskGroup group } &&
                 group.IsActive;
 
-            // INCOMPLETE / TEMPORARILY DISABLED: keep the complete Jump List
-            // gesture implementation in TaskbarWindow.JumpList.cs, but do not
-            // arm it until its remaining behavior has been completed.
-            // if (sender is FrameworkElement fe)
-            // {
-            //     BeginPotentialJumpListDrag(fe, e);
-            // }
+            // Jump List subsystem (TaskbarWindow.JumpList.cs): arms the
+            // press + drag-up detection. Nothing opens on mouse-down; a
+            // click without movement stays a plain click.
+            if (sender is FrameworkElement fe)
+            {
+                BeginPotentialJumpListDrag(fe, e);
+            }
         }
 
         /// <summary>v2.28: avvio robusto: prima la shell nativa con retry,
@@ -2339,13 +2201,27 @@ namespace Win7Taskbar
         // ---------------------------------------------------------------
 
         /// <summary>Ritardo di comparsa dell'anteprima, in millisecondi.</summary>
-        /* The popup, frame, close button and navigation stay owned here.
-         * TaskThumbnail.xaml.cs is deliberately limited to registering,
-         * sizing, repositioning and deregistering the live DWM surface. */
+        /* ================================================================
+         * v2.56 - WINDOW PREVIEWS ARE TEMPORARILY DISABLED.
+         *
+         * Both preview implementations produced unwanted rectangles inside
+         * the popup (an empty grey/white box, the same for every window), so
+         * the feature is parked instead of shipped half-broken: the popup is
+         * never opened, hovering a task button shows only the app-name
+         * tooltip, which is the part that is guaranteed to work.
+         *
+         * This is the single switch for the whole feature. Everything else
+         * (the popup, the item template, the close button, the placement
+         * callback) is still in place and untouched: turning this to true is
+         * the only change needed to bring the previews back, once the
+         * rendering has been properly reimplemented (see
+         * Controls/TaskThumbnail.cs for what has to be proven first and the
+         * README for the user-facing statement).
+         * ================================================================ */
         // A static readonly field (not a const) on purpose: a compile-time
         // constant would make the rest of ShowTaskPreview unreachable code.
-        // Direct DWM previews are active again. The popup now contains only
-        // the live surface, the existing image border and its close button.
+        // v1.7.4: previews are back (live DWM thumbnail with the positive
+        // confirmation fallback - see Controls/TaskThumbnail.cs).
         private static readonly bool TaskPreviewsEnabled = true;
 
         private const int PreviewShowDelayMs = 400;
@@ -2369,9 +2245,6 @@ namespace Win7Taskbar
 
         private FrameworkElement? _previewAnchor;
         private TaskGroup? _previewGroup;
-        // Explicit item hover ownership keeps the layered popup alive while
-        // the pointer is over a DWM destination (which is not WPF-painted).
-        private bool _previewPointerInside;
 
         /// <summary>
         /// v2.53: apertura del tooltip di testo del pulsante della Superbar.
@@ -2508,10 +2381,14 @@ namespace Win7Taskbar
 
             try
             {
-                /* Chiusura e riapertura riposiziona il popup quando cambia
-                 * il pulsante. Ogni TaskThumbnail registra il proprio live
-                 * thumbnail DWM su Loaded e lo deregistra su Unloaded; la
-                 * chiusura azzera l'ItemsSource per garantire il cleanup. */
+                /* Chiusura e riapertura: e' il modo affidabile per far
+                 * riposizionare il popup quando cambia il pulsante sotto il
+                 * mouse (spostare il PlacementTarget di un popup gia' aperto
+                 * non lo fa spostare). Le miniature vengono ricreate e ogni
+                 * controllo TaskThumbnail fa la sua cattura alla Loaded
+                 * (v2.55: cattura statica, non piu' thumbnail DWM), quindi
+                 * non resta nessuna risorsa orfana (la chiusura azzera
+                 * l'ItemsSource, vedi TaskPreviewPopup_Closed). */
                 TaskPreviewPopup.IsOpen = false;
 
                 /* v2.53: se il tooltip di testo e' a schermo, si toglie prima
@@ -2601,29 +2478,6 @@ namespace Win7Taskbar
             };
         }
 
-        /// <summary>
-        /// A layered popup can contain pixels painted directly by DWM rather
-        /// than WPF. Those pixels are visibly under the pointer but do not
-        /// always update IsMouseOver, so use the popup HWND bounds as the
-        /// authoritative hover test. It remains open only while the cursor is
-        /// actually inside the popup (or over its taskbar anchor).
-        /// </summary>
-        private bool IsPointerInsideTaskPreviewPopup()
-        {
-            if (TaskPreviewPopup?.IsOpen != true ||
-                TaskPreviewPopup.Child is not Visual child ||
-                PresentationSource.FromVisual(child) is not HwndSource source ||
-                source.Handle == IntPtr.Zero ||
-                !NativeMethods.GetWindowRect(source.Handle, out NativeMethods.RECT rect) ||
-                !NativeMethods.GetCursorPos(out NativeMethods.POINT cursor))
-            {
-                return false;
-            }
-
-            return cursor.x >= rect.Left && cursor.x < rect.Right &&
-                   cursor.y >= rect.Top && cursor.y < rect.Bottom;
-        }
-
         private void PreviewWatchTimer_Tick(object? sender, EventArgs e)
         {
             try
@@ -2635,9 +2489,16 @@ namespace Win7Taskbar
                 }
 
                 bool overAnchor = _previewAnchor?.IsMouseOver == true;
-                bool overPopup = _previewPointerInside ||
-                    (TaskPreviewPopup.Child is FrameworkElement child && child.IsMouseOver) ||
-                    IsPointerInsideTaskPreviewPopup();
+                bool overPopup = TaskPreviewPopup.Child is FrameworkElement child &&
+                                 child.IsMouseOver;
+
+                /* v1.7.6: the thumbnail controls resize themselves when the
+                 * source aspect becomes known, and the popup's WIN32 window
+                 * does not always shrink back with them: what stays behind
+                 * is a strip of bare popup surface beside the Aero frame
+                 * (the "white band" report). The tick doubles as the
+                 * alignment check for that - see FitPreviewPopupToContent. */
+                FitPreviewPopupToContent();
 
                 if (!overAnchor && !overPopup)
                 {
@@ -2653,135 +2514,128 @@ namespace Win7Taskbar
             }
         }
 
-        /// <summary>RAII owner for the HBITMAP returned by Bitmap.GetHbitmap.
-        /// BitmapSource copies the pixels, so ownership ends immediately after
-        /// conversion rather than surviving for the popup lifetime.</summary>
-        private sealed class SafePreviewHBitmap
-            : Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid
-        {
-            internal SafePreviewHBitmap(IntPtr handle) : base(true)
-            {
-                SetHandle(handle);
-            }
-
-            protected override bool ReleaseHandle()
-                => NativeMethods.DeleteObject(handle);
-        }
-
-        private void CaptureTaskPreviewBackdrop()
+        /// <summary>
+        /// v1.7.6: re-fits the preview popup's WIN32 window to the actual
+        /// laid-out size of its content, so no extra uncovered surface of
+        /// the popup can show next to the Aero frame.
+        ///
+        /// The preview chain is Popup -> frame -> center cell -> thumbnail
+        /// -> DWM rectangle, and each layer is sized from the previous one.
+        /// WPF decides the popup window size, but that size can go stale:
+        /// a reused popup window keeps the bigger width of the previous
+        /// group while the content shrank, and the leftover pixels are
+        /// painted with the popup background - a strip that reads as a
+        /// white band OUTSIDE the frame, exactly the reported shape. DWM
+        /// success never caught it, because the DWM part was fine: the
+        /// mismatch lives purely in popup composition.
+        ///
+        /// All sizes below are device pixels of the POPUP host window; the
+        /// anchor's PointToScreen output is already screen device pixels
+        /// (never rescaled - same rule as the jump-list code). When the
+        /// window is off by more than one pixel, the popup is resized AND
+        /// repositioned with the same offsets WPF's custom placement uses,
+        /// so the re-fit is invisible except for the strip that disappears.
+        /// A silent no-op when the sizes already agree.
+        /// </summary>
+        private void FitPreviewPopupToContent()
         {
             try
             {
-                TaskPreviewBlurImage.Source = null;
-                TaskPreviewBlurHost.Clip = null;
-                TaskPreviewPopupRoot.UpdateLayout();
-
-                if (!TaskPreviewPopupRoot.IsLoaded ||
-                    TaskPreviewPopupRoot.ActualWidth <= 0 ||
-                    TaskPreviewPopupRoot.ActualHeight <= 0 ||
-                    PresentationSource.FromVisual(TaskPreviewPopupRoot)
-                        is not HwndSource popupSource)
+                if (TaskPreviewPopup?.IsOpen != true)
+                {
+                    return;
+                }
+                if (TaskPreviewPopup.Child is not FrameworkElement root)
+                {
+                    return;
+                }
+                if (PresentationSource.FromVisual(root) is not HwndSource source)
+                {
+                    return;
+                }
+                IntPtr hwnd = source.Handle;
+                if (hwnd == IntPtr.Zero || root.ActualWidth <= 0.0)
                 {
                     return;
                 }
 
-                Matrix toDevice = popupSource.CompositionTarget?.TransformToDevice
-                                  ?? Matrix.Identity;
-                Point screenOrigin = TaskPreviewPopupRoot.PointToScreen(new Point(0, 0));
-                int pixelWidth = Math.Max(1, (int)Math.Ceiling(
-                    TaskPreviewPopupRoot.ActualWidth * toDevice.M11));
-                int pixelHeight = Math.Max(1, (int)Math.Ceiling(
-                    TaskPreviewPopupRoot.ActualHeight * toDevice.M22));
-
-                // Bitmap and Graphics are IDisposable; GetHbitmap has separate
-                // ownership and is wrapped immediately in SafePreviewHBitmap.
-                // Opened runs before the first useful popup frame is painted,
-                // so this single capture represents the desktop behind it.
-                using var capture = new System.Drawing.Bitmap(
-                    pixelWidth, pixelHeight,
-                    System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-                using (System.Drawing.Graphics graphics =
-                       System.Drawing.Graphics.FromImage(capture))
+                double dpiX = 1.0, dpiY = 1.0;
+                if (source.CompositionTarget != null)
                 {
-                    graphics.CopyFromScreen(
-                        (int)Math.Round(screenOrigin.X),
-                        (int)Math.Round(screenOrigin.Y),
-                        0, 0, new System.Drawing.Size(pixelWidth, pixelHeight),
-                        System.Drawing.CopyPixelOperation.SourceCopy);
+                    Matrix m = source.CompositionTarget.TransformToDevice;
+                    dpiX = m.M11;
+                    dpiY = m.M22;
                 }
 
-                using var hBitmap = new SafePreviewHBitmap(capture.GetHbitmap());
-                var source = Imaging.CreateBitmapSourceFromHBitmap(
-                    hBitmap.DangerousGetHandle(), IntPtr.Zero, Int32Rect.Empty,
-                    System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
-                if (source.CanFreeze)
+                int wantW = Math.Max(1, (int)Math.Round(root.ActualWidth * dpiX));
+                int wantH = Math.Max(1, (int)Math.Round(root.ActualHeight * dpiY));
+
+                if (!NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT rc))
                 {
-                    source.Freeze();
+                    return;
+                }
+                int haveW = rc.Right - rc.Left;
+                int haveH = rc.Bottom - rc.Top;
+                if (Math.Abs(haveW - wantW) <= 1 && Math.Abs(haveH - wantH) <= 1)
+                {
+                    return;   // already fitted: no log, no churn
                 }
 
-                TaskPreviewBlurImage.Source = source;
-                ClipTaskPreviewBackdropToFrames();
+                // Reposition with the SAME custom-placement formula WPF
+                // used, so the popup keeps touching the bar the same way.
+                int x = rc.Left, y = rc.Top;
+                if (_previewAnchor is FrameworkElement anchor && anchor.IsVisible)
+                {
+                    Point anchorTopLeftPx = anchor.PointToScreen(new Point(0, 0));
+                    CustomPopupPlacement[] placement = ComputeTaskPreviewPlacement(
+                        new Size(wantW / dpiX, wantH / dpiY),
+                        new Size(anchor.ActualWidth, anchor.ActualHeight));
+                    if (placement.Length > 0)
+                    {
+                        x = (int)Math.Round(anchorTopLeftPx.X +
+                                             placement[0].Point.X * dpiX);
+                        y = (int)Math.Round(anchorTopLeftPx.Y +
+                                             placement[0].Point.Y * dpiY);
+                    }
+                }
+
+                NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, x, y, wantW, wantH,
+                                           NativeMethods.SWP_NOZORDER |
+                                           NativeMethods.SWP_NOACTIVATE);
+
+                Utilities.DiagnosticLogger.Write("PREVIEW",
+                    $"popup refit: window {haveW}x{haveH} -> content {wantW}x{wantH}" +
+                    " (popup-host device px; strip removed beside the frame)");
             }
             catch (Exception ex)
             {
-                // Capture is cosmetic: keep the accepted accent frame and
-                // never prevent DWM thumbnail registration or popup opening.
-                TaskPreviewBlurImage.Source = null;
-                TaskPreviewBlurHost.Clip = null;
-                try { _bridge.Log($"preview static blur: {ex.Message}"); }
-                catch { }
+                /* Cosmetic guarantee: if anything here fails the preview
+                 * simply keeps the WPF-computed size (the pre-v1.7.6
+                 * behaviour). Never take the popup down over a fit. */
+                Debug.WriteLine($"fit anteprima: {ex.Message}");
             }
-        }
-
-        private void ClipTaskPreviewBackdropToFrames()
-        {
-            var frameBands = new GeometryGroup();
-            int count = TaskPreviewItems.Items.Count;
-            for (int index = 0; index < count; index++)
-            {
-                if (TaskPreviewItems.ItemContainerGenerator.ContainerFromIndex(index)
-                    is not FrameworkElement item ||
-                    item.ActualWidth <= 34 || item.ActualHeight <= 57)
-                {
-                    continue;
-                }
-
-                Rect bounds = item.TransformToAncestor(TaskPreviewPopupRoot)
-                                  .TransformBounds(new Rect(
-                                      0, 0, item.ActualWidth, item.ActualHeight));
-                double middleHeight = Math.Max(0, bounds.Height - 57);
-
-                // Exact DWMBorder.png slices: top 38, sides 17, bottom 19.
-                // Four bands leave the complete central DWM cell unpainted.
-                frameBands.Children.Add(new RectangleGeometry(
-                    new Rect(bounds.X, bounds.Y, bounds.Width, 38)));
-                frameBands.Children.Add(new RectangleGeometry(
-                    new Rect(bounds.X, bounds.Y + 38, 17, middleHeight)));
-                frameBands.Children.Add(new RectangleGeometry(
-                    new Rect(bounds.Right - 17, bounds.Y + 38, 17, middleHeight)));
-                frameBands.Children.Add(new RectangleGeometry(
-                    new Rect(bounds.X, bounds.Bottom - 19, bounds.Width, 19)));
-            }
-
-            TaskPreviewBlurHost.Clip = frameBands;
         }
 
         private void TaskPreviewPopup_Opened(object? sender, EventArgs e)
         {
             try
             {
-                CaptureTaskPreviewBackdrop();
-
                 /* v2.45: punto unico di controllo dopo che il popup e' davvero a
-                 * schermo. Lo sfondo statico e' gia' stato catturato e limitato
-                 * alle sole bande esterne; ora si riavvia il timer che decide
-                 * la chiusura, cosi' la permanenza non
+                 * schermo. v2.50: non c'e' piu' nessun fondo da preparare (il
+                 * popup ha una tinta piena del tema): qui si riavvia solo il
+                 * timer che decide la chiusura, cosi' la permanenza non
                  * dipende dall'ordine con cui WPF alza Opened rispetto al
                  * codice chiamante. */
                 _previewWatchTimer ??= new TimerLease(PreviewWatchIntervalMs,
                                                       PreviewWatchTimer_Tick);
                 _previewWatchTimer.Stop();
                 _previewWatchTimer.Start();
+
+                /* v1.7.6: first popup-to-content alignment right away, at
+                 * the layout priority (the first fit must not wait for the
+                 * watch tick; the tick then re-checks cheaply). */
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
+                    new Action(FitPreviewPopupToContent));
             }
             catch (Exception ex)
             {
@@ -2799,20 +2653,13 @@ namespace Win7Taskbar
             {
                 _previewShowTimer?.Stop();
                 _previewWatchTimer?.Stop();
-
-                // Release the managed BitmapSource reference after every
-                // short-lived hover popup; the HBITMAP was already released
-                // by SafePreviewHBitmap immediately after conversion.
-                TaskPreviewBlurImage.Source = null;
-                TaskPreviewBlurHost.Clip = null;
-
                 _previewAnchor = null;
                 _previewGroup = null;
-                _previewPointerInside = false;
                 _openButtonTip = null;
 
-                /* Sgancia i controlli TaskThumbnail, che deregistrano sempre
-                 * il proprio handle DWM durante Unloaded. */
+                /* Sgancia le miniature: senza questo i controlli TaskThumbnail
+                 * (e le immagini catturate che tengono in memoria) resterebbero
+                 * vivi anche a popup chiuso. */
                 if (TaskPreviewItems != null)
                 {
                     TaskPreviewItems.ItemsSource = null;
@@ -2851,16 +2698,6 @@ namespace Win7Taskbar
                 _previewAnchor = null;
                 _previewGroup = null;
             }
-        }
-
-        private void PreviewThumbnail_MouseEnter(object sender, MouseEventArgs e)
-        {
-            _previewPointerInside = true;
-        }
-
-        private void PreviewThumbnail_MouseLeave(object sender, MouseEventArgs e)
-        {
-            _previewPointerInside = false;
         }
 
         /// <summary>
@@ -3081,8 +2918,7 @@ namespace Win7Taskbar
                         "Pin this program to taskbar");
                 int choice = _bridge.ShowContextMenu(
                     x, y, bottomEdge: true,
-                    L("lang_start_context",
-                        L("lang_start_tip", "Start")), pinText);
+                    L("lang_start_tip", "Start"), pinText);
                 switch (choice)
                 {
                     case 1:
@@ -3136,10 +2972,8 @@ namespace Win7Taskbar
                     var t = Type.GetTypeFromProgID("WScript.Shell");
                     if (t != null)
                     {
-                        dynamic sh = Activator.CreateInstance(t)
-                                     ?? throw new InvalidOperationException(
-                                         "WScript.Shell non disponibile");
-                        dynamic sc = sh.CreateShortcut(lnk);
+                        dynamic sh = Activator.CreateInstance(t);
+                        var sc = sh.CreateShortcut(lnk);
                         sc.TargetPath = exe;
                         sc.Save();
                     }
@@ -4494,7 +4328,7 @@ namespace Win7Taskbar
                     OpenDateTimeSettings();
                     break;
                 case 5:
-                    OpenNativeNotificationAreaSettings();
+                    OpenNotificationAreaIconsApplet();
                     break;
                 case 6:
                     NativeMethods.CascadeWindows(IntPtr.Zero, 0, IntPtr.Zero, 0, null);
@@ -4603,25 +4437,51 @@ namespace Win7Taskbar
                 OverflowToggle.IsChecked = false;
             }
 
-            OpenNativeNotificationAreaSettings();
+            OpenNotificationAreaIconsApplet();
         }
 
-        private void OpenNativeNotificationAreaSettings()
+        private void OpenNotificationAreaIconsApplet()
         {
-            /* Open Windows' native Notification Area settings page directly,
-             * as this command did before the removed imitation existed. */
-            // Native shell namespace first.
+            /* v1.7.6: the menu item opens the program's OWN page now - the
+             * recreated "Notification Area Icons" dialog that configures the
+             * icons of THIS tray (three states per icon, always-show switch,
+             * system-icon page, restore link), with the choices persisted in
+             * trayicons.ini and ZERO registry involvement. Modeless: the
+             * page lives on this dispatcher and the tray keeps updating
+             * while it is open. Only when the page cannot be created at all
+             * (old native build without the export, failed window) does the
+             * click degrade to the previous chain below - never to nothing,
+             * never silently. */
+            try
+            {
+                int opened = _bridge.ShowNotificationIconsCpl(new System.Windows.Interop.WindowInteropHelper(this).Handle);
+                if (opened >= 0)
+                {
+                    Utilities.DiagnosticLogger.Write("TRAYCPL",
+                        opened == 1 ? "own page opened" : "own page already open (raised)");
+                    return;
+                }
+                Utilities.DiagnosticLogger.Write("TRAYCPL",
+                    $"own page unavailable (code {opened}), falling back to the system page");
+            }
+            catch (Exception ex)
+            {
+                Utilities.DiagnosticLogger.WriteException("TRAYCPL", ex,
+                    "own page threw before the fallback");
+            }
+
+            // 1) Meccanismo nativo del core (ShellExecuteEx sul namespace).
             try
             {
                 if (_bridge.OpenNotificationIconsSettings())
                 {
                     return;
                 }
-                Debug.WriteLine("Apertura delle impostazioni native delle icone rifiutata dalla shell: ripiego 1");
+                Debug.WriteLine("Apertura nativa dell'applet icone rifiutata dalla shell: ripiego 1");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Apertura delle impostazioni native delle icone non riuscita: {ex.Message}");
+                Debug.WriteLine($"Apertura nativa dell'applet icone non riuscita: {ex.Message}");
             }
 
             // 2) Ripiego gestito: control.exe col nome canonico dell'applet
@@ -4672,7 +4532,7 @@ namespace Win7Taskbar
             catch (Exception ex)
             {
                 StartupGuard.Note($"apertura 'Personalizza...' fallita: {ex.GetType().Name}: {ex.Message}");
-                Debug.WriteLine($"Apertura impostazioni icone non riuscita: {ex.Message}");
+                Debug.WriteLine($"Apertura applet icone non riuscita: {ex.Message}");
             }
         }
 
@@ -5893,8 +5753,7 @@ namespace Win7Taskbar
                     tbDesktop ? 1 : 0,
                     tbAddress ? 1 : 0,
                     tbLinks ? 1 : 0,
-                    st.InputLanguageMode,
-                    st.TaskManagerMode);
+                    st.InputLanguageMode);
             }
             catch (Exception ex)
             {

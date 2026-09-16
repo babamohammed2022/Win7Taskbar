@@ -79,93 +79,12 @@ bool g_hoveredFooter = false;
 int g_hoveredWin7Index = -1;
 /* v1.7.5: no managed callback state anymore (see SetChangedCallback). */
 
-/* Runtime-loaded GDI+ rendering copied from the upstream language-restorer
- * mod. No input hooks or hotkeys are brought along: this module uses GDI+
- * only for the anti-aliased Windows 7 selection checkmark. */
-static HMODULE g_hGdiPlus = nullptr;
-static ULONG_PTR g_gdiplusToken = 0;
-typedef int (WINAPI *GdiplusStartupFunc)(ULONG_PTR*, const void*, void*);
-typedef void (WINAPI *GdiplusShutdownFunc)(ULONG_PTR);
-typedef int (WINAPI *GdipCreateFromHDCFunc)(HDC, void**);
-typedef int (WINAPI *GdipDeleteGraphicsFunc)(void*);
-typedef int (WINAPI *GdipSetSmoothingModeFunc)(void*, int);
-typedef int (WINAPI *GdipSetPixelOffsetModeFunc)(void*, int);
-typedef int (WINAPI *GdipCreatePathFunc)(int, void**);
-typedef int (WINAPI *GdipDeletePathFunc)(void*);
-typedef int (WINAPI *GdipAddPathPolygonFunc)(void*, const void*, int);
-typedef int (WINAPI *GdipCreateSolidFillFunc)(DWORD, void**);
-typedef int (WINAPI *GdipDeleteBrushFunc)(void*);
-typedef int (WINAPI *GdipFillPathFunc)(void*, void*, void*);
-typedef int (WINAPI *GdipCreatePen1Func)(DWORD, float, int, void**);
-typedef int (WINAPI *GdipDeletePenFunc)(void*);
-typedef int (WINAPI *GdipSetPenLineJoinFunc)(void*, int);
-typedef int (WINAPI *GdipDrawPathFunc)(void*, void*, void*);
-static GdipCreateFromHDCFunc pGdipCreateFromHDC = nullptr;
-static GdipDeleteGraphicsFunc pGdipDeleteGraphics = nullptr;
-static GdipSetSmoothingModeFunc pGdipSetSmoothingMode = nullptr;
-static GdipSetPixelOffsetModeFunc pGdipSetPixelOffsetMode = nullptr;
-static GdipCreatePathFunc pGdipCreatePath = nullptr;
-static GdipDeletePathFunc pGdipDeletePath = nullptr;
-static GdipAddPathPolygonFunc pGdipAddPathPolygon = nullptr;
-static GdipCreateSolidFillFunc pGdipCreateSolidFill = nullptr;
-static GdipDeleteBrushFunc pGdipDeleteBrush = nullptr;
-static GdipFillPathFunc pGdipFillPath = nullptr;
-static GdipCreatePen1Func pGdipCreatePen1 = nullptr;
-static GdipDeletePenFunc pGdipDeletePen = nullptr;
-static GdipSetPenLineJoinFunc pGdipSetPenLineJoin = nullptr;
-static GdipDrawPathFunc pGdipDrawPath = nullptr;
-
-static bool InitGdiPlusRendering() {
-    if (g_hGdiPlus != nullptr) return true;
-    HMODULE module = LoadLibraryExW(L"gdiplus.dll", nullptr,
-                                    LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (module == nullptr) return false;
-#define W7T_GDIP_PROC(name) reinterpret_cast<name##Func>(GetProcAddress(module, #name))
-    pGdipCreateFromHDC = W7T_GDIP_PROC(GdipCreateFromHDC);
-    pGdipDeleteGraphics = W7T_GDIP_PROC(GdipDeleteGraphics);
-    pGdipSetSmoothingMode = W7T_GDIP_PROC(GdipSetSmoothingMode);
-    pGdipSetPixelOffsetMode = W7T_GDIP_PROC(GdipSetPixelOffsetMode);
-    pGdipCreatePath = W7T_GDIP_PROC(GdipCreatePath);
-    pGdipDeletePath = W7T_GDIP_PROC(GdipDeletePath);
-    pGdipAddPathPolygon = W7T_GDIP_PROC(GdipAddPathPolygon);
-    pGdipCreateSolidFill = W7T_GDIP_PROC(GdipCreateSolidFill);
-    pGdipDeleteBrush = W7T_GDIP_PROC(GdipDeleteBrush);
-    pGdipFillPath = W7T_GDIP_PROC(GdipFillPath);
-    pGdipCreatePen1 = W7T_GDIP_PROC(GdipCreatePen1);
-    pGdipDeletePen = W7T_GDIP_PROC(GdipDeletePen);
-    pGdipSetPenLineJoin = W7T_GDIP_PROC(GdipSetPenLineJoin);
-    pGdipDrawPath = W7T_GDIP_PROC(GdipDrawPath);
-#undef W7T_GDIP_PROC
-    GdiplusStartupFunc startup = reinterpret_cast<GdiplusStartupFunc>(
-        GetProcAddress(module, "GdiplusStartup"));
-    if (!startup || !pGdipCreateFromHDC || !pGdipDeleteGraphics ||
-        !pGdipSetSmoothingMode || !pGdipSetPixelOffsetMode ||
-        !pGdipCreatePath || !pGdipDeletePath || !pGdipAddPathPolygon ||
-        !pGdipCreateSolidFill || !pGdipDeleteBrush || !pGdipFillPath ||
-        !pGdipCreatePen1 || !pGdipDeletePen || !pGdipSetPenLineJoin ||
-        !pGdipDrawPath) {
-        FreeLibrary(module);
-        return false;
-    }
-    struct StartupInput { DWORD version; void* callback; BOOL suppressThread; BOOL suppressCodecs; } input{1, nullptr, FALSE, FALSE};
-    if (startup(&g_gdiplusToken, &input, nullptr) != 0) {
-        FreeLibrary(module);
-        g_gdiplusToken = 0;
-        return false;
-    }
-    g_hGdiPlus = module;
-    return true;
-}
-
-static void ShutdownGdiPlusRendering() {
-    if (g_hGdiPlus == nullptr) return;
-    GdiplusShutdownFunc shutdown = reinterpret_cast<GdiplusShutdownFunc>(
-        GetProcAddress(g_hGdiPlus, "GdiplusShutdown"));
-    if (shutdown && g_gdiplusToken) shutdown(g_gdiplusToken);
-    FreeLibrary(g_hGdiPlus);
-    g_hGdiPlus = nullptr;
-    g_gdiplusToken = 0;
-}
+/* v1.7.5: GDI+ IS GONE from this module. It used to be loaded by hand
+ * (GdiplusStartup on a service thread, fifteen raw proc pointers bound
+ * with GetProcAddress) and it was the one genuinely dangerous part of
+ * the port. The checkmark drawing is plain GDI now - the same technique
+ * as the rest of the flyout - so there is no secondary loader, no
+ * startup/shutdown token pair and no proc table left to maintain. */
 
 /* ------------------------------------------------------------------ */
 /*  Mod tables: abbreviations and localization                         */
@@ -251,42 +170,44 @@ static const LangAbbrevEntry g_LangAbbrevs[] = {
 struct LocalizedUiText {
     const wchar_t* langTag;
     const wchar_t* preferences;
+    const wchar_t* shortcutHint;
     const wchar_t* showLanguageBar;
 };
 
 static const LocalizedUiText kLocalizedStrings[] = {
-    { L"it", L"Preferenze lingua", L"Mostra barra della lingua" },
-    { L"en", L"Language preferences", L"Show the Language bar" },
-    { L"tr", L"Dil tercihleri", L"Dil \u00E7ubu\u011Funu g\u00F6ster" },
-    { L"fr", L"Pr\u00E9f\u00E9rences linguistiques", L"Afficher la barre des langues" },
-    { L"es", L"Preferencias de idioma", L"Mostrar la barra de idioma" },
-    { L"pt", L"Prefer\u00EAncias de idioma", L"Mostrar a barra de idiomas" },
-    { L"zh", L"\u8BED\u8A00\u9996\u9009\u9879", L"\u663E\u793A\u8BED\u8A00\u680F" },
-    { L"pl", L"Preferencje j\u0119zykowe", L"Poka\u017C pasek j\u0119zyka" },
-    { L"nl", L"Taalvoorkeuren", L"Taalbalk weergeven" },
-    { L"de", L"Spracheinstellungen", L"Sprachenleiste anzeigen" },
-    { L"ru", L"\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u044F\u0437\u044B\u043A\u0430", L"\u041E\u0442\u043E\u0431\u0440\u0430\u0437\u0438\u0442\u044C \u044F\u0437\u044B\u043A\u043E\u0432\u0443\u044E \u043F\u0430\u043D\u0435\u043B\u044C" },
-    { L"ja", L"\u8A00\u8A9E\u306E\u8A2D\u5B9A", L"\u8A00\u8A9E\u30D0\u30FC\u3092\u8868\u793A" },
-    { L"ko", L"\uC5B8\uC5B4 \uAE30\uBCF8 \uC124\uC815", L"\uC5B8\uC5B4 \uD45C\uC2DC\uC904 \uD45C\uC2DC" },
-    { L"ar", L"\u062A\u0641\u0636\u064A\u0644\u0627\u062A \u0627\u0644\u0644\u063A\u0629", L"\u0625\u0638\u0647\u0627\u0631 \u0634\u0631\u064A\u0637 \u0627\u0644\u0644\u063A\u0629" },
-    { L"sv", L"Spr\u00E5kinst\u00E4llningar", L"Visa spr\u00E5kf\u00E4ltet" },
-    { L"cs", L"Jazykov\u00E9 p\u0159edvolby", L"Zobrazit panel jazyk\u016F" },
-    { L"da", L"Sprogindstillinger", L"Vis proceslinjen Sprog" },
-    { L"fi", L"Kieliasetukset", L"N\u00E4yt\u00E4 kielipalkki" },
-    { L"el", L"\u03A0\u03C1\u03BF\u03C4\u03B9\u03BC\u03AE\u03C3\u03B5\u03B9\u03C2 \u03B3\u03BB\u03CE\u03C3\u03C3\u03B1\u03C2", L"\u0395\u03BC\u03C6\u03AC\u03BD\u03B9\u03C3\u03B7 \u03C4\u03B7\u03C2 \u03B3\u03C1\u03B1\u03BC\u03BC\u03AE\u03C2 \u03B3\u03BB\u03CE\u03C3\u03C3\u03B1\u03C2" },
-    { L"he", L"\u05D4\u05E2\u05D3\u05E4\u05D5\u05EA \u05E9\u05E4\u05D4", L"\u05D4\u05E6\u05D2 \u05D0\u05EA \u05E1\u05E8\u05D2\u05DC \u05D4\u05E9\u05E4\u05D4" },
-    { L"hu", L"Nyelvi be\u00E1ll\u00EDt\u00E1sok", L"Nyelvi s\u00E1v megjelen\u00EDt\u00E9se" },
-    { L"nb", L"Spr\u00E5kinnstillinger", L"Vis spr\u00E5klinjen" },
-    { L"ro", L"Preferin\u021Be de limb\u0103", L"Afi\u0219are bar\u0103 de limb\u0103" },
-    { L"sk", L"Jazykov\u00E9 predvo\u013Eby", L"Zobrazi\u0165 panel jazykov" },
-    { L"uk", L"\u041C\u043E\u0432\u043D\u0456 \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u0438", L"\u0412\u0456\u0434\u043E\u0431\u0440\u0430\u0437\u0438\u0442\u0438 \u043C\u043E\u0432\u043D\u0443 \u043F\u0430\u043D\u0435\u043B\u044C" },
-    { L"af", L"Taalvoorkeure", L"Wys die taalbalk" }
+    { L"it", L"Preferenze lingua", L"Per passare da una lingua all'altra, premi tasto Windows + Spazio", L"Mostra barra della lingua" },
+    { L"en", L"Language preferences", L"To switch, press Windows key + Space", L"Show the Language bar" },
+    { L"tr", L"Dil tercihleri", L"Ge\u00E7i\u015F yapmak i\u00E7in Windows tu\u015Fu + Bo\u015Fluk tu\u015Funa bas\u0131n", L"Dil \u00E7ubu\u011Funu g\u00F6ster" },
+    { L"fr", L"Pr\u00E9f\u00E9rences linguistiques", L"Pour basculer, appuyez sur la touche Windows + Espace", L"Afficher la barre des langues" },
+    { L"es", L"Preferencias de idioma", L"Para cambiar, presione la tecla Windows + Barra espaciadora", L"Mostrar la barra de idioma" },
+    { L"pt", L"Prefer\u00EAncias de idioma", L"Para alternar, pressione a tecla Windows + Espa\u00E7o", L"Mostrar a barra de idiomas" },
+    { L"zh", L"\u8BED\u8A00\u9996\u9009\u9879", L"\u82E5\u8981\u5207\u6362\uFF0C\u8BF7\u6309 Windows \u5FBD\u6807\u952E + \u7A7A\u683C\u952E", L"\u663E\u793A\u8BED\u8A00\u680F" },
+    { L"pl", L"Preferencje j\u0119zykowe", L"Aby prze\u0142\u0105czy\u0107, naci\u015Bnij klawisz Windows + Spacja", L"Poka\u017C pasek j\u0119zyka" },
+    { L"nl", L"Taalvoorkeuren", L"Druk op Windows-toets + Spatiebalk om te wisselen", L"Taalbalk weergeven" },
+    { L"de", L"Spracheinstellungen", L"Dr\u00FCcken Sie Windows-Taste + Leertaste, um zu wechseln", L"Sprachenleiste anzeigen" },
+    { L"ru", L"\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u044F\u0437\u044B\u043A\u0430", L"\u0414\u043B\u044F \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F \u043D\u0430\u0436\u043C\u0438\u0442\u0435 \u043A\u043B\u0430\u0432\u0438\u0448\u0443 Windows + \u041F\u0440\u043E\u0431\u0435\u043B", L"\u041E\u0442\u043E\u0431\u0440\u0430\u0437\u0438\u0442\u044C \u044F\u0437\u044B\u043A\u043E\u0432\u0443\u044E \u043F\u0430\u043D\u0435\u043B\u044C" },
+    { L"ja", L"\u8A00\u8A9E\u306E\u8A2D\u5B9A", L"\u5207\u308A\u66FF\u3048\u308B\u306B\u306F\u3001Windows \u30ED\u30B4 \u30AD\u30FC + Space \u30AD\u30FC\u3092\u62BC\u3057\u307E\u3059", L"\u8A00\u8A9E\u30D0\u30FC\u3092\u8868\u793A" },
+    { L"ko", L"\uC5B8\uC5B4 \uAE30\uBCF8 \uC124\uC815", L"\uC804\uD658\uD558\uB824\uBA74 Windows \uD0A4 + \uC2A4\uD398\uC774\uC2A4\uBC14\uB97C \uB204\uB974\uC138\uC694", L"\uC5B8\uC5B4 \uD45C\uC2DC\uC904 \uD45C\uC2DC" },
+    { L"ar", L"\u062A\u0641\u0636\u064A\u0644\u0627\u062A \u0627\u0644\u0644\u063A\u0629", L"\u0644\u0644\u062A\u0628\u062F\u064A\u0644\u060C \u0627\u0636\u063A\u0637 \u0639\u0644\u0649 \u0645\u0641\u062A\u0627\u062D Windows + \u0627\u0644\u0645\u0633\u0627\u0641\u0629", L"\u0625\u0638\u0647\u0627\u0631 \u0634\u0631\u064A\u0637 \u0627\u0644\u0644\u063A\u0629" },
+    { L"sv", L"Spr\u00E5kinst\u00E4llningar", L"Tryck p\u00E5 Windows-tangenten + Blanksteg f\u00F6r att v\u00E4xla", L"Visa spr\u00E5kf\u00E4ltet" },
+    { L"cs", L"Jazykov\u00E9 p\u0159edvolby", L"Chcete-li p\u0159epnout, stiskn\u011Bte kl\u00E1vesu Windows + Mezern\u00EDk", L"Zobrazit panel jazyk\u016F" },
+    { L"da", L"Sprogindstillinger", L"Tryk p\u00E5 Windows-tasten + Mellemrum for at skifte", L"Vis proceslinjen Sprog" },
+    { L"fi", L"Kieliasetukset", L"Vaihda painamalla Windows-n\u00E4pp\u00E4int\u00E4 + v\u00E4lily\u00F6nti\u00E4", L"N\u00E4yt\u00E4 kielipalkki" },
+    { L"el", L"\u03A0\u03C1\u03BF\u03C4\u03B9\u03BC\u03AE\u03C3\u03B5\u03B9\u03C2 \u03B3\u03BB\u03CE\u03C3\u03C3\u03B1\u03C2", L"\u0393\u03B9\u03B1 \u03B5\u03BD\u03B1\u03BB\u03BB\u03B1\u03B3\u03AE, \u03C0\u03B1\u03C4\u03AE\u03C3\u03C4\u03B5 \u03C4\u03BF \u03C0\u03BB\u03AE\u03BA\u03C4\u03C1\u03BF Windows + \u0394\u03B9\u03AC\u03C3\u03C4\u03B7\u03BC\u03B1", L"\u0395\u03BC\u03C6\u03AC\u03BD\u03B9\u03C3\u03B7 \u03C4\u03B7\u03C2 \u03B3\u03C1\u03B1\u03BC\u03BC\u03AE\u03C2 \u03B3\u03BB\u03CE\u03C3\u03C3\u03B1\u03C2" },
+    { L"he", L"\u05D4\u05E2\u05D3\u05E4\u05D5\u05EA \u05E9\u05E4\u05D4", L"\u05DB\u05D3\u05D9 \u05DC\u05E2\u05D1\u05D5\u05E8, \u05DC\u05D7\u05E5 \u05E2\u05DC \u05DE\u05E7\u05E9 Windows + \u05E8\u05D5\u05D5\u05D7", L"\u05D4\u05E6\u05D2 \u05D0\u05EA \u05E1\u05E8\u05D2\u05DC \u05D4\u05E9\u05E4\u05D4" },
+    { L"hu", L"Nyelvi be\u00E1ll\u00EDt\u00E1sok", L"A v\u00E1lt\u00E1shoz nyomja le a Windows billenty\u0171 + Sz\u00F3k\u00F6z billenty\u0171t", L"Nyelvi s\u00E1v megjelen\u00EDt\u00E9se" },
+    { L"nb", L"Spr\u00E5kinnstillinger", L"Trykk p\u00E5 Windows-tasten + Mellomrom for \u00E5 bytte", L"Vis spr\u00E5klinjen" },
+    { L"ro", L"Preferin\u021Be de limb\u0103", L"Pentru a comuta, ap\u0103sa\u021Bi tasta Windows + Spa\u021Biu", L"Afi\u0219are bar\u0103 de limb\u0103" },
+    { L"sk", L"Jazykov\u00E9 predvo\u013Eby", L"Ak chcete prepn\u00FA\u0165, stla\u010Dte kl\u00E1ves s logom Windows + Medzern\u00EDk", L"Zobrazi\u0165 panel jazykov" },
+    { L"uk", L"\u041C\u043E\u0432\u043D\u0456 \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u0438", L"\u0429\u043E\u0431 \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u0438, \u043D\u0430\u0442\u0438\u0441\u043D\u0456\u0442\u044C \u043A\u043B\u0430\u0432\u0456\u0448\u0443 Windows + \u041F\u0440\u043E\u0431\u0456\u043B", L"\u0412\u0456\u0434\u043E\u0431\u0440\u0430\u0437\u0438\u0442\u0438 \u043C\u043E\u0432\u043D\u0443 \u043F\u0430\u043D\u0435\u043B\u044C" },
+    { L"af", L"Taalvoorkeure", L"Vir maklike wisseling, druk Windows-sleutel + Spasie", L"Wys die taalbalk" }
 };
 
 /* The popup footer language is the APP's (the single list of the
  * taskbar), not Windows': it is the only intentional difference of the
  * port. */
 static void GetLocalizedFooterStrings(std::wstring& outPreferences,
+                                      std::wstring& outHint,
                                       std::wstring* outShowBar) {
     wchar_t tag[8] = {};
     switch (CurrentLanguage()) {
@@ -306,11 +227,13 @@ static void GetLocalizedFooterStrings(std::wstring& outPreferences,
     for (const LocalizedUiText& item : kLocalizedStrings) {
         if (item.langTag && wcscmp(tag, item.langTag) == 0) {
             outPreferences = item.preferences;
+            outHint = item.shortcutHint;
             if (outShowBar) *outShowBar = item.showLanguageBar;
             return;
         }
     }
     outPreferences = L"Language preferences";
+    outHint = L"To switch, press Windows key + Space";
     if (outShowBar) *outShowBar = L"Show the Language bar";
 }
 
@@ -751,31 +674,13 @@ static void SwitchToLayout(size_t index) {
 /* ------------------------------------------------------------------ */
 
 static WORD ActiveLangIdWord() {
-    /* Match the functional target-selection path from the upstream
-     * language-restorer mod, without importing any of its shortcut hooks.
-     * GetGUIThreadInfo(0) queried the core caller's own UI thread, so the
-     * tray abbreviation could remain stuck on that thread's layout while
-     * focus moved between applications. The active layout belongs to the
-     * thread of the real foreground window. While our flyout/taskbar owns
-     * the foreground relationship, use the application target captured
-     * before the click, exactly as RefreshKeyboardLayouts does. */
-    const HWND hFlyout = AtomicLoadHwnd(g_hFlyoutWnd);
-    HWND hTarget = GetForegroundWindow();
-
-    if (!hTarget || !IsWindow(hTarget) || hTarget == hFlyout ||
-        IsOurTaskbarWindow(hTarget)) {
-        const HWND captured = AtomicLoadHwnd(g_targetWindow);
-        hTarget = captured && IsWindow(captured) && captured != hFlyout &&
-                          !IsOurTaskbarWindow(captured)
-            ? captured : nullptr;
-    } else {
-        /* Keep the mod's target cache current for the next flyout click. */
-        g_targetWindow.store(hTarget, std::memory_order_release);
+    GUITHREADINFO info = {};
+    info.cbSize = sizeof(info);
+    DWORD tid = 0;
+    if (GetGUIThreadInfo(0, &info) && info.hwndActive != nullptr) {
+        tid = GetWindowThreadProcessId(info.hwndActive, nullptr);
     }
-
-    const DWORD tid = hTarget
-        ? GetWindowThreadProcessId(hTarget, nullptr) : 0;
-    const HKL hkl = GetKeyboardLayout(tid);
+    HKL hkl = GetKeyboardLayout(tid);
     return LOWORD(reinterpret_cast<uintptr_t>(hkl));
 }
 
@@ -815,56 +720,11 @@ static void DrawWin7GdiFallbackCheck(HDC hdc, const RECT& gutter,
 
 static void DrawWin7MenuCheckmark(HDC hdc, const RECT& gutter,
                                   COLORREF color, UINT dpi) {
-    if (!hdc || !InitGdiPlusRendering()) {
-        DrawWin7GdiFallbackCheck(hdc, gutter, color, dpi);
-        return;
-    }
-    void* graphics = nullptr;
-    if (pGdipCreateFromHDC(hdc, &graphics) != 0 || !graphics) {
-        DrawWin7GdiFallbackCheck(hdc, gutter, color, dpi);
-        return;
-    }
-    pGdipSetSmoothingMode(graphics, 2);
-    pGdipSetPixelOffsetMode(graphics, 2);
-    const float boxL = static_cast<float>(gutter.left);
-    const float boxT = static_cast<float>(gutter.top);
-    const float boxW = static_cast<float>(gutter.right - gutter.left);
-    const float boxH = static_cast<float>(gutter.bottom - gutter.top);
-    float size = boxW * 0.70f;
-    if (size > boxH * 0.50f) size = boxH * 0.50f;
-    if (size < 8.0f) size = (boxH < boxW ? boxH : boxW) * 0.48f;
-    const float originX = boxL + (boxW - size) * 0.42f;
-    const float originY = boxT + (boxH - size) * 0.54f;
-    struct PointF { float X; float Y; };
-    const PointF points[] = {
-        {originX + size*.06f, originY + size*.50f},
-        {originX + size*.18f, originY + size*.38f},
-        {originX + size*.38f, originY + size*.62f},
-        {originX + size*.82f, originY + size*.08f},
-        {originX + size*.96f, originY + size*.20f},
-        {originX + size*.38f, originY + size*.90f},
-    };
-    void* path = nullptr;
-    if (pGdipCreatePath(0, &path) == 0 && path) {
-        pGdipAddPathPolygon(path, points, static_cast<int>(std::size(points)));
-        const DWORD argb = 0xFF000000u | (GetRValue(color) << 16) |
-                           (GetGValue(color) << 8) | GetBValue(color);
-        void* brush = nullptr;
-        if (pGdipCreateSolidFill(argb, &brush) == 0 && brush) {
-            pGdipFillPath(graphics, brush, path);
-            pGdipDeleteBrush(brush);
-        }
-        void* pen = nullptr;
-        const float outline = dpi >= 144 ? .90f * dpi / 96.0f : .70f;
-        if (pGdipCreatePen1(argb, outline, 2, &pen) == 0 && pen) {
-            pGdipSetPenLineJoin(pen, 2);
-            pGdipDrawPath(graphics, pen, path);
-            pGdipDeletePen(pen);
-        }
-        pGdipDeletePath(path);
-    }
-    pGdipDeleteGraphics(graphics);
+    /* v1.7.5: GDI+ is gone from this module; the GDI check drawing IS the
+     * implementation now (same geometry as the old fallback path). */
+    DrawWin7GdiFallbackCheck(hdc, gutter, color, dpi);
 }
+
 static HFONT CreateMenuFont(int sizePx, int weight, UINT dpi, bool underline) {
     return CreateFontW(ScaleForDpi(sizePx, dpi), 0, 0, 0, weight, FALSE,
                        underline ? TRUE : FALSE, FALSE, DEFAULT_CHARSET,
@@ -973,8 +833,8 @@ static void PaintWin7Menu(HWND hwnd, HDC hdc) {
     DeleteObject(sepBrush);
     currentY += ScaleForDpi(7, dpi);
 
-    std::wstring prefStr, showBarStr;
-    GetLocalizedFooterStrings(prefStr, &showBarStr);
+    std::wstring prefStr, hintStr, showBarStr;
+    GetLocalizedFooterStrings(prefStr, hintStr, &showBarStr);
 
     const int footer1Index = static_cast<int>(layoutsCopy.size());
     const int footer2Index = footer1Index + 1;
@@ -1082,6 +942,7 @@ static void PaintWin8Flyout(HWND hwnd, HDC hdc) {
     const COLORREF colSelectedText = RGB(255, 255, 255);
     const COLORREF colSelectedSubText = RGB(235, 235, 235);
     const COLORREF colLink = isDark ? RGB(100, 160, 255) : RGB(0, 102, 204);
+    const COLORREF colTipText = isDark ? RGB(160, 160, 160) : RGB(96, 96, 96);
 
     HBRUSH bgBrush = CreateSolidBrush(colBg);
     FillRect(memDC, &clientRect, bgBrush);
@@ -1092,9 +953,10 @@ static void PaintWin8Flyout(HWND hwnd, HDC hdc) {
     w7t::UniqueGdiObject fontTitleGuard(CreateMenuFont(14, FW_NORMAL, dpi, false));
     w7t::UniqueGdiObject fontSubGuard(CreateMenuFont(12, FW_NORMAL, dpi, false));
     w7t::UniqueGdiObject fontLinkGuard(CreateMenuFont(13, FW_NORMAL, dpi, g_hoveredFooter));
+    w7t::UniqueGdiObject fontHintGuard(CreateMenuFont(11, FW_NORMAL, dpi, false));
     if (!fontAbbrGuard.valid() || !fontSubAbbrGuard.valid() ||
         !fontTitleGuard.valid() || !fontSubGuard.valid() ||
-        !fontLinkGuard.valid()) {
+        !fontLinkGuard.valid() || !fontHintGuard.valid()) {
         return;
     }
     HFONT fontAbbr = static_cast<HFONT>(fontAbbrGuard.get());
@@ -1102,6 +964,7 @@ static void PaintWin8Flyout(HWND hwnd, HDC hdc) {
     HFONT fontTitle = static_cast<HFONT>(fontTitleGuard.get());
     HFONT fontSub = static_cast<HFONT>(fontSubGuard.get());
     HFONT fontLink = static_cast<HFONT>(fontLinkGuard.get());
+    HFONT fontHint = static_cast<HFONT>(fontHintGuard.get());
 
     std::vector<KeyboardLayoutItem> layoutsCopy;
     size_t selIndex = 0;
@@ -1187,8 +1050,8 @@ static void PaintWin8Flyout(HWND hwnd, HDC hdc) {
     DeleteObject(sepBrush);
     currentY += ScaleForDpi(8, dpi);
 
-    std::wstring prefStr;
-    GetLocalizedFooterStrings(prefStr, nullptr);
+    std::wstring prefStr, hintStr;
+    GetLocalizedFooterStrings(prefStr, hintStr, nullptr);
 
     {
         HGDIOBJ oldF = SelectObject(memDC, fontLink);
@@ -1196,6 +1059,15 @@ static void PaintWin8Flyout(HWND hwnd, HDC hdc) {
         RECT linkRect{paddingX, currentY, width - paddingX,
                       currentY + ScaleForDpi(22, dpi)};
         DrawTextW(memDC, prefStr.c_str(), -1, &linkRect,
+                  DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+        SelectObject(memDC, oldF);
+    }
+    {
+        HGDIOBJ oldF = SelectObject(memDC, fontHint);
+        SetTextColor(memDC, colTipText);
+        RECT tipRect{paddingX, currentY + ScaleForDpi(22, dpi),
+                     width - paddingX, currentY + ScaleForDpi(44, dpi)};
+        DrawTextW(memDC, hintStr.c_str(), -1, &tipRect,
                   DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
         SelectObject(memDC, oldF);
     }
@@ -1289,8 +1161,8 @@ static void PositionWindowNearTray(HWND hwnd) {
                                   ScaleForDpi(48, dpi);
                 if (itemW > calculatedWidth) calculatedWidth = itemW;
             }
-            std::wstring prefStr, showBarStr;
-            GetLocalizedFooterStrings(prefStr, &showBarStr);
+            std::wstring prefStr, hintStr, showBarStr;
+            GetLocalizedFooterStrings(prefStr, hintStr, &showBarStr);
             RECT rcShowBar = {};
             DrawTextW(dc, showBarStr.c_str(), -1, &rcShowBar,
                       DT_CALCRECT | DT_NOPREFIX | DT_SINGLELINE);
@@ -1313,7 +1185,7 @@ static void PositionWindowNearTray(HWND hwnd) {
                           ? ScaleForDpi(420, dpi) : calculatedWidth;
     } else {
         const int itemHeight = ScaleForDpi(58, dpi);
-        const int footerHeight = ScaleForDpi(40, dpi);
+        const int footerHeight = ScaleForDpi(62, dpi);
         totalHeight = static_cast<int>(count) * itemHeight + footerHeight;
         flyoutWidth = ScaleForDpi(330, dpi);
     }
@@ -1809,7 +1681,6 @@ static DWORD WINAPI SwitcherThreadProc(LPVOID /*unused*/) {
 }
 
 static DWORD WINAPI SwitcherThreadProcInner() {
-    InitGdiPlusRendering();
     const wchar_t kCtlClass[] = L"W7T_LangSwitcherCtl";
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
@@ -1826,7 +1697,6 @@ static DWORD WINAPI SwitcherThreadProcInner() {
         SetEvent(g_switcherReady);
     }
     if (ctl == nullptr) {
-        ShutdownGdiPlusRendering();
         return 0;
     }
     MSG m{};
@@ -1836,7 +1706,6 @@ static DWORD WINAPI SwitcherThreadProcInner() {
     }
     /* Uscita ordinata: il popup vive su QUESTO thread. */
     HideInner();
-    ShutdownGdiPlusRendering();
     g_ctlWnd.store(nullptr, std::memory_order_release);
     return 0;
 }

@@ -464,7 +464,7 @@ namespace Win7Taskbar.Interop
             int seconds, int nativeFlyout, int enableSearch, int netFlyout,
             int classicVolume, int batteryFlyout,
             int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
-            int inputLanguageMode, int taskManagerMode);
+            int inputLanguageMode);
 
         // v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
@@ -543,11 +543,9 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_JumpListSetHover(int screenX, int screenY);
 
-        /// <summary>Trasferisce il popup dal gesto catturato all'input
-        /// ordinario; il rilascio non attiva alcuna riga.</summary>
-        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
-        public static extern void W7T_JumpListMakeInteractive();
-
+        /// <summary>Attiva la riga sotto il punto al rilascio del pulsante
+        /// sinistro; chiude sempre il popup. bits: 1 documento, 2 riga app,
+        /// 4 pin invertito. Ritorna 1 se il popup era aperto.</summary>
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_JumpListActivateAt(int screenX, int screenY,
             out int bits);
@@ -575,6 +573,17 @@ namespace Win7Taskbar.Interop
         /// </summary>
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_OpenNotificationIconsSettings();
+
+        /// <summary>
+        /// v1.7.6: opens the program's OWN "Notification Area Icons" page
+        /// (the recreated Windows 7 selector that configures only the icons
+        /// of THIS tray; modeless, no registry involvement at all).
+        /// Returns 1 = opened, 0 = already open and raised,
+        /// negative = W7T_ERR_* failure. No geometry crosses this call:
+        /// the page positions itself on the monitor of the owner.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_TrayCplShow(ulong ownerTaskbar);
 
         /// <summary>
         /// v2.2: scrive una riga in log-core.txt dal lato gestito.
@@ -628,9 +637,6 @@ namespace Win7Taskbar.Interop
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_ShowTaskManager();
-
-        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
-        public static extern int W7T_ShowTaskManagerMode(int mode);
 
         // --- stili finestra (user32) ---
         //
@@ -771,6 +777,27 @@ namespace Win7Taskbar.Interop
             public uint flags;
         }
 
+        /* =================================================================
+         * v2.55: cattura STATICA della finestra sorgente (PrintWindow).
+         *
+         * Sostituisce il thumbnail LIVE del DWM: quello poteva restare
+         * "silenzioso" (handle registrato ma mai reso visibile) e lasciava
+         * un rettangolo vuoto identico per qualunque finestra, senza un
+         * errore da intercettare. La cattura, invece, o restituisce pixel
+         * veri o fallisce in modo esplicito. Motivazione completa in
+         * Controls/TaskThumbnail.cs.
+         * ================================================================= */
+
+        public const uint PW_CLIENTONLY = 0x00000001;
+        // Necessario per le finestre con superfici accelerate (DirectX,
+        // DirectComposition: Chrome, Edge, molte app moderne): senza questo
+        // flag PrintWindow le cattura nere o vuote. Da Windows 8.1 in poi.
+        public const uint PW_RENDERFULLCONTENT = 0x00000002;
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
+
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
@@ -778,20 +805,6 @@ namespace Win7Taskbar.Interop
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
-
-        [DllImport("user32.dll")]
-        public static extern IntPtr WindowFromPoint(POINT point);
-
-        [DllImport("user32.dll")]
-        public static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool GetCursorPos(out POINT lpPoint);
 
         /* =================================================================
          * v2.56: z-order helpers.
@@ -828,16 +841,8 @@ namespace Win7Taskbar.Interop
         [DllImport("gdi32.dll")]
         public static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int nWidth, int nHeight);
 
-        [DllImport("gdi32.dll", SetLastError = true)]
+        [DllImport("gdi32.dll")]
         public static extern IntPtr SelectObject(IntPtr hdc, IntPtr hObject);
-
-        public const uint SRCCOPY = 0x00CC0020;
-
-        [DllImport("gdi32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool BitBlt(IntPtr destination, int xDest, int yDest,
-                                         int width, int height, IntPtr source,
-                                         int xSource, int ySource, uint rasterOperation);
 
         [DllImport("gdi32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -940,13 +945,6 @@ namespace Win7Taskbar.Interop
 
         [DllImport("dwmapi.dll", PreserveSig = true)]
         public static extern int DwmQueryThumbnailSourceSize(IntPtr thumb, out SIZE size);
-
-        // Documented desktop API. The returned DWORD is 0xAARRGGBB (not the
-        // COLORREF 0x00BBGGRR layout used by many older Win32 functions).
-        [DllImport("dwmapi.dll", PreserveSig = true)]
-        public static extern int DwmGetColorizationColor(
-            out uint colorization,
-            [MarshalAs(UnmanagedType.Bool)] out bool opaqueBlend);
 
         // La firma vera e' HRESULT DwmIsCompositionEnabled(BOOL *pfEnabled):
         // il risultato torna nel parametro di uscita, non come valore di

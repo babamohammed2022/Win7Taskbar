@@ -35,7 +35,7 @@
 #include "JumpListWindow.h"     /* v2.38 */
 #include "LanguageSwitcher.h"   /* v1.4: selettore della lingua */
 #include "BatteryFlyout.h"      /* v2.38 */
-#include "RaiiWrappers.h"
+#include "TrayCplDialog.h"      /* v1.7.6: pagina "Notification Area Icons" */
 #include <thread>
 #include <atomic>
 #include <psapi.h>
@@ -278,6 +278,22 @@ extern "C" W7T_API void W7T_CALL W7T_SetWin7NetworkFlyout(int32_t ready) {
 extern "C" W7T_API int32_t W7T_CALL W7T_SetTrayIconPinned(uint64_t ownerHwnd, uint32_t uid,
                                                           int32_t pinned) {
     return TrayService::Instance().SetPinned(ownerHwnd, uid, pinned);
+}
+
+/* v1.7.6: apertura della pagina "Notification Area Icons" dal livello
+ * gestito (voce "Personalizza area di notifica..." del menu orologio).
+ * Il dialogo e' modeless: questo chiamante ritorna SUBITO e il pump WPF
+ * governa la pagina; nessun blocco, nessuna registrazione nel registro,
+ * nessun processo host. C++ try/catch + SEH: un fallimento qui e' una
+ * pagina che non si apre, mai un frontend che muore. */
+extern "C" W7T_API int32_t W7T_CALL W7T_TrayCplShow(uint64_t ownerTaskbar) {
+    try {
+        return w7t::TrayCplDialog::Instance().Show(
+            reinterpret_cast<HWND>(static_cast<uintptr_t>(ownerTaskbar)));
+    } catch (...) {
+        AppendCoreLog(L"traycpl: Show ha catturato un'eccezione C++");
+        return W7T_ERR_CREATE_WINDOW;
+    }
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_TrayMoveIcon(uint64_t sourceHwnd, uint32_t sourceUid,
@@ -606,47 +622,14 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ReassertNativeTaskbarHidden(void) {
     return W7T_OK;
 }
 
-extern "C" W7T_API int32_t W7T_CALL W7T_ShowTaskManagerMode(int32_t mode) {
-    try {
-        /* The explicit alternatives only exist on Windows 11 21H2+
-         * (build 22000). Windows 10 always follows its normal association. */
-        if (!IsWindows11OrBetter() || mode < 0 || mode > 2) mode = 0;
-
-        wchar_t windowsDir[MAX_PATH]{};
-        std::wstring executable = L"taskmgr.exe"; // Automatic
-        if (mode != 0) {
-            const UINT length = GetWindowsDirectoryW(
-                windowsDir, static_cast<UINT>(std::size(windowsDir)));
-            if (length == 0 || length >= std::size(windowsDir))
-                return W7T_ERR_NOT_FOUND;
-            executable = windowsDir;
-            executable += mode == 1
-                ? L"\\System32\\Taskmgr.exe"   // Windows 11 modern
-                : L"\\SysWOW64\\Taskmgr.exe"; // Win8/10 legacy 32-bit
-            if (GetFileAttributesW(executable.c_str()) == INVALID_FILE_ATTRIBUTES)
-                return W7T_ERR_NOT_FOUND;
-        }
-
-        SHELLEXECUTEINFOW info{};
-        info.cbSize = sizeof(info);
-        info.lpVerb = L"open";
-        info.lpFile = executable.c_str();
-        info.nShow = SW_SHOW;
-        /* Request the process handle solely so its ownership is explicit;
-         * GenericHandle closes it on every return and exception path. */
-        info.fMask = SEE_MASK_NOASYNC | SEE_MASK_NOCLOSEPROCESS;
-        if (!ShellExecuteExW(&info)) return W7T_ERR_NOT_FOUND;
-        raii::GenericHandle process(info.hProcess);
-        return W7T_OK;
-    } catch (...) {
-        /* No exception is allowed to cross the C ABI boundary; RAII has
-         * already released any process handle acquired above. */
-        return W7T_ERR_NOT_FOUND;
-    }
-}
-
 extern "C" W7T_API int32_t W7T_CALL W7T_ShowTaskManager(void) {
-    return W7T_ShowTaskManagerMode(0);
+    SHELLEXECUTEINFOW info = {};
+    info.cbSize = sizeof(info);
+    info.lpVerb = L"open";
+    info.lpFile = L"taskmgr.exe";
+    info.nShow  = SW_SHOW;
+    info.fMask  = SEE_MASK_NOASYNC;
+    return ShellExecuteExW(&info) ? W7T_OK : W7T_ERR_NOT_FOUND;
 }
 
 /* v2.1: link "Personalizza..." del riquadro di overflow.
@@ -920,7 +903,7 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t enableSearch, int32_t netFlyout, int32_t classicVolume,
         int32_t batteryFlyout, int32_t aeroPeek, int32_t toolbarDesktop,
         int32_t toolbarAddress, int32_t toolbarLinks,
-        int32_t inputLanguageMode, int32_t taskManagerMode) {
+        int32_t inputLanguageMode) {
     try {
         /* v3.6: l'ordine DEVE essere quello della firma Show(): nativeFlyout,
          * enableSearch, netFlyout. Prima erano invertiti (netFlyout al posto
@@ -930,7 +913,7 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
                           seconds, nativeFlyout, enableSearch,
                           netFlyout, classicVolume, batteryFlyout, aeroPeek,
                           toolbarDesktop, toolbarAddress, toolbarLinks,
-                          inputLanguageMode, taskManagerMode);
+                          inputLanguageMode);
     } catch (...) { /* mai propagare */ }
 }
 
@@ -1000,18 +983,10 @@ extern "C" W7T_API int32_t W7T_CALL W7T_JumpListSetHover(int32_t screenX,
     return 1;
 }
 
-/* The drag release only transfers ordinary input/focus to the popup. It
- * deliberately does not select the row under that release. */
-extern "C" W7T_API void W7T_CALL W7T_JumpListMakeInteractive(void) {
-    W7T_SEH_TRY {
-        w7t::JumpListWindow::Instance().MakeInteractive();
-    } W7T_SEH_CATCH {
-        w7t::JumpListWindow::Instance().Hide();
-    } W7T_SEH_END
-}
-
-/* Ordinary popup clicks activate a row through WndProc. This export stays
- * available for ABI compatibility with older managed builds. */
+/* Rilascio del pulsante sinistro: attiva la riga sotto il cursore.
+ * Ritorna 1 se il popup era aperto (gesto chiuso), 0 se non c'era nulla
+ * da chiudere. outBits: 1 = documento aperto, 2 = riga applicazione,
+ * 4 = pin invertito (il gestito invalida i pin solo con quel bit). */
 extern "C" W7T_API int32_t W7T_CALL W7T_JumpListActivateAt(
         int32_t screenX, int32_t screenY, int32_t* outBits) {
     W7T_SEH_TRY {

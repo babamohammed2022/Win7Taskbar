@@ -177,25 +177,52 @@ struct PropStrings {
     const wchar_t* linkHelp;
     const wchar_t* txtToolbars;
     const wchar_t* tbDesktop; const wchar_t* tbAddress; const wchar_t* tbLinks;
-    /* Windows 11-only Task Manager selector below App search. */
-    const wchar_t* lblTaskManager;
-    const wchar_t* taskManagerAuto;
-    const wchar_t* taskManagerModern;
-    const wchar_t* taskManagerLegacy;
 };
 
 const PropStrings& PropStringsFor(Lang lang);
 
 /* ------------------------------------------------------------------------ */
+/*  "Notification Area Icons" page (TrayCplDialog.cpp)                      */
+/*                                                                          */
+/*  Same rules as the other tables: one source, English fallback, append    */
+/*  at the end. The texts mirror the Windows 7 page (its exact three-state */
+/*  combo wording included): the page is a faithful re-implementation, but  */
+/*  the DATA and the choices concern ONLY this program, never the system.  */
+/* ------------------------------------------------------------------------ */
+struct TrayCplStrings {
+    const wchar_t* title;            /* didascalia finestra            */
+    const wchar_t* header;           /* istruzione grande in alto      */
+    const wchar_t* description;      /* testo sotto l'istruzione       */
+    const wchar_t* alwaysShow;       /* checkbox globale               */
+    const wchar_t* colIcons;         /* colonna 1                      */
+    const wchar_t* colBehaviors;     /* colonna 2                      */
+    const wchar_t* show;             /* combo: stato 0                 */
+    const wchar_t* notify;           /* combo: stato 1                 */
+    const wchar_t* hide;             /* combo: stato 2                 */
+    const wchar_t* linkSystem;       /* "Turn system icons on or off"  */
+    const wchar_t* linkRestore;      /* "Restore default behaviors"    */
+    const wchar_t* ok;
+    const wchar_t* cancel;
+    const wchar_t* sysDescription;   /* pagina 2, testo sotto il titolo */
+    const wchar_t* sysNetwork;       /* etichette dei tre interruttori   */
+    const wchar_t* sysVolume;
+    const wchar_t* sysBattery;
+    const wchar_t* back;             /* pagina 2 -> pagina 1             */
+    const wchar_t* empty;            /* lista vuota: nessun'icona         */
+};
+
+const TrayCplStrings& TrayCplStringsFor(Lang lang);
+
+/* ------------------------------------------------------------------------ */
 /*  Tabella del flyout batteria                                              */
 /* ------------------------------------------------------------------------ */
 struct BattStrings {
-    const wchar_t* remaining;
-    const wchar_t* timeLeft;
-    const wchar_t* charging;
-    const wchar_t* full;
-    const wchar_t* noBattery;
-    const wchar_t* link;
+    const wchar_t* remaining;   /* "%d%% di carica rimanente" */
+    const wchar_t* timeLeft;    /* "Tempo restante: %d h %02d min (%d%%)" */
+    const wchar_t* charging;    /* "In carica (%d%%)" */
+    const wchar_t* full;        /* "Carica completa" */
+    const wchar_t* noBattery;   /* "Batteria non rilevata" */
+    const wchar_t* link;        /* "Altre opzioni di risparmio energia" */
 };
 
 const BattStrings& BattStringsFor(Lang lang);

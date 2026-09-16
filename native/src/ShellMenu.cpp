@@ -28,17 +28,6 @@ namespace {
 /* ID sintetici per il menu di gruppo: fuori dall'intervallo SC_*. */
 constexpr UINT kGroupMinimizeId = 0xF100;
 constexpr UINT kGroupCloseId    = 0xF101;
-constexpr UINT_PTR kMenuPriorityTimer = 0x574D;
-
-/* Keep the real #32768 menu at the front for the entire modal tracking
- * loop. The WPF AppBar guard periodically reasserts the taskbar's own
- * topmost position; a one-shot CBT promotion can therefore be undone. */
-void CALLBACK MenuPriorityTimerProc(HWND hwnd, UINT, UINT_PTR id, DWORD) {
-    if (id != kMenuPriorityTimer || hwnd == nullptr || !IsWindow(hwnd)) return;
-    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
-                 SWP_NOOWNERZORDER);
-}
 
 /*
  * Historical TrackPopupMenu quirk: if the owner window is not in the
@@ -58,54 +47,20 @@ void CALLBACK MenuPriorityTimerProc(HWND hwnd, UINT, UINT_PTR id, DWORD) {
  * other effect; the menu dies with the tracking call and never outlives
  * the scope.
  */
-LRESULT CALLBACK MenuPriorityCbtProc(int code, WPARAM wParam, LPARAM lParam) {
-    if (code == HCBT_CREATEWND || code == HCBT_ACTIVATE) {
-        HWND hwnd = reinterpret_cast<HWND>(wParam);
-        wchar_t className[32] = {};
-        if (hwnd != nullptr &&
-            GetClassNameW(hwnd, className, static_cast<int>(std::size(className))) > 0 &&
-            lstrcmpW(className, L"#32768") == 0) {
-            /* A tracked menu is its own #32768 window. Put that actual
-             * window, not only its invisible owner, at the front of the
-             * topmost band. This outranks the WS_EX_TOPMOST taskbar even
-             * when its AppBar guard reasserts the taskbar during tracking. */
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE,
-                GetWindowLongPtrW(hwnd, GWL_EXSTYLE) | WS_EX_TOPMOST);
-            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
-                         SWP_NOOWNERZORDER);
-            /* TrackPopupMenu runs a modal message loop, so this timer keeps
-             * firing even while the menu is open. It disappears with the
-             * menu HWND and cannot outlive the tracking call. */
-            SetTimer(hwnd, kMenuPriorityTimer, 15, MenuPriorityTimerProc);
-        }
-    }
-    return CallNextHookEx(nullptr, code, wParam, lParam);
-}
-
 class ForegroundMenuScope {
 public:
     explicit ForegroundMenuScope(HWND owner) : m_owner(owner) {
-        /* Track the menu window creation on this thread. Merely making the
-         * hidden owner topmost is insufficient: Windows can create #32768
-         * below a taskbar which has just reasserted its own z priority. */
-        m_cbtHook = SetWindowsHookExW(WH_CBT, MenuPriorityCbtProc, nullptr,
-                                      GetCurrentThreadId());
         SetForegroundWindow(m_owner);
         SetWindowPos(m_owner, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER);
     }
 
     ~ForegroundMenuScope() {
-        if (m_cbtHook != nullptr) {
-            UnhookWindowsHookEx(m_cbtHook);
-        }
         PostMessageW(m_owner, WM_NULL, 0, 0);
     }
 
 private:
     HWND m_owner;
-    HHOOK m_cbtHook = nullptr;
 };
 
 /*

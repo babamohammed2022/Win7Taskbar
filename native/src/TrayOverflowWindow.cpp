@@ -4,6 +4,7 @@
 #include "TrayOverflowWindow.h"
 #include "Strings.h"
 #include "TrayService.h"
+#include "TrayCplDialog.h"   /* v1.7.6: "Customize..." opens our own page */
 #include "FlyoutLauncher.h"   /* ApplyAeroFlyoutStyle: bordi Aero */
 #include <dwmapi.h>
 #include <shellapi.h>
@@ -270,18 +271,12 @@ void TrayOverflowWindow::ForwardClick(int index, bool right) {
     const int32_t y = rc.top + m_pad + row * m_cell + m_cell / 2;
 
     if (right) {
-        /* A tray application's context menu is external to this window.
-         * Keep overflow open for this specific action: closing it here made
-         * every right-click unnecessarily destroy the user's icon context. */
-        TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
-                                          W7T_TRAY_CLICK_RIGHT, x, y);
+        TrayService::Instance().SendClick(e.ownerHwnd, e.uid, W7T_TRAY_CLICK_RIGHT, x, y);
     } else {
-        TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
-                                          W7T_TRAY_CLICK_LEFT_DOWN, x, y);
-        TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
-                                          W7T_TRAY_CLICK_LEFT, x, y);
-        Hide();   // ordinary activation keeps the Windows 7 close behavior
+        TrayService::Instance().SendClick(e.ownerHwnd, e.uid, W7T_TRAY_CLICK_LEFT_DOWN, x, y);
+        TrayService::Instance().SendClick(e.ownerHwnd, e.uid, W7T_TRAY_CLICK_LEFT, x, y);
     }
+    Hide();   // come in Win7: il clic su un'icona chiude il pannello
 }
 
 void TrayOverflowWindow::OnPaint(HDC hdcWindow) {
@@ -458,11 +453,21 @@ LRESULT CALLBACK TrayOverflowWindow::WndProc(HWND hWnd, UINT msg,
             self->m_dragIdx = -1;
         }
         if (PtInRect(&self->m_footerRect, p)) {
-            /* Delegate directly to Windows' native Notification Area
-             * settings page; no in-process applet is interposed. */
+            /* v1.7.6: "Customize..." now opens the program's OWN page
+             * (the recreated "Notification Area Icons", TrayCplDialog).
+             * It controls only this tray's icons and leaves no registry
+             * trace at all. The panel closes BEFORE the page opens (the
+             * old shell-target behavior, kept); the dialog is modeless on
+             * THIS thread's pump (the service thread already pumps its own
+             * messages), so the bar is never blocked and nothing spawns
+             * control.exe. If the page cannot open (old native build,
+             * missing template) the click stays honest: one log line, no
+             * silent nothing - and never a handoff to the Windows page,
+             * which would configure a tray this program does not own. */
             self->Hide();
-            if (W7T_OpenNotificationIconsSettings() != W7T_OK) {
-                AppendCoreLog(L"overflow: pagina nativa Notification Area non disponibile");
+            const int32_t rc = TrayCplDialog::Instance().Show(nullptr);
+            if (rc < 0) {
+                AppendCoreLog(L"overflow: pagina Notification Area Icons non disponibile");
             }
             return 0;
         }

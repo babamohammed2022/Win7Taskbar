@@ -41,179 +41,91 @@
          larghi o stretti: si ricalcola da ActualWidth. -->
     <conv:WidthRatioConverter x:Key="WidthRatio" />
 
-    <!-- Startup fallback only. TaskbarWindow replaces this application-level
-         DynamicResource with the current DWM colorization brush and again on
-         WM_DWMCOLORIZATIONCOLORCHANGED. -->
-    <SolidColorBrush x:Key="DwmPreviewAccentBrush" Color="#FF4C8FC5" />
+    <!-- ==================================================================
+         v2.51: CORNICE DELL'ANTEPRIMA, a griglia 3x3 (9-slice).
 
-    <!-- Exact slicing of the user-supplied DWMBorder.png. Its transparent
-         aperture is x=17..218, y=38..146 (202x109) in the 236x166 bitmap.
-         Corners remain pixel-sized; only straight edge sections stretch, so
-         the frame adapts to each aspect-correct live DWM thumbnail without
-         distorting rounded corners or leaving uncovered inner gaps.
+         Otto PNG incorporati (Utilities/PreviewAssets.cs): quattro angoli
+         21x21 e quattro bordi da stirare (alto/basso 4x21, sinistra/destra
+         21x4). Gli angoli restano alla loro misura esatta (Stretch=None), i
+         bordi si stirano (Stretch=Fill) e la cella centrale e' SOLO il
+         contenuto: nessun rettangolo bianco, nessun overlay, nessuna
+         cattura dello schermo.
 
-         Per Microsoft WPF opacity-mask semantics, only the PNG alpha channel
-         controls visibility; its grayscale RGB/luminance is intentionally
-         ignored. The underlying Fill is the dynamic system accent brush. -->
+         Il vetro del centro e' il gradiente campionato negli stessi asset
+         (#DCEBF9 in alto -> #C9DFF5 in basso): e' il colore che i bordi
+         laterali e inferiore portano con se', quindi la giunzione non si
+         vede. Il contenuto viene disegnato SOPRA il vetro.
+         ================================================================== -->
     <ControlTemplate x:Key="TaskPreviewFrameVista"
                      TargetType="ContentControl">
-        <Grid SnapsToDevicePixels="True">
+        <!-- v1.7.6: the template now CONSUMES the control's Background
+             (TemplateBinding on the root Grid). The instance declares
+             #FFDCEBF9 - the same blue as the top of the frame images - and
+             until now the template ignored it: an unused declaration plus a
+             seam risk wherever the nine PNG pieces do not tile perfectly.
+             With the binding the frame rectangle is guaranteed painted
+             end to end, so no extra uncovered surface can appear next to
+             the Aero frame (the "white strip" family of defects). -->
+        <Grid SnapsToDevicePixels="True"
+              Background="{TemplateBinding Background}">
             <Grid.RowDefinitions>
-                <RowDefinition Height="38" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
-                <RowDefinition Height="19" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="17" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="17" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <Rectangle Grid.Row="0" Grid.Column="0"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="0,0,17,38"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
-            <Rectangle Grid.Row="0" Grid.Column="1"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="17,0,202,38"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
-            <Rectangle Grid.Row="0" Grid.Column="2"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="219,0,17,38"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
+            <!-- vetro della cella centrale (sotto il contenuto) -->
+            <Border Grid.Row="1" Grid.Column="1">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#FFDCEBF9" Offset="0.0" />
+                        <GradientStop Color="#FFC9DFF5" Offset="1.0" />
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
 
-            <Rectangle Grid.Row="1" Grid.Column="0"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="0,38,17,109"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
-            <Rectangle Grid.Row="1" Grid.Column="2"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="219,38,17,109"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
+            <!-- angoli: misura esatta, nessuna scalatura -->
+            <Image Grid.Row="0" Grid.Column="0"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerTopLeft}"
+                   Width="21" Height="21" Stretch="None"
+                   SnapsToDevicePixels="True" />
+            <Image Grid.Row="0" Grid.Column="2"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerTopRight}"
+                   Width="21" Height="21" Stretch="None"
+                   SnapsToDevicePixels="True" />
+            <Image Grid.Row="2" Grid.Column="0"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerBottomLeft}"
+                   Width="21" Height="21" Stretch="None"
+                   SnapsToDevicePixels="True" />
+            <Image Grid.Row="2" Grid.Column="2"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerBottomRight}"
+                   Width="21" Height="21" Stretch="None"
+                   SnapsToDevicePixels="True" />
 
-            <Rectangle Grid.Row="2" Grid.Column="0"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="0,147,17,19"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
-            <Rectangle Grid.Row="2" Grid.Column="1"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="17,147,202,19"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
-            <Rectangle Grid.Row="2" Grid.Column="2"
-                       Fill="{DynamicResource DwmPreviewAccentBrush}">
-                <Rectangle.OpacityMask>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
-                                Viewbox="219,147,17,19"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.OpacityMask>
-            </Rectangle>
+            <!-- bordi: si stirano lungo la loro direzione -->
+            <Image Grid.Row="0" Grid.Column="1"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameTop}"
+                   Height="21" Stretch="Fill"
+                   SnapsToDevicePixels="True" />
+            <Image Grid.Row="2" Grid.Column="1"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameBottom}"
+                   Height="21" Stretch="Fill"
+                   SnapsToDevicePixels="True" />
+            <Image Grid.Row="1" Grid.Column="0"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameLeft}"
+                   Width="21" Stretch="Fill"
+                   SnapsToDevicePixels="True" />
+            <Image Grid.Row="1" Grid.Column="2"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameRight}"
+                   Width="21" Stretch="Fill"
+                   SnapsToDevicePixels="True" />
 
-            <!-- Preserve the exact photographic shading and edge detail of
-                 the supplied border above the accent layer. A restrained
-                 grayscale overlay keeps the live accent visible and lets the
-                 clipped static blur show through; the PNG remains unchanged. -->
-            <Rectangle Grid.Row="0" Grid.Column="0" Opacity="0.18">
-                <Rectangle.Fill>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
-                                Viewbox="0,0,17,38"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.Fill>
-            </Rectangle>
-            <Rectangle Grid.Row="0" Grid.Column="1" Opacity="0.18">
-                <Rectangle.Fill>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
-                                Viewbox="17,0,202,38"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.Fill>
-            </Rectangle>
-            <Rectangle Grid.Row="0" Grid.Column="2" Opacity="0.18">
-                <Rectangle.Fill>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
-                                Viewbox="219,0,17,38"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.Fill>
-            </Rectangle>
-            <Rectangle Grid.Row="1" Grid.Column="0" Opacity="0.18">
-                <Rectangle.Fill>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
-                                Viewbox="0,38,17,109"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.Fill>
-            </Rectangle>
-            <Rectangle Grid.Row="1" Grid.Column="2" Opacity="0.18">
-                <Rectangle.Fill>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
-                                Viewbox="219,38,17,109"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.Fill>
-            </Rectangle>
-            <Rectangle Grid.Row="2" Grid.Column="0" Opacity="0.18">
-                <Rectangle.Fill>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
-                                Viewbox="0,147,17,19"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.Fill>
-            </Rectangle>
-            <Rectangle Grid.Row="2" Grid.Column="1" Opacity="0.18">
-                <Rectangle.Fill>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
-                                Viewbox="17,147,202,19"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.Fill>
-            </Rectangle>
-            <Rectangle Grid.Row="2" Grid.Column="2" Opacity="0.18">
-                <Rectangle.Fill>
-                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
-                                Viewbox="219,147,17,19"
-                                ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.Fill>
-            </Rectangle>
-
-            <!-- DWM occupies exactly the bitmap's transparent aperture. -->
+            <!-- contenuto (fascia del titolo + miniatura viva) -->
             <ContentPresenter Grid.Row="1" Grid.Column="1" />
         </Grid>
     </ControlTemplate>
@@ -230,10 +142,8 @@
          disegna niente sopra di noi, quindi la X si vede sempre.
          ================================================================== -->
     <Style x:Key="TaskPreviewCloseButton" TargetType="Button">
-        <!-- 20x20 hit target; the artwork remains exactly 14x14 and is
-             centred, extending the clickable area 3px on every side. -->
-        <Setter Property="Width" Value="20" />
-        <Setter Property="Height" Value="20" />
+        <Setter Property="Width" Value="14" />
+        <Setter Property="Height" Value="14" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Background" Value="Transparent" />
@@ -299,10 +209,11 @@
                 <!-- v1.7.2: the OUTER line slid slightly right as sheets
                      opened: +2% of the button width per sheet, counted up
                      to 3 (4+ behaves as 3). v1.7.6: +2.5% right for ALL
-                     lines at 2+ sheets, and a FURTHER +2.5% right for the
+                     lines at 2+ sheets, and a FURTHER +3% right for the
                      outer line only when MORE THAN 2 sheets are open
                      (3+ is one single case - no new per-sheet cases were
-                     invented above 3). RenderTransform has zero layout
+                     invented above 3). Outer line totals: 4.5% at 2
+                     sheets, 9.5% at 3+. RenderTransform: zero layout
                      impact, like the rest of the overlay. -->
                 <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
                        Width="3" Height="40"
@@ -329,7 +240,7 @@
                 <!-- seconda linea, un gradino piu' a sinistra (3+ finestre) -->
                 <!-- v1.7.6: this line slides +2.5% right as well
                      (parameter "inner": it never gets the outer line's
-                     extra +2.5% at 3+ sheets). RenderTransform again:
+                     extra +3% at 3+ sheets). RenderTransform again:
                      zero layout impact. -->
                 <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
                        Width="3" Height="40"
@@ -486,43 +397,6 @@
         </Grid>
     </ControlTemplate>
 
-    <!-- User-supplied orange notification tile. Three-slice rendering keeps
-         its rounded side borders at native width while only the centre grows. -->
-    <ControlTemplate x:Key="TaskButtonFrameNotification"
-                     TargetType="ContentControl">
-        <Grid SnapsToDevicePixels="True">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="6" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="6" />
-            </Grid.ColumnDefinitions>
-            <Rectangle Grid.Column="0" Stretch="Fill"
-                       RenderOptions.BitmapScalingMode="HighQuality">
-                <Rectangle.Fill>
-                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Notification}"
-                                Viewbox="0,0,6,40" ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.Fill>
-            </Rectangle>
-            <Rectangle Grid.Column="1" Stretch="Fill"
-                       RenderOptions.BitmapScalingMode="HighQuality">
-                <Rectangle.Fill>
-                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Notification}"
-                                Viewbox="6,0,48,40" ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.Fill>
-            </Rectangle>
-            <Rectangle Grid.Column="2" Stretch="Fill"
-                       RenderOptions.BitmapScalingMode="HighQuality">
-                <Rectangle.Fill>
-                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Notification}"
-                                Viewbox="54,0,6,40" ViewboxUnits="Absolute"
-                                Stretch="Fill" />
-                </Rectangle.Fill>
-            </Rectangle>
-        </Grid>
-    </ControlTemplate>
-
         <ControlTemplate x:Key="SuperbarIdleTemplate" TargetType="Button">
         <!-- v2.53: l'HOVER e' tornato la tessera vettoriale della barra
              (TrayTileHoverImage, la stessa che usano le icone dell'area di
@@ -634,37 +508,6 @@
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
-    <!-- FlashWindowEx/attention state: the supplied orange tile replaces the
-         synthetic amber brushes, while icon placement and button geometry
-         stay identical to the running state. -->
-    <ControlTemplate x:Key="SuperbarNotificationTemplate" TargetType="Button">
-        <Border Background="Transparent" Padding="0" Name="ButtonBorder">
-            <Grid>
-                <ContentControl x:Name="Frame"
-                                Template="{DynamicResource TaskButtonFrameNotification}" />
-                <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
-                        Background="Transparent" IsHitTestVisible="False"
-                        Opacity="0" />
-                <ContentPresenter Margin="8.45,0" VerticalAlignment="Center"
-                                  x:Name="Content" />
-            </Grid>
-        </Border>
-        <ControlTemplate.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="HoverTile" Property="Opacity" Value="1" />
-                <Setter TargetName="HoverTile" Property="Background">
-                    <Setter.Value>
-                        <ImageBrush ImageSource="{DynamicResource TrayTileHoverImage}"
-                                    Stretch="Fill" />
-                    </Setter.Value>
-                </Setter>
-            </Trigger>
-            <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="Frame" Property="Opacity" Value="0.85" />
-            </Trigger>
-        </ControlTemplate.Triggers>
-    </ControlTemplate>
-
     <!-- BasedOn collegato a runtime da ThemeLoader: un StaticResource
          qui fallirebbe al parse del BAML (il dizionario del tema e'
          visibile solo dopo il merge nella radice). -->
@@ -685,11 +528,6 @@
                         Value="{DynamicResource ButtonActiveForeground}" />
             </DataTrigger>
         </Style.Triggers>
-    </Style>
-
-    <Style x:Key="SuperbarButtonFlashing" TargetType="Button">
-        <Setter Property="Template"
-                Value="{StaticResource SuperbarNotificationTemplate}" />
     </Style>
 
     <!-- ==================================================================

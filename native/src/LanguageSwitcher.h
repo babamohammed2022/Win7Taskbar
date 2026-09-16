@@ -28,8 +28,8 @@
 //
 // WHAT WAS NOT PORTED (it only exists in the mod because the mod is
 // injected into explorer.exe; here the popup and the tray text are OURS):
-//   all keyboard/mouse hooks and global shortcut handling,
-//   ToolbarWindow32/TrayInputIndicatorWClass subclassing, the
+//   WH_KEYBOARD_LL/WH_MOUSE_LL hooks and the Win+Space/Alt+Shift/Ctrl+Shift
+//   shortcuts, ToolbarWindow32/TrayInputIndicatorWClass subclassing, the
 //   ShowWindow hook, the "am I the main shell?" logic, worker/hook threads
 //   with hot-unload contexts.
 //

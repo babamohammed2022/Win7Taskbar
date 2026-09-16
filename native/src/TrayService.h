@@ -103,7 +103,8 @@ struct TrayIconEntry {
     bool    lastReadFailed   = false;  /* l'ultima lettura non era valida    */
     uint32_t toolbarId       = 0;      /* idCommand del pulsante reale      */
 
-    /* Persisted explicit visibility choice for this icon:
+    /* v1.7.6 - "Notification Area Icons" page (TrayCplDialog.cpp): the
+     * user's EXPLICIT choice for this icon, in the page's own format:
      * -1 never chosen, 0 show icon and notifications, 1 only show
      * notifications (icon lives in the overflow), 2 hide icon and
      * notifications. Lives in TrayPrefsStore (a file, never the
@@ -144,6 +145,22 @@ struct OverflowSnapshot {
     TrayIconKey  key{};
     ArgbBitmap   bitmap;
     std::wstring tooltip;
+};
+
+/* v1.7.6: one row of the "Notification Area Icons" page. Built from the
+ * model under its own lock; the dialog only consumes it and never touches
+ * the model directly (same pattern as OverflowSnapshot). */
+struct TrayCplRow {
+    TrayIconKey  key{};
+    std::wstring name;       /* bold row line (application name)      */
+    std::wstring tooltip;    /* grey caption, may be empty            */
+    int32_t      behavior    = -1;   /* saved choice (-1 = none)      */
+    ArgbBitmap   bitmap;             /* 32-bit icon, already decoded   */
+    bool         appHidden   = false;/* NIS_HIDDEN: the app's request  */
+    bool         barVisible  = false;/* EFFECTIVE bar state (the page   *
+                                      * shows the real state for rows   *
+                                      * with no explicit choice, instead *
+                                      * of a fake "show")               */
 };
 
 /* Fonti che possono richiedere una passata di riconciliazione. */
@@ -214,8 +231,29 @@ public:
     int32_t SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickType, int32_t x, int32_t y);
     int32_t SetPinned(uint64_t ownerHwnd, uint32_t uid, int32_t pinned);
 
-    /* Persisted three-state behavior used by tray drag and overflow. */
+    /* v1.7.6 - API of the "Notification Area Icons" page. SetBehavior is
+     * the SINGLE point where the three-state choice is applied and
+     * persisted (TrayPrefsStore, a file: never the registry). SetPinned
+     * is reinterpreted on top of it: 1 -> show, 0 -> only notifications
+     * (dragging an icon into the overflow does NOT hide it outright - in
+     * Windows 7 that lands on "Only show notifications"). */
     int32_t SetBehavior(uint64_t ownerHwnd, uint32_t uid, int32_t behavior);
+    int32_t GetBehavior(uint64_t ownerHwnd, uint32_t uid, int32_t* out);
+
+    /* The page's two GLOBAL switches (Always show all icons, system icons
+     * on/off) never touch the per-icon choices: they only change how the
+     * choices RESOLVE. After one of them moves, call this: it re-syncs
+     * the toolbar model, the overflow panel and the managed layer. */
+    void ApplyVisibilityPolicyChanged();
+
+    /* "Restore default icon behaviors": clears the saved choices and puts
+     * every icon back on the shell rule (EnableAutoTray), exactly what the
+     * original link does. Returns how many choices were removed. */
+    int32_t ResetUserBehaviors();
+
+    /* Snapshot for the dialog (application icons ONLY: system kinds belong
+     * to the "Turn system icons on or off" page, like the original). */
+    int32_t BuildCplRows(std::vector<TrayCplRow>& out);
 
     /* v2.62: il frontend dichiara pronta (o no) l'esperienza del riquadro di
      * rete di Windows 7: vedi SendClick. */

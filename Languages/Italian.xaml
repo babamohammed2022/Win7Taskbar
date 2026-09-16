@@ -4,7 +4,6 @@
     <!-- Italian / Italiano -->
     <s:String x:Key="lang_show_hidden">Mostra le icone nascoste</s:String>
     <s:String x:Key="lang_start_tip">Start</s:String>
-    <s:String x:Key="lang_start_context">Avvio</s:String>
     <s:String x:Key="lang_taskbar">Barra delle applicazioni</s:String>
     <s:String x:Key="lang_show_seconds">Mostra i secondi nell'orologio</s:String>
     <s:String x:Key="lang_show_seconds_desc">Con questa opzione attiva l'orologio si aggiorna ogni secondo, altrimenti ogni minuto.</s:String>

@@ -9,9 +9,9 @@ namespace Win7Taskbar.Controls
     /// Fa pulsare in ambra un pulsante della Superbar quando l'applicazione
     /// richiede attenzione (FlashWindowEx).
     ///
-    /// Il tema fornisce gli stili completi "SuperbarButton" e
-    /// "SuperbarButtonFlashing"; qui li alterniamo a intervalli regolari, che
-    /// e' il modo in cui la barra di Windows 7 ottiene il lampeggio.
+    /// Il tema Windows7.xaml fornisce gia' due stili completi, "TaskButton" e
+    /// "TaskButtonFlashing"; qui li alterniamo a intervalli regolari, che e' il
+    /// modo in cui la barra di Windows 7 ottiene il lampeggio.
     ///
     /// Perche' un comportamento allegato e non un semplice DataTrigger: WPF non
     /// permette di assegnare la proprieta' Style da un setter di stile (sarebbe
@@ -65,8 +65,8 @@ namespace Win7Taskbar.Controls
         // invece di assegnare l'oggetto Style: cosi' resta un riferimento
         // dinamico e un eventuale cambio di tema a caldo continua a
         // propagarsi, esattamente come per il markup DynamicResource.
-        private const string NormalStyleKey = "SuperbarButton";
-        private const string FlashStyleKey = "SuperbarButtonFlashing";
+        private const string NormalStyleKey = "TaskButton";
+        private const string FlashStyleKey = "TaskButtonFlashing";
 
         private static void OnIsFlashingChanged(DependencyObject d,
                                                 DependencyPropertyChangedEventArgs e)

@@ -112,8 +112,8 @@ constexpr DWORD kDebounceMs = 350;
 /*  v1.7.6 - THE STORAGE IS NO LONGER THE REGISTRY. Choices live in    */
 /*  trayicons.ini (TrayPrefsStore) under %LOCALAPPDATA%\Win7Taskbar,   */
 /*  the same folder as toolbars.ini that the user deletes by hand to   */
-/*  reset everything. Each saved per-icon preference has three states */
-/*  (show / only notifications / hide), so the                         */
+/*  reset everything. The "Notification Area Icons" page is a          */
+/*  three-state control (show / only notifications / hide), so the    */
 /*  per-icon value is no longer a bool "on the bar or not" but the     */
 /*  full behavior. The old HKCU\SOFTWARE\Win7Taskbar\TrayIconPrefs2   */
 /*  key is imported ONCE on the first start of the new format and then */
@@ -2235,6 +2235,8 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
     switch (message) {
         case NIM_ADD:
         case NIM_MODIFY: {
+            std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
             auto it = m_icons.find(key);
             const bool isNew = (it == m_icons.end());
             if (isNew) {
@@ -2338,9 +2340,9 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
             }
 
             /* The balloon arrives with an ADD/MODIFY carrying NIF_INFO.
-             * v1.7.6: an icon whose saved behavior is "Hide icon and
-             * notifications" does not even surface the balloon (it is the
-             * third state: "and notifications"
+             * v1.7.6: an icon set to "Hide icon and notifications" on the
+             * "Notification Area Icons" page does not even surface the
+             * balloon (it is the combo's third state: "and notifications"
              * is gone). The entry STAYS in the model - the application
              * keeps sending its updates - only the output stays silent.
              * "Only show notifications" is the mirror case: icon hidden,
@@ -2371,6 +2373,7 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
         }
 
         case NIM_DELETE: {
+            std::lock_guard<std::recursive_mutex> lock(m_mutex);
             auto it = m_icons.find(key);
             if (it == m_icons.end() && hasGuid) {
                 /* DELETE per GUID: la voce potrebbe essere importata con
@@ -2388,6 +2391,7 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
         }
 
         case NIM_SETVERSION: {
+            std::lock_guard<std::recursive_mutex> lock(m_mutex);
             auto it = m_icons.find(key);
             if (it != m_icons.end()) {
                 it->second.version = nid.uVersion;
@@ -2584,21 +2588,6 @@ std::vector<OverflowSnapshot> TrayService::GetUnpinnedSnapshot() {
          * right home for anyone who wants no icon in the bar) but NEVER
          * a fully hidden icon nor one whose system switch is off: for
          * those the page said "nothing, anywhere". */
-        /* taskmgr.exe is intentionally not an overflow candidate. Task
-         * Manager repeatedly renews its notification icon with new IDs and,
-         * on affected builds, leaves many stale registrations behind. Even
-         * with generic de-duplication this produced a very tall overflow
-         * menu full of Task Manager copies, so filtering this known offender
-         * here keeps both the live tray model and all other applications
-         * untouched. */
-        const std::wstring& ownerPath = it->second.ownerPath;
-        const size_t ownerSlash = ownerPath.find_last_of(L"\\/");
-        const wchar_t* ownerName = ownerPath.c_str() +
-            (ownerSlash == std::wstring::npos ? 0 : ownerSlash + 1);
-        if (_wcsicmp(ownerName, L"taskmgr.exe") == 0) {
-            continue;
-        }
-
         bool barVisibleSnap = false, presentSnap = false;
         ResolveVisibilityLocked(it->second, barVisibleSnap, presentSnap);
         if (!presentSnap || barVisibleSnap) {
@@ -3503,6 +3492,130 @@ int32_t TrayService::SetBehavior(uint64_t ownerHwnd, uint32_t uid,
     SyncToolbarModel();
     TrayOverflowWindow::NotifyTrayChanged();   /* v3.1: refresh the panel */
     return W7T_OK;
+}
+
+int32_t TrayService::GetBehavior(uint64_t ownerHwnd, uint32_t uid,
+                                 int32_t* out) {
+    if (out == nullptr) {
+        return W7T_ERR_INVALID_ARG;
+    }
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    auto it = m_icons.find(TrayIconKey{ ownerHwnd, uid });
+    if (it == m_icons.end()) {
+        return W7T_ERR_NOT_FOUND;
+    }
+    *out = it->second.userBehavior;
+    return W7T_OK;
+}
+
+void TrayService::ApplyVisibilityPolicyChanged() {
+    /* The page's two GLOBAL switches (Always show all / system icons)
+     * never touch the per-icon preferences: they only change how those
+     * RESOLVE. Repaint everything that reads the resolution. */
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        for (const auto& pair : m_icons) {
+            CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY,
+                                             pair.first.ownerHwnd,
+                                             pair.first.uid);
+        }
+    }
+    SyncToolbarModel();
+    TrayOverflowWindow::NotifyTrayChanged();
+}
+
+int32_t TrayService::ResetUserBehaviors() {
+    /* "Restore default icon behaviors": the choices are dropped. This is
+     * the ONE mass write allowed here, precisely because it CLEARS
+     * (every icon returns to the shell rule afterwards). */
+    const size_t before = TrayPrefsStore::Instance().IconCount();
+    TrayPrefsStore::Instance().ClearIconBehaviors();
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        const bool autoTray = AutoTrayEnabledCached();
+        for (auto& pair : m_icons) {
+            TrayIconEntry& entry = pair.second;
+            if (entry.userBehavior == kBehaviorNone) {
+                continue;
+            }
+            entry.userBehavior = kBehaviorNone;
+            /* Imported entries go back to the shell's will; the others to
+             * the EnableAutoTray rule. */
+            entry.isPinned = entry.fromExplorer || entry.ownerIsExplorer
+                ? entry.isPinned : !autoTray;
+            entry.hiddenPending = 0;
+            CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY,
+                                             pair.first.ownerHwnd,
+                                             pair.first.uid);
+        }
+        /* Imported system icons that had no choice stay as they are:
+         * their source of truth is the shell's toolbar. */
+    }
+    LogTagged(L"TRAY", L"restore defaults: %u behaviors cleared",
+              static_cast<unsigned>(before));
+    SyncToolbarModel();
+    TrayOverflowWindow::NotifyTrayChanged();
+    return static_cast<int32_t>(before);
+}
+
+int32_t TrayService::BuildCplRows(std::vector<TrayCplRow>& out) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    out.clear();
+    for (const TrayIconKey& key : m_order) {
+        auto it = m_icons.find(key);
+        if (it == m_icons.end()) {
+            continue;
+        }
+        const TrayIconEntry& entry = it->second;
+        /* Recognized system kinds are NOT in this list: they belong to
+         * the "Turn system icons on or off" page, like the original. A
+         * kind must have been classified (sysChecked) to be excluded;
+         * not-yet-classified entries stay listed and move out on their
+         * own at the next rebuild. */
+        if (entry.sysChecked && entry.systemKind != SystemIconKind::None) {
+            continue;
+        }
+        TrayCplRow row;
+        row.key = key;
+        row.behavior = entry.userBehavior;
+        row.appHidden = (entry.state & entry.stateMask & NIS_HIDDEN) != 0;
+        row.bitmap = entry.bitmap;
+        row.tooltip = entry.tooltip;
+        {
+            bool presentRow = false;
+            ResolveVisibilityLocked(entry, row.barVisible, presentRow);
+        }
+
+        /* Bold row name: the executable's file name without extension -
+         * all the model knows for sure. Windows 7 uses the version-info
+         * FileDescription; OpenProcess+GetFileVersionInfoW for every icon
+         * at every dialog rebuild is not worth it here, and the tooltip
+         * (already present) is the row's second line exactly like on the
+         * real page. */
+        std::wstring name;
+        {
+            const size_t slash = entry.ownerPath.find_last_of(L'\\');
+            std::wstring base = slash == std::wstring::npos
+                ? entry.ownerPath : entry.ownerPath.substr(slash + 1);
+            const size_t dot = base.find_last_of(L'.');
+            if (dot != std::wstring::npos && dot > 0) {
+                /* only the .exe/.dll extension goes, not dots inside
+                 * the name ("My.App.exe" -> "My.App") */
+                std::wstring ext = base.substr(dot);
+                if (ext == L".exe" || ext == L".dll" || ext == L".EXE"
+                    || ext == L".DLL") {
+                    base = base.substr(0, dot);
+                }
+            }
+            name = base;
+        }
+        if (name.empty()) {
+            name = entry.tooltip;
+        }
+        row.name = name;
+        out.push_back(std::move(row));
+    }
+    return static_cast<int32_t>(out.size());
 }
 
 int32_t TrayService::MoveIcon(uint64_t sourceHwnd, uint32_t sourceUid,

@@ -35,8 +35,6 @@ struct PropsApplyMsg {
     /* v3.5: stile dell'indicatore della lingua di input.
      * 0 = nascosta, 1 = Windows 7, 2 = Windows 8.1, 3 = Windows 10/11. */
     int32_t inputLanguageMode;
-    /* Windows 11 only: 0 automatic, 1 modern, 2 legacy 32-bit. */
-    int32_t taskManagerMode;
 };
 constexpr DWORD kPropsCopyDataId = 'W7PA';
 
@@ -48,8 +46,7 @@ public:
               int32_t netFlyout, int32_t classicVolume,
               int32_t batteryFlyout, int32_t aeroPeek,
               int32_t toolbarDesktop, int32_t toolbarAddress,
-              int32_t toolbarLinks, int32_t inputLanguageMode,
-              int32_t taskManagerMode);
+              int32_t toolbarLinks, int32_t inputLanguageMode);
 
     /* v2.47: il font del dialogo e' un oggetto GDI: si crea una volta per
      * apertura e si distrugge alla chiusura, nel distruttore della classe
@@ -75,7 +72,6 @@ private:
     int32_t m_tbAddress = 0;
     int32_t m_tbLinks = 0;
     int32_t m_inputLanguageMode = 1;   /* v3.5: stile Windows 7 di default */
-    int32_t m_taskManagerMode = 0;     /* automatico */
     HFONT m_font = nullptr;   /* RAII: vive quanto il dialogo (v2.47) */
 };
 
