@@ -3500,9 +3500,9 @@ namespace Win7Taskbar
 
             if (group.Windows.Count == 0)
             {
-                // Idle pin: launch / pin-unpin. Dedicated menu with the
-                // app's real icon on the launch row (not the generic menu:
-                // that one is shared with the bar, the clock and the tray).
+                // Idle pin: launch / pin-unpin. Dedicated text-only menu
+                // (not the generic menu: that one is shared with the bar,
+                // the clock and the tray).
                 string pinText = group.IsPinned
                     ? L("lang_menu_unpin",
                         "Unpin this program from taskbar")
@@ -3522,7 +3522,7 @@ namespace Win7Taskbar
                 catch (EntryPointNotFoundException)
                 {
                     // Native DLL older than the managed side: same two
-                    // rows through the generic menu, without the icon.
+                    // rows through the generic menu.
                     choice = _bridge.ShowContextMenu(
                         x, y, bottomEdge: true, launchText, pinText);
                 }

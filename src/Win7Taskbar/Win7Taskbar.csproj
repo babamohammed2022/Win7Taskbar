@@ -188,7 +188,12 @@
          All icon work is best-effort and exception-guarded: when an icon
          is unavailable the row stays text-only and the menu works as
          before. Tray, bar, clock and generic menus are untouched. -->
-    <Version>1.21.6-alpha</Version>
+    <!-- 1.21.7-alpha: regression fix - the pinned-app context menu no
+         longer shows the app's icon next to the launch entry
+         ("Avvio"/"Start"): the launch row is text-only again, like the
+         real Windows 7 menu. The native caption glyphs in the window
+         system menu and group menu (1.21.6-alpha) are kept. -->
+    <Version>1.21.7-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
