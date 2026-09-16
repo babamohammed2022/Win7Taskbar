@@ -207,7 +207,16 @@
          Theme submenu, Settings.Theme and the live-swap loader are gone.
          The bar is the single Aero glass theme again, loaded from
          Themes/Windows7.xaml exactly as before. -->
-    <Version>1.21.10-alpha</Version>
+    <!-- 1.21.11-alpha: forgiving tray drag. Each tray icon's cell is wider
+         than the glyph (16px icon + 9px right margin + vertical margins),
+         but with no brush on the template's root Grid that space was
+         hit-test dead: a mouse-down in the gutter fell through and the
+         drag only started when pressed inside the plain 16x16 glyph (the
+         overflow popup already responds on its whole cells). Transparent
+         background on that Grid makes the whole cell answer clicks and
+         drags, doubling the grab target without moving glyph or pitch by
+         a pixel. Overflow style untouched. -->
+    <Version>1.21.11-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

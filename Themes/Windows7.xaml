@@ -1690,7 +1690,20 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type controls:NotifyIcon}">
-                    <Grid SnapsToDevicePixels="True">
+                    <!-- v1.21.11: Background=Transparent sulla Grid radice.
+                         La cella di ogni icona e' gia' piu' larga del glifo
+                         (passo ~25px: icona 16 + margine destro 9, piu' i
+                         margini verticali), ma senza pennello quello spazio
+                         e' hit-test MORTO: il mouse-down nel margine cadeva
+                         nel vuoto e il drag partiva solo centrandosi su un
+                         riquadro di 16x16 pixel (nell'overflow la cella
+                         risponde gia' tutta). Con il pennello trasparente
+                         TUTTA la cella risponde: stessa spaziatura a
+                         schermo - glifo e passo non si muovono di un pixel -
+                         ma il bersaglio di presa/trascinamento diventa il
+                         doppio circa. -->
+                    <Grid SnapsToDevicePixels="True"
+                          Background="Transparent">
                         <!-- real Win7 hover: the | | side "whiskers" from the PNG,
                              as tall as the bar (40px) and GEOMETRICALLY centered
                              on each icon's center: the 0x0 Canvas is centered
