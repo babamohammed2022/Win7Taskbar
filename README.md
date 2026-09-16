@@ -1,7 +1,5 @@
 # Win7Taskbar
 
-## Screenshot
-
 <img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
 
 A Windows 7-inspired taskbar recreation and for Windows 10 and 11.
