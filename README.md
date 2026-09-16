@@ -71,9 +71,14 @@ Please read [`AGENTS.md`](./docs/AGENTS.md) before making changes.
 * WinBoeing777 - Testing on Windows 10 22H2 and providing resources
 * AdministratoX - Testing on Windows 11 25H2
 
-Win7Taskbar was created using work from projects including RetroBar, ExplorerPatcher, and ManagedShell.
+Win7Taskbar was created using work from projects including RetroBar, ExplorerPatcher, and ManagedShell, but it is an independent project and is not affiliated with or endorsed by any of them. It acts as a community open-source project to help improve the user's experience.
 
 Additional information and attribution details are available in the `docs` folder.
+
+## Note
+
+This software is not endorsed by, affiliated with, or sponsored by Microsoft Corporation.
+Windows and related trademarks are the property of Microsoft Corporation.
 
 ## License
 
