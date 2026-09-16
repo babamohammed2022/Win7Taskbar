@@ -168,12 +168,19 @@
          EnsureDwmPreviewBorderMask, so the two paths draw the same border;
          the grayscale overlay, the clipped static blur, the title band, the
          close button and the live DWM thumbnail are untouched. -->
-    <!-- 1.21.4-alpha: XamlTypeMapper fix in ThemeLoader - the runtime theme
-         parse now maps clr-namespace:Win7Taskbar.Utilities to the
-         Win7Taskbar assembly, so StaticResource references to
-         GraphicalResourceBundle resolve instead of failing with
-         "Type reference cannot find type named". -->
-    <Version>1.21.4-alpha</Version>
+    <!-- 1.21.4-alpha: XamlTypeMapper attempt in ThemeLoader - INEFFECTIVE
+         (that ctor takes assembly names, not namespace mappings), kept for
+         history. The real startup-crash fix is 1.21.5-alpha below. -->
+    <!-- 1.21.5-alpha: startup crash "Provide value on 'StaticExtension' ...
+         Line number '10'" fixed for real. The theme's assembly-less
+         xmlns:bundle can never resolve under XamlReader.Load, so the first
+         x:Static died in ProvideValue. ThemeLoader now qualifies every
+         clr-namespace xmlns in memory before parsing, pre-validates all
+         x:Static members via reflection (naming key+member on mismatch),
+         verifies loaded images are non-null, and both Windows7.xaml copies
+         carry the required ";assembly=Win7Taskbar". Fatal dialogs also show
+         the inner-exception chain (StartupGuard.FormatInnerCauses). -->
+    <Version>1.21.5-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

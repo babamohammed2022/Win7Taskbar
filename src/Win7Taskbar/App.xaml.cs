@@ -195,10 +195,17 @@ namespace Win7Taskbar
                 string? report = StartupGuard.Report(ex, "OnStartup");
                 StartupGuard.RestoreNativeTaskbar();
 
+                string causes = StartupGuard.FormatInnerCauses(ex);
+                if (!string.IsNullOrEmpty(causes))
+                {
+                    causes = "Cause:\n" + causes + "\n\n";
+                }
+
                 MessageBox.Show(
                     $"Win7Taskbar non è riuscito ad avviarsi.\n\n" +
                     $"Fase: {StartupGuard.CurrentStage}\n" +
-                    $"Errore: {ex.GetType().Name}: {ex.Message}\n\n" +
+                    $"Errore: {ex.GetType().Name}: {ex.Message}\n" +
+                    causes + "\n" +
                     (report != null
                         ? $"Rapporto completo (da allegare alla segnalazione):\n{report}\n\n"
                         : "") +

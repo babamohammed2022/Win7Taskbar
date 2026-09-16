@@ -4,7 +4,12 @@
                     xmlns:controls="clr-namespace:RetroBar.Controls;assembly=RetroBar"
                     xmlns:retroconv="clr-namespace:RetroBar.Converters;assembly=RetroBar"
                     xmlns:retrosettings="clr-namespace:RetroBar.Utilities;assembly=RetroBar"
-                    xmlns:bundle="clr-namespace:Win7Taskbar.Utilities">
+                    xmlns:bundle="clr-namespace:Win7Taskbar.Utilities;assembly=Win7Taskbar">
+
+    <!-- 1.21.5: ";assembly=Win7Taskbar" above is REQUIRED, do not remove it.
+         Without the assembly qualifier, XamlReader.Load cannot resolve this
+         namespace at runtime and every x:Static below dies inside
+         StaticExtension.ProvideValue (startup crash "Line number '10'"). -->
 
     <!-- Win7 Superbar height at 96 DPI -->
 
