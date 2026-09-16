@@ -95,10 +95,17 @@ const JumpStr& Str(int lang) {
         L"最近使用",
         L"将此程序固定到任务栏",
         L"将此程序从任务栏取消固定" };
+    /* v3.6: l'arabo mancava del tutto e cadeva sull'italiano (indice 10
+     * dell'elenco unico, Strings.cpp). */
+    static const JumpStr kAr = {
+        L"أخيرة",
+        L"ثبت هذا البرنامج إلى شريط المهام",
+        L"إلغاء تثبيت هذا البرنامج من شريط المهام" };
     switch (lang) {
         case 1: return kEn; case 2: return kEs; case 3: return kFr;
         case 4: return kDe; case 5: return kPt; case 6: return kPl;
         case 7: return kRu; case 8: return kJa; case 9: return kZh;
+        case 10: return kAr;
         default: return kIt;
     }
 }

@@ -59,9 +59,11 @@ ScopeExit<F> MakeScopeExit(F f) { return ScopeExit<F>(f); }
 
 /* Stesse dimensioni della mod di riferimento (unita' DLU).
  * v2.47: la finestra si allunga per ospitare la scheda "Barre degli
- * strumenti" e i nuovi gruppi (Flyout, Area di notifica, Aero Peek). */
+ * strumenti" e i nuovi gruppi (Flyout, Area di notifica, Aero Peek).
+ * v3.5: altre 14 DLU per la seconda riga del gruppo lingua (l'indicatore
+ * della lingua di input). */
 constexpr short MAIN_WIDTH  = 262;
-constexpr short MAIN_HEIGHT = 312;
+constexpr short MAIN_HEIGHT = 326;
 
 /* v2.50: le tendine di volume e batteria non si chiamano piu' "mixer
  * classico"/"flyout batteria": dicono a quale VERSIONE del sistema
@@ -69,6 +71,10 @@ constexpr short MAIN_HEIGHT = 312;
  * prodotto, come "Windows 7" e "Windows 10/11"). */
 constexpr const wchar_t* kFlyoutWin7  = L"Windows 7";
 constexpr const wchar_t* kFlyoutWin10 = L"Windows 10/11";
+/* v1.4: la tendina della BATTERIA non ha piu' la voce "Windows 11":
+ * il riquadro reale che si apre e' quello di Windows 10 (Win32), con la
+ * chiave legacy applicata solo attorno al tentativo di apertura. */
+constexpr const wchar_t* kFlyoutBatteryWin10 = L"Windows 10";
 
 enum CtrlId {
     IDC_TAB_MAIN = 100,
@@ -84,6 +90,8 @@ enum CtrlId {
     IDC_LBL_CLOCK, IDC_CMB_CLOCK,
     IDC_LBL_NET, IDC_LBL_LANG, IDC_LBL_VOLUME, IDC_CMB_VOLUME,
     IDC_LBL_BATT, IDC_CMB_BATTERY,
+    /* v3.5: indicatore della lingua di input. */
+    IDC_LBL_LANGBAR, IDC_CMB_LANGBAR,
     IDC_GRP_NOTIF, IDC_TXT_NOTIF, IDC_BTN_CUSTOMIZE,
     IDC_GRP_AERO, IDC_TXT_AERO, IDC_CHK_AERO,
     IDC_LINK_HELP,
@@ -188,6 +196,8 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_LBL_VOLUME, p1); vis(IDC_CMB_VOLUME, p1);
     vis(IDC_LBL_BATT, p1); vis(IDC_CMB_BATTERY, p1);
     vis(IDC_GRP_LANG, p1); vis(IDC_LBL_LANG, p1); vis(IDC_CMB_LANG, p1);
+    /* v3.5: riga dell'indicatore della lingua di input. */
+    vis(IDC_LBL_LANGBAR, p1); vis(IDC_CMB_LANGBAR, p1);
     vis(IDC_GRP_NOTIF, p1); vis(IDC_TXT_NOTIF, p1); vis(IDC_BTN_CUSTOMIZE, p1);
 
     /* Pagina 2: informazioni + uscita. */
@@ -218,7 +228,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                             int32_t netFlyout, int32_t classicVolume,
                             int32_t batteryFlyout, int32_t aeroPeek,
                             int32_t toolbarDesktop, int32_t toolbarAddress,
-                            int32_t toolbarLinks) {
+                            int32_t toolbarLinks, int32_t inputLanguageMode) {
     try {
         if (m_hWnd && IsWindow(m_hWnd)) {
             SetForegroundWindow(m_hWnd);
@@ -236,6 +246,11 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         m_aeroPeek = aeroPeek ? 1 : 0;
         m_tbDesktop = toolbarDesktop ? 1 : 0;
         m_tbAddress = toolbarAddress ? 1 : 0;
+        /* v3.5: 0 nascosta, 1 Win7, 2 Win8.1, 3 Win10/11; fuori elenco ->
+         * stile Windows 7 (il default). */
+        m_inputLanguageMode =
+            (inputLanguageMode >= 0 && inputLanguageMode <= 3)
+                ? inputLanguageMode : 1;
         m_tbLinks = toolbarLinks ? 1 : 0;
 
         /* v2.47: oltre alle schede e ai controlli standard serve la classe
@@ -289,7 +304,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
             controlCount++;
         };
 
-        addCtrl(TCS_TABS | WS_TABSTOP, 0, 6, 6, 250, 278, IDC_TAB_MAIN,
+        addCtrl(TCS_TABS | WS_TABSTOP, 0, 6, 6, 250, 292, IDC_TAB_MAIN,
                 L"SysTabControl32", L"");
         /* ============================================================
          * PAGINA 1 - "Barra delle applicazioni"
@@ -332,16 +347,22 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(BS_GROUPBOX, 0, 12, 142, 238, 34, IDC_GRP_SEARCH, L"Button", L"");
         addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 0, 18, 152, 226, 20, IDC_CHK_SEARCH, L"Button", L"");
 
-        /* GRUPPO 4 - LINGUA (al posto della sezione Aero Peek della foto). */
-        addCtrl(BS_GROUPBOX, 0, 12, 192, 238, 30, IDC_GRP_LANG, L"Button", L"");
+        /* GRUPPO 4 - LINGUA (al posto della sezione Aero Peek della foto).
+         * v3.5: due righe - la lingua del programma (come prima) e lo
+         * stile dell'indicatore della lingua di input (0 nascosta,
+         * 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11). */
+        addCtrl(BS_GROUPBOX, 0, 12, 192, 238, 44, IDC_GRP_LANG, L"Button", L"");
         addCtrl(SS_LEFT, 0, 18, 202, 50, 10, IDC_LBL_LANG, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 200, 130, 80, IDC_CMB_LANG, L"ComboBox", L"");
+        addCtrl(SS_LEFT, 0, 18, 218, 50, 10, IDC_LBL_LANGBAR, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 216, 130, 80, IDC_CMB_LANGBAR, L"ComboBox", L"");
 
-        /* GRUPPO 5 - AREA DI NOTIFICA: testo su due righe (20) + pulsante,
-         * gruppo 226..278, tutto dentro l'area della scheda (~282). */
-        addCtrl(BS_GROUPBOX, 0, 12, 226, 238, 52, IDC_GRP_NOTIF, L"Button", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 236, 226, 20, IDC_TXT_NOTIF, L"Static", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 18, 258, 76, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
+        /* GRUPPO 5 - AREA DI NOTIFICA: testo su due righe (20) + pulsante.
+         * v3.5: scivolato in giu' di 14 DLU per fare spazio alla seconda
+         * riga del gruppo lingua. */
+        addCtrl(BS_GROUPBOX, 0, 12, 240, 238, 52, IDC_GRP_NOTIF, L"Button", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 250, 226, 20, IDC_TXT_NOTIF, L"Static", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 18, 272, 76, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
 
         /* ============================================================
          * PAGINA 2 - "Informazioni"
@@ -364,8 +385,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * this page is measured or computed at run time any more. The page
          * still ends at ~282 units, like the other two. */
         addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 234, 196, IDC_TXT_ABOUT, L"Static", L"");
-        addCtrl(BS_GROUPBOX, 0, 14, 224, 234, 40, IDC_GRP_EXIT, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 20, 240, 110, 14, IDC_BTN_EXIT, L"Button", L"");
+        /* v3.5: il gruppo di uscita segue il fondo pagina (+14 DLU). */
+        addCtrl(BS_GROUPBOX, 0, 14, 238, 234, 40, IDC_GRP_EXIT, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 20, 254, 110, 14, IDC_BTN_EXIT, L"Button", L"");
 
         /* ============================================================
          * PAGINA 3 - "Toolbar"
@@ -384,9 +406,10 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                 0, 16, 52, 230, 160, IDC_LST_TOOLBARS, L"SysListView32", L"");
 
         // ---- pulsanti standard 50x14, come la mod ----
-        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 88, 292, 50, 14, IDOK, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 144, 292, 50, 14, IDCANCEL, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 200, 292, 50, 14, IDC_BTN_APPLY, L"Button", L"");
+        /* v3.5: la riga scende di 14 DLU con la finestra. */
+        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 88, 306, 50, 14, IDOK, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 144, 306, 50, 14, IDCANCEL, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 200, 306, 50, 14, IDC_BTN_APPLY, L"Button", L"");
 
         pDlg->cdit = controlCount;
         m_hWnd = CreateDialogIndirectParamW(GetModuleHandleW(nullptr),
@@ -438,8 +461,21 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
             SendDlgItemMessageW(m_hWnd, IDC_CMB_LANG, CB_GETCURSEL, 0, 0));
         msg.lang = (langSel >= 0 && langSel <= 10) ? langSel : 0;
     }
+    {
+        /* v3.5: stile dell'indicatore della lingua di input. */
+        const int32_t langBarSel = static_cast<int32_t>(
+            SendDlgItemMessageW(m_hWnd, IDC_CMB_LANGBAR, CB_GETCURSEL, 0, 0));
+        msg.inputLanguageMode =
+            (langBarSel >= 0 && langBarSel <= 3) ? langBarSel : 1;
+    }
     msg.openSearch = openSearch ? 1 : 0;
     msg.closeApp = closeApp ? 1 : 0;
+
+    /* v3.6: le stringhe del NATIVO (menu della tray, jump list, ecc.)
+     * seguono subito la scelta del dialogo, senza aspettare il giro
+     * COPYDATA -> gestito -> W7T_SetLanguage: se quel giro non parte (o
+     * arriva tardi), i menu restavano nella lingua precedente. */
+    w7t::SetLanguageByIndex(msg.lang);
 
     COPYDATASTRUCT cds{};
     cds.dwData = kPropsCopyDataId;
@@ -543,6 +579,7 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SetDlgItemTextW(hwnd, IDC_LBL_BATT, S.lblBattery);
         SetDlgItemTextW(hwnd, IDC_GRP_LANG, S.grpLang);
         SetDlgItemTextW(hwnd, IDC_LBL_LANG, S.lblLang);
+        SetDlgItemTextW(hwnd, IDC_LBL_LANGBAR, S.lblLangBar);   /* v3.5 */
         SetDlgItemTextW(hwnd, IDC_GRP_NOTIF, S.grpNotif);
         SetDlgItemTextW(hwnd, IDC_TXT_NOTIF, S.txtNotif);
         SetDlgItemTextW(hwnd, IDC_BTN_CUSTOMIZE, S.btnCustomize);
@@ -599,8 +636,17 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
 
         HWND hCB = GetDlgItem(hwnd, IDC_CMB_BATTERY);
         ComboBox_AddString(hCB, kFlyoutWin7);      /* 0 = flyout stile Windows 7 */
-        ComboBox_AddString(hCB, kFlyoutWin10);     /* 1 = flyout del sistema */
+        ComboBox_AddString(hCB, kFlyoutBatteryWin10); /* 1 = riquadro reale di Windows 10 */
         ComboBox_SetCurSel(hCB, self->m_batteryFlyout ? 0 : 1);
+
+        /* v3.5: stile dell'indicatore della lingua di input.
+         * 0 nascosta, 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11. */
+        HWND hCLB = GetDlgItem(hwnd, IDC_CMB_LANGBAR);
+        ComboBox_AddString(hCLB, S.langHidden);    /* 0 = nascosta */
+        ComboBox_AddString(hCLB, S.langWin7);      /* 1 = Windows 7 */
+        ComboBox_AddString(hCLB, S.langWin81);     /* 2 = Windows 8.1 */
+        ComboBox_AddString(hCLB, S.langWin10);     /* 3 = Windows 10/11 */
+        ComboBox_SetCurSel(hCLB, self->m_inputLanguageMode);
 
         SendDlgItemMessageW(hwnd, IDC_CHK_SECONDS, BM_SETCHECK,
                             self->m_seconds ? BST_CHECKED : BST_UNCHECKED, 0);

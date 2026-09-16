@@ -49,6 +49,24 @@ sources under different licenses:
   mod was taken. MIT is compatible with GPL-3.0. Copyright (c)
   babamohammed.
 
+- **[Windows 7/8.1 Language Switcher Restorer](https://windhawk.net/mods/win7-language-switcher-restorer)**
+  (Windhawk mod v1.1.0, author babamohammed — the same author as this
+  project) — GNU General Public License v3.0. Ported into
+  `native/src/LanguageSwitcher.cpp` (v1.4): layout enumeration and
+  switching (`KeyboardLayoutItem`, `RefreshKeyboardLayouts`,
+  `SwitchToLayout`, `FindKlidByLayoutId`, `GetSubstituteKlid`,
+  `GetLayoutDisplayName`, `GetLangAbbrev`, `g_LangAbbrevs`,
+  `FormatWin7LayoutItemText`), the two popup renderings
+  (`PaintWin7Menu`, `PaintWin8Flyout`, the GDI+/GDI checkmark), the 25
+  languages footer table (`kLocalizedStrings`), tray-anchored
+  multi-monitor placement (`PositionWindowNearTray`) and the popup window
+  procedure (hover, click, keyboard, auto-hide on deactivation). NOT
+  ported, because it only exists in an injected module: the low-level
+  keyboard/mouse hooks, the tray-control subclassing, the ShowWindow hook,
+  the "am I the main shell?" logic and the unload infrastructure. The
+  popup window class is renamed (`W7T_LangSwitcherFlyout`) so the mod and
+  this port can coexist.
+
 **The Apache License 2.0 (RetroBar, ManagedShell) is not considered
 compatible by the FSF with GPL-2.0**, because of the patent-termination and
 indemnification clauses present in Apache 2.0 and absent from GPL-2.0. It is

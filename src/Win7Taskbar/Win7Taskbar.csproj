@@ -48,13 +48,21 @@
     <Description>Taskbar in stile Windows 7 per Windows 10/11</Description>
     <Copyright>Copyright (c) 2026 Win7Taskbar contributors</Copyright>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
-    <!-- 1.0.0-alpha: prima release pubblica del codice v2.58 reso autonomo
-         (pacchetto self-contained + build a un clic). Il numero di versione
-         riparte da 1.0.0 perche' e' la prima release distribuita come
-         pacchetto installabile e documentato, non un "refresh" della 2.x. -->
-    <Version>1.0.0-alpha</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <!-- 1.4.0-alpha: il selettore della lingua e' il port del mod
+         "Windows 7/8.1 Language Switcher Restorer" (popup nativo
+         GDI/GDI+ con menu Windows 7 e targhetta Windows 8.1, cambio
+         layout alla finestra col primo piano, 25 lingue dei piedi); la
+         sigla della lingua attiva e' disegnata nella tray XAML e non
+         sparisce piu'; la chiave legacy della batteria e' TRANSITORIA
+         (scritta solo attorno al tentativo, poi ripristinata); il clic
+         dei pulsanti di sistema della tray Win11 ha il ripiego per
+         coordinate; la tendina batteria perde la voce "Windows 11"
+         (il riquadro reale e' quello di Windows 10); i separatori di
+         gruppo tornano piu' vicini all'icona e a spessore uniforme;
+         "Centro mobility" tradotto "Centro PC portatile". -->
+    <Version>1.4.0-alpha</Version>
+    <AssemblyVersion>1.4.0.0</AssemblyVersion>
+    <FileVersion>1.4.0.0</FileVersion>
   
     <!-- v2.57: application icon (the classic Windows 7 flag in a single azure
          blue). Setting ApplicationIcon gives the executable the icon and, in

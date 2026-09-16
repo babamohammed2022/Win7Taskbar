@@ -15,18 +15,21 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 // ============================================================================
-// v2.46: in Windows 7 un gruppo con piu' finestre non mostra NESSUN numero:
-// il pulsante disegna, subito a destra dell'icona, fino a TRE rettangolini
-// affiancati (le "schede" impilate). Oltre la terza finestra l'indicatore non
-// cresce piu': le altre restano raggiungibili dalle anteprime.
+// v3.5: SEPARATORI DI GRUPPO del pulsante della Superbar. In Windows 7 un
+// gruppo con piu' finestre disegna, subito a destra dell'icona, delle linee
+// verticali sottili FRA le finestre dello stesso gruppo (i separatori della
+// pila di finestre). La regola e':
 //
-// Questo converter decide se l'ennesima scheda va mostrata:
+//   1 finestra  -> 0 separatori (il pulsante singolo non porta nulla)
+//   2 finestre  -> 1 separatore
+//   3+ finestre -> 2 separatori, MAI di piu' (le altre finestre si
+//                  raggiungono dalle anteprime)
+//
+// Questo converter decide se l'ennesimo separatore va mostrato:
 //   valore di ingresso   = TaskGroup.WindowCount
-//   ConverterParameter   = posizione della scheda (1, 2, 3)
-//   risultato            = Visible se WindowCount >= posizione (e almeno 2),
-//                          altrimenti Collapsed.
-// Con UNA sola finestra non si mostra nulla: e' la regola di Windows 7, dove
-// il pulsante "singolo" non porta alcun indicatore di pila.
+//   ConverterParameter   = posizione del separatore (1, 2)
+//   risultato            = Visible se WindowCount >= posizione + 1
+//                          (almeno 2 finestre), altrimenti Collapsed.
 // ============================================================================
 
 using System;
@@ -37,15 +40,16 @@ using System.Windows.Data;
 namespace Win7Taskbar.Converters
 {
     /// <summary>
-    /// Decide la visibilita' della N-esima "scheda" impilata del pulsante:
-    /// si vedono tante schede quante sono le finestre del gruppo, fino a tre,
-    /// e nessuna quando la finestra e' una sola.
+    /// Decide la visibilita' dell'ennesimo separatore del gruppo: si vedono
+    /// un separatore fra la prima e la seconda finestra e un secondo fra la
+    /// seconda e la terza; oltre, mai piu' di due, e con una sola finestra
+    /// nessuno.
     /// </summary>
     [ValueConversion(typeof(int), typeof(Visibility))]
     public sealed class WindowStackVisibilityConverter : IValueConverter
     {
-        /// <summary>Numero massimo di schede disegnate (come Windows 7).</summary>
-        public int MaxSheets { get; set; } = 3;
+        /// <summary>Numero massimo di separatori disegnati (v3.5: due).</summary>
+        public int MaxSheets { get; set; } = 2;
 
         public object Convert(object value, Type targetType, object parameter,
                               CultureInfo culture)
@@ -69,7 +73,11 @@ namespace Win7Taskbar.Converters
                 return Visibility.Collapsed;
             }
 
-            return count >= index ? Visibility.Visible : Visibility.Collapsed;
+            /* Il separatore N-esimo sta FRA due finestre: serve almeno
+             * una finestra in piu' della posizione (regola v3.5:
+             * 1->0, 2->1, 3+->2 separatori). */
+            return count >= index + 1 ? Visibility.Visible
+                                      : Visibility.Collapsed;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter,

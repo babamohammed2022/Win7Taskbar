@@ -85,6 +85,15 @@ namespace Win7Taskbar.Utilities
         /// Codice -> file dizionario (ripiego: Inglese).</summary>
         private static string LanguageFileFor(string langCode) => langCode switch
         {
+            /* v2.62 - "it" C'ERA? NO.
+             *
+             * L'italiano non aveva il suo caso e finiva nel ramo di
+             * ripiego: veniva caricato English.xaml. Finche' nessuno
+             * leggeva queste chiavi dal codice la cosa non si vedeva; da
+             * quando i menu contestuali prendono i testi da qui, su un
+             * sistema italiano il menu usciva in inglese mentre tutto il
+             * resto (che passa dalle stringhe native) restava italiano. */
+            "it" => "Italian.xaml",
             "en" => "English.xaml",
             "es" => "Spanish.xaml",
             "fr" => "French.xaml",

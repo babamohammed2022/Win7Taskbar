@@ -98,15 +98,16 @@ public:
     /* System icon class of a snapshot entry (Network/Volume/Battery/None). */
     SystemIconKind KindOf(uint32_t uid) const;
 
-    /* v2.62: ricerca per TIPO invece che per chiave. Serve a rimandare alla
-     * shell i clic che non gestiamo noi - il tasto destro, che apre il menu
-     * contestuale vero dell'icona - quando la shell espone quel tipo.
-     * Falso se non lo espone (su Windows 11 22H2+ ne espone uno solo,
-     * quello delle notifiche rapide). */
-    bool FindByKind(SystemIconKind kind, uint32_t* outUid) const;
-
     /* Left click (invoke) or right click (context menu) on an entry. */
     bool RequestClick(uint32_t uid, bool rightButton);
+
+    /* v2.63: uid della prima icona di sistema di quel tipo che la shell
+     * espone (0 se non c'e'). Serve a inoltrare il clic al pulsante VERO
+     * della shell quando una delle nostre icone ricreate deve aprire un
+     * riquadro Win32 di Windows (batteria: e' la via di ExplorerPatcher).
+     * L'icona puo' benissimo non essere nel modello: il filtro delle icone
+     * di sistema avviene dopo, nel servizio della tray. */
+    uint32_t UidOfKind(SystemIconKind kind) const;
 
     /* Opens the real Windows 11 overflow flyout (our own overflow panel has
      * nothing to show when the hidden icons cannot be enumerated) and places

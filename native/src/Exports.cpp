@@ -33,6 +33,7 @@
 #include "FlyoutLauncher.h"
 #include "AudioService.h"
 #include "JumpListWindow.h"     /* v2.38 */
+#include "LanguageSwitcher.h"   /* v1.4: selettore della lingua */
 #include "BatteryFlyout.h"      /* v2.38 */
 #include <thread>
 #include <atomic>
@@ -137,7 +138,13 @@ extern "C" W7T_API int32_t W7T_CALL W7T_GetWindowCount(void) {
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_GetWindows(W7T_WindowInfo* buffer, int32_t capacity) {
-    return WindowManager::Instance().CopyTo(buffer, capacity);
+    /* v3.6: anche questo percorso passa dalla cinghia: e' la via con cui
+     * il gestito scopre le finestre, e il crash del Centro connessioni
+     * arrivava proprio mentre questa lista si faceva. */
+    W7T_SEH_TRY {
+        return WindowManager::Instance().CopyTo(buffer, capacity);
+    } W7T_SEH_CATCH {} W7T_SEH_END
+    return 0;
 }
 
 /* v2.25: Pinned Application Model - sorgente autoritativa dei pin. */
@@ -259,6 +266,14 @@ extern "C" W7T_API int32_t W7T_CALL W7T_SendTrayIconClick(uint64_t ownerHwnd, ui
     return TrayService::Instance().SendClick(ownerHwnd, uid, clickType, x, y);
 }
 
+/* v2.62: il frontend dichiara pronto il riquadro di rete di Windows 7
+ * (modulo inizializzato e modo "Windows 7 (ricreato)" attivo). Serve al
+ * core per sapere se il clic su un'icona di rete RICREATA puo' aprire quel
+ * riquadro invece di quello moderno. */
+extern "C" W7T_API void W7T_CALL W7T_SetWin7NetworkFlyout(int32_t ready) {
+    TrayService::Instance().SetWin7NetworkFlyout(ready != 0);
+}
+
 extern "C" W7T_API int32_t W7T_CALL W7T_SetTrayIconPinned(uint64_t ownerHwnd, uint32_t uid,
                                                           int32_t pinned) {
     return TrayService::Instance().SetPinned(ownerHwnd, uid, pinned);
@@ -303,6 +318,32 @@ extern "C" W7T_API int32_t W7T_CALL W7T_AppBarSetPos(uint64_t hwnd, int32_t edge
 
 extern "C" W7T_API int32_t W7T_CALL W7T_AppBarUnregister(uint64_t hwnd) {
     return AppBarService::Instance().Unregister(ToHwnd(hwnd));
+}
+
+/* v3.4: superfici per il protocollo AppBar completo (flusso di
+ * ManagedShell/RetroBar). Il messaggio di callback va gestito nella
+ * finestra che l'ha registrato: il frontend lo riconosce nel proprio
+ * WndProc e lo gira qui. */
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarCallbackMessage(void) {
+    return static_cast<int32_t>(AppBarService::Instance().CallbackMessage());
+}
+
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarIsRegistered(void) {
+    return AppBarService::Instance().IsRegistered() ? 1 : 0;
+}
+
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarNotify(uint32_t wParam, int32_t lParam) {
+    return AppBarService::Instance().HandleCallback(wParam, lParam) ? 1 : 0;
+}
+
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarWindowPosChanged(uint64_t hwnd) {
+    AppBarService::Instance().NotifyWindowPosChanged(ToHwnd(hwnd));
+    return W7T_OK;
+}
+
+extern "C" W7T_API int32_t W7T_CALL W7T_AppBarActivate(uint64_t hwnd) {
+    AppBarService::Instance().Activate(ToHwnd(hwnd));
+    return W7T_OK;
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_SetNativeTaskbarHidden(int32_t hidden) {
@@ -798,6 +839,35 @@ extern "C" W7T_API int32_t W7T_CALL W7T_IsWindows11(void) {
     return w7t::IsWindows11OrBetter() ? 1 : 0;
 }
 
+/* ---------------------------------------------------------------------- */
+/*  v2.63 - Impostazioni dei riquadri: UNA sola pubblicazione             */
+/* ---------------------------------------------------------------------- */
+/*  Il frontend legge la configurazione e la pubblica qui: da questo       */
+/*  momento la decisione "riquadro di Windows 7 oppure della shell" vive    */
+/*  in un posto solo (FlyoutLauncher.cpp) e tutti i percorsi di apertura -  */
+/*  clic sulle icone ricreate, menu della barra, clic sintetici - la        */
+/*  interrogano invece di reinterpretare i propri parametri. E' la cura     */
+/*  del difetto per cui la tendina "Windows 10/11" apriva il riquadro di    */
+/*  Windows 7 e viceversa: la polarita' era replicata in quattro punti.     */
+/*                                                                         */
+/*  0 = Windows 7 (classico/Win32), 1 = Windows 10/11 (shell).             */
+extern "C" W7T_API void W7T_CALL W7T_SetFlyoutPreferences(
+    int32_t clockWin7, int32_t networkWin7, int32_t volumeWin7,
+    int32_t batteryWin7) {
+    w7t::FlyoutPreferences prefs;
+    prefs.clock   = clockWin7   ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    prefs.network = networkWin7 ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    prefs.volume  = volumeWin7  ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    prefs.battery = batteryWin7 ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    w7t::SetFlyoutPreferences(prefs);
+}
+
+/* La porta dei riquadri moderni di questa build. Il frontend la usa per non
+ * duplicare il giudizio sulla versione di Windows. */
+extern "C" W7T_API int32_t W7T_CALL W7T_IsModernFlyoutHostAvailable(void) {
+    return w7t::IsModernFlyoutHostAvailable() ? 1 : 0;
+}
+
 extern "C" W7T_API void W7T_CALL W7T_OverflowHide(void) {
     g_overflowWindow.Hide();
 }
@@ -834,12 +904,18 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t lang, int32_t seconds, int32_t nativeFlyout,
         int32_t enableSearch, int32_t netFlyout, int32_t classicVolume,
         int32_t batteryFlyout, int32_t aeroPeek, int32_t toolbarDesktop,
-        int32_t toolbarAddress, int32_t toolbarLinks) {
+        int32_t toolbarAddress, int32_t toolbarLinks,
+        int32_t inputLanguageMode) {
     try {
+        /* v3.6: l'ordine DEVE essere quello della firma Show(): nativeFlyout,
+         * enableSearch, netFlyout. Prima erano invertiti (netFlyout al posto
+         * di enableSearch e viceversa): la spunta "ricerca" accendeva il
+         * flyout di rete e il selettore flyout di rete accendeva la ricerca. */
         g_properties.Show(reinterpret_cast<HWND>(ownerTaskbar), lang,
-                          seconds, nativeFlyout, netFlyout,
-                          enableSearch, classicVolume, batteryFlyout, aeroPeek,
-                          toolbarDesktop, toolbarAddress, toolbarLinks);
+                          seconds, nativeFlyout, enableSearch,
+                          netFlyout, classicVolume, batteryFlyout, aeroPeek,
+                          toolbarDesktop, toolbarAddress, toolbarLinks,
+                          inputLanguageMode);
     } catch (...) { /* mai propagare */ }
 }
 
@@ -881,6 +957,38 @@ extern "C" W7T_API void W7T_CALL W7T_JumpListShow(
             pinnedLnk ? pinnedLnk : L"",
             isPinned == 1,
             iconArgb, iconW, iconH, lang);
+    } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+/* ------------------------------------------------------------------ */
+/* v1.4: selettore della lingua (port del mod switcher).              */
+/* ------------------------------------------------------------------ */
+extern "C" W7T_API void W7T_CALL W7T_LangSwitcherShow(uint64_t ownerHwnd,
+        uint64_t foregroundHwnd, int32_t styleMode) {
+    W7T_SEH_TRY {
+        w7t::langswitcher::Show(ownerHwnd, foregroundHwnd, styleMode);
+    } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_LangSwitcherHide(void) {
+    W7T_SEH_TRY {
+        w7t::langswitcher::Hide();
+    } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_LangSwitcherGetActive(uint32_t* langId,
+        wchar_t* threeLetter, int32_t threeCap,
+        wchar_t* twoLetter, int32_t twoCap) {
+    W7T_SEH_TRY {
+        w7t::langswitcher::GetActiveInfo(langId, threeLetter, threeCap,
+                                         twoLetter, twoCap);
+    } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_LangSwitcherSetChangedCallback(
+        W7T_LangChangedCallback callback) {
+    W7T_SEH_TRY {
+        w7t::langswitcher::SetChangedCallback(callback);
     } W7T_SEH_CATCH {} W7T_SEH_END
 }
 

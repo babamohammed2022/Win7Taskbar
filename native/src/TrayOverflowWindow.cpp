@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 
 #include "TrayOverflowWindow.h"
+#include "Strings.h"
 #include "TrayService.h"
 #include "FlyoutLauncher.h"   /* ApplyAeroFlyoutStyle: bordi Aero */
 #include <dwmapi.h>
@@ -375,7 +376,10 @@ void TrayOverflowWindow::OnPaint(HDC hdcWindow) {
     HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, font));
     RECT textRc = m_footerRect;
     // v3.2: centrato orizzontalmente, come il link vero di Win7.
-    DrawTextW(hdc, L"Personalizza...", -1, &textRc,
+    // v2.62: il testo arriva dalla tabella delle stringhe native (undici
+    // lingue, ripiego inglese): prima era italiano fisso nel codice, quindi
+    // su un sistema inglese o tedesco il pannello restava italiano.
+    DrawTextW(hdc, w7t::S(w7t::StrId::OverflowCustomize), -1, &textRc,
               DT_SINGLELINE | DT_VCENTER | DT_CENTER);
     SelectObject(hdc, oldFont);
     DeleteObject(font);

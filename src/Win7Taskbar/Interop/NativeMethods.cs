@@ -321,6 +321,19 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppBarUnregister(ulong hwnd);
 
+        // v3.4: protocollo AppBar completo (notifiche ABN_*, stato, attivazione).
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarCallbackMessage();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarIsRegistered();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarNotify(uint wParam, int lParam);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_AppBarActivate(ulong hwnd);
+
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_SetNativeTaskbarHidden(int hidden);
 
@@ -390,6 +403,26 @@ namespace Win7Taskbar.Interop
         public static extern int W7T_IsWindows11();
 
         /// <summary>
+        /// v2.63: pubblica al core la scelta dei quattro riquadri. Da questo
+        /// momento la decisione "Windows 7 oppure Windows 10/11" vive in un
+        /// posto solo (il core) e tutti i percorsi di apertura la
+        /// interrogano: prima ogni launcher aveva la propria copia della
+        /// regola, ed e' per questo che la tendina "Windows 10/11" poteva
+        /// aprire il riquadro di Windows 7 e viceversa.
+        /// 1 = Windows 7 (classico), 0 = Windows 10/11 (shell).
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_SetFlyoutPreferences(
+            int clockWin7, int networkWin7, int volumeWin7, int batteryWin7);
+
+        /// <summary>
+        /// v2.63: la porta dei riquadri moderni di questa build, decisa dal
+        /// core (build via RtlGetVersion + infrastruttura della shell).
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_IsModernFlyoutHostAvailable();
+
+        /// <summary>
         /// v2.62: chiude il riquadro dell'orologio DELLA SHELL, se aperto.
         /// Non lo apre mai: su Windows 11 il riquadro mostrato e' sempre
         /// quello ricreato da Win7Taskbar, e se il sistema ha aperto il suo
@@ -402,15 +435,48 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_AppSearchInit(ulong ownerTaskbar, byte[]? argbPixels, int iconW, int iconH);
 
+        // v1.4: selettore della lingua (port del mod switcher). Il testo
+        // nella tray lo disegna il controllo gestito con la sigla che il
+        // core legge dal thread col primo piano; il click apre il popup
+        // nativo (finestra Win32 GDI/GDI+ del core).
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_LangSwitcherShow(ulong ownerHwnd,
+            ulong foregroundHwnd, int styleMode);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_LangSwitcherHide();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
+            CharSet = CharSet.Unicode)]
+        public static extern void W7T_LangSwitcherGetActive(ref uint langId,
+            [Out] char[] threeLetter, int threeCap,
+            [Out] char[] twoLetter, int twoCap);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        public delegate void W7TLangChangedCallback(uint langId);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_LangSwitcherSetChangedCallback(
+            W7TLangChangedCallback callback);
+
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_PropertiesShow(ulong ownerTaskbar, int lang,
             int seconds, int nativeFlyout, int enableSearch, int netFlyout,
             int classicVolume, int batteryFlyout,
-            int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks);
+            int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
+            int inputLanguageMode);
 
         // v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_NetFlyoutInit();
+
+        // v2.62: comunica al core se il riquadro di rete di Windows 7 e' pronto.
+        // Le icone di rete RICREATE (quelle della tray di Windows 11) vengono
+        // gestite dal core: senza questo avviso il core non sa se puo' aprire
+        // il riquadro ricreato o deve ripiegare su quello della shell.
+        [DllImport("Win7TaskbarCore.dll", CallingConvention = CallingConvention.StdCall,
+            EntryPoint = "W7T_SetWin7NetworkFlyout")]
+        public static extern void W7T_SetWin7NetworkFlyout(int ready);
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_NetFlyoutUninit();
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
@@ -586,6 +652,21 @@ namespace Win7Taskbar.Interop
             public int cy;
         }
 
+        /// <summary>Parametro WM_WINDOWPOSCHANGED/WM_WINDOWPOSCHANGING:
+        /// posizione e flag dell'operazione di spostamento in corso
+        /// (serve a capire CHI ha mosso la finestra della barra).</summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public class WINDOWPOS
+        {
+            public IntPtr hwnd;
+            public IntPtr hwndInsertAfter;
+            public int x;
+            public int y;
+            public int cx;
+            public int cy;
+            public uint flags;
+        }
+
         /* =================================================================
          * v2.55: cattura STATICA della finestra sorgente (PrintWindow).
          *
@@ -629,6 +710,7 @@ namespace Win7Taskbar.Interop
 
         public const uint SWP_NOSIZE = 0x0001;
         public const uint SWP_NOMOVE = 0x0002;
+        public const uint SWP_NOZORDER = 0x0004;
         public const uint SWP_NOACTIVATE = 0x0010;
         public const uint SWP_SHOWWINDOW = 0x0040;
 
@@ -636,6 +718,12 @@ namespace Win7Taskbar.Interop
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
                                                int X, int Y, int cx, int cy, uint uFlags);
+
+        /// <summary>Messaggi registrati a livello di sessione ("TaskbarCreated",
+        /// il messaggio di callback della nostra AppBar): il valore e' lo stesso
+        /// per tutti i processi fino al riavvio della sessione.</summary>
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern uint RegisterWindowMessage(string messageName);
 
         [DllImport("gdi32.dll")]
         public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
