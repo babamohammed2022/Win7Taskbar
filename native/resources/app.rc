@@ -5,7 +5,6 @@
  * It is embedded in Win7TaskbarCore.dll so that the native windows we create -
  * the Properties dialog above all - can carry the same icon as the executable.
  */
-
 #define IDI_APPICON 101
 
 IDI_APPICON ICON "app.ico"

@@ -611,11 +611,29 @@ namespace Win7Taskbar.Models
         //  Area di notifica
         // ---------------------------------------------------------------
 
-        /* v1.7.6: the EnableAutoTray read that used to live here (with a
-         * cached registry lookup) moved to the native core, where the same
-         * rule is resolved together with the "Notification Area Icons"
-         * per-icon behaviors. One authority, one cache, no view-level
-         * overrides. */
+        private static bool? _autoTrayCache;
+
+        /// <summary>Stessa chiave che legge Explorer: EnableAutoTray=0 =
+        /// mostra sempre tutte le icone: niente freccetta overflow.</summary>
+        private static bool AutoTrayEnabled()
+        {
+            if (_autoTrayCache == null)
+            {
+                try
+                {
+                    using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                        @"Software\Microsoft\Windows\CurrentVersion\Explorer");
+                    object? v = key?.GetValue("EnableAutoTray");
+                    _autoTrayCache = v == null || Convert.ToInt32(v) != 0;
+                }
+                catch
+                {
+                    _autoTrayCache = true;
+                }
+            }
+
+            return _autoTrayCache.Value;
+        }
 
         /// <summary>
         /// v2.62: vero mentre RefreshTray sta applicando lo stato letto dal
@@ -668,13 +686,7 @@ namespace Win7Taskbar.Models
 
             IReadOnlyList<W7TTrayIconInfo> icons = _bridge.GetTrayIcons();
             bool changed = false;
-            /* v1.7.6: the "show all icons" rule (EnableAutoTray=0) is NOT
-             * applied here any more. It lives in the native resolver, which
-             * also knows the per-icon choices of the "Notification Area
-             * Icons" page: a VIEW must not re-apply a default over a row
-             * the user explicitly set to "Only show notifications". The
-             * IsPinned/IsHidden values read below already ARE the resolved,
-             * final answer of the model. */
+            bool showAll = !AutoTrayEnabled();
 
             // Rimuovi le icone sparite.
             for (int i = NotificationArea.AllIcons.Count - 1; i >= 0; i--)
@@ -732,6 +744,12 @@ namespace Win7Taskbar.Models
                     {
                         model.IsHidden = info.IsHidden != 0;
                         changed = true;
+                    }
+
+                    // v2.24: Explorer mostra TUTTE le icone: niente freccetta.
+                    if (showAll && !model.IsPinned)
+                    {
+                        model.IsPinned = true;
                     }
 
                     // Ricarica il bitmap solo quando il core segnala una revisione

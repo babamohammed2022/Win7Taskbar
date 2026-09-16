@@ -20,7 +20,6 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using Win7Taskbar.Utilities;
 
 namespace Win7Taskbar.Interop
 {

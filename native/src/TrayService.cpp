@@ -30,7 +30,6 @@
 #include "Win11TrayReader.h"
 #include "TrayToolbar.h"
 #include "TrayFallbackIcons.h"
-#include "TrayPrefsStore.h"
 #include "SystemEventsWatch.h"
 #include <powrprof.h>
 #include <windows.h>
@@ -100,29 +99,34 @@ constexpr ULONGLONG kRemovalGraceAfterRestartMs = 30000;
 constexpr DWORD kDebounceMs = 350;
 
 /* ------------------------------------------------------------------ */
-/*  Per-icon visibility preferences                                    */
+/*  Preferenze di visibilita' per icona                                */
 /*                                                                     */
-/*  Windows keeps its "promoted out of the overflow" list in           */
-/*  IconStreams/PromotedIconStreams under TrayNotify: an obfuscated    */
-/*  binary blob that differs between builds. What belongs here is the  */
-/*  SAME CONCEPT, not the same format: the user's choice must survive  */
-/*  restarts, because applications send NIM_ADD exactly once and,      */
-/*  without memory, every icon would fall back to its default.        */
+/*  Windows tiene l'elenco delle icone "promosse" fuori dall'overflow   */
+/*  in IconStreams/PromotedIconStreams, sotto TrayNotify: un blob       */
+/*  binario offuscato e diverso fra le build. Qui serve lo stesso       */
+/*  concetto, non lo stesso formato: la scelta dell'utente (icona sulla */
+/*  barra o nell'overflow) va ricordata fra un avvio e l'altro, perche' */
+/*  le applicazioni mandano NIM_ADD una volta sola e senza memoria      */
+/*  tornerebbero tutte al valore predefinito.                           */
 /*                                                                     */
-/*  v1.7.6 - THE STORAGE IS NO LONGER THE REGISTRY. Choices live in    */
-/*  trayicons.ini (TrayPrefsStore) under %LOCALAPPDATA%\Win7Taskbar,   */
-/*  the same folder as toolbars.ini that the user deletes by hand to   */
-/*  reset everything. The "Notification Area Icons" page is a          */
-/*  three-state control (show / only notifications / hide), so the    */
-/*  per-icon value is no longer a bool "on the bar or not" but the     */
-/*  full behavior. The old HKCU\SOFTWARE\Win7Taskbar\TrayIconPrefs2   */
-/*  key is imported ONCE on the first start of the new format and then */
-/*  DELETED: from here on the program leaves no persistent registry    */
-/*  trace for this feature at all.                                    */
-/*                                                                     */
-/*  Key = application exe + uid, like Windows does (which also adds    */
-/*  the GUID).                                                         */
+/*  Chiave = exe dell'applicazione + uid, come fa Windows (che aggiunge */
+/*  anche il GUID). Valore DWORD: 1 = visibile, 0 = nell'overflow.      */
 /* ------------------------------------------------------------------ */
+
+/*  v2.62 - CHIAVE NUOVA.
+ *
+ *  La chiave precedente (TrayIconPrefs) e' stata scritta anche da sola, senza
+ *  che l'utente toccasse niente: la sincronizzazione del modello col core
+ *  salvava ogni differenza come se fosse una scelta dell'utente. Da quando
+ *  una preferenza salvata vince sulla disposizione della shell, quei valori
+ *  hanno congelato la tray: le icone che la shell tiene nel suo pannello non
+ *  entravano piu' nel nostro e la freccetta restava senza niente da
+ *  mostrare. I valori vecchi non si cancellano (restano li' se servissero a
+ *  capire il passato): semplicemente non si leggono piu'.
+ *
+ *  Da qui in poi si scrive SOLO su azione esplicita dell'utente (spostare
+ *  un'icona, appuntarla o nasconderla dal pannello). */
+const wchar_t* const kTrayPrefsKeyPath = L"SOFTWARE\\Win7Taskbar\\TrayIconPrefs2";
 
 std::wstring MakePreferenceName(uint64_t ownerHwnd, uint32_t uid) {
     HWND hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(ownerHwnd));
@@ -160,64 +164,47 @@ std::wstring MakePreferenceName(uint64_t ownerHwnd, uint32_t uid) {
     return identity + suffix;
 }
 
-/* v1.7.6: every single access to the preference goes through the
- * TrayPrefsStore (the trayicons.ini file). No registry access is left in
- * this file: not here, not in the dialog, not in the restore - the
- * project's "zero-footprint" contract for this feature. */
+bool LoadPinPreference(const std::wstring& name, bool& out) {
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kTrayPrefsKeyPath, 0, KEY_QUERY_VALUE,
+                      &key) != ERROR_SUCCESS) {
+        return false;
+    }
 
-int32_t SavedBehaviorForName(const std::wstring& name) {
-    return TrayPrefsStore::Instance().Behavior(name);
+    DWORD value = 0;
+    DWORD size  = sizeof(value);
+    DWORD type  = REG_DWORD;
+    const LONG result = RegQueryValueExW(key, name.c_str(), nullptr, &type,
+                                        reinterpret_cast<BYTE*>(&value), &size);
+    RegCloseKey(key);
+
+    if (result != ERROR_SUCCESS || type != REG_DWORD) {
+        return false;
+    }
+    out = (value != 0);
+    return true;
 }
 
-bool HasSavedPreferenceName(const std::wstring& name) {
-    return TrayPrefsStore::Instance().Has(name);
-}
-
-/* Persist one entry's three-state choice and mirror it in the model
- * (the caller already holds m_mutex; persistence is immediate because
- * the stored set is tiny). */
-void PersistBehavior(uint64_t ownerHwnd, uint32_t uid, int32_t behavior,
-                     TrayIconEntry& entry) {
-    entry.userBehavior = behavior;
-    /* The three-state choice also redefines the legacy "in bar" bool:
-     * only the first of the three positions shows the icon on the bar. */
-    entry.isPinned = (behavior == kBehaviorShow);
-    TrayPrefsStore::Instance().SetBehavior(
-        MakePreferenceName(ownerHwnd, uid), behavior);
-}
-
-/* The saved preference (show / only notifications / hide), or the
- * Windows rule when there is none. Fills BOTH isPinned and userBehavior
- * of a freshly created entry: the two must never diverge. */
-void ApplySavedBehavior(uint64_t ownerHwnd, uint32_t uid,
-                        bool windowsDefault, TrayIconEntry& entry) {
-    const int32_t saved = SavedBehaviorForName(MakePreferenceName(ownerHwnd, uid));
-    if (saved >= kBehaviorShow && saved <= kBehaviorHide) {
-        entry.userBehavior = saved;
-        entry.isPinned = (saved == kBehaviorShow);
+void SavePinPreference(const std::wstring& name, bool pinned) {
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, kTrayPrefsKeyPath, 0, nullptr, 0,
+                        KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS) {
         return;
     }
-    entry.userBehavior = kBehaviorNone;
-    entry.isPinned = windowsDefault;
+
+    const DWORD value = pinned ? 1 : 0;
+    RegSetValueExW(key, name.c_str(), 0, REG_DWORD,
+                   reinterpret_cast<const BYTE*>(&value), sizeof(value));
+    RegCloseKey(key);
 }
 
-/* EnableAutoTray is READ (never written) and can only change from the
- * Windows tray panel: the resolver consumes it for every icon on every
- * pass, so it lives here behind a cache that the registry watcher
- * invalidates (ApplyShellVisibilityDefaults calls Reset). */
-std::atomic<int> g_autoTrayCache{-1};
-
-bool AutoTrayEnabledCached() {
-    int v = g_autoTrayCache.load(std::memory_order_relaxed);
-    if (v < 0) {
-        v = IsAutoTrayEnabled() ? 1 : 0;
-        g_autoTrayCache.store(v, std::memory_order_relaxed);
+/* Preferenza salvata, oppure la regola di Windows se non ce n'e' una. */
+bool ResolveInitialPinned(uint64_t ownerHwnd, uint32_t uid, bool windowsDefault) {
+    bool saved = false;
+    if (LoadPinPreference(MakePreferenceName(ownerHwnd, uid), saved)) {
+        return saved;
     }
-    return v != 0;
-}
-
-void ResetAutoTrayCache() {
-    g_autoTrayCache.store(-1, std::memory_order_relaxed);
+    return windowsDefault;
 }
 
 /* Messaggi NIN_* (shellapi.h non li definisce tutti su ogni SDK). */
@@ -745,11 +732,12 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
             entry.pixelHash       = ArgbHash(entry.bitmap);
             entry.iconRevision    = entry.bitmap.empty() ? 0 : 1;
 
-            /* In Windows, Explorer's "hidden" icons live in the hidden
-             * icons panel, not on the bar. But if the user already made a
-             * choice in OUR tray, that one is newer and wins (v1.7.6: the
-             * choice can also be "hide everything", not just bar/overflow). */
-            ApplySavedBehavior(key.ownerHwnd, key.uid, !item.hidden, entry);
+            /* In Windows le icone "nascoste" di Explorer finiscono nel
+             * riquadro delle icone nascoste, non sulla barra. Se pero'
+             * l'utente ha gia' espresso una preferenza nella nostra tray,
+             * quella e' piu' recente e vince. */
+            entry.isPinned      = ResolveInitialPinned(key.ownerHwnd, key.uid,
+                                                       !item.hidden);
             entry.hiddenDesired = item.hidden;
 
             if (!IsNullGuid(item.guidItem)) {
@@ -1135,10 +1123,6 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
 }
 
 void TrayService::ApplyShellVisibilityDefaults() {
-    /* v1.7.6: this IS the registry watcher's entry point: drop the rule
-     * cache first, then read it back so every consumer sees the fresh
-     * value. */
-    ResetAutoTrayCache();
     /* La regola di Windows per le icone SENZA preferenza espressa:
      * EnableAutoTray attivo  ->  nuova icona nasce nell'overflow;
      * EnableAutoTray spento  ->  nasce sulla barra.
@@ -1147,7 +1131,7 @@ void TrayService::ApplyShellVisibilityDefaults() {
      * Le icone che arrivano da Explorer mantengono lo stato della SUA
      * toolbar; la regola si applica a quelle che si sono registrate da
      * noi senza che l'utente abbia mai scelto nulla. */
-    const bool autoTray = AutoTrayEnabledCached();
+    const bool autoTray = IsAutoTrayEnabled();
 
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     bool anyChanged = false;
@@ -1179,10 +1163,8 @@ void TrayService::ApplyShellVisibilityDefaults() {
 }
 
 bool TrayService::HasSavedPreference(const TrayIconKey& key) const {
-    /* v1.7.6: a saved choice is now the three-state behavior in the
-     * TrayPrefsStore (file): ANY explicit state, "hide" included, outranks
-     * the shell layout. */
-    return HasSavedPreferenceName(MakePreferenceName(key.ownerHwnd, key.uid));
+    bool unused = false;
+    return LoadPinPreference(MakePreferenceName(key.ownerHwnd, key.uid), unused);
 }
 
 uint32_t TrayService::EnsureToolbarId(const TrayIconKey& key) {
@@ -1293,13 +1275,7 @@ void TrayService::SyncToolbarModel() {
             if (entry.toolbarId == 0) {
                 entry.toolbarId = EnsureToolbarId(key);
             }
-            /* v1.7.6: real visibility comes from the single resolver
-             * (saved choice + Always show all + the system switches).
-             * NIS_HIDDEN stays the APPLICATION's request and keeps
-             * counting on its own. */
-            bool barVisible = false, present = false;
-            ResolveVisibilityLocked(entry, barVisible, present);
-            const bool hidden = !present || !barVisible
+            const bool hidden = !entry.isPinned
                 || (entry.state & entry.stateMask & NIS_HIDDEN) != 0;
 
             /* Doppio specchio, doppia fedelta' alla shell:
@@ -2250,8 +2226,8 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
                  * legge Explorer) decide se una nuova icona nasce
                  * nell'overflow o sulla barra; NIS_HIDDEN vince su tutto e
                  * una preferenza salvata dall'utente vince sulla regola. */
-                ApplySavedBehavior(key.ownerHwnd, key.uid,
-                                   !AutoTrayEnabledCached(), entry);
+                entry.isPinned = ResolveInitialPinned(
+                    key.ownerHwnd, key.uid, !IsAutoTrayEnabled());
                 entry.hiddenDesired = !entry.isPinned;
 
                 entry.ownerPath = OwnerPathOf(key.ownerHwnd);
@@ -2339,32 +2315,17 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
                  * nullo proprio in quei toggle. */
             }
 
-            /* The balloon arrives with an ADD/MODIFY carrying NIF_INFO.
-             * v1.7.6: an icon set to "Hide icon and notifications" on the
-             * "Notification Area Icons" page does not even surface the
-             * balloon (it is the combo's third state: "and notifications"
-             * is gone). The entry STAYS in the model - the application
-             * keeps sending its updates - only the output stays silent.
-             * "Only show notifications" is the mirror case: icon hidden,
-             * balloon shown - present, so it passes. */
+            /* Il balloon arriva insieme a un ADD/MODIFY con NIF_INFO. */
             if ((nid.uFlags & NIF_INFO) && !nid.szInfo.empty()) {
-                bool barVisibleBalloon = false, presentBalloon = false;
-                ResolveVisibilityLocked(entry, barVisibleBalloon, presentBalloon);
-                if (!presentBalloon) {
-                    LogTagged(L"TRAY",
-                              L"balloon suppressed by saved behavior (uid %u)",
-                              key.uid);
-                } else {
-                    ZeroMemory(&m_lastBalloon, sizeof(m_lastBalloon));
-                    m_lastBalloon.ownerHwnd = nid.hWnd;
-                    m_lastBalloon.uid       = nid.uID;
-                    m_lastBalloon.infoFlags = nid.dwInfoFlags;
-                    m_lastBalloon.timeout   = nid.uTimeout;
-                    CopyToFixed(m_lastBalloon.title, 64,  nid.szInfoTitle);
-                    CopyToFixed(m_lastBalloon.text,  256, nid.szInfo);
-                    m_hasBalloon = true;
-                    CoreState::Instance().QueueEvent(W7T_EVT_TRAY_BALLOON, key.ownerHwnd, key.uid);
-                }
+                ZeroMemory(&m_lastBalloon, sizeof(m_lastBalloon));
+                m_lastBalloon.ownerHwnd = nid.hWnd;
+                m_lastBalloon.uid       = nid.uID;
+                m_lastBalloon.infoFlags = nid.dwInfoFlags;
+                m_lastBalloon.timeout   = nid.uTimeout;
+                CopyToFixed(m_lastBalloon.title, 64,  nid.szInfoTitle);
+                CopyToFixed(m_lastBalloon.text,  256, nid.szInfo);
+                m_hasBalloon = true;
+                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_BALLOON, key.ownerHwnd, key.uid);
             }
 
             CoreState::Instance().QueueEvent(
@@ -2581,31 +2542,7 @@ std::vector<OverflowSnapshot> TrayService::GetUnpinnedSnapshot() {
     std::vector<TrayIconKey> dead;
     for (const auto& key : m_order) {
         auto it = m_icons.find(key);
-        if (it == m_icons.end()) {
-            continue;
-        }
-        /* v1.7.6: the overflow panel shows "only notifications" (the
-         * right home for anyone who wants no icon in the bar) but NEVER
-         * a fully hidden icon nor one whose system switch is off: for
-         * those the page said "nothing, anywhere". */
-        /* taskmgr.exe is intentionally not an overflow candidate. Task
-         * Manager repeatedly renews its notification icon with new IDs and,
-         * on affected builds, leaves many stale registrations behind. Even
-         * with generic de-duplication this produced a very tall overflow
-         * menu full of Task Manager copies, so filtering this known offender
-         * here keeps both the live tray model and all other applications
-         * untouched. */
-        const std::wstring& ownerPath = it->second.ownerPath;
-        const size_t ownerSlash = ownerPath.find_last_of(L"\\/");
-        const wchar_t* ownerName = ownerPath.c_str() +
-            (ownerSlash == std::wstring::npos ? 0 : ownerSlash + 1);
-        if (_wcsicmp(ownerName, L"taskmgr.exe") == 0) {
-            continue;
-        }
-
-        bool barVisibleSnap = false, presentSnap = false;
-        ResolveVisibilityLocked(it->second, barVisibleSnap, presentSnap);
-        if (!presentSnap || barVisibleSnap) {
+        if (it == m_icons.end() || it->second.isPinned) {
             continue;
         }
         /* v2.29: icone il cui proprietario e' morto non devono restare
@@ -3041,11 +2978,7 @@ void TrayService::ApplyWin11TraySnapshot() {
                 entry.bitmap       = item.bitmap;
                 entry.pixelHash    = ArgbHash(entry.bitmap);
                 entry.iconRevision = entry.bitmap.empty() ? 0 : 1;
-                /* v1.7.6: entries born from the UIA reading honor the
-                 * saved choice too (they used to be created straight with
-                 * the shell layout, which the next pass could overwrite
-                 * only while no preference existed). */
-                ApplySavedBehavior(key.ownerHwnd, key.uid, !item.hidden, entry);
+                entry.isPinned     = !item.hidden;
                 entry.hiddenDesired = item.hidden;
                 /* v2.62 - NASCOSTO DALLA SHELL NON VUOL DIRE NASCOSTO PER NOI.
                  *
@@ -3249,16 +3182,8 @@ int32_t TrayService::CopyTo(W7T_TrayIconInfo* buffer, int32_t capacity) {
         info.uid             = entry.key.uid;
         info.callbackMessage = entry.callbackMessage;
         info.iconRevision    = entry.iconRevision;
-        /* v1.7.6: the managed layer is a VIEW of the model: it reads the
-         * RESOLVED visibility too (saved choice, Always show all, the
-         * system switches). For fully hidden entries isHidden means "do
-         * not paint it anywhere", so the managed bar and its overflow
-         * collapse into the same answer without inventing own rules. */
-        bool barVisibleCopy = false, presentCopy = false;
-        ResolveVisibilityLocked(entry, barVisibleCopy, presentCopy);
-        info.isPinned        = (barVisibleCopy && presentCopy) ? 1 : 0;
-        info.isHidden        = (!presentCopy
-                                || (entry.state & NIS_HIDDEN) != 0) ? 1 : 0;
+        info.isPinned        = entry.isPinned ? 1 : 0;
+        info.isHidden        = (entry.state & NIS_HIDDEN) ? 1 : 0;
         info.version         = entry.version;
         CopyToFixed(info.tooltip, W7T_MAX_TOOLTIP, entry.tooltip);
         CopyToFixed(info.guidKey, 64, entry.guidKey);
@@ -3406,106 +3331,27 @@ void TrayService::SetWin7NetworkFlyout(bool ready) {
     m_win7NetworkFlyoutReady = ready;
 }
 
-/* v1.7.6: the single gate where a saved icon choice takes effect.
- * barVisible/presentSomewhere are BORN here and READ everywhere (the
- * toolbar model, the overflow panel, the managed view, the balloons):
- * no site decides visibility on its own. */
-void TrayService::ResolveVisibilityLocked(const TrayIconEntry& entry,
-                                          bool& barVisible,
-                                          bool& presentSomewhere) const {
-    TrayPrefsStore& store = TrayPrefsStore::Instance();
-
-    /* default: the model's own state (import, hysteresis, NIS_* state) */
-    barVisible        = entry.isPinned;
-    presentSomewhere  = true;
-
-    /* A system icon switched OFF at its own switch disappears from every
-     * view, "Always show all icons" included: on the original page the
-     * checkbox never resurrects a manually disabled system icon. */
-    if (entry.systemKind != SystemIconKind::None
-        && !store.SystemIconOn(static_cast<int32_t>(entry.systemKind))) {
-        barVisible = false;
-        presentSomewhere = false;
-        return;
-    }
-
-    if (entry.userBehavior == kBehaviorHide) {
-        /* "Hide icon and notifications": no bar, no overflow, no
-         * balloons. The "Always show all" checkbox lights it back up
-         * (that box literally says "show ALL icons"): the saved choice
-         * survives and returns when the checkbox is switched off again. */
-        if (!store.AlwaysShow()) {
-            barVisible = false;
-            presentSomewhere = false;
-            return;
-        }
-        barVisible = true;
-        return;
-    }
-    if (store.AlwaysShow()) {
-        /* "Always show all icons and notifications on the taskbar":
-         * everything on the bar; the choices underneath stay saved, they
-         * are never rewritten by the checkbox. */
-        barVisible = true;
-        return;
-    }
-    if (entry.userBehavior == kBehaviorShow) {
-        barVisible = true;
-        return;
-    }
-    if (entry.userBehavior == kBehaviorNotifyOnly) {
-        barVisible = false;   /* lives in the overflow only, balloons on */
-        return;
-    }
-    /* No explicit choice: the WINDOWS rule the managed layer used to
-     * apply on its own (EnableAutoTray=0 -> show everything). v1.7.6:
-     * the rule lives in the core, so a view can never crush a page
-     * choice by re-applying it. */
-    if (!AutoTrayEnabledCached()) {
-        barVisible = true;
-        return;
-    }
-}
-
 int32_t TrayService::SetPinned(uint64_t ownerHwnd, uint32_t uid, int32_t pinned) {
-    /* v1.7.6: dragging no longer writes a bool of its own: it becomes the
-     * page's equivalent choice (onto the bar = show; into the overflow =
-     * only notifications). A "hidden" icon cannot be dragged by definition
-     * (it is visible nowhere), so this can never overwrite a state 2. */
-    return SetBehavior(ownerHwnd, uid, pinned != 0 ? kBehaviorShow
-                                                    : kBehaviorNotifyOnly);
-}
-
-int32_t TrayService::SetBehavior(uint64_t ownerHwnd, uint32_t uid,
-                                 int32_t behavior) {
-    if (behavior < kBehaviorShow || behavior > kBehaviorHide) {
-        return W7T_ERR_INVALID_ARG;
-    }
     {
         std::lock_guard<std::recursive_mutex> lock(m_mutex);
         auto it = m_icons.find(TrayIconKey{ ownerHwnd, uid });
         if (it == m_icons.end()) {
             return W7T_ERR_NOT_FOUND;
         }
-        TrayIconEntry& entry = it->second;
-        if (entry.userBehavior == behavior) {
-            /* The same state again: nothing to save, nothing to repaint
-             * (a no-op choice must not storm the event queue). */
-            return W7T_OK;
-        }
-        /* Remember the choice: the application will never send NIM_ADD
-         * again, so without this memory the icon would fall back to its
-         * default at the next start. This is our PromotedIconStreams
-         * equivalent, in OUR file (never in the registry). */
-        PersistBehavior(ownerHwnd, uid, behavior, entry);
-        entry.hiddenPending = 0;
+        it->second.isPinned = (pinned != 0);
+        it->second.hiddenPending = 0;
+
+        /* Ricorda la scelta: l'applicazione non rimandera' NIM_ADD, quindi
+         * senza questa memoria al riavvio l'icona tornerebbe al predefinito.
+         * E' l'equivalente di cio' che Windows fa con PromotedIconStreams. */
+        SavePinPreference(MakePreferenceName(ownerHwnd, uid), pinned != 0);
 
         CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY, ownerHwnd, uid);
     }
-    /* The real button follows the model: TBSTATE_HIDDEN in our
-     * ToolbarWindow32, exactly like Explorer's toolbar does. */
+    /* Il pulsante reale segue il modello: TBSTATE_HIDDEN nella nostra
+     * ToolbarWindow32, esattamente come fa la toolbar di Explorer. */
     SyncToolbarModel();
-    TrayOverflowWindow::NotifyTrayChanged();   /* v3.1: refresh the panel */
+    TrayOverflowWindow::NotifyTrayChanged();   /* v3.1: aggiorna il pannello */
     return W7T_OK;
 }
 

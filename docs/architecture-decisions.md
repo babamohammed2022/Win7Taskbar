@@ -58,17 +58,29 @@ close button, icon metrics) live in `Themes/Overrides.xaml`, never in the upstre
 obvious which values are ours: measured frames, paddings and gradients in the overrides
 file can be traced back to a changelog entry and a screenshot.
 
-## 5. Window previews: direct DWM surface, parent-owned chrome
+## 5. Window previews: disabled until they can be verified
 
-**Decision.** `Controls/TaskThumbnail.xaml.cs` contains only the essential
-RetroBar DWM path: register the source window, fit it into 180×120, update the
-destination rectangle while rendering, and always deregister on unload.
-`TaskbarWindow.xaml` continues to own the Aero frame, close button, popup
-placement, activation and navigation.
+**Decision.** The preview popup is not opened at all (`TaskPreviewsEnabled` in
+`TaskbarWindow.xaml.cs`); hovering a task button shows the app-name tooltip only. Both
+previous implementations are kept, commented out, in `Controls/TaskThumbnail.cs`.
 
-The former confirmation timer, geometry proof, icon fallback and static
-`PrintWindow` paths were removed. DWM failures are isolated with `try/catch`
-and leave no registered thumbnail behind.
+**Why.** *Unwanted rectangles* inside the popup were reported on real hardware in both
+variants. The live DWM thumbnail (up to v2.54) can fail **silently**: `DwmRegisterThumbnail`
+succeeds and the compositor then never paints, so the only thing visible is the popup
+backdrop, identical for every window. The static `PrintWindow` capture (v2.55) fails
+*loudly* (it returns `FALSE` and we fall back to the app icon), but a `TRUE` return still
+does not prove that the captured surface is the window content - several applications
+answer with an empty or stale surface - and the result also cannot move, which makes the
+popup feel frozen.
+
+**What a future implementation has to prove before this decision is reversed.**
+
+1. A **positive** confirmation that real content was drawn (a pixel read-back, a
+   non-uniformity check), not just a successful return code.
+2. A documented fallback that is invisible to the user: if the check fails, the popup must
+   look intentional (icon + title), not like an empty box.
+3. A single switch to turn the feature back on, so it can be tested per machine without
+   shipping it half-broken.
 
 ## 6. The overflow panel is a native popup, its behaviour mirrors Windows 7
 
@@ -281,14 +293,3 @@ under the `JUMPLIST` tag.
 **Revisit if.** Windows removes or renames the automatic-destination read
 APIs, or the bar ever needs per-monitor instances: the pixel-space contract
 stays the same, only the monitor lookup of the anchor changes.
-
-## 14. Notification Area settings: delegate to Windows
-
-**Decision.** Every notification-area “Customize...” entry delegates directly
-to the native Windows page through `W7T_OpenNotificationIconsSettings`. The
-core first opens the shell namespace and retains the existing system fallbacks
-for Windows versions that redirect that namespace. Win7Taskbar does not create,
-register, host, or imitate a Control Panel applet.
-
-Per-icon placement selected by dragging between the taskbar and overflow remains
-portable in `trayicons.ini`; it is taskbar state, not a replacement settings UI.

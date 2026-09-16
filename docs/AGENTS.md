@@ -1,7 +1,7 @@
 # Repository Rules & AI Instructions
 These rules apply for human and AI contributors.
 
-1. **Prioritize UX and Maintainability Above all Else**
+1. **Prioritize UX and Maintainability Above All Else**
    - The primary goal is that the software functions correctly, smoothly, and reliably on the user's system.
    - Keep the repository architecture clean, modern, and structured so external contributors can easily understand and modify the codebase without dealing with redundant folders or duplicate files.
 

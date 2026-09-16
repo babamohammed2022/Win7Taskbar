@@ -171,14 +171,16 @@ namespace Win7Taskbar.Converters
     /// v1.7.6: two additions on top of the v1.7.2 position, both purely
     /// rightward and both percentages of the button width (so they stay
     /// proportional at every DPI and every button size):
-    ///  - every stacked-borders line includes the previous +2.5%, then
-    ///    moves a further +2% right;
+    ///  - EVERY stacked-borders line (2+ sheets) moves +2.5% right of
+    ///    where it sat until now;
     ///  - with MORE THAN 2 sheets open the OUTER line gets a further
     ///    +3% rightward. 3 sheets and 3+ sheets are one case: the count
     ///    is clamped at 3, no new per-sheet case above it was invented.
     ///
-    /// At 3+ the inner line moves another 1.5% toward the outer line,
-    /// tightening the width/gap occupied by the pair.
+    /// Total rightward shift of the outer line:
+    ///   2 sheets: 2% + 2.5%          = 4.5% of the button width
+    ///   3+ sheets: 4% + 2.5% + 3%    = 9.5% of the button width
+    /// The inner line (only visible at 3+) shifts by 2.5%.
     ///
     /// Multi-binding: values[0] = button ActualWidth, values[1] =
     /// WindowCount. parameter = "outer" (default) or "inner". Below two
@@ -208,22 +210,16 @@ namespace Win7Taskbar.Converters
                 int effective = Math.Min(count, 3);
                 double ratio = 0.02 * (effective - 1);
 
-                /* Existing v1.7.6 placement, plus the requested 2% shift
-                 * of every stack line farther to the right. */
-                ratio += 0.025 + 0.02;
+                /* v1.7.6 step one: every line +2.5% to the right. */
+                ratio += 0.025;
 
+                /* v1.7.6 step two: the OUTER line, with MORE THAN two
+                 * sheets, another +3% to the right. The "inner" parameter
+                 * never gets it. */
                 bool outer = parameter as string is not "inner";
                 if (outer && count > 2)
                 {
                     ratio += 0.03;
-                }
-                else if (!outer && count > 2)
-                {
-                    /* With two visible lines (3+ windows), move the inner
-                     * one 1.5% toward the outer one. This narrows the pair's
-                     * horizontal footprint and therefore the gap, without
-                     * changing the 3px artwork or the button layout. */
-                    ratio += 0.015;
                 }
 
                 return width * ratio;

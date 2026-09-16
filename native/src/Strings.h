@@ -185,12 +185,12 @@ const PropStrings& PropStringsFor(Lang lang);
 /*  Tabella del flyout batteria                                              */
 /* ------------------------------------------------------------------------ */
 struct BattStrings {
-    const wchar_t* remaining;
-    const wchar_t* timeLeft;
-    const wchar_t* charging;
-    const wchar_t* full;
-    const wchar_t* noBattery;
-    const wchar_t* link;
+    const wchar_t* remaining;   /* "%d%% di carica rimanente" */
+    const wchar_t* timeLeft;    /* "Tempo restante: %d h %02d min (%d%%)" */
+    const wchar_t* charging;    /* "In carica (%d%%)" */
+    const wchar_t* full;        /* "Carica completa" */
+    const wchar_t* noBattery;   /* "Batteria non rilevata" */
+    const wchar_t* link;        /* "Altre opzioni di risparmio energia" */
 };
 
 const BattStrings& BattStringsFor(Lang lang);

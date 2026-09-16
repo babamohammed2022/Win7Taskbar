@@ -17,19 +17,18 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Pinned applications | ✅ | Pinned taskbar applications are supported. |
 | Application grouping | ✅ | Grouped task buttons are supported as part of the Windows 7-style Superbar behavior. |
 | Application icons | ✅ | The general appearance is accurate, but icon accuracy is not yet complete for every application and system icon. |
-| Open-application indicators | ⚠️ | Active/running-state indicators work. Multi-window separator lines are a right-aligned overlay (1 line at 2 windows, 2 lines at 3+). Both lines are shifted another 2% right; at 3+ the inner line moves 1.5% toward the outer line to tighten the pair. Pending real-hardware DPI verification. |
+| Open-application indicators | ⚠️ | Active/running-state indicators work, but the multi-window "stacked" separator lines (the vertical bars shown when a group has 2+ windows) are not visible yet: the visibility/offset logic (`WindowStackVisibilityConverter`, `WindowStackOuterBorderOffsetConverter`, `WidthRatioConverter`) is implemented and registered as a resource in `Overrides.xaml`, but no XAML element in the task button template is actually bound to it. Needs the missing `Border`/`Rectangle` elements added to the button template. |
 | Application tooltips | ✅ | Application-name tooltips are available. |
 | File drag & drop onto taskbar buttons | ⚠️ | Dropping a file onto a pinned/running app button to open it with that app (hover-to-activate + drop) has an initial implementation: standard WPF drag&drop (no COM `IDropTarget` needed, since this isn't injected into explorer.exe), with a fallback to `ShellExecute` when the known executable can't be launched directly, and an extension check (via registry `SupportedTypes`, permissive when unknown) driving the allowed/forbidden cursor feedback. Needs real-world testing (multi-file drops, apps without declared `SupportedTypes`, mixed-extension drops). |
-| Thumbnail previews (DWM) | ⚠️ | The popup uses the direct RetroBar-style DWM path (`TaskThumbnail.xaml.cs`): source-size query, aspect-preserving 180×120 fit, render-time destination updates and guaranteed unload cleanup. Frame, close button and navigation remain in `TaskbarWindow.xaml`; no confirmation timer or icon fallback is interposed. |
+| Thumbnail previews | ❌ | Windows 7-style taskbar thumbnail previews are not currently implemented; the previous preview implementations were disabled because they were not reliable on real systems. |
 | Jump Lists | ⚠️ | Windows 7-style Jump Lists are implemented as a dedicated subsystem (left-button press + drag-up on a task button opens the list; releasing the button over a row activates it). The data comes from the real Shell APIs (`IApplicationDocumentLists` + the window/shortcut `AppUserModelID`), never from invented entries, and the right-click menu is unchanged. The popup is a native window with DPI-scaled geometry. Not yet verified against a real Windows desktop at every scale, so it is not marked complete. |
 | Windows 7 toolbars | ✅ | The three Windows 7-style toolbars are present. |
-| Notification area | ⚠️ | The notification area is implemented, but support for all modern Windows tray states is still partial. v1.7.6: per-icon behavior preferences moved from the legacy registry key to `trayicons.ini` (zero-footprint); the old key is imported and deleted on first run. |
-| Notification Area settings page | ⚠️ | All Customize links now open the native Windows Notification Area page directly through its shell namespace, with system fallbacks for builds that redirect it. No private applet or replacement settings dialog is shipped. |
+| Notification area | ⚠️ | The notification area is implemented, but support for all modern Windows tray states is still partial. |
 | Windows 11 system tray support | ⚠️ | Windows 11 system tray support is implemented, but some tray icons are recreated because Windows 11 no longer exposes all classic tray elements directly. |
-| Tray overflow | ✅ | The overflow experience is close to Windows 7. `taskmgr.exe` is intentionally excluded because its renewed tray registrations produced many duplicate rows and an excessively tall overflow menu on affected builds. |
+| Tray overflow | ✅ | The overflow experience is reasonably close to Windows 7, although further refinement is possible. |
 | Battery indicator | ⚠️ | Battery status is implemented with a recreated taskbar icon, but the implementation is still partial rather than a complete native Windows 7 battery implementation. |
 | Clock and date display | ✅ | The taskbar clock and date are present. |
-| Language switcher (input language flyout) | ⚠️ | Windows 7/8.1-style layout switching is ported from the Windhawk language-restorer mod. The Windows 7 selection mark now uses the mod's runtime-loaded GDI+ path with GDI fallback; layout enumeration and real `WM_INPUTLANGCHANGEREQUEST` switching remain. Global hooks, shortcuts, and shortcut hints are deliberately absent. |
+| Language switcher (input language flyout) | ❌ | Windows 7/8.1-style keyboard layout switcher (tray abbreviation + popup, ported from the "Windows 7/8.1 Language Switcher Restorer" Windhawk mod) is implemented in source (`LanguageSwitcher.cpp`, dedicated native thread, SEH-guarded popup), but currently broken in shipped alpha builds: the `Win7TaskbarCore.dll` export table is missing `W7T_LangSwitcherShow`/`Hide`/`GetActive`/`SetChangedCallback` (stale/mismatched native build vs. managed code), so clicking the language indicator fails. Needs a clean rebuild of the native core (and a passing run of `native/tools/check-exports.py`) before repackaging. |
 | System flyouts | ✅ | The main flyouts work, but positioning and some Windows-version-specific behavior still need improvement. |
 | Clock flyout | ✅ | The Windows 7-style clock flyout is now considered complete. |
 | Aero Peek / Show Desktop | ⚠️ | Windows 7-style Aero Peek and the Show Desktop area are represented, but the implementation is not yet a complete recreation of the original shell behavior. |
@@ -49,10 +48,7 @@ Taskbar rotation to the top, left, or right side of the screen is still missing.
 
 ### Thumbnail previews
 
-Windows 7-style **taskbar thumbnail previews** are back in source with live
-DWM thumbnails (see the table row above); what remains is verification on
-real hardware - especially multi-monitor and non-100% scales - rather than
-implementation.
+Windows 7-style **taskbar thumbnail previews** are still missing. This includes the preview experience shown when hovering over an open application button.
 
 ### Complete Windows 11 system tray support
 

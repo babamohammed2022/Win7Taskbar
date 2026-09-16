@@ -452,12 +452,12 @@ LRESULT CALLBACK TrayOverflowWindow::WndProc(HWND hWnd, UINT msg,
             self->m_dragIdx = -1;
         }
         if (PtInRect(&self->m_footerRect, p)) {
-            /* Delegate directly to Windows' native Notification Area
-             * settings page; no in-process applet is interposed. */
+            // v3.0: nulla di piu' nulla di meno del bersaglio shell chiesto
+            // dall'utente: la pagina "Icone di notifica" via CLSID.
+            ShellExecuteW(hWnd, L"open",
+                          L"shell:::{05d7b0f4-2121-4eff-bf6b-ed3f69b894d9}",
+                          nullptr, nullptr, SW_SHOWNORMAL);
             self->Hide();
-            if (W7T_OpenNotificationIconsSettings() != W7T_OK) {
-                AppendCoreLog(L"overflow: pagina nativa Notification Area non disponibile");
-            }
             return 0;
         }
         self->ForwardClick(self->HitTestIcon(p), false);

@@ -2201,12 +2201,27 @@ namespace Win7Taskbar
         // ---------------------------------------------------------------
 
         /// <summary>Ritardo di comparsa dell'anteprima, in millisecondi.</summary>
-        /* The popup, frame, close button and navigation stay owned here.
-         * TaskThumbnail.xaml.cs is deliberately limited to registering,
-         * sizing, repositioning and deregistering the live DWM surface. */
+        /* ================================================================
+         * v2.56 - WINDOW PREVIEWS ARE TEMPORARILY DISABLED.
+         *
+         * Both preview implementations produced unwanted rectangles inside
+         * the popup (an empty grey/white box, the same for every window), so
+         * the feature is parked instead of shipped half-broken: the popup is
+         * never opened, hovering a task button shows only the app-name
+         * tooltip, which is the part that is guaranteed to work.
+         *
+         * This is the single switch for the whole feature. Everything else
+         * (the popup, the item template, the close button, the placement
+         * callback) is still in place and untouched: turning this to true is
+         * the only change needed to bring the previews back, once the
+         * rendering has been properly reimplemented (see
+         * Controls/TaskThumbnail.cs for what has to be proven first and the
+         * README for the user-facing statement).
+         * ================================================================ */
         // A static readonly field (not a const) on purpose: a compile-time
         // constant would make the rest of ShowTaskPreview unreachable code.
-        // Previews use the direct DWM path in Controls/TaskThumbnail.xaml.cs.
+        // v1.7.4: previews are back (live DWM thumbnail with the positive
+        // confirmation fallback - see Controls/TaskThumbnail.cs).
         private static readonly bool TaskPreviewsEnabled = true;
 
         private const int PreviewShowDelayMs = 400;
@@ -2366,10 +2381,14 @@ namespace Win7Taskbar
 
             try
             {
-                /* Chiusura e riapertura riposiziona il popup quando cambia
-                 * il pulsante. Ogni TaskThumbnail registra il proprio live
-                 * thumbnail DWM su Loaded e lo deregistra su Unloaded; la
-                 * chiusura azzera l'ItemsSource per garantire il cleanup. */
+                /* Chiusura e riapertura: e' il modo affidabile per far
+                 * riposizionare il popup quando cambia il pulsante sotto il
+                 * mouse (spostare il PlacementTarget di un popup gia' aperto
+                 * non lo fa spostare). Le miniature vengono ricreate e ogni
+                 * controllo TaskThumbnail fa la sua cattura alla Loaded
+                 * (v2.55: cattura statica, non piu' thumbnail DWM), quindi
+                 * non resta nessuna risorsa orfana (la chiusura azzera
+                 * l'ItemsSource, vedi TaskPreviewPopup_Closed). */
                 TaskPreviewPopup.IsOpen = false;
 
                 /* v2.53: se il tooltip di testo e' a schermo, si toglie prima
@@ -2555,8 +2574,8 @@ namespace Win7Taskbar
                 {
                     return;
                 }
-                int haveW = rc.Right - rc.Left;
-                int haveH = rc.Bottom - rc.Top;
+                int haveW = rc.right - rc.left;
+                int haveH = rc.bottom - rc.top;
                 if (Math.Abs(haveW - wantW) <= 1 && Math.Abs(haveH - wantH) <= 1)
                 {
                     return;   // already fitted: no log, no churn
@@ -2564,7 +2583,7 @@ namespace Win7Taskbar
 
                 // Reposition with the SAME custom-placement formula WPF
                 // used, so the popup keeps touching the bar the same way.
-                int x = rc.Left, y = rc.Top;
+                int x = rc.left, y = rc.top;
                 if (_previewAnchor is FrameworkElement anchor && anchor.IsVisible)
                 {
                     Point anchorTopLeftPx = anchor.PointToScreen(new Point(0, 0));
@@ -2638,8 +2657,9 @@ namespace Win7Taskbar
                 _previewGroup = null;
                 _openButtonTip = null;
 
-                /* Sgancia i controlli TaskThumbnail, che deregistrano sempre
-                 * il proprio handle DWM durante Unloaded. */
+                /* Sgancia le miniature: senza questo i controlli TaskThumbnail
+                 * (e le immagini catturate che tengono in memoria) resterebbero
+                 * vivi anche a popup chiuso. */
                 if (TaskPreviewItems != null)
                 {
                     TaskPreviewItems.ItemsSource = null;
@@ -4422,9 +4442,35 @@ namespace Win7Taskbar
 
         private void OpenNotificationAreaIconsApplet()
         {
-            /* Open Windows' native Notification Area settings page directly,
-             * as this command did before the removed imitation existed. */
-            // Native shell namespace first.
+            /* v1.7.6: the menu item opens the program's OWN page now - the
+             * recreated "Notification Area Icons" dialog that configures the
+             * icons of THIS tray (three states per icon, always-show switch,
+             * system-icon page, restore link), with the choices persisted in
+             * trayicons.ini and ZERO registry involvement. Modeless: the
+             * page lives on this dispatcher and the tray keeps updating
+             * while it is open. Only when the page cannot be created at all
+             * (old native build without the export, failed window) does the
+             * click degrade to the previous chain below - never to nothing,
+             * never silently. */
+            try
+            {
+                int opened = _bridge.ShowNotificationIconsCpl(new System.Windows.Interop.WindowInteropHelper(this).Handle);
+                if (opened >= 0)
+                {
+                    Utilities.DiagnosticLogger.Write("TRAYCPL",
+                        opened == 1 ? "own page opened" : "own page already open (raised)");
+                    return;
+                }
+                Utilities.DiagnosticLogger.Write("TRAYCPL",
+                    $"own page unavailable (code {opened}), falling back to the system page");
+            }
+            catch (Exception ex)
+            {
+                Utilities.DiagnosticLogger.WriteException("TRAYCPL", ex,
+                    "own page threw before the fallback");
+            }
+
+            // 1) Meccanismo nativo del core (ShellExecuteEx sul namespace).
             try
             {
                 if (_bridge.OpenNotificationIconsSettings())
