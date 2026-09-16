@@ -67,7 +67,7 @@ The battery indicator is implemented using a recreated taskbar icon. Further wor
 
 ### Multi-window stacked indicator bars
 
-The vertical separator lines that Windows 7 draws next to a grouped task button's icon when it holds 2 or more windows are not visible yet. The rendering logic itself (how many separators to show, and where to offset them based on button width and window count) is fully implemented as WPF value converters, but the actual visual elements referencing those converters were never added to the task button's control template. This is a missing-markup issue, not a missing-asset issue — no icon or image is involved in this feature.
+The vertical separator lines that Windows 7 draws next to a grouped task button's icon when it holds 2 or more windows are implemented. The rendering logic (how many separators to show, and where to offset them based on button width and window count) is implemented as WPF value converters (`WindowStackVisibilityConverter`, `WindowStackOuterBorderOffsetConverter`), and the visual elements referencing those converters are present in the task button's content template (`TaskButtonContentTemplate` in `Overrides.xaml`). The separator artwork is the native soft-edged strip at `Resources/multiplewindowborder.png` (3×43, feathered alpha). Rules: 2 windows → 1 line, 3+ windows → 2 lines, with a right-aligned overlay that takes no layout space. Pending real-hardware DPI verification at 100/125/150%.
 
 ### Language switcher
 
@@ -119,6 +119,7 @@ mixed-DPI multi-monitor setup.
 - Flyouts are generally functional and visually close to the target.
 - The Windows 7-style clock flyout is now considered complete.
 - Application-name tooltips are available.
+- Multi-window stacked indicator bars (separator lines next to grouped buttons) are implemented in markup with real converter logic and artwork.
 - Overall Windows 7 accuracy is already fairly high.
 
 ## Known flyout issues
