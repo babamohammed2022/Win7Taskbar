@@ -1,69 +1,40 @@
-# Prerequisites
-*.d
+# Icon sources (PNG) - never committed.
+# The tray/battery artwork lives in assets/icon-sources/ and is turned into the
+# embedded C++ tables by "compilation files/icons_to_base64.py"; only those
+# generated .inc files are tracked, so the repository carries no binary art.
+assets/icon-sources/*.png
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+# Build output
+bin/
+obj/
+out/
+# self-contained package produced by "compilation files/publish.ps1" (CI artifact)
+dist-package/
+dist/*.pdb
+Win7Taskbar-*-win-x64.zip
+release/
 
-# Precompiled Headers
-*.gch
-*.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-*.so.*
-
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
-
-# Build directories
-build/
-Build/
-build-*/
-
-# CMake generated files
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-install_manifest.txt
-compile_commands.json
-
-# Temporary files
-*.tmp
+# CMake build trees
+native/build/
+native/build-*/
 *.log
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.csproj.user
+
+# Misc
+*.log
+*.tmp
 *.bak
 *.swp
-
-# vcpkg
-vcpkg_installed/
-
-# debug information files
-*.dwo
-
-# test output & cache
-Testing/
-.cache/
+*~
+__pycache__/
+Thumbs.db
+desktop.ini
+.DS_Store

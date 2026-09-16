@@ -1,0 +1,161 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Win7Taskbar - frontend WPF.
+    Copyright (c) 2026 Win7Taskbar contributors
+    Licensed under the GNU General Public License v3.0 or later (see LICENSE).
+
+    Il tema Themes/Windows7.xaml e le PNG in Resources/ provengono dal
+    repository Windows7RetrobarTheme e sono inclusi COSI' COME SONO.
+    Il tema e' derivato da RetroBar (Copyright (c) dremin, Apache 2.0).
+    Vedere CREDITS.txt.
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>Win7Taskbar</AssemblyName>
+    <RootNamespace>Win7Taskbar</RootNamespace>
+
+    <!-- La DLL nativa e' x64: l'EXE deve esserlo altrettanto, altrimenti
+         il P/Invoke fallisce con BadImageFormatException. -->
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <!-- ================================================================
+         v2.58 - SELF-CONTAINED DISTRIBUTION.
+         The published package must run on a Windows 10/11 machine that has no
+         .NET installed at all, so the app carries its own runtime. The SDK
+         decides per publish command (-p:SelfContained=true/false), the default
+         below is what a plain publish produces.
+         ================================================================ -->
+    <SelfContained>true</SelfContained>
+    <RuntimeFrameworkVersion>8.0.0</RuntimeFrameworkVersion>
+    <UseAppHost>true</UseAppHost>
+
+    <!-- Consente di compilare (non eseguire) su Linux/macOS. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <Product>Win7Taskbar</Product>
+    <Description>Taskbar in stile Windows 7 per Windows 10/11</Description>
+    <Copyright>Copyright (c) 2026 Win7Taskbar contributors</Copyright>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <!-- 1.2.0-alpha: flyout batteria VERO di Windows 7 (catena in
+         cascata: icona reale -> pulsante UIA -> ricreato, con la chiave
+         UseWin32BatteryFlyout riaffermata al clic), menu contestuali
+         Windows 7 sulle icone di sistema ricreate, riquadro di rete che
+         non mostra mai una lista vuota (connessione corrente garantita +
+         scansione WLAN + diagnostica nel log), indicatore della lingua di
+         input con tre stili (Windows 7, Windows 8.1, Windows 10/11) e
+         selettore nelle Proprieta', ripiego visibility per lo Strumento
+         di cattura, separatori di gruppo in colore #1F314F spostati a
+         destra e al massimo due per gruppo. -->
+    <Version>1.2.0-alpha</Version>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <FileVersion>1.2.0.0</FileVersion>
+  
+    <!-- v2.57: application icon (the classic Windows 7 flag in a single azure
+         blue). Setting ApplicationIcon gives the executable the icon and, in
+         WPF, is also what the windows fall back to when Icon is not set. -->
+    <ApplicationIcon>app.ico</ApplicationIcon>
+</PropertyGroup>
+
+  <!--
+    v2.58 - what a published, ready-to-run package looks like.
+    Kept in the project (not only on the command line) so that `dotnet publish`
+    - with or without arguments, from the IDE or from CI - produces the same
+    self-contained win-x64 package.
+  -->
+  <PropertyGroup>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+
+    <!-- Single-file publishing is NOT the default, on purpose.
+         The application reads Themes/, Resources/ and Languages/ from the
+         folder next to the executable (ThemeLoader uses
+         AppDomain.CurrentDomain.BaseDirectory) and loads the native core with
+         a plain DllImport("Win7TaskbarCore.dll"): keeping them as real files in
+         the package is what makes the layout predictable and debuggable. The
+         folder-shaped self-contained package is the one published.
+         To try the single-file variant: -p:PublishSingleFile=true
+         (the WPF native libraries then need IncludeNativeLibrariesForSelfExtract,
+         and the content folders must still ship next to the executable). -->
+    <PublishSingleFile>false</PublishSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RetroBar.Shim\RetroBar.Shim.csproj" />
+  </ItemGroup>
+
+  <!--
+    Le PNG del tema devono restare FILE SU DISCO, non risorse incorporate:
+    Windows7.xaml le referenzia con UriSource="../Resources/..." relativo
+    alla cartella Themes, quindi l'albero Resources/ va replicato accanto
+    all'eseguibile esattamente com'e' nel repository.
+    English: Theme PNGs must stay as files on disk, not embedded resources.
+  -->
+  <ItemGroup>
+    <Content Include="Resources\**\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Languages\*.xaml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Languages\*.xaml" />
+  </ItemGroup>
+
+  <!--
+    Themes/Windows7.xaml NON va compilato in BAML: viene caricato a runtime da
+    ThemeLoader, che gli inietta in memoria il riferimento a Base.xaml (i 16
+    stili con BasedOn su se stessi non si risolvono in nessun altro modo).
+    Resta quindi un file su disco, byte-identico all'originale del repository.
+  -->
+  <ItemGroup>
+    <Page Remove="Themes\Windows7.xaml" />
+    <Resource Remove="Themes\Windows7.xaml" />
+    <Content Include="Themes\Windows7.xaml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!--
+    Copia la DLL nativa accanto all'eseguibile, se e' gia' stata compilata.
+    Il target non fallisce se manca: cosi' `dotnet build` funziona anche
+    prima di aver eseguito CMake.
+  -->
+  <Target Name="CopyNativeCore" AfterTargets="Build">
+    <ItemGroup>
+      <NativeCoreDll Include="$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NativeCoreDll)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('%(NativeCoreDll.FullPath)')" />
+    <Warning Text="Win7TaskbarCore.dll non trovata in dist/. Compilare prima il progetto CMake in native/."
+             Condition="!Exists('$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll')" />
+  </Target>
+
+  <!-- Stessa copia anche per `dotnet publish`, che non passa da $(OutDir). -->
+  <Target Name="CopyNativeCoreOnPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <NativeCoreDllPub Include="$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NativeCoreDllPub)"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('%(NativeCoreDllPub.FullPath)')" />
+    <Error Text="Win7TaskbarCore.dll non trovata in dist/: eseguire prima la build CMake in native/."
+           Condition="!Exists('$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll')" />
+  </Target>
+
+</Project>

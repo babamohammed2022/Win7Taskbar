@@ -1,0 +1,642 @@
+<!--
+    Win7Taskbar - complementi applicativi al tema
+    Copyright (c) 2026 Win7Taskbar contributors
+    Licensed under the GNU General Public License
+    version 3 or later (see the LICENSE file).
+
+
+    Il tema e' derivato da RetroBar (https://github.com/dremin/RetroBar),
+    Copyright (c) dremin, Apache License 2.0. Vedere CREDITS.txt.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:system="clr-namespace:System;assembly=mscorlib"
+                    xmlns:conv="clr-namespace:Win7Taskbar.Converters"
+                    xmlns:w7util="clr-namespace:Win7Taskbar.Utilities">
+
+    <!-- Posizionamento delle anteprime di finestra.
+         Converter portati da RetroBar (Apache 2.0, (c) dremin): senza questi
+         il popup si allineerebbe al bordo sinistro del pulsante invece di
+         restare centrato su di esso. -->
+    <!-- v2.58: larghezza minima dei pulsanti della Superbar. Il tema dichiara
+         TaskButtonMinWidth = 50; qui e' il 4% in piu' (52), la stessa crescita
+         applicata alla cornice dell'icona, cosi' il pulsante si allarga senza
+         che l'icona cambi dimensione. -->
+    <system:Double x:Key="TaskButtonMinWidthOverride">52</system:Double>
+
+    <conv:ToolTipHorizontalOffsetConverter x:Key="ToolTipHorizontalOffset" />
+    <conv:ToolTipVerticalOffsetConverter x:Key="ToolTipVerticalOffset" />
+    <conv:ToolTipPlacementConverter x:Key="ToolTipPlacement" />
+
+    <!-- v2.46: quante "schede" impilate disegnare accanto all'icona.
+         Il parametro e' la posizione della scheda (1, 2, 3): il converter
+         risponde Visible finche' il gruppo ha almeno tante finestre quante
+         ne indica la posizione, e non disegna nulla con una sola finestra. -->
+    <conv:WindowStackVisibilityConverter x:Key="WindowStackVisibility" />
+
+    <!-- v2.61: sposta di una percentuale della larghezza del pulsante (5%)
+         le linee dell'indicatore "finestre impilate". Proporzionale alla
+         larghezza reale, quindi identico a 100%, 125% e 150% e con pulsanti
+         larghi o stretti: si ricalcola da ActualWidth. -->
+    <conv:WidthRatioConverter x:Key="WidthRatio" />
+
+    <!-- ==================================================================
+         v2.51: CORNICE DELL'ANTEPRIMA, a griglia 3x3 (9-slice).
+
+         Otto PNG incorporati (Utilities/PreviewAssets.cs): quattro angoli
+         21x21 e quattro bordi da stirare (alto/basso 4x21, sinistra/destra
+         21x4). Gli angoli restano alla loro misura esatta (Stretch=None), i
+         bordi si stirano (Stretch=Fill) e la cella centrale e' SOLO il
+         contenuto: nessun rettangolo bianco, nessun overlay, nessuna
+         cattura dello schermo.
+
+         Il vetro del centro e' il gradiente campionato negli stessi asset
+         (#DCEBF9 in alto -> #C9DFF5 in basso): e' il colore che i bordi
+         laterali e inferiore portano con se', quindi la giunzione non si
+         vede. Il contenuto viene disegnato SOPRA il vetro.
+         ================================================================== -->
+    <ControlTemplate x:Key="TaskPreviewFrameVista"
+                     TargetType="ContentControl">
+        <Grid SnapsToDevicePixels="True">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- vetro della cella centrale (sotto il contenuto) -->
+            <Border Grid.Row="1" Grid.Column="1">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#FFDCEBF9" Offset="0.0" />
+                        <GradientStop Color="#FFC9DFF5" Offset="1.0" />
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
+
+            <!-- angoli: misura esatta, nessuna scalatura -->
+            <Image Grid.Row="0" Grid.Column="0"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerTopLeft}"
+                   Width="21" Height="21" Stretch="None"
+                   SnapsToDevicePixels="True" />
+            <Image Grid.Row="0" Grid.Column="2"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerTopRight}"
+                   Width="21" Height="21" Stretch="None"
+                   SnapsToDevicePixels="True" />
+            <Image Grid.Row="2" Grid.Column="0"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerBottomLeft}"
+                   Width="21" Height="21" Stretch="None"
+                   SnapsToDevicePixels="True" />
+            <Image Grid.Row="2" Grid.Column="2"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerBottomRight}"
+                   Width="21" Height="21" Stretch="None"
+                   SnapsToDevicePixels="True" />
+
+            <!-- bordi: si stirano lungo la loro direzione -->
+            <Image Grid.Row="0" Grid.Column="1"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameTop}"
+                   Height="21" Stretch="Fill"
+                   SnapsToDevicePixels="True" />
+            <Image Grid.Row="2" Grid.Column="1"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameBottom}"
+                   Height="21" Stretch="Fill"
+                   SnapsToDevicePixels="True" />
+            <Image Grid.Row="1" Grid.Column="0"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameLeft}"
+                   Width="21" Stretch="Fill"
+                   SnapsToDevicePixels="True" />
+            <Image Grid.Row="1" Grid.Column="2"
+                   Source="{x:Static w7util:PreviewAssets.PreviewFrameRight}"
+                   Width="21" Stretch="Fill"
+                   SnapsToDevicePixels="True" />
+
+            <!-- contenuto (fascia del titolo + miniatura viva) -->
+            <ContentPresenter Grid.Row="1" Grid.Column="1" />
+        </Grid>
+    </ControlTemplate>
+
+    <!-- ==================================================================
+         v2.51: PULSANTE DI CHIUSURA DELL'ANTEPRIMA.
+
+         Tre stati 14x14 ritagliati da close_button.png (ViGlance,
+         lee-soft/ViGlance, GPL-3.0): normale, passaggio del mouse, premuto.
+         E' la X rossastra della Superbar, col suo glifo bianco dentro.
+
+         Il pulsante vive DENTRO il bordo della cornice (margine 3), cioe'
+         FUORI dal rettangolo della miniatura DWM: li' il compositore non
+         disegna niente sopra di noi, quindi la X si vede sempre.
+         ================================================================== -->
+    <Style x:Key="TaskPreviewCloseButton" TargetType="Button">
+        <Setter Property="Width" Value="14" />
+        <Setter Property="Height" Value="14" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Image x:Name="CloseGlyph"
+                           Source="{x:Static w7util:PreviewAssets.PreviewCloseNormal}"
+                           Width="14" Height="14" Stretch="None"
+                           SnapsToDevicePixels="True"
+                           RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="CloseGlyph" Property="Source"
+                                    Value="{x:Static w7util:PreviewAssets.PreviewCloseHover}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="CloseGlyph" Property="Source"
+                                    Value="{x:Static w7util:PreviewAssets.PreviewClosePressed}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ==================================================================
+         Testo dei bottoni della Superbar.
+         Il TaskButton del tema espone un ContentPresenter: qui definiamo
+         cosa ci finisce dentro (icona + titolo + contatore di gruppo).
+         ================================================================== -->
+    <DataTemplate x:Key="TaskButtonContentTemplate">
+        <!-- VerticalAlignment=Stretch (non Center): il pannello del contenuto
+             deve occupare tutta l'altezza che il pulsante gli concede. Con
+             Center il pannello si stringe attorno all'icona da 24px e la
+             cornice del pulsante rimane alta ~28px su 40, cioe' il 70% della
+             barra. L'icona resta comunque centrata: e' l'Image ad avere
+             VerticalAlignment=Center dentro un pannello ora elastico. -->
+        <!-- v2.58: la cornice cresce di un altro 4% per lato (8.12 -> 8.45 px)
+             e con lei il pulsante: richiesta "pulsanti leggermente piu' larghi",
+             misurata sulla foto del pulsante di riferimento (57 px di larghezza
+             per un'icona da 32, cioe' ~12 px di aria per lato). Il pulsante
+             singolo passa da 50 a 52 px (il minimo e' risalito del 4%: vedi
+             SuperbarButtonMinWidth in TaskbarWindow.xaml) e il gruppo con
+             finestre impilate da 60.2 a 61.1 px. L'icona resta 32 px.
+
+             v2.56: la cornice cresce dell'1.5% per lato (8 -> 8.12 px), cosi'
+             il pulsante si allarga verso destra e verso sinistra come chiesto.
+
+             v2.55: la CORNICE attorno all'icona e' quella cerchiata in rosso
+             nella foto dell'utente: 8 px di aria per lato attorno all'icona
+             da 32 (pulsante da 48 px), simmetrica. L'imbottitura sta sul
+             ContentPresenter dei tre template (idle/running/active), cosi'
+             il pulsante ha la STESSA larghezza in tutti e tre gli stati e
+             non "salta" quando la finestra diventa attiva.
+
+             v2.51: il pannello del contenuto e' CENTRATO nel pulsante.
+             Prima stava a sinistra (HorizontalContentAlignment=Stretch del
+             bottone) e l'icona finiva spostata: l'indicatore "finestre
+             impilate" qui sotto e' una colonna da 10 px che esisteva anche
+             con UNA sola finestra, quindi l'icona risultava ~5 px a
+             sinistra del centro. -->
+        <StackPanel Orientation="Horizontal"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Stretch">
+            <!-- v2.53: 36 px. Il tema dichiara 32 e nei riquadri la misura
+                 resta quella; sulla barra l'utente le vuole graficamente
+                 come Windows 7, quindi leggermente piu' grandi. -->
+            <!-- v2.54: icona riportata a 32 px. La v2.53 l'aveva portata a 36
+                 e l'effetto era "icone ciccione": la richiesta era di
+                 allargare la CORNICE, non l'icona. -->
+            <Image Source="{Binding Icon}"
+                   Width="32"
+                   Height="32"
+                   Stretch="Uniform"
+                   SnapsToDevicePixels="True"
+                   RenderOptions.BitmapScalingMode="HighQuality"
+                   VerticalAlignment="Center" />
+
+            <!-- v3.5: indicatore "finestre impilate" di Windows 7 = i
+                 SEPARATORI di gruppo. Il pulsante disegna, subito a destra
+                 dell'icona, fino a DUE linee verticali sottili: una fra la
+                 prima e la seconda finestra, una fra la seconda e la terza.
+                 Oltre la terza finestra i separatori non crescono piu': le
+                 altre si raggiungono dalle anteprime. Colore: #1F314F.
+
+                 Misure prese dalla foto di riferimento: linee larghe 3 px,
+                 alte 30 px (qui l'intera altezza del pannello, come da
+                 stile esistente), la visibilita' della N-esima linea la
+                 decide WindowStackVisibilityConverter su WindowCount. -->
+            <!-- v2.51: con UNA sola finestra l'indicatore non esiste piu' per
+                 il layout (Collapsed), non solo per i pixel: il pulsante si
+                 stringe di 10 px e l'icona resta al centro esatto. La regola
+                 e' quella di Windows 7 e la stessa del converter. -->
+            <!-- v3.5: SEPARATORI DI GRUPPO in stile Superbar di Windows 7.
+                 Le linee verticali sottili fra le finestre dello stesso
+                 gruppo. La regola visiva e' quella della Superbar:
+                   1 finestra  -> 0 separatori
+                   2 finestre  -> 1 separatore
+                   3+ finestre -> 2 separatori (massimo, sempre)
+                 Colore richiesto dall'utente: #1F314F. Il rettangolo resta
+                 quello esistente (3 px, intera altezza): cambia solo il
+                 colore e il numero massimo di linee. -->
+            <!-- v2.61: le due linee si spostano del 9% della larghezza del
+                 pulsante verso destra: erano al 5% (v2.61) e la richiesta
+                 e' di altre 4 punti percentuali a destra (v3.5). E' una
+                 RenderTransform: non tocca il layout, quindi l'icona e il
+                 pulsante restano esattamente dove sono, si muovono solo le
+                 linee. -->
+            <Grid Width="12"
+                  Height="40"
+                  Margin="1,0,0,0"
+                  VerticalAlignment="Center"
+                  SnapsToDevicePixels="True"
+                  Visibility="{Binding WindowCount,
+                               Converter={StaticResource WindowStackVisibility},
+                               ConverterParameter=1}">
+                <Grid.RenderTransform>
+                    <TranslateTransform X="{Binding ActualWidth,
+                        RelativeSource={RelativeSource AncestorType=Button},
+                        Converter={StaticResource WidthRatio},
+                        ConverterParameter=0.09}" />
+                </Grid.RenderTransform>
+                <Border Width="3"
+                        Height="40"
+                        HorizontalAlignment="Left"
+                        CornerRadius="1"
+                        Background="#1F314F"
+                        BorderBrush="#1F314F"
+                        BorderThickness="1"
+                        SnapsToDevicePixels="True"
+                        Visibility="{Binding WindowCount,
+                                     Converter={StaticResource WindowStackVisibility},
+                                     ConverterParameter=1}" />
+                <Border Width="3"
+                        Height="40"
+                        Margin="4,0,0,0"
+                        HorizontalAlignment="Left"
+                        CornerRadius="1"
+                        Background="#1F314F"
+                        BorderBrush="#1F314F"
+                        BorderThickness="1"
+                        SnapsToDevicePixels="True"
+                        Visibility="{Binding WindowCount,
+                                     Converter={StaticResource WindowStackVisibility},
+                                     ConverterParameter=2}" />
+            </Grid>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ==================================================================
+         Voce del picker delle finestre (click sinistro su un gruppo).
+         ================================================================== -->
+    <DataTemplate x:Key="WindowPickerItemTemplate">
+        <StackPanel Orientation="Horizontal"
+                    Margin="2"
+                    VerticalAlignment="Center">
+            <Image Source="{Binding Icon}"
+                   Width="16"
+                   Height="16"
+                   Stretch="Uniform"
+                   VerticalAlignment="Center"
+                   Margin="0,0,6,0" />
+            <TextBlock Text="{Binding Title}"
+                       VerticalAlignment="Center"
+                       MaxWidth="260"
+                       TextTrimming="CharacterEllipsis"
+                       FontFamily="{DynamicResource GlobalFontFamily}"
+                       FontSize="{DynamicResource GlobalFontSize}" />
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ==================================================================
+         Tooltip di anteprima testuale del titolo (hover sul bottone).
+         ================================================================== -->
+    <Style x:Key="TaskButtonToolTip" TargetType="ToolTip">
+        <Setter Property="FontFamily" Value="{DynamicResource GlobalFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource GlobalFontSize}" />
+    </Style>
+
+
+    <!-- ==================================================================
+         v2.20: stile del bottone Superbar con STATI reali.
+         Idle  = TaskButton normale (pinnata non avviata);
+         Running/Active = template "active" del tema Windows 7 (bordo
+         alto fino al margine della barra + glow inferiore), applicato
+         con un DataTrigger su TaskGroup.IsActive. Il template e' copiato
+         qui da Windows7.xaml (che resta byte-identico all'originale).
+         ================================================================== -->
+    <!-- v2.29: IDLE pinnati: stessa geometria dei bottoni aperti (doppio
+         bordo 2px) ma la tessera di hover e' LEGGERMENTE PIU' LARGA del
+         bottone (3px per lato, Margin negativo su un layer dedicato che
+         non partecipa al layout): come le tessere hover della tray, che
+         debordano sull'icona. Texture = TrayTileHoverImage. -->
+        <!-- ==================================================================
+         v2.52: SFONDO DEI PULSANTI DELLE APPLICAZIONI.
+
+         Le due immagini fornite dall'utente (60x40, con trasparenza) si
+         usano a TRE PEZZI: bordo sinistro 6 px e bordo destro 6 px restano
+         alla loro misura (portano gli angoli arrotondati e il bordo scuro),
+         la parte centrale si stira in orizzontale per coprire la larghezza
+         del pulsante. In verticale non c'e' nulla da stirare: le immagini
+         sono alte come la barra.
+
+         Hover  (image-1, blu pieno)   -> pulsanti in esecuzione + hover
+         Active (image-2, azzurro)     -> finestra in primo piano
+
+         NON riguardano il pulsante Start ne' le icone dell'area di
+         notifica: quelli hanno i loro sfondi e i loro template.
+         ================================================================== -->
+    <ControlTemplate x:Key="TaskButtonFrameHover" TargetType="ContentControl">
+        <Grid SnapsToDevicePixels="True">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="6" />
+            </Grid.ColumnDefinitions>
+            <Rectangle Grid.Column="0" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Hover}"
+                                Viewbox="0,0,6,40" ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Column="1" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Hover}"
+                                Viewbox="6,0,48,40" ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Column="2" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Hover}"
+                                Viewbox="54,0,6,40" ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+        </Grid>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="TaskButtonFrameActive" TargetType="ContentControl">
+        <Grid SnapsToDevicePixels="True">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="6" />
+            </Grid.ColumnDefinitions>
+            <Rectangle Grid.Column="0" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Active}"
+                                Viewbox="0,0,6,40" ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Column="1" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Active}"
+                                Viewbox="6,0,48,40" ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Column="2" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Active}"
+                                Viewbox="54,0,6,40" ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+        </Grid>
+    </ControlTemplate>
+
+        <ControlTemplate x:Key="SuperbarIdleTemplate" TargetType="Button">
+        <!-- v2.53: l'HOVER e' tornato la tessera vettoriale della barra
+             (TrayTileHoverImage, la stessa che usano le icone dell'area di
+             notifica): era stata sostituita dall'immagine blu nella v2.52 e
+             sembrava non esserci piu' nessun passaggio del mouse. -->
+        <Border BorderThickness="1.4" BorderBrush="Transparent"
+                CornerRadius="4">
+            <Grid>
+                <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
+                        Background="Transparent" IsHitTestVisible="False" />
+                <Border BorderThickness="1.4" BorderBrush="Transparent"
+                        Background="Transparent"
+                        CornerRadius="3" x:Name="IdleInner">
+                    <ContentPresenter Margin="5.49,0" VerticalAlignment="Center"
+                                      x:Name="Content" />
+                </Border>
+            </Grid>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="HoverTile" Property="Background">
+                    <Setter.Value>
+                        <ImageBrush ImageSource="{DynamicResource TrayTileHoverImage}"
+                                    Stretch="Fill" />
+                    </Setter.Value>
+                </Setter>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Foreground"
+                        Value="{DynamicResource ButtonPressedForeground}" />
+                <Setter TargetName="IdleInner" Property="Background"
+                        Value="{DynamicResource TaskButtonBackgroundPressed}" />
+                <Setter TargetName="HoverTile" Property="Background"
+                        Value="{DynamicResource TaskButtonBackgroundPressed}" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+            <ControlTemplate x:Key="SuperbarRunningTemplate" TargetType="Button">
+        <!-- v2.53: sfondo "programma aperto non focalizzato" = immagine
+             image-1 (blu pieno) a tre pezzi; al passaggio del mouse si
+             accende SOPRA la tessera vettoriale della barra (come le icone
+             della system tray), cosi' l'hover si vede di nuovo. -->
+        <Border Background="Transparent" Padding="0" Name="ButtonBorder">
+            <Grid>
+                <ContentControl x:Name="Frame"
+                                Template="{DynamicResource TaskButtonFrameHover}" />
+                <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
+                        Background="Transparent" IsHitTestVisible="False"
+                        Opacity="0" />
+                <ContentPresenter Margin="8.45,0" VerticalAlignment="Center"
+                                  x:Name="Content" />
+            </Grid>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="HoverTile" Property="Opacity" Value="1" />
+                <Setter TargetName="HoverTile" Property="Background">
+                    <Setter.Value>
+                        <ImageBrush ImageSource="{DynamicResource TrayTileHoverImage}"
+                                    Stretch="Fill" />
+                    </Setter.Value>
+                </Setter>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Foreground"
+                        Value="{DynamicResource ButtonPressedForeground}" />
+                <Setter TargetName="Frame" Property="Opacity" Value="0.85" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+            <ControlTemplate x:Key="SuperbarActiveTemplate" TargetType="Button">
+        <!-- v2.53: sfondo "finestra in primo piano" = immagine image-2
+             (azzurro chiaro) a tre pezzi; l'hover torna la tessera della
+             barra, come per gli altri due stati. -->
+        <Border Background="Transparent" Padding="0" Name="ButtonBorder">
+            <Grid>
+                <ContentControl x:Name="Frame"
+                                Template="{DynamicResource TaskButtonFrameActive}" />
+                <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
+                        Background="Transparent" IsHitTestVisible="False"
+                        Opacity="0" />
+                <ContentPresenter Margin="8.45,0,8.45,0.7" VerticalAlignment="Center"
+                                  x:Name="Content" />
+                <Rectangle Height="2" VerticalAlignment="Bottom" Margin="1,0,1,0"
+                           Fill="{DynamicResource TaskButtonBottomHighlightActive}"
+                           x:Name="BottomHighlight" />
+            </Grid>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="HoverTile" Property="Opacity" Value="1" />
+                <Setter TargetName="HoverTile" Property="Background">
+                    <Setter.Value>
+                        <ImageBrush ImageSource="{DynamicResource TrayTileHoverImage}"
+                                    Stretch="Fill" />
+                    </Setter.Value>
+                </Setter>
+                <Setter TargetName="BottomHighlight" Property="Fill"
+                        Value="{DynamicResource TaskButtonBottomHighlightActiveHover}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Foreground"
+                        Value="{DynamicResource ButtonPressedForeground}" />
+                <Setter TargetName="Frame" Property="Opacity" Value="0.85" />
+                <Setter TargetName="BottomHighlight" Property="Opacity" Value="0.35" />
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <!-- BasedOn collegato a runtime da ThemeLoader: un StaticResource
+         qui fallirebbe al parse del BAML (il dizionario del tema e'
+         visibile solo dopo il merge nella radice). -->
+    <Style x:Key="SuperbarButton" TargetType="Button">
+        <Setter Property="Template"
+                Value="{StaticResource SuperbarIdleTemplate}" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                <Setter Property="Template"
+                        Value="{StaticResource SuperbarRunningTemplate}" />
+            </DataTrigger>
+            <!-- Stato Running con finestra in primo piano: chrome active. -->
+            <DataTrigger Binding="{Binding IsActive}" Value="True">
+                <Setter Property="Template"
+                        Value="{StaticResource SuperbarActiveTemplate}" />
+                <Setter Property="Margin" Value="1,1,1,0" />
+                <Setter Property="Foreground"
+                        Value="{DynamicResource ButtonActiveForeground}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ==================================================================
+         v2.60 - Frecce di scorrimento della striscia dei pulsanti.
+
+         Servono quando i programmi aperti sono tanti che nemmeno la
+         larghezza minima li fa entrare: la striscia si scorre invece di
+         disegnare i pulsanti sopra l'orologio e la tray.
+
+         Colori, raggi e frecce sono quelli del tema (Windows7.xaml, che
+         resta intoccato: TaskListScrollArrow, TaskListScrollButtonBorder,
+         TaskListScrollButtonBackground, i raggi Left/Right). Il chrome e'
+         ridisegnato qui perche' i due stili del tema
+         (TaskListScrollUpButton/DownButton) sono disegnati per la barra
+         verticale, con gli angoli arrotondati in alto e in basso: su una
+         barra orizzontale servono gli spigoli arrotondati a sinistra e a
+         destra, come nella barra vera.
+         ================================================================== -->
+    <Style x:Key="TaskListScrollLeftButtonOverride" TargetType="RepeatButton">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border BorderThickness="1,1,0,1"
+                            BorderBrush="{DynamicResource TaskListScrollButtonOuterBorder}"
+                            CornerRadius="{DynamicResource TaskListScrollLeftCornerRadius}"
+                            SnapsToDevicePixels="True">
+                        <Border BorderThickness="1,1,0,1"
+                                BorderBrush="{DynamicResource TaskListScrollButtonBorder}"
+                                Background="{DynamicResource TaskListScrollButtonBackground}">
+                            <Border x:Name="ButtonInnerBorder"
+                                    BorderThickness="1"
+                                    BorderBrush="Transparent">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                        </Border>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ButtonInnerBorder"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource TaskListScrollButtonInnerBorderHover}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="ButtonInnerBorder"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource TaskListScrollButtonInnerBorderPressed}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="TaskListScrollRightButtonOverride" TargetType="RepeatButton">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border BorderThickness="0,1,1,1"
+                            BorderBrush="{DynamicResource TaskListScrollButtonOuterBorder}"
+                            CornerRadius="{DynamicResource TaskListScrollRightCornerRadius}"
+                            SnapsToDevicePixels="True">
+                        <Border BorderThickness="0,1,1,1"
+                                BorderBrush="{DynamicResource TaskListScrollButtonBorder}"
+                                Background="{DynamicResource TaskListScrollButtonBackground}">
+                            <Border x:Name="ButtonInnerBorder"
+                                    BorderThickness="1"
+                                    BorderBrush="Transparent">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                        </Border>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ButtonInnerBorder"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource TaskListScrollButtonInnerBorderHover}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="ButtonInnerBorder"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource TaskListScrollButtonInnerBorderPressed}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>
