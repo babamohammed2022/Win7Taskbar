@@ -35,6 +35,10 @@ namespace Win7Taskbar
         private const string DwmPreviewAccentBrushKey = "DwmPreviewAccentBrush";
         private const string DwmPreviewBorderMaskImageKey = "DwmPreviewBorderMaskImage";
         private bool _dwmPreviewMaskReady;
+        // Ultimo colore di colorizzazione DWM con cui e' stata tinta la
+        // cornice delle anteprime: il raffronto col valore vivo copre i
+        // cambi di "colore dietro" che non alzano alcun messaggio.
+        private uint? _dwmAccentArgb;
         private bool _appBarRegistered;
         private bool _shuttingDown;
 
@@ -1679,6 +1683,16 @@ namespace Win7Taskbar
                     return;
                 }
 
+                /* Unchanged colour: nothing to re-tint. The message path and
+                 * the drift check (EnsureDwmAccentFresh) can both fire for
+                 * the same change, so the last applied value is recorded
+                 * here and doubles as the de-dup key. */
+                if (_dwmAccentArgb == argb)
+                {
+                    return;
+                }
+                _dwmAccentArgb = argb;
+
                 // Opacity comes from the derived shaded-alpha mask. Keep
                 // this brush opaque: using the DWM alpha here as well
                 // would multiply frame transparency a second time.
@@ -1707,6 +1721,37 @@ namespace Win7Taskbar
                 // startup or the live DWM thumbnail relationship.
                 try { _bridge.Log($"preview accent update: {ex.Message}"); }
                 catch { }
+            }
+        }
+
+        /// <summary>
+        /// Copertura del caso in cui il "colore dietro" le anteprime cambia
+        /// senza che WM_DWMCOLORIZATIONCOLORCHANGED venga mai trasmesso
+        /// (accento automatico preso dallo sfondo, slideshow del tema,
+        /// passaggio a contrasto elevato su Windows 10/11): confronta il
+        /// colore di colorizzazione vivo con l'ultimo effettivamente
+        /// applicato e, solo a deriva reale, riesegue lo stesso identico
+        /// percorso del messaggio (brush + invalidazione dei frame nativi).
+        /// Una query DWM per controllo; la logica di render non cambia.
+        /// </summary>
+        private void EnsureDwmAccentFresh()
+        {
+            try
+            {
+                if (NativeMethods.DwmGetColorizationColor(out uint live,
+                                                        out _) < 0)
+                {
+                    return;
+                }
+
+                if (_dwmAccentArgb != live)
+                {
+                    UpdateDwmPreviewAccentColor();
+                }
+            }
+            catch
+            {
+                /* Come il resto del percorso accento: cosmetico, mai fatale. */
             }
         }
 
@@ -2702,6 +2747,11 @@ namespace Win7Taskbar
         {
             try
             {
+                /* ... e il colore dietro puo' cambiare anche MENTRE il popup
+                 * e' aperto: il timer di permanenza ticca gia', agganciarvi
+                 * il confronto rende l'adattamento dinamico a costo zero. */
+                EnsureDwmAccentFresh();
+
                 if (TaskPreviewPopup?.IsOpen != true)
                 {
                     _previewWatchTimer?.Stop();
@@ -3021,6 +3071,12 @@ namespace Win7Taskbar
         {
             try
             {
+                /* Il colore dietro puo' essere cambiato mentre il popup era
+                 * chiuso senza alzare alcun messaggio: l'apertura e' il
+                 * momento in cui la tinta torna visibile, quindi si verifica
+                 * adesso. */
+                EnsureDwmAccentFresh();
+
                 CaptureTaskPreviewBackdrop();
 
                 /* v2.45: punto unico di controllo dopo che il popup e' davvero a

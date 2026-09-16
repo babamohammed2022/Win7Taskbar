@@ -193,7 +193,16 @@
          ("Avvio"/"Start"): the launch row is text-only again, like the
          real Windows 7 menu. The native caption glyphs in the window
          system menu and group menu (1.21.6-alpha) are kept. -->
-    <Version>1.21.7-alpha</Version>
+    <!-- 1.21.8-alpha: dynamic DWM accent for live previews. The glass
+         colour behind the thumbnails can change without
+         WM_DWMCOLORIZATIONCOLORCHANGED ever firing (automatic accent from
+         the wallpaper, theme slideshow, high-contrast transitions): the
+         last applied colour is now recorded and compared with the live
+         colorization colour when a preview opens and on the existing
+         200 ms watch tick, so the frame re-tints itself on real drift.
+         Render logic untouched: same brush path, same native 9-slice
+         renderer, same XAML fallback. -->
+    <Version>1.21.8-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
