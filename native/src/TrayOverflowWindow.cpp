@@ -4,7 +4,6 @@
 #include "TrayOverflowWindow.h"
 #include "Strings.h"
 #include "TrayService.h"
-#include "TrayCplDialog.h"   /* v1.7.6: "Customize..." opens our own page */
 #include "FlyoutLauncher.h"   /* ApplyAeroFlyoutStyle: bordi Aero */
 #include <dwmapi.h>
 #include <shellapi.h>
@@ -108,13 +107,11 @@ HICON TrayOverflowWindow::IconFromArgb(const ArgbBitmap& bmp) const {
 
 void TrayOverflowWindow::UpdateMetrics() {
     // v3.2: gestione DPI seria: tutte le misure fisse passano di qui.
-    UINT dpi = 0;
-    if (m_hWnd != nullptr) dpi = GetDpiForWindow(m_hWnd);
-    if (dpi == 0) {
-        HDC dc = GetDC(nullptr);
-        if (dc) { dpi = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSY)); ReleaseDC(nullptr, dc); }
-    }
-    if (dpi == 0 || dpi > 480) dpi = 96;
+    // GetDpiForWindowSafe risolve GetDpiForWindow dinamicamente: user32 di
+    // Windows 8.1 non lo esporta e un import diretto impediva al
+    // caricatore di aprire Win7TaskbarCore.dll su quel sistema.
+    UINT dpi = GetDpiForWindowSafe(m_hWnd);
+    if (dpi > 480) dpi = 96;
     m_dpi = dpi;
     m_cell    = MulDiv(kCellSize, static_cast<int>(m_dpi), 96);
     m_pad     = MulDiv(kPadding,  static_cast<int>(m_dpi), 96);
@@ -270,13 +267,36 @@ void TrayOverflowWindow::ForwardClick(int index, bool right) {
     const int32_t x = rc.left + m_pad + col * m_cell + m_cell / 2;
     const int32_t y = rc.top + m_pad + row * m_cell + m_cell / 2;
 
-    if (right) {
-        TrayService::Instance().SendClick(e.ownerHwnd, e.uid, W7T_TRAY_CLICK_RIGHT, x, y);
-    } else {
-        TrayService::Instance().SendClick(e.ownerHwnd, e.uid, W7T_TRAY_CLICK_LEFT_DOWN, x, y);
-        TrayService::Instance().SendClick(e.ownerHwnd, e.uid, W7T_TRAY_CLICK_LEFT, x, y);
+    /* v3.7: il rettangolo ADESSO dell'icona nel pannello, prima del clic.
+     * I riquadri ricreati (rete, volume, batteria) si ancorano al
+     * rettangolo che il frontend ha riportato con W7T_SetIconRect; per le
+     * icone del pannello di overflow quel rapporto non esiste (il pannello
+     * e' una finestra nativa, non un elemento WPF), quindi la cache
+     * conservava l'ultima posizione dell'icona SULLA barra: il flyout si
+     * apriva per qualche millisecondo ancorato la e poi saltava qui.
+     * Riportando la cella al momento del clic - stessa thread, pochi
+     * microsecondi prima che il riquadro si apra - l'ancora e' quella
+     * giusta gia' nel primo frame. */
+    {
+        const int ix = rc.left + m_pad + col * m_cell + (m_cell - m_icon) / 2;
+        const int iy = rc.top + m_pad + row * m_cell + (m_cell - m_icon) / 2;
+        RECT iconCell{ ix, iy, ix + m_icon, iy + m_icon };
+        TrayService::Instance().SetIconRect(e.ownerHwnd, e.uid, iconCell);
     }
-    Hide();   // come in Win7: il clic su un'icona chiude il pannello
+
+    if (right) {
+        /* A tray application's context menu is external to this window.
+         * Keep overflow open for this specific action: closing it here made
+         * every right-click unnecessarily destroy the user's icon context. */
+        TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
+                                          W7T_TRAY_CLICK_RIGHT, x, y);
+    } else {
+        TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
+                                          W7T_TRAY_CLICK_LEFT_DOWN, x, y);
+        TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
+                                          W7T_TRAY_CLICK_LEFT, x, y);
+        Hide();   // ordinary activation keeps the Windows 7 close behavior
+    }
 }
 
 void TrayOverflowWindow::OnPaint(HDC hdcWindow) {
@@ -453,21 +473,11 @@ LRESULT CALLBACK TrayOverflowWindow::WndProc(HWND hWnd, UINT msg,
             self->m_dragIdx = -1;
         }
         if (PtInRect(&self->m_footerRect, p)) {
-            /* v1.7.6: "Customize..." now opens the program's OWN page
-             * (the recreated "Notification Area Icons", TrayCplDialog).
-             * It controls only this tray's icons and leaves no registry
-             * trace at all. The panel closes BEFORE the page opens (the
-             * old shell-target behavior, kept); the dialog is modeless on
-             * THIS thread's pump (the service thread already pumps its own
-             * messages), so the bar is never blocked and nothing spawns
-             * control.exe. If the page cannot open (old native build,
-             * missing template) the click stays honest: one log line, no
-             * silent nothing - and never a handoff to the Windows page,
-             * which would configure a tray this program does not own. */
+            /* Delegate directly to Windows' native Notification Area
+             * settings page; no in-process applet is interposed. */
             self->Hide();
-            const int32_t rc = TrayCplDialog::Instance().Show(nullptr);
-            if (rc < 0) {
-                AppendCoreLog(L"overflow: pagina Notification Area Icons non disponibile");
+            if (W7T_OpenNotificationIconsSettings() != W7T_OK) {
+                AppendCoreLog(L"overflow: pagina nativa Notification Area non disponibile");
             }
             return 0;
         }

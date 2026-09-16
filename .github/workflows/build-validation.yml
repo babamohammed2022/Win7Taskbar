@@ -34,6 +34,10 @@ jobs:
         shell: pwsh
         run: cmake --build native/build --config Release -j 2
 
+      - name: Restore WPF frontend
+        shell: pwsh
+        run: dotnet restore src/Win7Taskbar/Win7Taskbar.csproj
+
       - name: Build WPF frontend
         shell: pwsh
         run: dotnet build src/Win7Taskbar/Win7Taskbar.csproj --configuration Release --no-restore

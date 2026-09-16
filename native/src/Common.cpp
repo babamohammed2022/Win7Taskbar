@@ -613,66 +613,98 @@ std::wstring GetProcessNameFromSnapshot(DWORD pid) {
 }
 
 std::wstring ComputeAppId(HWND hwnd, DWORD pid, const std::wstring& exePath) {
-    /* 1) AppUserModelID esplicito sulla finestra: e' la chiave che usa la
-     *    Superbar di Windows 7 per raggruppare. */
+    /* control.exe hosts classic Control Panel applets. Give only that real
+     * executable a stable identity before consulting any window AUMID; all
+     * Explorer, UWP and ordinary fallback grouping remains untouched. */
+    const size_t identitySlash = exePath.find_last_of(L"\\/");
+    const std::wstring identityExeName =
+        (identitySlash == std::wstring::npos)
+            ? exePath : exePath.substr(identitySlash + 1);
+
+    if (_wcsicmp(identityExeName.c_str(), L"control.exe") == 0) {
+        return std::wstring(L"w7t:control-exe");
+    }
+
+    /* Read the window properties once, but don't return the AUMID yet.
+     * Explorer-hosted Control Panel windows commonly publish Explorer's own
+     * AUMID, so returning it here would make the more specific test below
+     * unreachable. */
+    std::wstring explicitAppId;
+    std::wstring relaunchCommand;
     IPropertyStore* store = nullptr;
-    if (SUCCEEDED(SHGetPropertyStoreForWindow(hwnd, IID_PPV_ARGS(&store))) && store != nullptr) {
+    if (SUCCEEDED(SHGetPropertyStoreForWindow(hwnd, IID_PPV_ARGS(&store))) &&
+        store != nullptr) {
         PROPVARIANT pv;
         PropVariantInit(&pv);
-        if (SUCCEEDED(store->GetValue(PKEY_AppUserModel_ID, &pv))) {
-            if (pv.vt == VT_LPWSTR && pv.pwszVal != nullptr && pv.pwszVal[0] != L'\0') {
-                std::wstring id(pv.pwszVal);
-                PropVariantClear(&pv);
-                store->Release();
-                return id;
-            }
+        if (SUCCEEDED(store->GetValue(PKEY_AppUserModel_ID, &pv)) &&
+            pv.vt == VT_LPWSTR && pv.pwszVal != nullptr) {
+            explicitAppId = pv.pwszVal;
+        }
+        PropVariantClear(&pv);
+
+        PropVariantInit(&pv);
+        if (SUCCEEDED(store->GetValue(PKEY_AppUserModel_RelaunchCommand, &pv)) &&
+            pv.vt == VT_LPWSTR && pv.pwszVal != nullptr) {
+            relaunchCommand = pv.pwszVal;
         }
         PropVariantClear(&pv);
         store->Release();
     }
 
-    /* 2) v3.6 - IL PANNELLO DI CONTROLLO NON E' EXPLORER.
-     *
-     * Su Windows 10/11 le pagine del Pannello di controllo (anche quelle
-     * aperte dai nostri menu, come il Centro connessioni) sono finestre
-     * CabinetWClass DENTRO explorer.exe: senza questa regola finivano nel
-     * gruppo di Esplora file, con il nome e l'icona di explorer. La
-     * Superbar vera le tiene separate: qui basta riconoscere il titolo
-     * localizzato ("Pannello di controllo\...") e dare alla finestra una
-     * identita' sua. */
-    if (hwnd != nullptr && !exePath.empty()) {
-        const size_t slash = exePath.find_last_of(L"\\/");
-        const std::wstring exeName =
-            (slash == std::wstring::npos)
-                ? exePath : exePath.substr(slash + 1);
-        if (_wcsicmp(exeName.c_str(), L"explorer.exe") == 0) {
-            wchar_t cls[64] = {};
-            if (GetClassNameW(hwnd, cls, 64) != 0
-                && _wcsicmp(cls, L"CabinetWClass") == 0) {
-                wchar_t title[W7T_MAX_TITLE] = {};
-                GetWindowTextW(hwnd, title, W7T_MAX_TITLE);
-                static const wchar_t* const kControlPanelNames[] = {
-                    L"Pannello di controllo",     /* it */
-                    L"Control Panel",             /* en */
-                    L"Panel de control",          /* es */
-                    L"Panneau de configuration",  /* fr */
-                    L"Systemsteuerung",           /* de */
-                    L"Painel de Controle",        /* pt-br */
-                    L"Painel de Controlo",        /* pt */
-                    L"Panel sterowania",          /* pl */
-                    L"\x041F\x0430\x043D\x0435\x043B\x044C \x0443\x043F\x0440\x0430\x0432\x043B\x0435\x043D\x0438\x044F", /* ru */
-                    L"\x30B3\x30F3\x30C8\x30ED\x30FC\x30EB \x30D1\x30CD\x30EB", /* ja */
-                    L"\x63A7\x5236\x9762\x677F",  /* zh */
-                    L"\x0644\x0648\x062D\x0629 \x0627\x0644\x062A\x062D\x0643\x0645", /* ar */
-                };
-                for (const wchar_t* name : kControlPanelNames) {
-                    const size_t len = wcslen(name);
-                    if (wcsncmp(title, name, len) == 0) {
-                        return std::wstring(L"w7t:control-panel");
-                    }
+    /* 1) An Explorer-hosted Control Panel page is not File Explorer.
+     * Restrict this to explorer.exe + CabinetWClass, then recognize either
+     * the canonical shell namespace in the public relaunch command or the
+     * localized root caption. Ordinary folders, UWP windows and Explorer's
+     * normal grouping never enter this branch. */
+    if (hwnd != nullptr &&
+        _wcsicmp(identityExeName.c_str(), L"explorer.exe") == 0) {
+        wchar_t cls[64] = {};
+        if (GetClassNameW(hwnd, cls, ARRAYSIZE(cls)) != 0 &&
+            _wcsicmp(cls, L"CabinetWClass") == 0) {
+            std::wstring commandLower = relaunchCommand;
+            std::transform(commandLower.begin(), commandLower.end(),
+                           commandLower.begin(), [](wchar_t c) {
+                               return static_cast<wchar_t>(towlower(c));
+                           });
+            const bool controlNamespace =
+                commandLower.find(L"{26ee0668-a00a-44d7-9371-beb064c98683}") !=
+                    std::wstring::npos ||
+                commandLower.find(L"{21ec2020-3aea-1069-a2dd-08002b30309d}") !=
+                    std::wstring::npos;
+
+            bool controlCaption = false;
+            wchar_t title[W7T_MAX_TITLE] = {};
+            GetWindowTextW(hwnd, title, ARRAYSIZE(title));
+            static const wchar_t* const kControlPanelNames[] = {
+                L"Pannello di controllo",     /* it */
+                L"Control Panel",             /* en */
+                L"Panel de control",          /* es */
+                L"Panneau de configuration",  /* fr */
+                L"Systemsteuerung",           /* de */
+                L"Painel de Controle",        /* pt-br */
+                L"Painel de Controlo",        /* pt */
+                L"Panel sterowania",          /* pl */
+                L"\x041F\x0430\x043D\x0435\x043B\x044C \x0443\x043F\x0440\x0430\x0432\x043B\x0435\x043D\x0438\x044F", /* ru */
+                L"\x30B3\x30F3\x30C8\x30ED\x30FC\x30EB \x30D1\x30CD\x30EB", /* ja */
+                L"\x63A7\x5236\x9762\x677F",  /* zh */
+                L"\x0644\x0648\x062D\x0629 \x0627\x0644\x062A\x062D\x0643\x0645", /* ar */
+            };
+            for (const wchar_t* name : kControlPanelNames) {
+                if (_wcsnicmp(title, name, wcslen(name)) == 0) {
+                    controlCaption = true;
+                    break;
                 }
             }
+
+            if (controlNamespace || controlCaption) {
+                return std::wstring(L"w7t:control-panel");
+            }
         }
+    }
+
+    /* 2) Explicit AppUserModelID for every other window. */
+    if (!explicitAppId.empty()) {
+        return explicitAppId;
     }
 
     /* 3) Fallback: percorso dell'eseguibile, normalizzato in minuscolo. */
@@ -758,6 +790,38 @@ UINT GetDpiForScreenRect(const RECT& screenRect) {
     if (dc) ReleaseDC(nullptr, dc);
     if (dpiX < 96) dpiX = 96;
     return dpiX;
+}
+
+/* Effective DPI of a window (device pixels per 96 DIP), the same ladder
+ * as GetDpiForScreenRect but anchored to the window instead of a screen
+ * rectangle. GetDpiForWindow is a Windows 10 1607+ entry point and is
+ * resolved dynamically here on purpose: a direct import would put
+ * user32!GetDpiForWindow in the import table of Win7TaskbarCore.dll, and
+ * the Windows 8.1 loader refuses a DLL whose imports it cannot bind, so
+ * the whole app would fail to start there. On systems without the
+ * function (Windows 8.1) the scale comes from GetDeviceCaps on the
+ * window's DC (screen DC when the handle is null). Never returns < 96.
+ * Behavior on Windows 10/11 is unchanged: the same function is resolved
+ * and called with the same handle. */
+UINT GetDpiForWindowSafe(HWND hwnd) {
+    typedef UINT(WINAPI* GetDpiForWindowFn)(HWND);
+    static GetDpiForWindowFn fn = []() -> GetDpiForWindowFn {
+        HMODULE m = GetModuleHandleW(L"user32.dll");
+        if (!m) return nullptr;
+        return reinterpret_cast<GetDpiForWindowFn>(
+            GetProcAddress(m, "GetDpiForWindow"));
+    }();
+
+    UINT dpi = (fn != nullptr && hwnd != nullptr) ? fn(hwnd) : 0;
+    if (dpi < 96) {
+        HDC dc = GetDC(hwnd);
+        if (dc != nullptr) {
+            dpi = static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSY));
+            ReleaseDC(hwnd, dc);
+        }
+    }
+    if (dpi < 96) dpi = 96;
+    return dpi;
 }
 
 /* ------------------------------------------------------------------ */

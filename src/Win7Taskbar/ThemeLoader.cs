@@ -88,11 +88,19 @@ namespace Win7Taskbar
             {
                 // l'indicizzatore cerca anche nei dizionari mergiati
                 object? sbObj = root["SuperbarButton"];
+                object? sfObj = root["SuperbarButtonFlashing"];
                 object? tbObj = root["TaskButton"];
                 if (sbObj is System.Windows.Style superbar &&
                     tbObj is System.Windows.Style taskButton)
                 {
                     superbar.BasedOn = taskButton;
+                    if (sfObj is System.Windows.Style flashing)
+                    {
+                        // Inherit the base button geometry directly. Basing
+                        // this on SuperbarButton would let its IsRunning
+                        // trigger override the orange notification template.
+                        flashing.BasedOn = taskButton;
+                    }
                 }
             }
             catch

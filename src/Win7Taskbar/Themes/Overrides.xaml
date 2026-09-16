@@ -24,6 +24,38 @@
          che l'icona cambi dimensione. -->
     <system:Double x:Key="TaskButtonMinWidthOverride">52</system:Double>
 
+    <!-- ==================================================================
+         v3.7: GLOW AERO DEL PULSANTE (il "luminoso radiale" di Windows 7).
+
+         Quando il puntatore e' sopra un pulsante della barra, Windows 7
+         disegnava attorno all'icona un alone radiale morbido (la taskbar
+         lo tracciava con DrawRadialGradient, TASKBAND_RADIALGRADIENT):
+         luce bianco-blu piu' intensa verso il basso, che sfuma fino a
+         diventare trasparente ai bordi. Qui e' lo stesso effetto con un
+         RadialGradientBrush nativo di WPF, nessun hook in Explorer.
+
+         - Coordinate proporzionali (0..1): il gradiale scala con la
+           larghezza/altezza del pulsante, quindi e' corretto a 100/125/
+           150% di scala e a qualsiasi altezza della barra.
+         - La palette riprende il #D6F0FF gia' usato dal tema per il glow
+           inferiore dei pulsanti (TaskButtonBottomBackgroundHover),
+           esteso in un alone completo centrato un po' sotto il mezzo,
+           come la luce che in Windows 7 partiva dal bordo inferiore.
+         - Opacita' gestita dalle animazioni dei template Superbar*
+           (dissolvenza in ingresso 0.18 s, in uscita 0.35 s, HoldEnd),
+           lo stesso pattern gia' usato dall'orb del menu Start nel tema.
+         ================================================================== -->
+    <RadialGradientBrush x:Key="SuperbarAeroGlowBrush"
+                         GradientOrigin="0.5,0.62"
+                         Center="0.5,0.62"
+                         RadiusX="0.78"
+                         RadiusY="0.66">
+        <GradientStop Color="#A8FFFFFF" Offset="0.0" />
+        <GradientStop Color="#66E4F1FF" Offset="0.3" />
+        <GradientStop Color="#2AD6F0FF" Offset="0.62" />
+        <GradientStop Color="#00D6F0FF" Offset="1.0" />
+    </RadialGradientBrush>
+
     <conv:ToolTipHorizontalOffsetConverter x:Key="ToolTipHorizontalOffset" />
     <conv:ToolTipVerticalOffsetConverter x:Key="ToolTipVerticalOffset" />
     <conv:ToolTipPlacementConverter x:Key="ToolTipPlacement" />
@@ -41,91 +73,179 @@
          larghi o stretti: si ricalcola da ActualWidth. -->
     <conv:WidthRatioConverter x:Key="WidthRatio" />
 
-    <!-- ==================================================================
-         v2.51: CORNICE DELL'ANTEPRIMA, a griglia 3x3 (9-slice).
+    <!-- Startup fallback only. TaskbarWindow replaces this application-level
+         DynamicResource with the current DWM colorization brush and again on
+         WM_DWMCOLORIZATIONCOLORCHANGED. -->
+    <SolidColorBrush x:Key="DwmPreviewAccentBrush" Color="#FF4C8FC5" />
 
-         Otto PNG incorporati (Utilities/PreviewAssets.cs): quattro angoli
-         21x21 e quattro bordi da stirare (alto/basso 4x21, sinistra/destra
-         21x4). Gli angoli restano alla loro misura esatta (Stretch=None), i
-         bordi si stirano (Stretch=Fill) e la cella centrale e' SOLO il
-         contenuto: nessun rettangolo bianco, nessun overlay, nessuna
-         cattura dello schermo.
+    <!-- Exact slicing of the user-supplied DWMBorder.png. Its transparent
+         aperture is x=17..218, y=38..146 (202x109) in the 236x166 bitmap.
+         Corners remain pixel-sized; only straight edge sections stretch, so
+         the frame adapts to each aspect-correct live DWM thumbnail without
+         distorting rounded corners or leaving uncovered inner gaps.
 
-         Il vetro del centro e' il gradiente campionato negli stessi asset
-         (#DCEBF9 in alto -> #C9DFF5 in basso): e' il colore che i bordi
-         laterali e inferiore portano con se', quindi la giunzione non si
-         vede. Il contenuto viene disegnato SOPRA il vetro.
-         ================================================================== -->
+         Per Microsoft WPF opacity-mask semantics, only the PNG alpha channel
+         controls visibility; its grayscale RGB/luminance is intentionally
+         ignored. The underlying Fill is the dynamic system accent brush. -->
     <ControlTemplate x:Key="TaskPreviewFrameVista"
                      TargetType="ContentControl">
-        <!-- v1.7.6: the template now CONSUMES the control's Background
-             (TemplateBinding on the root Grid). The instance declares
-             #FFDCEBF9 - the same blue as the top of the frame images - and
-             until now the template ignored it: an unused declaration plus a
-             seam risk wherever the nine PNG pieces do not tile perfectly.
-             With the binding the frame rectangle is guaranteed painted
-             end to end, so no extra uncovered surface can appear next to
-             the Aero frame (the "white strip" family of defects). -->
-        <Grid SnapsToDevicePixels="True"
-              Background="{TemplateBinding Background}">
+        <Grid SnapsToDevicePixels="True">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
+                <RowDefinition Height="38" />
                 <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
+                <RowDefinition Height="19" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="17" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="17" />
             </Grid.ColumnDefinitions>
 
-            <!-- vetro della cella centrale (sotto il contenuto) -->
-            <Border Grid.Row="1" Grid.Column="1">
-                <Border.Background>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#FFDCEBF9" Offset="0.0" />
-                        <GradientStop Color="#FFC9DFF5" Offset="1.0" />
-                    </LinearGradientBrush>
-                </Border.Background>
-            </Border>
+            <Rectangle Grid.Row="0" Grid.Column="0"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="0,0,17,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="1"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="17,0,202,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="2"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="219,0,17,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
+            </Rectangle>
 
-            <!-- angoli: misura esatta, nessuna scalatura -->
-            <Image Grid.Row="0" Grid.Column="0"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerTopLeft}"
-                   Width="21" Height="21" Stretch="None"
-                   SnapsToDevicePixels="True" />
-            <Image Grid.Row="0" Grid.Column="2"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerTopRight}"
-                   Width="21" Height="21" Stretch="None"
-                   SnapsToDevicePixels="True" />
-            <Image Grid.Row="2" Grid.Column="0"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerBottomLeft}"
-                   Width="21" Height="21" Stretch="None"
-                   SnapsToDevicePixels="True" />
-            <Image Grid.Row="2" Grid.Column="2"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameCornerBottomRight}"
-                   Width="21" Height="21" Stretch="None"
-                   SnapsToDevicePixels="True" />
+            <Rectangle Grid.Row="1" Grid.Column="0"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="0,38,17,109"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
+            </Rectangle>
+            <Rectangle Grid.Row="1" Grid.Column="2"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="219,38,17,109"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
+            </Rectangle>
 
-            <!-- bordi: si stirano lungo la loro direzione -->
-            <Image Grid.Row="0" Grid.Column="1"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameTop}"
-                   Height="21" Stretch="Fill"
-                   SnapsToDevicePixels="True" />
-            <Image Grid.Row="2" Grid.Column="1"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameBottom}"
-                   Height="21" Stretch="Fill"
-                   SnapsToDevicePixels="True" />
-            <Image Grid.Row="1" Grid.Column="0"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameLeft}"
-                   Width="21" Stretch="Fill"
-                   SnapsToDevicePixels="True" />
-            <Image Grid.Row="1" Grid.Column="2"
-                   Source="{x:Static w7util:PreviewAssets.PreviewFrameRight}"
-                   Width="21" Stretch="Fill"
-                   SnapsToDevicePixels="True" />
+            <Rectangle Grid.Row="2" Grid.Column="0"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="0,147,17,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="1"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="17,147,202,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="2"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}">
+                <Rectangle.OpacityMask>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                Viewbox="219,147,17,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.OpacityMask>
+            </Rectangle>
 
-            <!-- contenuto (fascia del titolo + miniatura viva) -->
+            <!-- Preserve the exact photographic shading and edge detail of
+                 the supplied border above the accent layer. A restrained
+                 grayscale overlay keeps the live accent visible and lets the
+                 clipped static blur show through; the PNG remains unchanged. -->
+            <Rectangle Grid.Row="0" Grid.Column="0" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="0,0,17,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="1" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="17,0,202,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="2" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="219,0,17,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="1" Grid.Column="0" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="0,38,17,109"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="1" Grid.Column="2" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="219,38,17,109"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="0" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="0,147,17,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="1" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="17,147,202,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="2" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="219,147,17,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+
+            <!-- DWM occupies exactly the bitmap's transparent aperture. -->
             <ContentPresenter Grid.Row="1" Grid.Column="1" />
         </Grid>
     </ControlTemplate>
@@ -142,8 +262,10 @@
          disegna niente sopra di noi, quindi la X si vede sempre.
          ================================================================== -->
     <Style x:Key="TaskPreviewCloseButton" TargetType="Button">
-        <Setter Property="Width" Value="14" />
-        <Setter Property="Height" Value="14" />
+        <!-- 20x20 hit target; the artwork remains exactly 14x14 and is
+             centred, extending the clickable area 3px on every side. -->
+        <Setter Property="Width" Value="20" />
+        <Setter Property="Height" Value="20" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Background" Value="Transparent" />
@@ -209,11 +331,10 @@
                 <!-- v1.7.2: the OUTER line slid slightly right as sheets
                      opened: +2% of the button width per sheet, counted up
                      to 3 (4+ behaves as 3). v1.7.6: +2.5% right for ALL
-                     lines at 2+ sheets, and a FURTHER +3% right for the
+                     lines at 2+ sheets, and a FURTHER +2.5% right for the
                      outer line only when MORE THAN 2 sheets are open
                      (3+ is one single case - no new per-sheet cases were
-                     invented above 3). Outer line totals: 4.5% at 2
-                     sheets, 9.5% at 3+. RenderTransform: zero layout
+                     invented above 3). RenderTransform has zero layout
                      impact, like the rest of the overlay. -->
                 <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
                        Width="3" Height="40"
@@ -240,7 +361,7 @@
                 <!-- seconda linea, un gradino piu' a sinistra (3+ finestre) -->
                 <!-- v1.7.6: this line slides +2.5% right as well
                      (parameter "inner": it never gets the outer line's
-                     extra +3% at 3+ sheets). RenderTransform again:
+                     extra +2.5% at 3+ sheets). RenderTransform again:
                      zero layout impact. -->
                 <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
                        Width="3" Height="40"
@@ -397,6 +518,43 @@
         </Grid>
     </ControlTemplate>
 
+    <!-- User-supplied orange notification tile. Three-slice rendering keeps
+         its rounded side borders at native width while only the centre grows. -->
+    <ControlTemplate x:Key="TaskButtonFrameNotification"
+                     TargetType="ContentControl">
+        <Grid SnapsToDevicePixels="True">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="6" />
+            </Grid.ColumnDefinitions>
+            <Rectangle Grid.Column="0" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Notification}"
+                                Viewbox="0,0,6,40" ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Column="1" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Notification}"
+                                Viewbox="6,0,48,40" ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Column="2" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{x:Static w7util:TaskButtonAssets.Notification}"
+                                Viewbox="54,0,6,40" ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+        </Grid>
+    </ControlTemplate>
+
         <ControlTemplate x:Key="SuperbarIdleTemplate" TargetType="Button">
         <!-- v2.53: l'HOVER e' tornato la tessera vettoriale della barra
              (TrayTileHoverImage, la stessa che usano le icone dell'area di
@@ -405,6 +563,10 @@
         <Border BorderThickness="1.4" BorderBrush="Transparent"
                 CornerRadius="4">
             <Grid>
+                <!-- v3.7: alone Aero sotto a tutto (l'icona resta nitida sopra) -->
+                <Border x:Name="AeroGlow" Margin="-3,0" CornerRadius="6"
+                        Background="{StaticResource SuperbarAeroGlowBrush}"
+                        Opacity="0" IsHitTestVisible="False" />
                 <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
                         Background="Transparent" IsHitTestVisible="False" />
                 <Border BorderThickness="1.4" BorderBrush="Transparent"
@@ -432,6 +594,26 @@
                 <Setter TargetName="HoverTile" Property="Background"
                         Value="{DynamicResource TaskButtonBackgroundPressed}" />
             </Trigger>
+            <!-- v3.7: dissolvenza del glow in ingresso/uscita -->
+            <EventTrigger RoutedEvent="MouseEnter">
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="1" Duration="0:0:0.18"
+                                         FillBehavior="HoldEnd" />
+                    </Storyboard>
+                </BeginStoryboard>
+            </EventTrigger>
+            <EventTrigger RoutedEvent="MouseLeave">
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="0" Duration="0:0:0.35" />
+                    </Storyboard>
+                </BeginStoryboard>
+            </EventTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
@@ -447,6 +629,10 @@
                 <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
                         Background="Transparent" IsHitTestVisible="False"
                         Opacity="0" />
+                <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
+                <Border x:Name="AeroGlow" Margin="-3,0" CornerRadius="6"
+                        Background="{StaticResource SuperbarAeroGlowBrush}"
+                        Opacity="0" IsHitTestVisible="False" />
                 <ContentPresenter Margin="8.45,0" VerticalAlignment="Center"
                                   x:Name="Content" />
             </Grid>
@@ -466,6 +652,26 @@
                         Value="{DynamicResource ButtonPressedForeground}" />
                 <Setter TargetName="Frame" Property="Opacity" Value="0.85" />
             </Trigger>
+            <!-- v3.7: dissolvenza del glow in ingresso/uscita -->
+            <EventTrigger RoutedEvent="MouseEnter">
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="1" Duration="0:0:0.18"
+                                         FillBehavior="HoldEnd" />
+                    </Storyboard>
+                </BeginStoryboard>
+            </EventTrigger>
+            <EventTrigger RoutedEvent="MouseLeave">
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="0" Duration="0:0:0.35" />
+                    </Storyboard>
+                </BeginStoryboard>
+            </EventTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
@@ -480,6 +686,10 @@
                 <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
                         Background="Transparent" IsHitTestVisible="False"
                         Opacity="0" />
+                <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
+                <Border x:Name="AeroGlow" Margin="-3,0" CornerRadius="6"
+                        Background="{StaticResource SuperbarAeroGlowBrush}"
+                        Opacity="0" IsHitTestVisible="False" />
                 <ContentPresenter Margin="8.45,0,8.45,0.7" VerticalAlignment="Center"
                                   x:Name="Content" />
                 <Rectangle Height="2" VerticalAlignment="Bottom" Margin="1,0,1,0"
@@ -505,6 +715,81 @@
                 <Setter TargetName="Frame" Property="Opacity" Value="0.85" />
                 <Setter TargetName="BottomHighlight" Property="Opacity" Value="0.35" />
             </Trigger>
+            <!-- v3.7: dissolvenza del glow in ingresso/uscita -->
+            <EventTrigger RoutedEvent="MouseEnter">
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="1" Duration="0:0:0.18"
+                                         FillBehavior="HoldEnd" />
+                    </Storyboard>
+                </BeginStoryboard>
+            </EventTrigger>
+            <EventTrigger RoutedEvent="MouseLeave">
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="0" Duration="0:0:0.35" />
+                    </Storyboard>
+                </BeginStoryboard>
+            </EventTrigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <!-- FlashWindowEx/attention state: the supplied orange tile replaces the
+         synthetic amber brushes, while icon placement and button geometry
+         stay identical to the running state. -->
+    <ControlTemplate x:Key="SuperbarNotificationTemplate" TargetType="Button">
+        <Border Background="Transparent" Padding="0" Name="ButtonBorder">
+            <Grid>
+                <ContentControl x:Name="Frame"
+                                Template="{DynamicResource TaskButtonFrameNotification}" />
+                <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
+                        Background="Transparent" IsHitTestVisible="False"
+                        Opacity="0" />
+                <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
+                <Border x:Name="AeroGlow" Margin="-3,0" CornerRadius="6"
+                        Background="{StaticResource SuperbarAeroGlowBrush}"
+                        Opacity="0" IsHitTestVisible="False" />
+                <ContentPresenter Margin="8.45,0" VerticalAlignment="Center"
+                                  x:Name="Content" />
+            </Grid>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="HoverTile" Property="Opacity" Value="1" />
+                <Setter TargetName="HoverTile" Property="Background">
+                    <Setter.Value>
+                        <ImageBrush ImageSource="{DynamicResource TrayTileHoverImage}"
+                                    Stretch="Fill" />
+                    </Setter.Value>
+                </Setter>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Frame" Property="Opacity" Value="0.85" />
+            </Trigger>
+            <!-- v3.7: dissolvenza del glow in ingresso/uscita -->
+            <EventTrigger RoutedEvent="MouseEnter">
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="1" Duration="0:0:0.18"
+                                         FillBehavior="HoldEnd" />
+                    </Storyboard>
+                </BeginStoryboard>
+            </EventTrigger>
+            <EventTrigger RoutedEvent="MouseLeave">
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="0" Duration="0:0:0.35" />
+                    </Storyboard>
+                </BeginStoryboard>
+            </EventTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
@@ -528,6 +813,11 @@
                         Value="{DynamicResource ButtonActiveForeground}" />
             </DataTrigger>
         </Style.Triggers>
+    </Style>
+
+    <Style x:Key="SuperbarButtonFlashing" TargetType="Button">
+        <Setter Property="Template"
+                Value="{StaticResource SuperbarNotificationTemplate}" />
     </Style>
 
     <!-- ==================================================================

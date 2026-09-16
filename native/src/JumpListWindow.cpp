@@ -15,11 +15,9 @@
 // Open/SetHover/ActivateRow is a SCREEN PHYSICAL PIXEL value (the space of
 // SetWindowPos/GetCursorPos and of WPF PointToScreen on a per-monitor-DPI
 // process). Geometry constants are 96-DPI reference values scaled by the
-// DPI of the monitor that owns the taskbar button - measured against the
-// Windows 7 jump list screenshots: 300 px popup width, 16 px document
-// icons, 32 px application icon, 19 px section header band; the row heights
-// (28/48/34) and the menu palette carry over the v2.40 tuning of this
-// popup. All offsets go through Sc(): no unscaled magic numbers.
+// DPI of the monitor that owns the taskbar button. The compact application
+// row uses the compact 21 px application icon and Segoe UI metrics; all
+// offsets go through Sc(), so there are no unscaled magic numbers.
 
 #include "JumpListWindow.h"
 #include "FlyoutLauncher.h"
@@ -40,20 +38,137 @@ namespace w7t {
 namespace {
 
 constexpr wchar_t kClassName[] = L"W7T_JumpList";
+constexpr UINT kDismissOutsideMessage = WM_APP + 0x177;
 
 /* --- 96-DPI reference geometry (scaled by JumpListWindow::Sc) --------- */
-constexpr int kWidth96      = 300;
-constexpr int kRowApp96     = 48;
-constexpr int kRowPin96     = 34;
-constexpr int kRowDoc96     = 28;
-constexpr int kHeader96     = 19;
-constexpr int kPad96        = 8;   /* top/bottom inner padding           */
+constexpr int kWidth96      = 280;
+constexpr int kRowApp96     = 36;
+constexpr int kRowClose96   = 26;
+constexpr int kRowPin96     = 28;
+constexpr int kRowDoc96     = 24;
+constexpr int kHeader96     = 17;
+constexpr int kPad96        = 6;   /* top/bottom inner padding           */
 constexpr int kSep96        = 6;   /* separator band between sections     */
 constexpr int kGap96        = 4;   /* popup-to-button gap (Windows 7)     */
 constexpr int kEdgeMargin96 = 2;   /* never closer to the work area edge  */
-constexpr int kDocIcon96    = 16;
-constexpr int kAppIcon96    = 32;
+constexpr int kDocIcon96    = 15;
+/* Additional compact pass: 22 * 0.97 = 21.34 reference pixels. */
+constexpr int kAppIcon96    = 21;
+constexpr int kPinIcon96    = 14;
+constexpr int kClose96      = 14;
 constexpr int kMaxDocsPerSection = 10; /* the taskbar list caps at ten    */
+
+/* Glossy cyan pushpin artwork for the localized Pin row. It is decoded
+ * through the same WIC path as the graphical close-button states. */
+constexpr char kPinPng[] =
+    "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";
+
+/* Exact three-state 14x14 artwork used by the managed DWM preview close
+ * button (PreviewAssets.cs). Decoding it here keeps both close controls
+ * graphically identical instead of approximating the X with GDI lines. */
+constexpr char kCloseNormalPng[] =
+    "iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAABhklEQVR42pXSu04CQRSA4X/ZZVmuWRSNEgslJB"
+    "JiIWijYGGstCLBxE5K3kATHoAE3sASbDTRwsonABvxEsB4CdoQQowFBYUQ1rUwLJcKpzuZ882ZOXMEXdc53dpq"
+    "5J4b80ywEgFvCVgX8tHo7dxhIrS5ETJNAos39zTzuZKw4/Hpl9d52pW7SRyOlTDx3UMkAF3T0LpdLl8+KdRbAE"
+    "QWVICROL48i65pAH/wp9dD63xTqLe4OD8BYP8gCTASxxZd/PR6A/j19MjH1RlBh4/9gyQX5ycG6KNgp8nrVZEl"
+    "xQbASEMi7XeCnaZRbRhF2u8jb5UABFHEJMsACCYRgFqtZiQJpqF9URxUFGULZruTotNP1TxDJn1koEz6iKp5hq"
+    "LTj9nuRJQtQ1BRkF0qZVQDHaeyHKeyBi6jIrtUREUZXFWy2lHcHsLoRnLYoRsH9GPF7UGy2oehDWVqmtgUxMY+"
+    "fDyWrH9dlRIBb6lSa6ytbu9NNDkPlTcSAW9JyEejALe558baf4b8F1/egSzJiuNOAAAAAElFTkSuQmCC";
+constexpr char kCloseHoverPng[] =
+    "iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAABnUlEQVR42pWSMUtbYRSGn+9eEwOXqJGrpEFFEm"
+    "5JwC3BQROCTXFxcLDYwUKQQkr/gAF/gBL/gLTgoE6Ci5OQQehwl3DTwcVSuVCCmEGkgqSQCJ4O0ZtGaUnP9sJ5"
+    "vvc9L58SEfYzGWf322WSHiYfj1SBlNpLp52xwsdk9tVsLxxfTmwuPm9XVc6MStk+Qn587wlUky+Zn12kD4C7Fv"
+    "xqsOO4lM/rAMxbLwC69PtUrL0LbVBaTe4bt5TP6xwefALgzdsPAF16NTGK1mq2rXNmVOqlopzGNNmcy8jSckGe"
+    "ztJyQTbnMnIa06ReKkrOjIr2Z/6Fmk3q6sxze3RKXZ2xULO7bu37Wwmu6/6zJA1ABfzoQwbHVhZnJEFpY81bKG"
+    "2s4YwkOLay6EMGKuDvgHrIwDdhUhmwPKi4vkVxfcuDKwMWvgkTPWR0ourDQfyxMDM/r73lmeC198Cj9ofC6MPB"
+    "DugLDxKYGmcFWOHmIaQOz/Q4vvBgG8zHI9Wv7k1y+vU7UE2UaoB2293EfRARA6Sfil0jH49U1V46DfDfn/w3M2"
+    "Gc5P4I7F8AAAAASUVORK5CYII=";
+constexpr char kClosePressedPng[] =
+    "iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAABxElEQVR42o3Sv2sTYRzH8fflrrkLd+31Ei6BK7"
+    "UKkmhiBAdBJKO7S7DgD0QcMri30D+g0O4dupuh0MVdcImj1WIbSyCDChdaSQIS27vLc3cOsUkjKH22L3xez/N8"
+    "n+crvXj8MhbfT3C/HHKZ5dwsoVzJIT3M342fvHpK+U6e5MwMiqKQkKSpcBTHCCEIhkM+f2xR33qNMuh1yRcWOH"
+    "j7Bl3TSCYVZDkxBcMwIggEvzyP/P0HDHpdFIBIhER+wPuTmKNeDEDJlgE4/BECcCMtcdscEolR/QcKQt/nqKew"
+    "u7MNQHW5BjBVlzSfSIgJdPf32avXsQoVqss1dne2x+AcWW6TvXcNDGsBgKlmcq0Gltscn3YR5VqNqb6Vfz17u9"
+    "3+77eMTtQkMCWOyxX6TpGN9ZVxYGN9hb5T5LhcAVMaZc+hqqsYtkk/M0Gra5usrm1OcKaIYZuoujq5ampex1qy"
+    "WUy44/A1tTPeAGBRcbGWbFLz+gTq6Tmy1x2ups7Q1K/IiYuT840wivF8wemZg56eG8FZO4vbOeVetYaqhiQ1D1"
+    "ke/DU5BoGn4fsyBx86zNpZpGePnsc/PzUZ9LqXGnIjnUG/VeA3lCml9GTco10AAAAASUVORK5CYII=";
 
 /* RAII for COM interfaces: Release() on every path - early returns, C++
  * exceptions and SEH-fault unwinds alike (same principle as IconHandle and
@@ -87,36 +202,44 @@ struct JumpStr {
     const wchar_t* frequent;
     const wchar_t* pin;
     const wchar_t* unpin;
+    const wchar_t* closeWindow;
 };
 const JumpStr& Str(int lang) {
     static const JumpStr kIt = {
         L"Voci usate di recente", L"Voci usate di frequente",
         L"Fissa questo programma alla barra delle applicazioni",
-        L"Rimuovi questo programma dalla barra delle applicazioni" };
+        L"Rimuovi questo programma dalla barra delle applicazioni",
+        L"Chiudi la finestra" };
     static const JumpStr kEn = {
         L"Recent items", L"Frequent items",
         L"Pin this program to the taskbar",
-        L"Unpin this program from the taskbar" };
+        L"Unpin this program from the taskbar",
+        L"Close window" };
     static const JumpStr kEs = {
         L"Elementos recientes", L"Elementos frecuentes",
         L"Anclar este programa a la barra de tareas",
-        L"Desanclar este programa de la barra de tareas" };
+        L"Desanclar este programa de la barra de tareas",
+        L"Cerrar ventana" };
     static const JumpStr kFr = {
         L"\u00c9l\u00e9ments r\u00e9cents", L"\u00c9l\u00e9ments fr\u00e9quents",
         L"\u00c9pingler ce programme \u00e0 la barre des t\u00e2ches",
-        L"D\u00e9tacher ce programme de la barre des t\u00e2ches" };
+        L"D\u00e9tacher ce programme de la barre des t\u00e2ches",
+        L"Fermer la fen\u00eatre" };
     static const JumpStr kDe = {
         L"Zuletzt verwendete Elemente", L"H\u00e4ufig verwendete Elemente",
         L"Dieses Programm an die Taskleiste anheften",
-        L"Dieses Programm von der Taskleiste l\u00f6sen" };
+        L"Dieses Programm von der Taskleiste l\u00f6sen",
+        L"Fenster schlie\u00dfen" };
     static const JumpStr kPt = {
         L"Itens recentes", L"Itens frequentes",
         L"Fixar este programa na barra de tarefas",
-        L"Desafixar este programa da barra de tarefas" };
+        L"Desafixar este programa da barra de tarefas",
+        L"Fechar janela" };
     static const JumpStr kPl = {
         L"Ostatnie elementy", L"Cz\u0119ste elementy",
         L"Przypnij ten program do paska zada\u0144",
-        L"Odepnij ten program od paska zada\u0144" };
+        L"Odepnij ten program od paska zada\u0144",
+        L"Zamknij okno" };
     static const JumpStr kRu = {
         L"\u041d\u0435\u0434\u0430\u0432\u043d\u0438\u0435 \u044d\u043b\u0435"
         L"\u043c\u0435\u043d\u0442\u044b",
@@ -129,19 +252,22 @@ const JumpStr& Str(int lang) {
         L"\u041e\u0442\u043a\u0440\u0435\u043f\u0438\u0442\u044c \u044d"
         L"\u0442\u0443 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c"
         L"\u0443 \u043e\u0442 \u043f\u0430\u043d\u0435\u043b\u0438 \u0437"
-        L"\u0430\u0434\u0430\u0447" };
+        L"\u0430\u0434\u0430\u0447",
+        L"\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u043e\u043a\u043d\u043e" };
     static const JumpStr kJa = {
         L"\u6700\u8fd1\u4f7f\u3063\u305f\u9805\u76ee",
         L"\u3088\u304f\u4f7f\u3046\u9805\u76ee",
         L"\u3053\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u3092\u30bf\u30b9"
         L"\u30af\u30d0\u30fc\u306b\u8868\u793a\u3059\u308b",
         L"\u3053\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u3092\u30bf\u30b9"
-        L"\u30af\u30d0\u30fc\u306b\u8868\u793a\u3057\u306a\u3044" };
+        L"\u30af\u30d0\u30fc\u306b\u8868\u793a\u3057\u306a\u3044",
+        L"\u30a6\u30a3\u30f3\u30c9\u30a6\u3092\u9589\u3058\u308b" };
     static const JumpStr kZh = {
         L"\u6700\u8fd1\u4f7f\u7528\u3057\u305f\u9879\u76ee",
         L"\u7ecf\u5e38\u4f7f\u7528\u3059\u308b\u9879\u76ee",
         L"\u5c06\u6b64\u7a0b\u5e8f\u56fa\u5b9a\u5230\u4efb\u52a1\u680f",
-        L"\u5c06\u6b64\u7a0b\u5e8f\u4ece\u4efb\u52a1\u680f\u89e3\u9664" };
+        L"\u5c06\u6b64\u7a0b\u5e8f\u4ece\u4efb\u52a1\u680f\u89e3\u9664",
+        L"\u5173\u95ed\u7a97\u53e3" };
     static const JumpStr kAr = {
         L"\u0627\u0644\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0623"
         L"\u062e\u064a\u0631\u0629",
@@ -153,7 +279,8 @@ const JumpStr& Str(int lang) {
         L"\u0625\u0644\u063a\u0627\u0621 \u062a\u062b\u0628\u064a\u062a"
         L" \u0647\u0630\u0627 \u0627\u0644\u0628\u0631\u0646\u0627\u0645"
         L"\u062c \u0645\u0646 \u0634\u0631\u064a\u0637 \u0627\u0644\u0645"
-        L"\u0647\u0627\u0645" };
+        L"\u0647\u0627\u0645",
+        L"\u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0646\u0627\u0641\u0630\u0629" };
     switch (lang) {
         case 1: return kEn; case 2: return kEs; case 3: return kFr;
         case 4: return kDe; case 5: return kPt; case 6: return kPl;
@@ -383,6 +510,23 @@ JumpListWindow& JumpListWindow::Instance() {
     return instance;
 }
 
+LRESULT CALLBACK JumpListWindow::OutsideMouseProc(int code, WPARAM wParam,
+                                                   LPARAM lParam) {
+    JumpListWindow& j = Instance();
+    if (code >= 0 && j.m_interactive && j.IsVisible() &&
+        (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN ||
+         wParam == WM_MBUTTONDOWN)) {
+        const MSLLHOOKSTRUCT* mouse =
+            reinterpret_cast<const MSLLHOOKSTRUCT*>(lParam);
+        if (mouse != nullptr && !PtInRect(&j.m_popupRect, mouse->pt)) {
+            /* Never block the click. Dismiss asynchronously so the target
+             * underneath receives its original down message unchanged. */
+            PostMessageW(j.m_hwnd, kDismissOutsideMessage, 0, 0);
+        }
+    }
+    return CallNextHookEx(j.m_outsideMouseHook, code, wParam, lParam);
+}
+
 void JumpListWindow::RegisterClassOnce() {
     if (m_classRegistered) return;
     WNDCLASSEXW wc{};
@@ -460,10 +604,23 @@ void JumpListWindow::BuildRows() {
     app.label = m_title;
     m_rows.push_back(std::move(app));
 
-    Row pin;
-    pin.kind = Row::Pin;
-    pin.label = m_pinned ? Str(m_lang).unpin : Str(m_lang).pin;
-    m_rows.push_back(std::move(pin));
+    if (!m_pinned) {
+        Row pin;
+        pin.kind = Row::Pin;
+        pin.label = Str(m_lang).pin;
+        m_rows.push_back(std::move(pin));
+    }
+
+    if (m_representativeHwnd != nullptr && IsWindow(m_representativeHwnd)) {
+        Row close;
+        close.kind = Row::Close;
+        close.label = Str(m_lang).closeWindow;
+        m_rows.push_back(std::move(close));
+    }
+    /* FUTURE IMPLEMENTATION: the former "Unpin this program from the
+     * taskbar" row is intentionally not added for pinned applications.
+     * Keep PerformPinOrUnpin's unpin path available for a future design,
+     * but do not expose that command in the current jump-list interface. */
 }
 
 void JumpListWindow::Layout() {
@@ -485,11 +642,13 @@ void JumpListWindow::Layout() {
          * the tasks). */
         if (!isDoc && (lastKind == (int)Row::DocRecent ||
                        lastKind == (int)Row::DocFrequent ||
-                       lastKind == (int)Row::App)) {
+                       lastKind == (int)Row::App ||
+                       lastKind == (int)Row::Close)) {
             y += Sc(kSep96);
         }
 
         const int rowH = (r.kind == Row::App) ? Sc(kRowApp96)
+                         : (r.kind == Row::Close) ? Sc(kRowClose96)
                          : (r.kind == Row::Pin) ? Sc(kRowPin96)
                          : Sc(kRowDoc96);
         r.rect = RECT{ 0, y, m_width, y + rowH };
@@ -502,6 +661,26 @@ void JumpListWindow::Layout() {
 RECT JumpListWindow::RowRect(size_t index) const {
     if (index < m_rows.size()) return m_rows[index].rect;
     return RECT{ 0, 0, 0, 0 };
+}
+
+RECT JumpListWindow::CloseRect() const {
+    if (m_representativeHwnd == nullptr || !IsWindow(m_representativeHwnd))
+        return RECT{};
+    for (const Row& row : m_rows) {
+        if (row.kind == Row::Close) {
+            const int size = Sc(kClose96);
+            const int left = Sc(14);
+            const int top = row.rect.top +
+                (row.rect.bottom - row.rect.top - size) / 2;
+            return RECT{ left, top, left + size, top + size };
+        }
+    }
+    return RECT{};
+}
+
+bool JumpListWindow::HitCloseClient(POINT clientPt) const {
+    RECT close = CloseRect();
+    return close.right > close.left && PtInRect(&close, clientPt) != FALSE;
 }
 
 /* Index of the row under client coordinates, -1 for none. The empty strip
@@ -595,8 +774,12 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
      * on screen. */
     Hide();
     m_hover = -1;
+    m_interactive = false;
+    m_closeHot = false;
+    m_closeDown = false;
     ClearContent();
     m_appIcon.reset();
+    m_pinIcon.reset();
 
     W7T_SEH_TRY {
         RegisterClassOnce();
@@ -609,6 +792,9 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
         m_pinned = isPinned;
         m_buttonRect = buttonRectScreen;
         m_edge = edge;
+        m_representativeHwnd =
+            representativeHwnd != nullptr && IsWindow(representativeHwnd)
+                ? representativeHwnd : nullptr;
 
         /* --- application identity (public Shell APIs only) --- */
         int32_t source = kSourceNone;
@@ -647,6 +833,21 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
             }
         }
 
+        /* Decode the embedded pushpin and the same close PNGs used by
+         * PreviewAssets.cs. BitmapHandle owns every resulting HBITMAP. */
+        auto loadArtwork = [](const char* png, raii::BitmapHandle& target) {
+            if (target) return;
+            std::vector<uint32_t> pixels;
+            int width = 0, height = 0;
+            if (DecodeEmbeddedPng(png, pixels, width, height, false, 0)) {
+                target.reset(MakeHBitmapFromArgb(pixels, width, height));
+            }
+        };
+        loadArtwork(kPinPng, m_pinIcon);
+        loadArtwork(kCloseNormalPng, m_closeNormal);
+        loadArtwork(kCloseHoverPng, m_closeHover);
+        loadArtwork(kClosePressedPng, m_closePressed);
+
         BuildRows();
         Layout();
 
@@ -663,6 +864,10 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
             }
             ApplyAeroFlyoutStyle(m_hwnd);   /* shared Aero flyout border */
         }
+        /* The opening drag is still captured by WPF. Start non-activating;
+         * MakeInteractive removes this bit only after that mouse-up. */
+        SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE,
+            GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
         Place(m_hwnd, m_buttonRect, m_edge);
         UpdateInteractionArea();
         InvalidateRect(m_hwnd, nullptr, TRUE);
@@ -681,10 +886,45 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
     } W7T_SEH_END
 }
 
+void JumpListWindow::MakeInteractive() {
+    if (!IsVisible()) return;
+    W7T_SEH_TRY {
+        m_interactive = true;
+        SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE,
+            GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE) & ~WS_EX_NOACTIVATE);
+        SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED |
+                     SWP_NOOWNERZORDER);
+        SetForegroundWindow(m_hwnd);
+        SetActiveWindow(m_hwnd);
+
+        if (m_outsideMouseHook == nullptr) {
+            HMODULE module = nullptr;
+            GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                    GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                reinterpret_cast<LPCWSTR>(&JumpListWindow::OutsideMouseProc),
+                &module);
+            m_outsideMouseHook = SetWindowsHookExW(
+                WH_MOUSE_LL, OutsideMouseProc, module, 0);
+        }
+    } W7T_SEH_CATCH {
+        Hide();
+    } W7T_SEH_END
+}
+
 void JumpListWindow::Hide() {
     W7T_SEH_TRY {
+        if (m_outsideMouseHook != nullptr) {
+            UnhookWindowsHookEx(m_outsideMouseHook);
+            m_outsideMouseHook = nullptr;
+        }
+        if (GetCapture() == m_hwnd) ReleaseCapture();
         if (m_hwnd != nullptr) ShowWindow(m_hwnd, SW_HIDE);
         m_hover = -1;
+        m_interactive = false;
+        m_closeHot = false;
+        m_closeDown = false;
     } W7T_SEH_CATCH {
     } W7T_SEH_END
 }
@@ -774,6 +1014,10 @@ int32_t JumpListWindow::ActivateRow(int32_t screenX, int32_t screenY,
                     bits |= BitsLaunchedApp;
                     LogTagged(L"JUMPLIST", L"item activated: application row");
                     break;
+                case Row::Close:
+                    CloseRunningApplication();
+                    LogTagged(L"JUMPLIST", L"item activated: close window");
+                    break;
                 case Row::Pin:
                     PerformPinOrUnpin();
                     bits |= BitsPinToggled;
@@ -801,6 +1045,19 @@ void JumpListWindow::LaunchApp() {
         }
     } W7T_SEH_CATCH {
         LogTagged(L"JUMPLIST", L"hardware fault while launching the app");
+    } W7T_SEH_END
+}
+
+void JumpListWindow::CloseRunningApplication() {
+    W7T_SEH_TRY {
+        /* The close control exists only while this real representative
+         * window exists. WM_CLOSE follows the same path as the graphical
+         * close button in the DWM preview. */
+        if (m_representativeHwnd != nullptr && IsWindow(m_representativeHwnd)) {
+            PostMessageW(m_representativeHwnd, WM_CLOSE, 0, 0);
+        }
+    } W7T_SEH_CATCH {
+        LogTagged(L"JUMPLIST", L"hardware fault while closing the app");
     } W7T_SEH_END
 }
 
@@ -898,7 +1155,7 @@ void JumpListWindow::OnPaint(HWND hwnd) {
     if (bg.valid()) FillRect(hdc, &client, (HBRUSH)bg.get());
 
     SetBkMode(hdc, TRANSPARENT);
-    const int fontH = -::MulDiv(13, (int)m_dpi, 96);
+    const int fontH = -::MulDiv(11, (int)m_dpi, 96);
     const UniqueGdiObject font(CreateFontW(fontH, 0, 0, 0, FW_NORMAL,
         FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
         CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI"));
@@ -942,7 +1199,8 @@ void JumpListWindow::OnPaint(HWND hwnd) {
         }
         if (!isDoc && (lastKind == (int)Row::DocRecent ||
                        lastKind == (int)Row::DocFrequent ||
-                       lastKind == (int)Row::App)) {
+                       lastKind == (int)Row::App ||
+                       lastKind == (int)Row::Close)) {
             hline(r.rect.top - Sc(kSep96) / 2);
         }
         lastKind = (int)r.kind;
@@ -954,10 +1212,18 @@ void JumpListWindow::OnPaint(HWND hwnd) {
         }
 
         const int iconLeft = Sc(14);
-        const int textLeft = isDoc ? iconLeft + Sc(kDocIcon96) + Sc(6)
-                                   : iconLeft;
+        const int textLeft = isDoc
+            ? iconLeft + Sc(kDocIcon96) + Sc(6)
+            : (r.kind == Row::App
+                ? iconLeft + Sc(kAppIcon96) + Sc(9)
+                : (r.kind == Row::Close
+                    ? iconLeft + Sc(kClose96) + Sc(7)
+                    : (r.kind == Row::Pin
+                        ? iconLeft + Sc(kPinIcon96) + Sc(7)
+                        : iconLeft)));
         SetTextColor(hdc, (r.kind == Row::Pin) ? RGB(0x1E, 0x6F, 0xC9)
                                                 : RGB(0x1E, 0x1E, 0x1E));
+        const RECT closeRect = CloseRect();
         RECT tr{ textLeft, r.rect.top, client.right - margin, r.rect.bottom };
         DrawTextW(hdc, r.label.c_str(), -1, &tr,
                   DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
@@ -973,6 +1239,21 @@ void JumpListWindow::OnPaint(HWND hwnd) {
                              iconLeft,
                              r.rect.top + (Sc(kRowApp96) - box) / 2);
         }
+        if (r.kind == Row::Pin && m_pinIcon) {
+            const int box = Sc(kPinIcon96);
+            DrawBitmapScaled(hdc, m_pinIcon.get(), box, box,
+                             iconLeft,
+                             r.rect.top + (Sc(kRowPin96) - box) / 2);
+        }
+        if (r.kind == Row::Close && closeRect.right > closeRect.left) {
+            HBITMAP close = m_closeNormal.get();
+            if (m_closeDown && m_closePressed) close = m_closePressed.get();
+            else if (m_closeHot && m_closeHover) close = m_closeHover.get();
+            DrawBitmapScaled(hdc, close,
+                             closeRect.right - closeRect.left,
+                             closeRect.bottom - closeRect.top,
+                             closeRect.left, closeRect.top);
+        }
     }
     EndPaint(hwnd, &ps);
 }
@@ -987,37 +1268,70 @@ LRESULT CALLBACK JumpListWindow::WndProc(HWND hwnd, UINT msg,
             case WM_ERASEBKGND:
                 return 1;   /* the paint pass fills every band itself */
             case WM_MOUSEMOVE: {
-                /* Fallback path, only reached when NO capture owns the
-                 * input (capture-loss robustness): keep the hover in sync
-                 * with the real cursor. During a gesture this window
-                 * receives no mouse messages at all - the managed side
-                 * forwards positions through SetHover instead. */
                 JumpListWindow& j = Instance();
                 if (j.IsVisible()) {
                     POINT cl{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
                     const int hit = j.HitRowClient(cl);
-                    if (hit != j.m_hover) {
+                    const bool closeHot = j.HitCloseClient(cl);
+                    if (hit != j.m_hover || closeHot != j.m_closeHot) {
                         j.m_hover = hit;
+                        j.m_closeHot = closeHot;
                         InvalidateRect(hwnd, nullptr, FALSE);
                     }
+                    TRACKMOUSEEVENT tme{ sizeof(tme), TME_LEAVE, hwnd, 0 };
+                    TrackMouseEvent(&tme);
+                }
+                return 0;
+            }
+            case WM_MOUSELEAVE: {
+                JumpListWindow& j = Instance();
+                j.m_hover = -1;
+                j.m_closeHot = false;
+                if (!j.m_closeDown) InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
+            case WM_LBUTTONDOWN: {
+                JumpListWindow& j = Instance();
+                POINT cl{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                if (j.HitCloseClient(cl)) {
+                    j.m_closeDown = true;
+                    j.m_closeHot = true;
+                    SetCapture(hwnd);
+                    InvalidateRect(hwnd, nullptr, FALSE);
                 }
                 return 0;
             }
             case WM_LBUTTONUP: {
-                /* Only reachable without a capture (same fallback): the
-                 * release activates the row under the cursor, exactly like
-                 * the gesture release does. */
                 JumpListWindow& j = Instance();
-                if (j.IsVisible()) {
-                    POINT sc{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-                    ClientToScreen(hwnd, &sc);
-                    int32_t bits = 0;
-                    j.ActivateRow(sc.x, sc.y, &bits);
+                if (!j.IsVisible()) return 0;
+                POINT cl{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                if (j.m_closeDown) {
+                    const bool close = j.HitCloseClient(cl);
+                    j.m_closeDown = false;
+                    if (GetCapture() == hwnd) ReleaseCapture();
+                    if (close) {
+                        j.CloseRunningApplication();
+                        j.Hide();
+                    } else {
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                    }
+                    return 0;
                 }
+                POINT sc = cl;
+                ClientToScreen(hwnd, &sc);
+                int32_t bits = 0;
+                j.ActivateRow(sc.x, sc.y, &bits);
                 return 0;
             }
+            case WM_ACTIVATE:
+                if (LOWORD(wParam) == WA_INACTIVE && Instance().m_interactive)
+                    Instance().Hide();
+                break;
             case WM_KEYDOWN:
                 if (wParam == VK_ESCAPE) Instance().Hide();
+                return 0;
+            case kDismissOutsideMessage:
+                Instance().Hide();
                 return 0;
             case WM_NCDESTROY:
                 /* Window gone: drop everything bound to it so a later open
@@ -1029,6 +1343,7 @@ LRESULT CALLBACK JumpListWindow::WndProc(HWND hwnd, UINT msg,
                 Instance().m_area = RECT{};
                 Instance().ClearContent();
                 Instance().m_appIcon.reset();
+                Instance().m_pinIcon.reset();
                 return 0;
         }
     } W7T_SEH_CATCH {

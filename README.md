@@ -6,9 +6,11 @@ A Windows 7-inspired taskbar recreation and for Windows 10 and 11.
 
 Win7Taskbar is a system utility that recreates the Windows 7-style taskbar and Superbar using a XAML frontend with a native C++/Win32 backend. It includes grouped task buttons, the notification area, system flyouts, overflow handling, Jump Lists, and a Windows 7-inspired Properties interface.
 
-The software has been tested on Windows 10 21H2, Windows 10 22H2, Windows 11 24H2 and Windows 11 25H2. Some functionality on Windows 11, particularly the notification area, is recreated because newer versions of Windows no longer expose all of the same taskbar functionality available on previous versions.
+The software has been tested on Windows 8.1, Windows 10 21H2, Windows 10 22H2, Windows 11 24H2 and Windows 11 25H2. Some functionality on Windows 11, particularly the notification area, is recreated because newer versions of Windows no longer expose all of the same taskbar functionality available on previous versions. On Windows 8.1 the native core loads and the taskbar runs normally; note that the .NET 8 runtime it ships with is officially supported by Microsoft only on Windows 10 and later, so Windows 8.1 is a best-effort target.
 
 On Windows 11, **ExplorerPatcher is recommended for the best experience**, but it is optional. It can provide a more compatible Windows 10-style taskbar environment and allow Win7Taskbar to use more native notification-area functionality.
+
+**Open-Shell is also recommended alongside Win7Taskbar** for a more complete Windows 7-style desktop experience, particularly for restoring a Windows 7-style Start menu. Open-Shell is optional and complements Win7Taskbar rather than replacing it.
 
 
 **Current state: `Alpha`**
@@ -21,7 +23,7 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 
 ## Requirements
 
-* Windows 10 or Windows 11 (64 bit)
+* Windows 8.1, 10 or 11 (64 bit)
 * Official releases are self-contained and do not require a separate .NET installation
 
 
@@ -32,6 +34,8 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 > **Use one or the other at a time.**
 >
 > ExplorerPatcher is different and can complement Win7Taskbar on Windows 11.
+>
+> Open-Shell can also be used alongside Win7Taskbar and is recommended when a Windows 7-style Start menu is desired.
 
 ## Installation Guide
 
@@ -43,7 +47,10 @@ To install this software, the subsequent steps need to be followed:
 
 ## Current status
 
-Win7Taskbar is still under development. Some features are incomplete or recreated, particularly parts of the notification area and system UI on Windows 11 and other features.
+Win7Taskbar is still under development. Some features are incomplete or recreated, particularly parts of the notification area and system UI on Windows 11. Window thumbnail previews use a direct DWM surface with the existing image border and close button, without a coloured backing panel. Jump Lists are incomplete and temporarily disabled; their managed/native implementation remains in the source tree for completion. The right-click menu is unchanged.
+
+
+Other known limitations include unsupported decorative taskbar rotation and system windows that are hooked and repositioned rather than fully recreated.
 
 ## Build
 

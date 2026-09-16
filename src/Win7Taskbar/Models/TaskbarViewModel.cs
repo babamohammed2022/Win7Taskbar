@@ -444,8 +444,10 @@ namespace Win7Taskbar.Models
             // ultimo criterio: nome file senza estensione identico
             try
             {
-                string pn = System.IO.Path.GetFileNameWithoutExtension(pin.TargetPath);
-                string gn = System.IO.Path.GetFileNameWithoutExtension(group.ExePath);
+                string pn = System.IO.Path.GetFileNameWithoutExtension(pin.TargetPath)
+                            ?? string.Empty;
+                string gn = System.IO.Path.GetFileNameWithoutExtension(group.ExePath)
+                            ?? string.Empty;
                 return !string.IsNullOrEmpty(pn) &&
                        string.Equals(pn, gn, StringComparison.OrdinalIgnoreCase);
             }
@@ -581,6 +583,10 @@ namespace Win7Taskbar.Models
 
                 var state = (WindowStateFlags)info.State;
                 window.Title = info.Title ?? string.Empty;
+                // Reuse the executable path already supplied by the native
+                // window enumeration; don't perform another process query.
+                window.ApplicationName = TaskGroup.ResolveFriendlyApplicationName(
+                    info.ExePath, window.Title, info.AppId);
                 window.IsActive = state.HasFlag(WindowStateFlags.Active);
                 window.IsMinimized = state.HasFlag(WindowStateFlags.Minimized);
                 window.IsMaximized = state.HasFlag(WindowStateFlags.Maximized);
@@ -613,8 +619,8 @@ namespace Win7Taskbar.Models
 
         /* v1.7.6: the EnableAutoTray read that used to live here (with a
          * cached registry lookup) moved to the native core, where the same
-         * rule is resolved together with the "Notification Area Icons"
-         * per-icon behaviors. One authority, one cache, no view-level
+         * rule is resolved together with the saved per-icon tray
+         * behaviors. One authority, one cache, no view-level
          * overrides. */
 
         /// <summary>

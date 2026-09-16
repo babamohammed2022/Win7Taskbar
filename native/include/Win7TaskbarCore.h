@@ -230,19 +230,6 @@ W7T_API int32_t  W7T_CALL W7T_SendTrayIconClick(uint64_t ownerHwnd, uint32_t uid
                                                 int32_t clickType, int32_t x, int32_t y);
 W7T_API int32_t  W7T_CALL W7T_SetTrayIconPinned(uint64_t ownerHwnd, uint32_t uid, int32_t pinned);
 
-/* v1.7.6 - pagina "Notification Area Icons" (ricreazione Win7 della
- * selezione "icone e notifiche visualizzate nella barra", SCOPATA alla
- * sola tray del programma: nessuna chiave di registro scritta o letta
- * per le preferenze, nessun host del Pannello di controllo, nessuna
- * registrazione CLSID on-demand). Modeless come la finestra Proprieta':
- * vive sul pump del thread chiamante e il core continua ad aggiornare
- * la tray in tempo reale mentre la pagina e' aperta.
- * ownerTaskbar puo' essere 0 (pagina senza proprietario).
- * Ritorno: 1 = aperta, 0 = gia' aperta (sollevata), <0 = W7T_ERR_*.
- * Le modifiche della pagina si applicano immediatamente; Annulla
- * riavvolge tutto allo snapshot preso all'apertura. */
-W7T_API int32_t  W7T_CALL W7T_TrayCplShow(uint64_t ownerTaskbar);
-
 /* Riordino del modello dopo il trascinamento nella barra: sposta l'icona
  * (ownerHwnd,uid) accanto a (targetHwnd,targetUid) nel toolbar reale con
  * TB_MOVEBUTTON, come fa la shell. insertAfter: 1 per dopo il bersaglio. */
@@ -340,6 +327,9 @@ W7T_API int32_t  W7T_CALL W7T_ShowVolumeMixer(void);
  * da solo (menu Start, cambio risoluzione, riavvio della shell). */
 W7T_API int32_t  W7T_CALL W7T_ReassertNativeTaskbarHidden(void);
 W7T_API int32_t  W7T_CALL W7T_ShowTaskManager(void);
+/* 0 automatico, 1 Windows 11 moderno, 2 legacy 32-bit. Su Windows 10
+ * viene sempre forzato 0. */
+W7T_API int32_t  W7T_CALL W7T_ShowTaskManagerMode(int32_t mode);
 
 /* v2.1: apre la pagina NATIVA di Windows per le icone dell'area di
  * notifica: il bersaglio del link "Personalizza..." del riquadro di
@@ -397,7 +387,7 @@ W7T_API void    W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t enableSearch, int32_t netFlyout, int32_t classicVolume,
         int32_t batteryFlyout, int32_t aeroPeek, int32_t toolbarDesktop,
         int32_t toolbarAddress, int32_t toolbarLinks,
-        int32_t inputLanguageMode);
+        int32_t inputLanguageMode, int32_t taskManagerMode);
 W7T_API void    W7T_CALL W7T_AppSearchShow(int32_t x, int32_t y);
 W7T_API void    W7T_CALL W7T_AppSearchHide(void);
 W7T_API int32_t W7T_CALL W7T_AppSearchIsVisible(void);
@@ -460,10 +450,12 @@ W7T_API int32_t W7T_CALL W7T_JumpListOpen(const RECT* buttonRect,
 W7T_API int32_t W7T_CALL W7T_JumpListSetHover(int32_t screenX,
         int32_t screenY);
 
-/* Attiva la riga sotto il punto schermo al rilascio del pulsante
- * sinistro; chiude sempre il popup. outBits: 1 = documento aperto,
- * 2 = riga applicazione, 4 = pin invertito. Ritorna 1 se il popup era
- * aperto, 0 se non c'era nulla da chiudere. */
+/* Al rilascio del gesto trasferisce focus e input ordinario al popup,
+ * senza attivare la riga sotto il cursore. */
+W7T_API void W7T_CALL W7T_JumpListMakeInteractive(void);
+
+/* Attiva una riga da un clic ordinario nel popup persistente. Conservato
+ * anche come ABI per client precedenti. */
 W7T_API int32_t W7T_CALL W7T_JumpListActivateAt(int32_t screenX,
         int32_t screenY, int32_t* outBits);
 

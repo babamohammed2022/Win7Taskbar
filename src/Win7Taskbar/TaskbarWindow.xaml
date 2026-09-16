@@ -49,95 +49,76 @@
              esattamente come la Superbar di Windows 7.
              ============================================================ -->
         <DataTemplate x:Key="LiveThumbnailItemTemplate">
+            <!-- A non-zero alpha of 1 defines the exact rectangular input
+                 surface of the visible framed preview. It is visually
+                 imperceptible, stays behind DWM, and prevents the layered
+                 window from passing clicks through to applications below. -->
             <Grid x:Name="ThumbRoot"
-                  Background="Transparent"
+                  Background="#01000000"
+                  ClipToBounds="True"
+                  MouseEnter="PreviewThumbnail_MouseEnter"
+                  MouseLeave="PreviewThumbnail_MouseLeave"
                   MouseLeftButtonUp="PreviewThumbnail_MouseLeftButtonUp">
-                <!-- ============================================================
-                     v2.53: CORNICE A VETRO DELL'ANTEPRIMA, stile Aero/Vista.
-
-                     La cornice si disegna con otto PNG (angoli + bordi) nel
-                     template TaskPreviewFrameVista di Themes/Overrides.xaml:
-                     qui c'e' SOLO il contenuto della cella centrale, cioe' la
-                     miniatura della finestra (cattura statica PrintWindow
-                     dalla v2.55), che comincia dopo 16 px di vetro.
-
-                     Spariti: il Border del tema (bordo + gradiente + ombra),
-                     il rettangolo bianco di ripiego, qualunque sfondo dietro
-                     l'anteprima e la fascia bianca del titolo (era lei il
-                     "rettangolo bianco" dentro il riquadro: in Windows 7
-                     quello spazio e' vetro, non una barra piena).
-
-                     Misure: vetro 16 px in alto, la X (14x14) dentro quei
-                     16 px, miniatura w7controls:TaskThumbnail 180x120.
-                     ============================================================ -->
-                <!-- v2.52: TEMPLATE, non Style. TaskPreviewFrameVista e' un
-                     ControlTemplate: assegnandolo alla proprieta' Style (che
-                     vuole un oggetto Style) la risorsa non si applicava e
-                     l'elemento falliva a ogni passata di layout - da li' le
-                     anteprime vuote e il processore a mille. -->
-                <ContentControl Template="{DynamicResource TaskPreviewFrameVista}"
-                                Background="#FFDCEBF9">
-                    <!-- ============================================================
-                     v2.53: VIA LA FASCIA BIANCA DEL TITOLO.
-
-                     Era il "rettangolo bianco" che si vedeva sempre dentro
-                     l'anteprima: una barra piena #FFFFFF -> #F7F7FA alta 19 px
-                     con il nome della finestra. In Windows 7 quello spazio e'
-                     VETRO, non una barra bianca.
-
-                     Ora lo spazio in alto esiste ancora (16 px) ma e'
-                     TRASPARENTE: si vede il vetro azzurro della cornice, e ci
-                     vive soltanto la X. Sotto, la miniatura viva del DWM.
-                     Rimossi: bordo del titolo, gradiente bianco, testo.
-                     ============================================================ -->
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="16" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-
-                        <!-- La miniatura: istantanea della finestra
-                             (v2.55, PrintWindow). -->
-                        <w7controls:TaskThumbnail x:Name="Thumb"
-                                                  Grid.Row="1"
-                                                  SourceWindowHandle="{Binding HandlePtr}"
-                                                  Title="{Binding Title}"
-                                                  FallbackIcon="{Binding Icon}" />
-                    </Grid>
+                <!-- Supplied image border, one live preview, a dedicated
+                     title/icon band, and one close X. No title element enters
+                     the live DWM destination rectangle. -->
+                <ContentControl Template="{DynamicResource TaskPreviewFrameVista}">
+                    <!-- DWMBorder.png already reserves its complete 38px top
+                         chrome. The live surface goes directly into the exact
+                         202x109 source aperture; no extra spacer, padding,
+                         background or invisible geometry is inserted. -->
+                    <w7controls:TaskThumbnail x:Name="Thumb"
+                                              SourceWindowHandle="{Binding HandlePtr}"
+                                              ApplicationName="{Binding ApplicationName}"
+                                              Title="{Binding Title}" />
                 </ContentControl>
 
-                <!-- ============================================================
-                     v2.51: LA X.
+                <!-- Title chrome occupies only y=0..37. Microsoft defines the
+                     DWM thumbnail output through rcDestination; ours begins at
+                     y=38, so the live surface can neither cover this text nor
+                     take its hit testing. Binding Width to the already-laid-out
+                     root prevents long titles from resizing the preview. -->
+                <Grid Height="38"
+                      Width="{Binding ActualWidth, ElementName=ThumbRoot}"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Top"
+                      IsHitTestVisible="False"
+                      Panel.ZIndex="50">
+                    <!-- Left edge follows the bitmap aperture; the larger
+                         right reserve keeps text clear of the close button. -->
+                    <Grid Margin="17,0,47,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Image Grid.Column="0"
+                               Source="{Binding Icon}"
+                               Width="12"
+                               Height="12"
+                               Margin="0,0,5,0"
+                               Stretch="Uniform"
+                               VerticalAlignment="Center"
+                               RenderOptions.BitmapScalingMode="HighQuality" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding Title}"
+                                   FontSize="12"
+                                   Foreground="#FFFFFFFF"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis" />
+                    </Grid>
+                </Grid>
 
-                     Perche' prima non si e' mai vista: la miniatura viva del
-                     DWM la disegna il COMPOSITORE, sopra qualunque cosa WPF
-                     metta dentro il rettangolo della miniatura. Il pulsante
-                     stava 1-2 px dentro quel rettangolo, quindi veniva
-                     coperto sempre, in ogni versione.
-
-                     v2.53: sta DENTRO l'anteprima, non sopra il bordo.
-                     v2.54: margine 21 in alto e 26 a destra = 1 px dentro il
-                     bordo interno della cornice (bordi da 21 px). Misure: il
-                     bordo della cornice e' spesso 21 px, poi ci sono 16 px di
-                     vetro prima della miniatura. La X (14x14) sta in
-                     quei 16 px: margine 22 px dall'alto (21 di bordo + 1) e
-                     27 px da destra (21 di bordo + 6). Il rettangolo della
-                     miniatura comincia piu' in basso (37 px) e piu' a sinistra
-                     (21 px), quindi la X non finisce mai sotto la miniatura:
-                     il compositore del DWM disegna solo dove la miniatura
-                     esiste, quindi la X non viene coperta e si vede sempre.
-
-                     Grafica: i tre stati di close_button.png (ViGlance,
-                     GPL-3.0) - normale, passaggio del mouse, premuto - con lo
-                     stile TaskPreviewCloseButton di Overrides.xaml. E' l'unico
-                     meccanismo che disegna la X: nessun overlay, nessun
-                     elemento separato dal riquadro.
-                     ============================================================ -->
+                <!-- Three-state close X in the top image border, outside the
+                     centre cell painted by DWM. At 20x20, margin 16/21 keeps
+                     the full hit target above y=38 and left of the 17px
+                     rounded outer-corner slice while moving it 2px right and
+                     1px up from the previous placement. -->
                 <Button x:Name="PreviewCloseButton"
                         Style="{DynamicResource TaskPreviewCloseButton}"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Top"
-                        Margin="0,21,26,0"
+                        Margin="0,16,21,0"
                         Panel.ZIndex="99"
                         Click="PreviewCloseButton_Click" />
             </Grid>
@@ -877,49 +858,40 @@
                  chiudeva appena il mouse usciva dal pulsante e non poteva
                  ospitare clic.
 
-                 - AllowsTransparency="False" (come il ToolTip di prima con
-                   HasDropShadow=False): il compositore NON disegna i
-                   thumbnail DWM dentro una finestra layered, quindi il
-                   popup deve restare una finestra normale.
+                 - AllowsTransparency="True": come in RetroBar, il popup
+                   layered lascia che il DWM componga la miniatura; nessun
+                   pennello deve coprire la sua superficie centrale.
                  - StaysOpen="True": la chiusura la decide il code-behind
                    (TaskbarWindow: timer di controllo a 200 ms), perche' il
                    mouse passa da una finestra all'altra (pulsante ->
                    popup) e un MouseLeave singolo chiuderebbe l'anteprima
                    proprio mentre l'utente ci sta entrando. -->
             <Popup x:Name="TaskPreviewPopup"
-                   AllowsTransparency="False"
+                   AllowsTransparency="True"
                    StaysOpen="True"
                    Placement="Custom"
                    PopupAnimation="None"
                    SnapsToDevicePixels="True"
                    Opened="TaskPreviewPopup_Opened"
                    Closed="TaskPreviewPopup_Closed">
-                <!-- v2.54: il fondo del popup e' il VETRO della cornice, non
-                     piu' il gradiente bianco dei tooltip. Quel bianco (#FFFFFF
-                     in alto) era la sorgente del "rettangolo bianco": bastava
-                     un pixel scoperto perche' si vedesse un blocco bianco
-                     dentro l'anteprima. Ora qualunque area non coperta mostra
-                     il vetro azzurro, come in Windows 7. -->
-                <Grid Background="#FFDCEBF9">
-                    <!-- v2.50: VIA IL FONDO "TRASPARENTE".
-
-                         Fino alla v2.49 qui c'era un Border il cui sfondo era
-                         il DESKTOP CATTURATO al volo (DesktopBackdrop) e
-                         sfocato: serviva a far sembrare il riquadro vetro
-                         Aero, ma la finestra del popup NON e' layered (i
-                         thumbnail DWM non si compongono li' dentro), quindi
-                         quel fondo o si vedeva male o lasciava intravedere
-                         schermo/pixel sbagliati: sono gli "errori" dietro
-                         le anteprime.
-
-                         Adesso il fondo e' una tinta piena del tema (lo
-                         stesso gradiente dei tooltip Vista, bianco ->
-                         #e4e5f0): e' opaco, non dipende da nessuna cattura e
-                         non cambia mai. Si vedono solo le cornici delle
-                         anteprime, come in Windows 7. -->
+                <Grid x:Name="TaskPreviewPopupRoot" ClipToBounds="True">
+                    <!-- One static screen capture per opening. Code-behind clips
+                         this host to the four outer-frame bands of every item,
+                         so neither this Image nor its BlurEffect ever paints the
+                         central ContentPresenter/TaskThumbnail DWM destination. -->
+                    <Grid x:Name="TaskPreviewBlurHost"
+                          IsHitTestVisible="False">
+                        <Image x:Name="TaskPreviewBlurImage"
+                               Stretch="Fill"
+                               RenderOptions.BitmapScalingMode="HighQuality">
+                            <Image.Effect>
+                                <BlurEffect Radius="15"
+                                            RenderingBias="Quality" />
+                            </Image.Effect>
+                        </Image>
+                    </Grid>
 
                     <ItemsControl x:Name="TaskPreviewItems"
-                                  Margin="2"
                                   ItemTemplate="{StaticResource LiveThumbnailItemTemplate}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
