@@ -703,6 +703,25 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
             Win11TrayReader::Instance().RequestRead();
             return;
         }
+
+        /* v4.1: retry con backoff dopo un riavvio di Explorer. Se la
+         * toolbar non e' ancora pronta (Explorer in costruzione), si
+         * rischedula la riconciliazione con delay crescente:
+         * 2.5s -> 5s -> 10s -> 15s -> 20s (max kMaxExplorerRetries).
+         * Non si applica alle passate normali (solo kReconcileExplorer). */
+        if ((sources & kReconcileExplorer) &&
+            m_explorerRetryCount < kMaxExplorerRetries) {
+            m_explorerRetryCount++;
+            DWORD delay = static_cast<DWORD>(m_explorerRetryCount) * 2500;
+            if (delay > 20000) delay = 20000;
+            wchar_t line[120];
+            wsprintfW(line,
+                L"explorer retry %d/%d: toolbar not ready, retrying in %lu ms",
+                m_explorerRetryCount, kMaxExplorerRetries,
+                static_cast<unsigned long>(delay));
+            AppendCoreLog(line);
+            ScheduleReconcile(kReconcileExplorer, delay);
+        }
     }
 
     std::map<DWORD, bool> pidCache;
@@ -1442,6 +1461,47 @@ void TrayService::WatchdogLoop() {
         SyncToolbarModel();
     }
 
+    /* v4.1: PID watcher — rilevamento del riavvio di Explorer come
+     * backup del messaggio TaskbarCreated. Se il PID della Shell_TrayWnd
+     * di Explorer e' cambiato (crash, terminazione manuale, riavvio
+     * lento), si triggera una riconciliazione anche senza il broadcast.
+     * Copre i casi in cui TaskbarCreated non arriva (Explorer terminato
+     * e riavviato con ritardo, sessioni remote, shell alternative). */
+    {
+        const DWORD ourPid = GetCurrentProcessId();
+        HWND tray = nullptr;
+        DWORD newPid = 0;
+        while ((tray = FindWindowExW(nullptr, tray, L"Shell_TrayWnd", nullptr)) != nullptr) {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(tray, &pid);
+            if (pid != 0 && pid != ourPid) {
+                newPid = pid;
+                break;
+            }
+        }
+
+        if (newPid != 0 && newPid != m_lastExplorerPid) {
+            wchar_t line[160];
+            wsprintfW(line,
+                L"explorer restart detected by PID watcher: old=%u new=%u",
+                static_cast<unsigned>(m_lastExplorerPid),
+                static_cast<unsigned>(newPid));
+            AppendCoreLog(line);
+            m_lastExplorerPid = newPid;
+            m_explorerRestarted.store(true);
+            m_explorerRetryCount = 0;
+            ScheduleReconcile(kReconcileExplorer, 2500);
+            /* v4.1: notifica il managed side del riavvio di Explorer. */
+            CoreState::Instance().QueueEvent(W7T_EVT_EXPLORER_RESTART, 0, 0);
+        } else if (newPid == 0 && m_lastExplorerPid != 0) {
+            /* Explorer non c'e' piu' (terminato, non ancora riavviato).
+             * Non triggerare nulla: il TaskbarCreated arrivera' quando
+             * riparte. Aggiorna solo il PID a 0 per il prossimo giro. */
+            AppendCoreLog(L"explorer pid watcher: explorer not found (pid=0)");
+            m_lastExplorerPid = 0;
+        }
+    }
+
     ScheduleReconcile(kReconcileBackstop, 0);
 }
 
@@ -1712,6 +1772,27 @@ bool TrayService::CreateWindows() {
      * alla shell vera. */
     m_taskbarCreatedMsg = RegisterWindowMessageW(L"TaskbarCreated");
 
+    /* v4.1: memorizza il PID di Explorer per il watchdog. Il PID si
+     * ottiene dalla finestra Shell_TrayWnd di Explorer (filtrando la
+     * nostra, che usa la stessa classe). Se Explorer non e' ancora
+     * partito, il PID resta 0 e il Watchdog lo aggancia al primo giro. */
+    {
+        const DWORD ourPid = GetCurrentProcessId();
+        HWND tray = nullptr;
+        while ((tray = FindWindowExW(nullptr, tray, L"Shell_TrayWnd", nullptr)) != nullptr) {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(tray, &pid);
+            if (pid != 0 && pid != ourPid) {
+                m_lastExplorerPid = pid;
+                wchar_t line[120];
+                wsprintfW(line, L"explorer pid watcher: initial PID = %u",
+                          static_cast<unsigned>(pid));
+                AppendCoreLog(line);
+                break;
+            }
+        }
+    }
+
     return true;
 }
 
@@ -1956,7 +2037,10 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
          * bandierina e si fa tutto tra poco su questo thread: il wndproc
          * non deve bloccarsi qui dentro. */
         self.m_explorerRestarted.store(true);
+        self.m_explorerRetryCount = 0;
         self.ScheduleReconcile(kReconcileExplorer, 2500);
+        /* v4.1: notifica il managed side del riavvio di Explorer. */
+        CoreState::Instance().QueueEvent(W7T_EVT_EXPLORER_RESTART, 0, 0);
         return 0;
     }
 
