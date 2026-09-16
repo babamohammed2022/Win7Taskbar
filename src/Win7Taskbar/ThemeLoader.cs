@@ -141,10 +141,6 @@ namespace Win7Taskbar
             {
                 missing.Add("Resources\\");
             }
-            else if (Directory.GetFiles(resources, "*.png", SearchOption.AllDirectories).Length == 0)
-            {
-                missing.Add("Resources\\*.png");
-            }
 
             if (missing.Count > 0)
             {
@@ -164,7 +160,7 @@ namespace Win7Taskbar
             {
                 throw new FileNotFoundException(
                     "Themes/Windows7.xaml non trovato accanto all'eseguibile. " +
-                    "Il tema e le PNG in Resources/ devono essere copiati nell'output.",
+                    "Il tema deve essere copiato nell'output; le risorse WPF sono nel bundle e le otto slice native restano in Resources/.",
                     path);
             }
 

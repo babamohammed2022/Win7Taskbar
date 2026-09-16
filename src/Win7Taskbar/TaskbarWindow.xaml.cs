@@ -5914,7 +5914,7 @@ namespace Win7Taskbar
         {
             try
             {
-                if (!TryLoadSearchPixelsFromEmbedded() && !TryLoadSearchPixelsFromFile())
+                if (!TryLoadSearchPixelsFromEmbedded())
                 {
                     return;   /* niente pixel: il core nativo usera' la sua icona */
                 }
@@ -5947,27 +5947,10 @@ namespace Win7Taskbar
         /// Serve solo se la risorsa incorporata non si decodifica.</summary>
         private bool TryLoadSearchPixelsFromFile()
         {
-            try
-            {
-                string path = System.IO.Path.Combine(
-                    AppContext.BaseDirectory, "Resources", "win7search.png");
-                if (!System.IO.File.Exists(path))
-                {
-                    return false;
-                }
-
-                var bmp = new System.Windows.Media.Imaging.BitmapImage();
-                bmp.BeginInit();
-                bmp.UriSource = new Uri(path);
-                bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                bmp.EndInit();
-                return TryCopySearchPixels(bmp);
-            }
-            catch (Exception ex)
-            {
-                _bridge.Log($"lente ricerca (file): {ex.Message}");
-                return false;
-            }
+            // The legacy disk fallback was removed with the duplicated PNG;
+            // the embedded asset failure path already leaves the native
+            // implementation in charge of its own fallback icon.
+            return false;
         }
 
         /// <summary>Estrae i pixel BGRA (top-down) da una sorgente qualsiasi,

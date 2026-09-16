@@ -145,7 +145,7 @@ EXPLICIT STATEMENT ABOUT THE SOURCE CODE
 
 Material included without modification:
     Themes/Windows7.xaml          (1 file, byte-identical)
-    Resources/**.png              (40 PNG files, byte-identical)
+    Resources/**.png              (52 PNG files, now bundled as Base64; 8 native slices remain on disk)
 
 Credits declared by the theme author in the original credits.txt:
     WinBoeing 777  - Show desktop button icon
