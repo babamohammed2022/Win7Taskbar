@@ -31,10 +31,11 @@ inspired by / derived from RetroBar.
 Derived works and scope of the attribution:
 
   * Themes/Windows7.xaml
-    A RetroBar skin, included in Win7Taskbar AS IT IS (byte-identical to the
-    original, MD5 1bf56a8e4d67107acdbbd9440e0a320a). It comes from the
-    Windows7RetrobarTheme repository and is itself a derived work of RetroBar:
-    it extends its styles through BasedOn and references its types.
+    A RetroBar skin from the Windows7RetrobarTheme repository, itself a derived
+    work of RetroBar: it extends its styles through BasedOn and references its
+    types. Image keys now resolve through GraphicalResourceBundle (Base64 PNG
+    payloads that preserve the original artwork bytes); see
+    docs/GRAPHICAL-RESOURCES.md.
 
   * src/RetroBar.Shim/
     A compatibility assembly named "RetroBar". The theme declares
@@ -144,8 +145,10 @@ EXPLICIT STATEMENT ABOUT THE SOURCE CODE
     Site    : https://github.com/babamohammed2022/Windows7RetrobarTheme
 
 Material included without modification:
-    Themes/Windows7.xaml          (1 file, byte-identical)
-    Resources/**.png              (52 PNG files, now bundled as Base64; 8 native slices remain on disk)
+    Themes/Windows7.xaml          (1 file; image references resolved via GraphicalResourceBundle)
+    Resources/**.png              (WPF PNGs centralized as Base64 in GraphicalResourceBundle.cs;
+                                  8 native Aero 9-slice PNGs remain on disk under Resources/ and
+                                  src/Win7Taskbar/Resources/; app.ico remains a build-input ICO)
 
 Credits declared by the theme author in the original credits.txt:
     WinBoeing 777  - Show desktop button icon
@@ -319,7 +322,9 @@ request with the single file you want to change.
 ================================================================================
 
 Required by section 4 of the Apache License 2.0 for the portions of this project
-that remain Apache-2.0: the Themes/Windows7.xaml theme, the PNGs in Resources/
+that remain Apache-2.0: the Themes/Windows7.xaml theme, the PNG artwork now
+stored as Base64 in GraphicalResourceBundle.cs (and the 8 native slices still
+shipped under Resources/)
 and the algorithms derived from RetroBar and ManagedShell. The rest of the
 project is GPL-3.0-or-later (see the LICENSE file).
 

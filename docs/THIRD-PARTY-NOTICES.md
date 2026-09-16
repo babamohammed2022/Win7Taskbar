@@ -158,8 +158,9 @@ No ExplorerEx source code was copied.
 
 ### Windows7RetrobarTheme
 
-`Themes/Windows7.xaml` and the 40 PNG files under `Resources/` are included
-byte-identical (theme MD5 `1bf56a8e4d67107acdbbd9440e0a320a`). Credits
+`Themes/Windows7.xaml` and the original PNG artwork (now stored byte-for-byte
+as Base64 in `GraphicalResourceBundle.cs`, with 8 native Aero slices still
+under `Resources/`) are included from the upstream theme. Credits
 declared by the theme author: WinBoeing 777 (show-desktop button icon),
 Traindere (supervision), 3Ds (inspiration).
 

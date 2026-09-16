@@ -1,8 +1,47 @@
 # Risorse grafiche centralizzate
 
-Il bundle `GraphicalResourceBundle` conserva byte-per-byte i 52 PNG già usati dal tema WPF, codificati in Base64. I file PNG WPF duplicati sono stati rimossi; il mapping mantiene nome e percorso/provenienza originali. Restano nella cartella `Resources/` soltanto le otto slice PNG necessarie al renderer nativo Aero 9-slice, intenzionalmente fuori dal bundle gestito.
+Il bundle `GraphicalResourceBundle` (`src/Win7Taskbar/Utilities/GraphicalResourceBundle.cs`) conserva byte-per-byte i 52 PNG già usati dal tema WPF, codificati in Base64. I file PNG WPF non sono più tenuti come binari separati nel repository: il tema runtime (`src/Win7Taskbar/Themes/Windows7.xaml`, allineato anche in `Themes/Windows7.xaml`) li carica tramite `x:Static` sul bundle.
 
-Numero asset nel bundle: **52**. PNG rimasti su disco per il codice nativo: **8**.
+Il mapping sotto mantiene nome originale, percorso/provenienza originale e chiave del bundle. I byte Base64 → PNG sono reversibili e non ricompressi.
+
+## Conteggio
+
+| Categoria | Quantità | Note |
+|---|---:|---|
+| Asset Base64 nel bundle (PNG) | **52** | Tutti i PNG runtime del tema WPF |
+| PNG nativi su disco (Aero 9-slice) | **8** | Caricati da filesystem dal backend C++/WIC |
+| ICO di build (`app.ico`) | **2** | Input di build (ApplicationIcon + RC); restano file ICO |
+| Immagini solo documentazione | **1** | `docs/icon-256.png` (non runtime) |
+| SVG / JPG / altri formati runtime | **0** | Non presenti come asset runtime |
+
+## Eccezioni intenzionali sul filesystem
+
+### 1. Otto slice native Aero (`top_*.png`, `mid_*.png`, `bottom_*.png`)
+
+Restano file PNG fisici in:
+
+- `src/Win7Taskbar/Resources/` (copiati nell'output dal `.csproj`)
+- `Resources/` alla root del repository (stessi byte; cartella del pacchetto pubblicato)
+
+Il renderer nativo in `native/src/AeroThumbnailFrame.cpp` le carica **dal filesystem** accanto all'eseguibile tramite WIC (`CreateDecoderFromFilename`). Non è stata introdotta una modifica architetturale per spingere questi byte dal bundle gestito al core nativo: restano su disco per design.
+
+Le stesse otto slice sono anche presenti nel bundle (chiavi `top_left`, …, `bottom_right`) come copia di comodo per eventuale uso WPF; i byte coincidono.
+
+### 2. `app.ico` (build input, non tema runtime)
+
+- `src/Win7Taskbar/app.ico` — `ApplicationIcon` MSBuild (incorporato nell'EXE)
+- `native/resources/app.ico` — risorsa Win32 `IDI_APPICON` in `app.rc` (incorporata nella DLL)
+
+Restano file `.ico` fisici perché gli toolchain di build (MSBuild / windres) li richiedono a compile-time. Non sono convertiti in PNG e non passano da `GraphicalResourceBundle`. I due file sono byte-identici.
+
+### 3. Documentazione
+
+- `docs/icon-256.png` — solo documentazione/presentazione
+- screenshot del README (hostati su GitHub user-attachments, non nel tree runtime)
+
+Non fanno parte del runtime e non vanno nel bundle.
+
+## Mapping bundle
 
 | ID | Nome originale | Percorso originale | Formato | Utilizzo | Chiave bundle |
 |---|---|---|---|---|---|
