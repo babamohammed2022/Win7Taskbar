@@ -1,6 +1,8 @@
 # Win7Taskbar
 
-<img src="docs/icon-256.png" alt="Win7Taskbar" width="96" align="left" hspace="12" vspace="4">
+## Screenshot
+
+<img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
 
 A Windows 7-inspired taskbar recreation and for Windows 10 and 11.
 
@@ -18,7 +20,6 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 ## Screenshot
 
 <img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
-
 
 
 ## Requirements
