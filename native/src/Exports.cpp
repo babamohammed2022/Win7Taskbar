@@ -848,6 +848,16 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ShowGroupMenu(uint64_t hwnd, int32_t x, 
                                     minimizeText, closeText);
 }
 
+extern "C" W7T_API int32_t W7T_CALL W7T_ShowPinMenu(int32_t x, int32_t y,
+                                                   int32_t bottomEdge,
+                                                   const wchar_t* launchText,
+                                                   const wchar_t* pinText,
+                                                   const wchar_t* lnkPath,
+                                                   const wchar_t* targetPath) {
+    return ShellMenu::ShowPinMenu(x, y, bottomEdge != 0, launchText, pinText,
+                                  lnkPath, targetPath);
+}
+
 /* v2.7: pannello overflow nativo con vetro Aero (fallback: Popup WPF). */
 static TrayOverflowWindow g_overflowWindow;
 

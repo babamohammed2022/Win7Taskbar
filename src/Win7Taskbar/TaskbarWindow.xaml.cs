@@ -3500,16 +3500,32 @@ namespace Win7Taskbar
 
             if (group.Windows.Count == 0)
             {
-                // Pin non avviato: avvia / fissa-rimuovi.
+                // Idle pin: launch / pin-unpin. Dedicated menu with the
+                // app's real icon on the launch row (not the generic menu:
+                // that one is shared with the bar, the clock and the tray).
                 string pinText = group.IsPinned
                     ? L("lang_menu_unpin",
                         "Unpin this program from taskbar")
                     : L("lang_menu_pin",
                         "Pin this program to taskbar");
-                int choice = _bridge.ShowContextMenu(
-                    x, y, bottomEdge: true,
-                    L("lang_start_context",
-                        L("lang_start_tip", "Start")), pinText);
+                string launchText = L("lang_start_context",
+                    L("lang_start_tip", "Start"));
+                int choice;
+                try
+                {
+                    choice = _bridge.ShowPinMenu(
+                        x, y, launchText, pinText,
+                        group.LaunchPath ?? string.Empty,
+                        group.ExePath ?? string.Empty,
+                        bottomEdge: true);
+                }
+                catch (EntryPointNotFoundException)
+                {
+                    // Native DLL older than the managed side: same two
+                    // rows through the generic menu, without the icon.
+                    choice = _bridge.ShowContextMenu(
+                        x, y, bottomEdge: true, launchText, pinText);
+                }
                 switch (choice)
                 {
                     case 1:

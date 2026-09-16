@@ -63,6 +63,30 @@ public:
                                  const wchar_t* closeText);
 
     /**
+     * Pinned (idle) app menu: the "launch" / "pin-unpin" rows the Superbar
+     * used to build through the generic ShowContextMenu path.
+     *
+     * It lives in its own function so the generic menu - shared with the
+     * taskbar, the clock, the language bar and the tray fallbacks - stays
+     * untouched: program-icon menus are the only ones that gain icons.
+     *
+     * Native icons only: the launch row shows the application's REAL icon
+     * resolved by the shell (lnk icon location, packaged tile image or
+     * executable icon, never a redrawn glyph). No native pin glyph exists
+     * in Windows, so the pin row intentionally stays text-only.
+     *
+     * @param launchText,pinText already-localized row labels from managed.
+     * @param lnkPath    pinned .lnk path (may be null or empty).
+     * @param targetPath executable path (may be null or empty, e.g. UWP).
+     * @return 1 = launch, 2 = pin toggle, 0 = cancelled.
+     */
+    static int32_t ShowPinMenu(int32_t x, int32_t y, bool bottomEdge,
+                               const wchar_t* launchText,
+                               const wchar_t* pinText,
+                               const wchar_t* lnkPath,
+                               const wchar_t* targetPath);
+
+    /**
      * Menu contestuale generico costruito con le API native, cosi' da avere
      * lo stesso aspetto degli altri menu del sistema.
      *
