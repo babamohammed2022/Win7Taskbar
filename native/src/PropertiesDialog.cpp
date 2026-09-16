@@ -13,7 +13,6 @@
  * definito nel core nativo): nessuna pagina sostitutiva, nessun percorso
  * alternativo inventato qui. */
 #include "Win7TaskbarCore.h"
-#include "TrayCplDialog.h"   /* v1.7.6: pagina Notification Area Icons */
 #include <commctrl.h>
 #include <windowsx.h>
 #include <shellapi.h>
@@ -463,14 +462,11 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
         msg.lang = (langSel >= 0 && langSel <= 10) ? langSel : 0;
     }
     {
-        /* v3.5: input language indicator style.
-         * v1.7.6: the dropdown no longer offers value 3 ("Windows 10/11"),
-         * so the read stops at 2 too; a CB_ERR (invalid selection) falls
-         * back to the Windows 7 default, as before. */
+        /* v3.5: stile dell'indicatore della lingua di input. */
         const int32_t langBarSel = static_cast<int32_t>(
             SendDlgItemMessageW(m_hWnd, IDC_CMB_LANGBAR, CB_GETCURSEL, 0, 0));
         msg.inputLanguageMode =
-            (langBarSel >= 0 && langBarSel <= 2) ? langBarSel : 1;
+            (langBarSel >= 0 && langBarSel <= 3) ? langBarSel : 1;
     }
     msg.openSearch = openSearch ? 1 : 0;
     msg.closeApp = closeApp ? 1 : 0;
@@ -643,21 +639,14 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         ComboBox_AddString(hCB, kFlyoutBatteryWin10); /* 1 = riquadro reale di Windows 10 */
         ComboBox_SetCurSel(hCB, self->m_batteryFlyout ? 0 : 1);
 
-        /* v3.5: input language indicator style.
-         * 0 hidden, 1 Windows 7, 2 Windows 8.1.
-         * v1.7.6: the "Windows 10/11" option (value 3) is HIDDEN as
-         * requested: the item is gone from the dropdown. A 3 saved in the
-         * past keeps working until Properties is opened and applied again:
-         * the combo shows it as Windows 8.1 (the nearest available option)
-         * and a fresh Apply normalizes it to 2. The packet field and the
-         * managed-side validation still accept 0..3 for settings files
-         * already written. */
+        /* v3.5: stile dell'indicatore della lingua di input.
+         * 0 nascosta, 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11. */
         HWND hCLB = GetDlgItem(hwnd, IDC_CMB_LANGBAR);
         ComboBox_AddString(hCLB, S.langHidden);    /* 0 = nascosta */
         ComboBox_AddString(hCLB, S.langWin7);      /* 1 = Windows 7 */
         ComboBox_AddString(hCLB, S.langWin81);     /* 2 = Windows 8.1 */
-        ComboBox_SetCurSel(hCLB, self->m_inputLanguageMode >= 3
-                                     ? 2 : self->m_inputLanguageMode);
+        ComboBox_AddString(hCLB, S.langWin10);     /* 3 = Windows 10/11 */
+        ComboBox_SetCurSel(hCLB, self->m_inputLanguageMode);
 
         SendDlgItemMessageW(hwnd, IDC_CHK_SECONDS, BM_SETCHECK,
                             self->m_seconds ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -704,25 +693,20 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             self->SendApply(false, true);
             DestroyWindow(hwnd);
         } else if (id == IDC_BTN_CUSTOMIZE) {
-            /* v1.7.6: "Customize..." opens the program's OWN "Notification
-             * Area Icons" page (TrayCplDialog): it configures only the
-             * icons of this tray and writes nothing to the registry. The
-             * page is modeless and lives on this thread (the Properties
-             * window already pumps on the managed UI thread). Only when
-             * the page cannot be created at all (old native build without
-             * the export/template) does the button degrade to the previous
-             * behavior - open the real Windows page - so the click never
-             * becomes a dead end. */
-            const int32_t rc = w7t::TrayCplDialog::Instance().Show(hwnd);
-            if (rc < 0) {
-                LogTagged(L"TRAYCPL",
-                          L"properties: page unavailable (code %d), "
-                          L"falling back to the system settings",
-                          static_cast<int>(rc));
-                if (W7T_OpenNotificationIconsSettings() != W7T_OK) {
-                    ShellExecuteW(nullptr, L"open", L"ms-settings:taskbar",
-                                  nullptr, nullptr, SW_SHOW);
-                }
+            /* "Personalizza..." dell'area di notifica: STESSO comando del menu
+             * di overflow della barra. E' il core nativo che apre la pagina
+             * vera di Windows (CLSID shell:::{05D7B0F4-2121-4EFF-BF6B-ED3F69B894D9},
+             * con i suoi ripieghi): qui non si inventa nessun percorso
+             * alternativo, perche' il comportamento deve essere identico a
+             * quello che l'utente ottiene dall'altro ingresso. */
+            if (W7T_OpenNotificationIconsSettings() != W7T_OK) {
+                /* v2.50: ULTIMO ripiego identico a quello del link
+                 * "Personalizza..." della barra (OpenNotificationAreaIconsApplet):
+                 * se la pagina classica non si apre, si apre l'equivalente
+                 * moderno. Cosi' i due ingressi fanno esattamente la stessa
+                 * cosa, nello stesso ordine. */
+                ShellExecuteW(nullptr, L"open", L"ms-settings:taskbar",
+                              nullptr, nullptr, SW_SHOW);
             }
         }
         return TRUE;

@@ -163,31 +163,13 @@ namespace Win7Taskbar.Converters
     }
 
     /// <summary>
-    /// v1.7.2: X offset (pixel) delle linee dei separatori di gruppo.
-    /// Con due o piu' schede aperte il bordo esterno scivolava verso
-    /// destra del 2% della larghezza del pulsante per scheda aperta,
-    /// contando fino a 3 schede (con piu' di 3 resta come a 3).
-    ///
-    /// v1.7.6: two additions on top of the v1.7.2 position, both purely
-    /// rightward and both percentages of the button width (so they stay
-    /// proportional at every DPI and every button size):
-    ///  - EVERY stacked-borders line (2+ sheets) moves +2.5% right of
-    ///    where it sat until now;
-    ///  - with MORE THAN 2 sheets open the OUTER line gets a further
-    ///    +3% rightward. 3 sheets and 3+ sheets are one case: the count
-    ///    is clamped at 3, no new per-sheet case above it was invented.
-    ///
-    /// Total rightward shift of the outer line:
-    ///   2 sheets: 2% + 2.5%          = 4.5% of the button width
-    ///   3+ sheets: 4% + 2.5% + 3%    = 9.5% of the button width
-    /// The inner line (only visible at 3+) shifts by 2.5%.
-    ///
-    /// Multi-binding: values[0] = button ActualWidth, values[1] =
-    /// WindowCount. parameter = "outer" (default) or "inner". Below two
-    /// sheets there are no separators at all: offset 0.
-    /// RenderTransform only: like the rest of the overlay, the shift takes
-    /// no layout space, the icon keeps the size and position it has with a
-    /// single open window.
+    /// v1.7.2: X offset (pixel) della linea ESTERNA dei separatori di
+    /// gruppo. Con due o piu' schede aperte il bordo esterno scivola
+    /// leggermente verso destra: 2% della larghezza del pulsante per
+    /// scheda aperta, contando fino a 3 schede (con piu' di 3 resta come
+    /// a 3). Multi-binding: values[0] = pulsante (ActualWidth),
+    /// values[1] = WindowCount. Con meno di 2 schede non ci sono
+    /// separatori: offset 0.
     /// </summary>
     [ValueConversion(typeof(double), typeof(double))]
     public sealed class WindowStackOuterBorderOffsetConverter : IMultiValueConverter
@@ -205,24 +187,8 @@ namespace Win7Taskbar.Converters
                 {
                     return 0.0;
                 }
-
-                /* v1.7.2 base, clamped at three sheets (4+ == 3). */
                 int effective = Math.Min(count, 3);
-                double ratio = 0.02 * (effective - 1);
-
-                /* v1.7.6 step one: every line +2.5% to the right. */
-                ratio += 0.025;
-
-                /* v1.7.6 step two: the OUTER line, with MORE THAN two
-                 * sheets, another +3% to the right. The "inner" parameter
-                 * never gets it. */
-                bool outer = parameter as string is not "inner";
-                if (outer && count > 2)
-                {
-                    ratio += 0.03;
-                }
-
-                return width * ratio;
+                return width * 0.02 * (effective - 1);
             }
             catch
             {

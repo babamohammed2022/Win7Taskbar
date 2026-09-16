@@ -30,29 +30,15 @@ constexpr UINT kGroupMinimizeId = 0xF100;
 constexpr UINT kGroupCloseId    = 0xF101;
 
 /*
- * Historical TrackPopupMenu quirk: if the owner window is not in the
- * foreground, the menu stays open even after a click outside. Microsoft
- * documents SetForegroundWindow before and PostMessage(WM_NULL) after.
- *
- * v1.7.6 - THE MENU OUTRANKS THE TASKBAR. The popup menu window is
- * placed directly above its owner window in the z-order, INSIDE the owner's
- * band: with a non-topmost owner the menu sits in the normal band while
- * the taskbar (WS_EX_TOPMOST, always-on-top by design) paints over it -
- * the menu looked "cut off" by the bar and clicks on covered items hit the
- * buttons instead. Context menus therefore get PRIORITY over the taskbar:
- * the owner is created topmost (see GetMenuOwnerWindow) and is pushed to
- * the front of the topmost band right before every TrackPopupMenuEx,
- * exactly like the tray drag-ghost does against the overflow panel. The
- * owner window is a 0x0, never-visible popup, so its topmost flag has no
- * other effect; the menu dies with the tracking call and never outlives
- * the scope.
+ * TrackPopupMenu ha una stranezza storica: se la finestra proprietaria non
+ * e' in primo piano, il menu resta aperto anche dopo un click fuori. La
+ * soluzione documentata da Microsoft e' SetForegroundWindow prima e un
+ * PostMessage(WM_NULL) dopo.
  */
 class ForegroundMenuScope {
 public:
     explicit ForegroundMenuScope(HWND owner) : m_owner(owner) {
         SetForegroundWindow(m_owner);
-        SetWindowPos(m_owner, HWND_TOPMOST, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER);
     }
 
     ~ForegroundMenuScope() {
@@ -87,11 +73,7 @@ HWND GetMenuOwnerWindow() {
         }
     }
 
-    /* v1.7.6: WS_EX_TOPMOST carries the menu into the topmost band, so a
-     * context menu always opens ABOVE the taskbar window itself (see
-     * ForegroundMenuScope for the full story). */
-    s_owner = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-                              L"Win7TaskbarMenuOwner", L"",
+    s_owner = CreateWindowExW(WS_EX_TOOLWINDOW, L"Win7TaskbarMenuOwner", L"",
                               WS_POPUP, 0, 0, 0, 0,
                               nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
     return s_owner;
