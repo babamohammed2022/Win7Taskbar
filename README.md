@@ -24,7 +24,7 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 ## Requirements
 
 * Windows 8.1, Windows 10 or Windows 11 (64 bit)
-* Official releases are self-contained and do not require a separate .NET installation
+* Official releases should be self-contained and should not require a separate .NET installation
 
 
 > ⚠️ **Compatibility warning: RetroBar**

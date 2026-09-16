@@ -18,6 +18,7 @@
 
 #include "Common.h"
 #include "SehGuard.h"
+#include "ScopeGuards.h"      /* v3.7.2: RAII per DC/GDI */
 
 #include <cstdarg>      /* v2.63: LogTagged */
 #include <string>
@@ -149,13 +150,15 @@ bool IconToArgb(HICON icon, ArgbBitmap& out) {
         return false;
     }
 
-    HDC screenDc = GetDC(nullptr);
-    if (screenDc == nullptr) {
+    /* v3.7.2: guardie RAII da ScopeGuards.h per DC dello schermo, DC di
+     * memoria, DIB e selezione: nessun cleanup manuale sui quattro
+     * percorsi di uscita, niente leak nemmeno con modifiche future. */
+    WindowDcGuard screenDc(nullptr, GetDC(nullptr));
+    if (!screenDc.valid()) {
         return false;
     }
-    HDC memDc = CreateCompatibleDC(screenDc);
-    if (memDc == nullptr) {
-        ReleaseDC(nullptr, screenDc);
+    MemDcGuard memDc(screenDc);
+    if (!memDc.valid()) {
         return false;
     }
 
@@ -168,22 +171,17 @@ bool IconToArgb(HICON icon, ArgbBitmap& out) {
     bi.bmiHeader.biCompression = BI_RGB;
 
     void* bits = nullptr;
-    HBITMAP dib = CreateDIBSection(memDc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
-    if (dib == nullptr || bits == nullptr) {
-        if (dib) DeleteObject(dib);
-        DeleteDC(memDc);
-        ReleaseDC(nullptr, screenDc);
+    UniqueGdiObject dib(CreateDIBSection(memDc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0));
+    if (!dib.valid() || bits == nullptr) {
         return false;
     }
 
-    HGDIOBJ oldBmp = SelectObject(memDc, dib);
+    SelectGuard dibSel(memDc, dib);
     ZeroMemory(bits, static_cast<size_t>(width) * height * 4);
 
     /* DrawIconEx compone correttamente sia le icone a 32bpp con canale alfa
      * sia quelle legacy con maschera AND. */
     const BOOL drawn = DrawIconEx(memDc, 0, 0, icon, width, height, 0, nullptr, DI_NORMAL);
-
-    SelectObject(memDc, oldBmp);
 
     bool ok = false;
     if (drawn) {
@@ -206,11 +204,10 @@ bool IconToArgb(HICON icon, ArgbBitmap& out) {
         if (!hasAlpha && info.hbmMask != nullptr) {
             std::vector<uint8_t> maskBits(byteCount, 0);
             BITMAPINFO mbi = bi;
-            HDC maskDc = CreateCompatibleDC(screenDc);
-            if (maskDc != nullptr) {
+            MemDcGuard maskDc(screenDc);
+            if (maskDc.valid()) {
                 GetDIBits(maskDc, info.hbmMask, 0, static_cast<UINT>(height),
                           maskBits.data(), &mbi, DIB_RGB_COLORS);
-                DeleteDC(maskDc);
                 for (size_t i = 0; i < byteCount; i += 4) {
                     /* maschera AND: nero (0) = opaco, bianco = trasparente */
                     const bool transparent = maskBits[i] != 0;
@@ -241,9 +238,8 @@ bool IconToArgb(HICON icon, ArgbBitmap& out) {
         ok = true;
     }
 
-    DeleteObject(dib);
-    DeleteDC(memDc);
-    ReleaseDC(nullptr, screenDc);
+    /* dibSel, dib, memDc e screenDc escono di scope qui: deselezione,
+     * DeleteObject, DeleteDC e ReleaseDC li fanno le guardie. */
     return ok;
 }
 

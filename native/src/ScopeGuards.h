@@ -91,4 +91,27 @@ private:
     bool& m_flag;
 };
 
+// Owns a DC obtained with GetDC and returns it with ReleaseDC at scope
+// end. Pass hwnd == nullptr for the screen DC. Not for GetWindowDC and
+// not for BeginPaint DCs (those pair with EndPaint).
+class WindowDcGuard {
+public:
+    WindowDcGuard(HWND hwnd, HDC hdc) noexcept : m_hwnd(hwnd), m_hdc(hdc) {}
+    ~WindowDcGuard() noexcept {
+        if (m_hdc != nullptr) {
+            ReleaseDC(m_hwnd, m_hdc);
+        }
+    }
+    WindowDcGuard(const WindowDcGuard&) = delete;
+    WindowDcGuard& operator=(const WindowDcGuard&) = delete;
+
+    bool valid() const noexcept { return m_hdc != nullptr; }
+    HDC  get() const noexcept { return m_hdc; }
+    operator HDC() const noexcept { return m_hdc; }
+
+private:
+    HWND m_hwnd;
+    HDC  m_hdc;
+};
+
 } /* namespace w7t */

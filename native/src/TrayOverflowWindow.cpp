@@ -5,6 +5,7 @@
 #include "Strings.h"
 #include "TrayService.h"
 #include "FlyoutLauncher.h"   /* ApplyAeroFlyoutStyle: bordi Aero */
+#include "ScopeGuards.h"      /* v3.7.2: RAII per DC/GDI */
 #include <dwmapi.h>
 #include <shellapi.h>
 #include <wingdi.h>
@@ -83,26 +84,26 @@ HICON TrayOverflowWindow::IconFromArgb(const ArgbBitmap& bmp) const {
     bih.biBitCount    = 32;
     bih.biCompression = BI_RGB;
 
+    /* v3.7.2: guardie RAII anche qui: prima un CreateDIBSection riuscito
+     * con bits == nullptr avrebbe fatto uscire senza rilasciare color. */
     void* bits = nullptr;
-    HBITMAP color = CreateDIBSection(nullptr, reinterpret_cast<BITMAPINFO*>(&bih),
-                                     DIB_RGB_COLORS, &bits, nullptr, 0);
-    if (!color || !bits) return nullptr;
+    UniqueGdiObject color(CreateDIBSection(nullptr, reinterpret_cast<BITMAPINFO*>(&bih),
+                                           DIB_RGB_COLORS, &bits, nullptr, 0));
+    if (!color.valid() || !bits) return nullptr;
     std::memcpy(bits, bmp.pixels.data(), bmp.pixels.size());
 
-    HBITMAP mask = CreateBitmap(bmp.width, bmp.height, 1, 1, nullptr);
-    if (!mask) {
-        DeleteObject(color);
+    UniqueGdiObject mask(CreateBitmap(bmp.width, bmp.height, 1, 1, nullptr));
+    if (!mask.valid()) {
         return nullptr;
     }
 
     ICONINFO ii{};
     ii.fIcon    = TRUE;
-    ii.hbmColor = color;
-    ii.hbmMask  = mask;
-    HICON icon = CreateIconIndirect(&ii);
-    DeleteObject(color);
-    DeleteObject(mask);
-    return icon;
+    ii.hbmColor = static_cast<HBITMAP>(color.get());
+    ii.hbmMask  = static_cast<HBITMAP>(mask.get());
+    /* CreateIconIndirect copia i bitmap: le guardie rilasciano color e
+     * mask su ogni percorso, riuscita compresa. */
+    return CreateIconIndirect(&ii);
 }
 
 void TrayOverflowWindow::UpdateMetrics() {
@@ -303,10 +304,19 @@ void TrayOverflowWindow::OnPaint(HDC hdcWindow) {
     RECT rc{};
     GetClientRect(m_hWnd, &rc);
 
-    // Doppio buffer sopra il blur DWM.
-    HDC hdc = CreateCompatibleDC(hdcWindow);
-    HBITMAP bmp = CreateCompatibleBitmap(hdcWindow, rc.right, rc.bottom);
-    HBITMAP old = static_cast<HBITMAP>(SelectObject(hdc, bmp));
+    // Doppio buffer sopra il blur DWM. v3.7.2: guardie RAII da
+    // ScopeGuards.h: DC, bitmap, pennelli, penne e font escono rilasciati
+    // da ogni percorso (ritorni anticipati, eccezioni assorbite dal
+    // WndProc, modifiche future) senza cleanup manuali sparsi.
+    MemDcGuard hdc(hdcWindow);
+    if (!hdc.valid()) {
+        return;
+    }
+    UniqueGdiObject bmp(CreateCompatibleBitmap(hdcWindow, rc.right, rc.bottom));
+    if (!bmp.valid()) {
+        return;
+    }
+    SelectGuard bufferSel(hdc, bmp);
 
     // v3.0: sfondo BIANCO coprente (gradiente del pannello WPF congelato):
     // sopra il blur le icone non si vedevano.
@@ -336,15 +346,11 @@ void TrayOverflowWindow::OnPaint(HDC hdcWindow) {
         // Windows 7 (tinta #6EA5D2 al 15% sul chiaro nel pannello WPF).
         if (static_cast<int>(i) == m_hotIcon) {
             RECT cell{ x + 2, y + 2, x + m_cell - 2, y + m_cell - 2 };
-            HBRUSH fill = CreateSolidBrush(RGB(0xDC, 0xE9, 0xF5));
-            HPEN edge = CreatePen(PS_SOLID, 1, RGB(0x6E, 0xA5, 0xD2));
-            HBRUSH oldBr = static_cast<HBRUSH>(SelectObject(hdc, fill));
-            HPEN oldPn = static_cast<HPEN>(SelectObject(hdc, edge));
+            UniqueGdiObject fill(CreateSolidBrush(RGB(0xDC, 0xE9, 0xF5)));
+            UniqueGdiObject edge(CreatePen(PS_SOLID, 1, RGB(0x6E, 0xA5, 0xD2)));
+            SelectGuard fillSel(hdc, fill);
+            SelectGuard edgeSel(hdc, edge);
             RoundRect(hdc, cell.left, cell.top, cell.right, cell.bottom, 3, 3);
-            SelectObject(hdc, oldBr);
-            SelectObject(hdc, oldPn);
-            DeleteObject(fill);
-            DeleteObject(edge);
         }
 
         if (m_icons[i].icon) {
@@ -382,33 +388,32 @@ void TrayOverflowWindow::OnPaint(HDC hdcWindow) {
     }
 
     // Separatore + link "Personalizza elementi di notifica...".
-    HPEN sep = CreatePen(PS_SOLID, 1, RGB(0xCC, 0xD9, 0xEA));   /* mod: COLOR_BORDER_LINE1 */
-    HPEN oldPen2 = static_cast<HPEN>(SelectObject(hdc, sep));
-    MoveToEx(hdc, 0, m_footerRect.top - 3, nullptr);
-    LineTo(hdc, rc.right, m_footerRect.top - 3);
-    SelectObject(hdc, oldPen2);
-    DeleteObject(sep);
+    UniqueGdiObject sep(CreatePen(PS_SOLID, 1, RGB(0xCC, 0xD9, 0xEA)));   /* mod: COLOR_BORDER_LINE1 */
+    {
+        SelectGuard sepSel(hdc, sep);
+        MoveToEx(hdc, 0, m_footerRect.top - 3, nullptr);
+        LineTo(hdc, rc.right, m_footerRect.top - 3);
+    }
 
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, m_footerHot ? RGB(0x00, 0x4E, 0x9E) : RGB(0x00, 0x66, 0xCC));
-    HFONT font = CreateFontW(-MulDiv(12, static_cast<int>(m_dpi), 96), 0, 0, 0, FW_NORMAL, FALSE, m_footerHot ? TRUE : FALSE, FALSE,
+    UniqueGdiObject font(CreateFontW(-MulDiv(12, static_cast<int>(m_dpi), 96), 0, 0, 0, FW_NORMAL, FALSE, m_footerHot ? TRUE : FALSE, FALSE,
                              DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                             CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-    HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, font));
+                             CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI"));
     RECT textRc = m_footerRect;
     // v3.2: centrato orizzontalmente, come il link vero di Win7.
     // v2.62: il testo arriva dalla tabella delle stringhe native (undici
     // lingue, ripiego inglese): prima era italiano fisso nel codice, quindi
     // su un sistema inglese o tedesco il pannello restava italiano.
-    DrawTextW(hdc, w7t::S(w7t::StrId::OverflowCustomize), -1, &textRc,
-              DT_SINGLELINE | DT_VCENTER | DT_CENTER);
-    SelectObject(hdc, oldFont);
-    DeleteObject(font);
+    {
+        SelectGuard fontSel(hdc, font);
+        DrawTextW(hdc, w7t::S(w7t::StrId::OverflowCustomize), -1, &textRc,
+                  DT_SINGLELINE | DT_VCENTER | DT_CENTER);
+    }
 
     BitBlt(hdcWindow, 0, 0, rc.right, rc.bottom, hdc, 0, 0, SRCCOPY);
-    SelectObject(hdc, old);
-    DeleteObject(bmp);
-    DeleteDC(hdc);
+    /* bufferSel, bmp e hdc escono di scope qui: deselezione, DeleteObject
+     * e DeleteDC li fanno le guardie. */
 }
 
 LRESULT CALLBACK TrayOverflowWindow::WndProc(HWND hWnd, UINT msg,
@@ -588,27 +593,29 @@ void TrayOverflowWindow::ShowDragImage(POINT pt) {
         if (!m_hDragImage) return;
     }
 
-    // icona su sfondo trasparente -> bitmap a 32 bit -> UpdateLayeredWindow
-    HDC hdc = GetDC(nullptr);
-    HDC mem = CreateCompatibleDC(hdc);
+    // icona su sfondo trasparente -> bitmap a 32 bit -> UpdateLayeredWindow.
+    // v3.7.2: guardie RAII + controlli di validita': se la creazione di un
+    // DC o del DIB fallisce si esce senza scrivere su buffer nulli (prima
+    // un CreateDIBSection fallito avrebbe portato il memset su nullptr).
+    WindowDcGuard screen(nullptr, GetDC(nullptr));
+    if (!screen.valid()) return;
+    MemDcGuard mem(screen);
+    if (!mem.valid()) return;
     BITMAPINFO bi{};
     bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
     bi.bmiHeader.biWidth = 24; bi.bmiHeader.biHeight = -24;
     bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 32;
     void* bits = nullptr;
-    HBITMAP dib = CreateDIBSection(mem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
-    HBITMAP oldDib = (HBITMAP)SelectObject(mem, dib);
+    UniqueGdiObject dib(CreateDIBSection(mem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0));
+    if (!dib.valid() || bits == nullptr) return;
+    SelectGuard dibSel(mem, dib);
     memset(bits, 0, 24 * 24 * 4);
     SafeDrawIconEx(mem, 4, 4, icon, 16, 16);
     POINT srcPt{0, 0};
     SIZE sz{24, 24};
     BLENDFUNCTION bf{AC_SRC_OVER, 0, 210, AC_SRC_ALPHA};
     POINT dst{pt.x + 8, pt.y + 8};
-    UpdateLayeredWindow(m_hDragImage, hdc, &dst, &sz, mem, &srcPt, 0, &bf, ULW_ALPHA);
-    SelectObject(mem, oldDib);
-    DeleteObject(dib);
-    DeleteDC(mem);
-    ReleaseDC(nullptr, hdc);
+    UpdateLayeredWindow(m_hDragImage, screen, &dst, &sz, mem, &srcPt, 0, &bf, ULW_ALPHA);
     ShowWindow(m_hDragImage, SW_SHOWNOACTIVATE);
     } catch (...) { /* il drag fantasma e' cosmetico: mai crashare */ }
 }

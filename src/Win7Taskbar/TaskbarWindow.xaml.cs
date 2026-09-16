@@ -1198,6 +1198,8 @@ namespace Win7Taskbar
                     if (m.OwnerHwnd == balloon.OwnerHwnd && m.Uid == balloon.Uid
                         && TrayIcons.ItemContainerGenerator.ContainerFromItem(m)
                             is FrameworkElement container
+                        && container.IsLoaded
+                        && container.IsVisible
                         && container.ActualWidth > 0)
                     {
                         iconAnchor = container;
@@ -2392,6 +2394,15 @@ namespace Win7Taskbar
         // the pointer is over a DWM destination (which is not WPF-painted).
         private bool _previewPointerInside;
 
+        /* v3.8: stato del riordino delle anteprime col trascinamento
+         * sinistro (ispirazione dalla mod "Taskbar Thumbnail Reorder").
+         * Il candidato e' l'elemento premuto; il riordino vero parte solo
+         * oltre la soglia di trascinamento del sistema, cosi' il clic
+         * semplice resta "attiva la finestra". */
+        private FrameworkElement? _reorderCandidate;
+        private Point _reorderStartScreen;
+        private bool _reorderActive;
+
         /// <summary>
         /// v2.53: apertura del tooltip di testo del pulsante della Superbar.
         /// Si mostra solo quando il riquadro delle anteprime NON e' a schermo
@@ -2428,17 +2439,48 @@ namespace Win7Taskbar
                     return;
                 }
 
+                if (group.Windows.Count == 0)
+                {
+                    /* App non avviata: nessuna anteprima. Se il mouse arriva
+                     * da un altro pulsante, la sua anteprima non serve
+                     * piu'. */
+                    if (!ReferenceEquals(_previewAnchor, button))
+                    {
+                        CloseTaskPreview();
+                    }
+                    return;
+                }
+
+                /* v3.8: anteprima GIA' a schermo: il passaggio del mouse su
+                 * un altro pulsante cambia il riquadro SUBITO, senza un
+                 * secondo ritardo di 400 ms (ispirazione dalla mod
+                 * "Instant Taskbar Thumbnail Previews": la Superbar vera non
+                 * aspetta tra un'anteprima e l'altra). Sullo STESSO
+                 * pulsante il riquadro resta aperto com'e': prima il timer
+                 * di comparsa veniva riavviato anche li' e il popup si
+                 * chiudeva/riapriva da solo (sfarfallio). Il ritardo di
+                 * 400 ms resta per la PRIMA apertura, cosi' il mouse che
+                 * attraversa la barra non fa lampeggiare riquadri. */
+                if (TaskPreviewPopup?.IsOpen == true)
+                {
+                    if (ReferenceEquals(_previewAnchor, button))
+                    {
+                        return;
+                    }
+
+                    CloseTaskPreview();
+                    _previewAnchor = button;
+                    _previewGroup = group;
+                    ShowTaskPreview(button, group);
+                    return;
+                }
+
                 /* Il mouse arriva da un altro pulsante: l'anteprima di quello
                  * non serve piu' (nella Superbar se ne vede una sola per
                  * volta). */
                 if (!ReferenceEquals(_previewAnchor, button))
                 {
                     CloseTaskPreview();
-                }
-
-                if (group.Windows.Count == 0)
-                {
-                    return;   /* app non avviata: nessuna anteprima */
                 }
 
                 _previewAnchor = button;
@@ -2818,6 +2860,7 @@ namespace Win7Taskbar
             {
                 _previewShowTimer?.Stop();
                 _previewWatchTimer?.Stop();
+                ClearPreviewReorderState();
 
                 // Release the managed BitmapSource reference after every
                 // short-lived hover popup; the HBITMAP was already released
@@ -2886,14 +2929,37 @@ namespace Win7Taskbar
         /// Clic sulla miniatura: la finestra va DAVVERO in primo piano, come
         /// nella Superbar di Windows 7 (che, a differenza di Windows 10/11,
         /// non ha il pulsante "anteprima" separato: si clicca la miniatura).
+        /// Dopo un trascinamento di riordino (v3.8) NON attiva nulla: il
+        /// rilascio conclude il riordino, punto.
         /// </summary>
         private void PreviewThumbnail_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
+            bool wasReorder = _reorderActive;
+            ClearPreviewReorderState();
+            if (wasReorder)
+            {
+                e.Handled = true;
+                return;
+            }
+
             try
             {
                 if (sender is not FrameworkElement element ||
                     element.DataContext is not TaskWindow window)
                 {
+                    return;
+                }
+
+                /* v3.8: rilascio FUORI dalla miniatura (il mouse era stato
+                 * catturato da una pressione poi non diventata riordino):
+                 * non conta come clic. Senza la cattura questo Up non
+                 * sarebbe nemmeno arrivato qui. */
+                Point releasePoint = e.GetPosition(element);
+                if (releasePoint.X < 0 || releasePoint.Y < 0 ||
+                    releasePoint.X > element.ActualWidth ||
+                    releasePoint.Y > element.ActualHeight)
+                {
+                    e.Handled = true;
                     return;
                 }
 
@@ -2914,6 +2980,158 @@ namespace Win7Taskbar
                 // Comunque vada, il riquadro si chiude: l'utente ha scelto.
                 CloseTaskPreview();
             }
+        }
+
+        /// <summary>
+        /// v3.8: pressione sulla miniatura: comincia il POSSIBILE
+        /// trascinamento di riordino. Il mouse viene catturato cosi' i
+        /// movimenti arrivano tutti qui anche se il cursore scavalca le
+        * altre anteprime; se il rilascio avviene senza superare la soglia
+        /// di trascinamento, il percorso resta il normale clic che attiva
+        * la finestra.
+        /// </summary>
+        private void PreviewThumbnail_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                if (sender is not FrameworkElement element ||
+                    element.DataContext is not TaskWindow ||
+                    _previewGroup is not { Windows.Count: > 1 })
+                {
+                    return;   /* finestra sola nel gruppo: niente da riordinare */
+                }
+
+                _reorderCandidate = element;
+                _reorderStartScreen = element.PointToScreen(e.GetPosition(element));
+                _reorderActive = false;
+                element.CaptureMouse();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"inizio riordino anteprime: {ex.Message}");
+                ClearPreviewReorderState();
+            }
+        }
+
+        /// <summary>
+        /// v3.8: movimento sulla miniatura: oltre la soglia di
+        /// trascinamento si entra in modalita' riordino e la posizione del
+        /// cursore decide dove spostare l'anteprima trascinata nella fila.
+        /// </summary>
+        private void PreviewThumbnail_MouseMove(object sender, MouseEventArgs e)
+        {
+            try
+            {
+                if (_reorderCandidate == null)
+                {
+                    return;
+                }
+
+                if (e.LeftButton != MouseButtonState.Pressed)
+                {
+                    ClearPreviewReorderState();
+                    return;
+                }
+
+                Point screenNow = _reorderCandidate.PointToScreen(
+                    e.GetPosition(_reorderCandidate));
+
+                if (!_reorderActive)
+                {
+                    double dx = screenNow.X - _reorderStartScreen.X;
+                    double dy = screenNow.Y - _reorderStartScreen.Y;
+                    double threshold = SystemParameters.MinimumHorizontalDragDistance;
+                    if (dx * dx + dy * dy < threshold * threshold)
+                    {
+                        return;
+                    }
+                    _reorderActive = true;
+                }
+
+                ReorderPreviewsAtCursor(screenNow);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"riordino anteprime: {ex.Message}");
+                ClearPreviewReorderState();
+            }
+        }
+
+        /// <summary>
+        /// v3.8: sposta l'anteprima trascinata nella collezione del gruppo.
+        /// L'ordine nuovo resta: la sincronizzazione e' per differenze
+        /// (aggiunge in coda, aggiorna sul posto, toglie le chiuse), quindi
+        /// non lo calpesta. Le anteprime sono in fila orizzontale: il punto
+        /// di inserimento e' la prima anteprima il cui centro sta a destra
+        /// del cursore.
+        /// </summary>
+        private void ReorderPreviewsAtCursor(Point screenPoint)
+        {
+            if (_previewGroup is not { Windows.Count: > 1 } group ||
+                _reorderCandidate?.DataContext is not TaskWindow dragged ||
+                TaskPreviewItems == null)
+            {
+                return;
+            }
+
+            int from = group.Windows.IndexOf(dragged);
+            if (from < 0)
+            {
+                ClearPreviewReorderState();
+                return;
+            }
+
+            int insertAt = group.Windows.Count;   /* dopo l'ultima */
+            for (int i = 0; i < group.Windows.Count; ++i)
+            {
+                if (ReferenceEquals(group.Windows[i], dragged))
+                {
+                    continue;
+                }
+                if (TaskPreviewItems.ItemContainerGenerator
+                        .ContainerFromItem(group.Windows[i])
+                        is not FrameworkElement container)
+                {
+                    continue;
+                }
+                try
+                {
+                    Point center = container.PointToScreen(new Point(
+                        container.ActualWidth / 2.0,
+                        container.ActualHeight / 2.0));
+                    if (screenPoint.X < center.X)
+                    {
+                        insertAt = i;
+                        break;
+                    }
+                }
+                catch
+                {
+                    /* contenitore in transizione: si salta */
+                }
+            }
+
+            /* ObservableCollection.Move vuole l'indice di destinazione nel
+             * listino DOPO la rimozione dell'elemento trascinato. */
+            int to = insertAt > from ? insertAt - 1 : insertAt;
+            if (to != from)
+            {
+                group.Windows.Move(from, to);
+            }
+        }
+
+        /// <summary>Rilascia la cattura del mouse e dimentica il riordino.</summary>
+        private void ClearPreviewReorderState()
+        {
+            if (_reorderCandidate != null)
+            {
+                if (_reorderCandidate.IsMouseCaptured)
+                {
+                    _reorderCandidate.ReleaseMouseCapture();
+                }
+                _reorderCandidate = null;
+            }
+            _reorderActive = false;
         }
 
         /// <summary>
@@ -4776,58 +4994,72 @@ namespace Win7Taskbar
                 return;
             }
 
-            double scale = _hwndSource.CompositionTarget.TransformToDevice.M11;
-            if (scale <= 0)
+            /* v3.7.1: il rapporto periodico dei rettangoli gira da un timer
+             * e tocca sia gli elementi visivi (PointToScreen) sia il core
+             * nativo (SetIconRect): un elemento che sparisce a meta' giro o
+             * una chiamata nativa fallita non devono abbattere la barra.
+             * In caso di errore si salta il giro: il core tiene l'ultimo
+             * rettangolo noto e si riprova al prossimo tick, come gia'
+             * avviene nel rapporto al clic (ReportClickedIconRect). */
+            try
             {
-                scale = 1.0;
-            }
-
-            var seen = new HashSet<(ulong, uint)>();
-
-            foreach (var model in _viewModel.NotificationArea.PinnedIcons)
-            {
-                if (TrayIcons.ItemContainerGenerator
-                        .ContainerFromItem(model) is not FrameworkElement element
-                    || element.ActualWidth <= 0)
+                double scale = _hwndSource.CompositionTarget.TransformToDevice.M11;
+                if (scale <= 0)
                 {
-                    continue;
+                    scale = 1.0;
                 }
 
-                seen.Add((model.OwnerHwnd, model.Uid));
+                var seen = new HashSet<(ulong, uint)>();
 
-                Point origin = element.PointToScreen(new Point(0, 0));
-                var rect = ((int)origin.X,
-                            (int)origin.Y,
-                            (int)(origin.X + element.ActualWidth * scale),
-                            (int)(origin.Y + element.ActualHeight * scale));
-
-                if (_lastReportedRects.TryGetValue((model.OwnerHwnd, model.Uid), out (int, int, int, int) previous)
-                    && previous == rect)
+                foreach (var model in _viewModel.NotificationArea.PinnedIcons)
                 {
-                    continue;   // nessuna variazione: nessuna chiamata nativa
-                }
-
-                _lastReportedRects[(model.OwnerHwnd, model.Uid)] = rect;
-                _bridge.SetIconRect(model.OwnerHwnd, model.Uid,
-                                    rect.Item1, rect.Item2, rect.Item3, rect.Item4);
-            }
-
-            // Icone uscite dalla barra (overflow, rimozione): la memoria
-            // del "gia' riportato" va pulita per non crescere per sempre.
-            if (_lastReportedRects.Count > seen.Count)
-            {
-                var stale = new List<(ulong, uint)>();
-                foreach (var kv in _lastReportedRects)
-                {
-                    if (!seen.Contains(kv.Key))
+                    if (TrayIcons.ItemContainerGenerator
+                            .ContainerFromItem(model) is not FrameworkElement element
+                        || element.ActualWidth <= 0)
                     {
-                        stale.Add(kv.Key);
+                        continue;
+                    }
+
+                    seen.Add((model.OwnerHwnd, model.Uid));
+
+                    Point origin = element.PointToScreen(new Point(0, 0));
+                    var rect = ((int)origin.X,
+                                (int)origin.Y,
+                                (int)(origin.X + element.ActualWidth * scale),
+                                (int)(origin.Y + element.ActualHeight * scale));
+
+                    if (_lastReportedRects.TryGetValue((model.OwnerHwnd, model.Uid), out (int, int, int, int) previous)
+                        && previous == rect)
+                    {
+                        continue;   // nessuna variazione: nessuna chiamata nativa
+                    }
+
+                    _lastReportedRects[(model.OwnerHwnd, model.Uid)] = rect;
+                    _bridge.SetIconRect(model.OwnerHwnd, model.Uid,
+                                        rect.Item1, rect.Item2, rect.Item3, rect.Item4);
+                }
+
+                // Icone uscite dalla barra (overflow, rimozione): la memoria
+                // del "gia' riportato" va pulita per non crescere per sempre.
+                if (_lastReportedRects.Count > seen.Count)
+                {
+                    var stale = new List<(ulong, uint)>();
+                    foreach (var kv in _lastReportedRects)
+                    {
+                        if (!seen.Contains(kv.Key))
+                        {
+                            stale.Add(kv.Key);
+                        }
+                    }
+                    foreach (var key in stale)
+                    {
+                        _lastReportedRects.Remove(key);
                     }
                 }
-                foreach (var key in stale)
-                {
-                    _lastReportedRects.Remove(key);
-                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"rapporto rettangoli icone: {ex.Message}");
             }
         }
 

@@ -463,6 +463,12 @@ private:
     HWINEVENTHOOK m_trayHostHook = nullptr;   /* v2.60: isole della tray Win11 */
     bool          m_win11Tray = false;
 
+    /* v3.8: ripiego "icone sparite" (idea dalla mod Disappearing Tray
+     * Icons Fix): il broadcast TaskbarCreated a meta' sessione viene
+     * mandato AL MASSIMO una volta, solo quando un'icona e' confermata
+     * assente dalla toolbar completa mentre il suo owner e' vivo. */
+    bool          m_disappearedIconBroadcastDone = false;
+
     /* Flyout di sistema attualmente agganciato a un'icona. */
     struct FlyoutAnchor {
         HWND        flyout = nullptr;
