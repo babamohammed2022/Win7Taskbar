@@ -784,22 +784,45 @@ namespace Win7Taskbar
         {
             try
             {
-                if (RetroBar.Utilities.Settings.Instance.NetworkFlyoutMode == 0)
+                int netMode = RetroBar.Utilities.Settings.Instance.NetworkFlyoutMode;
+                if (netMode == 0)
                 {
                     if (!_netFlyoutInit)
                     {
                         _netFlyoutInit = _bridge.NetFlyoutInit();
                     }
                     _bridge.SetWin7NetworkFlyout(_netFlyoutInit);
+                    _bridge.SetWin8NetworkFlyout(false);
                     _bridge.Log(_netFlyoutInit
                         ? "rete: riquadro Windows 7 pronto"
                         : "rete: riquadro Windows 7 non disponibile");
                 }
+                else if (netMode == 2)
+                {
+                    /* v3.8: variante Windows 8 (riquadro ricreato). Il suo
+                     * Init porta su anche la logica di rete condivisa del
+                     * modulo Windows 7 (una volta sola per processo). */
+                    if (!_net8FlyoutInit)
+                    {
+                        _net8FlyoutInit = _bridge.Net8FlyoutInit();
+                    }
+                    _bridge.SetWin7NetworkFlyout(false);
+                    _bridge.SetWin8NetworkFlyout(_net8FlyoutInit);
+                    _bridge.Log(_net8FlyoutInit
+                        ? "rete: riquadro Windows 8 (ricreato) pronto"
+                        : "rete: riquadro Windows 8 non disponibile");
+                }
                 else
                 {
-                    /* Scelta dell'utente: il riquadro di sistema. Il core
-                     * apre quello (nessun modulo nostro da preparare). */
+                    /* Scelta dell'utente: modalita' senza riquadro Windows 8.
+                     * Se il cambio e' arrivato a riquadro aperto, lo si
+                     * chiude: ogni modalita' spettina un riquadro SOLO. */
+                    if (_net8FlyoutInit)
+                    {
+                        try { _bridge.Net8FlyoutHide(); } catch { }
+                    }
                     _bridge.SetWin7NetworkFlyout(false);
+                    _bridge.SetWin8NetworkFlyout(false);
                 }
             }
             catch (Exception ex)
@@ -1239,6 +1262,8 @@ namespace Win7Taskbar
             {
                 try { _bridge.NetFlyoutUninit(); } catch { }
                 try { _bridge.SetWin7NetworkFlyout(false); } catch { }
+                try { _bridge.Net8FlyoutUninit(); } catch { }
+                try { _bridge.SetWin8NetworkFlyout(false); } catch { }
 
                 if (_appBarRegistered && _hwndSource != null)
                 {
@@ -1543,6 +1568,8 @@ namespace Win7Taskbar
                 // v2.37 punto 16: anche il flyout di rete parla la lingua
                 // dell'app (traduzioni gia' presenti nella mod).
                 try { _bridge.NetFlyoutSetLanguage(lang); } catch { }
+                // v3.8: anche il riquadro variante Windows 8.
+                try { _bridge.Net8FlyoutSetLanguage(lang); } catch { }
                 st.NetworkFlyoutMode = netFlyout;
                 st.UseClassicVolumeMixer = classicVolume == 1;
                 st.UseBatteryFlyout = batteryFlyout == 1;
@@ -4538,6 +4565,9 @@ namespace Win7Taskbar
 
         // v2.36: flyout di rete Windows 7.
         private bool _netFlyoutInit;
+
+        // v3.8: flyout di rete variante Windows 8 (riquadro ricreato).
+        private bool _net8FlyoutInit;
         private readonly Dictionary<ulong, bool> _networkOwnerCache = new();
 
         /// <summary>True se l'icona tray appartiene a pnidui.dll (rete).
@@ -4609,36 +4639,69 @@ namespace Win7Taskbar
             // non viene inoltrato al proprietario (altrimenti si aprirebbe
             // anche il flyout moderno); con "Windows 10/11" si inoltra come
             // prima. Il tasto destro continua ad aprire il menu nativo.
-            if (RetroBar.Utilities.Settings.Instance.NetworkFlyoutMode == 0 &&
-                IsNetworkTrayIcon(icon))
+            // v3.8: stessa conseguenza per "Windows 8 (ricreato)".
+            int netModeClick = RetroBar.Utilities.Settings.Instance.NetworkFlyoutMode;
+            if ((netModeClick == 0 || netModeClick == 2) && IsNetworkTrayIcon(icon))
             {
-                if (!_netFlyoutInit)
+                if (netModeClick == 0)
                 {
-                    _netFlyoutInit = _bridge.NetFlyoutInit();
-                    /* v2.62: il core deve saperlo, perche' il clic sulle
-                     * icone di rete RICREATE lo gestisce lui. */
-                    try { _bridge.SetWin7NetworkFlyout(_netFlyoutInit); } catch { }
-                }
-                if (_netFlyoutInit)
-                {
-                    // v2.37 punto 16: sincronizza la lingua del flyout con
-                    // quella dell'app prima di ogni apertura.
-                    try
+                    if (!_netFlyoutInit)
                     {
-                        var stLang = RetroBar.Utilities.Settings.Instance;
-                        int langIdx = Math.Max(0,
-                            Array.IndexOf(kLangCodes, stLang.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode));
-                        _bridge.NetFlyoutSetLanguage(langIdx);
+                        _netFlyoutInit = _bridge.NetFlyoutInit();
+                        /* v2.62: il core deve saperlo, perche' il clic sulle
+                         * icone di rete RICREATE lo gestisce lui. */
+                        try { _bridge.SetWin7NetworkFlyout(_netFlyoutInit); } catch { }
                     }
-                    catch { }
+                    if (_netFlyoutInit)
+                    {
+                        // v2.37 punto 16: sincronizza la lingua del flyout con
+                        // quella dell'app prima di ogni apertura.
+                        try
+                        {
+                            var stLang = RetroBar.Utilities.Settings.Instance;
+                            int langIdx = Math.Max(0,
+                                Array.IndexOf(kLangCodes, stLang.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode));
+                            _bridge.NetFlyoutSetLanguage(langIdx);
+                        }
+                        catch { }
 
-                    Point topLeft = element.PointToScreen(new Point(0, 0));
-                    int iw = (int)Math.Ceiling(element.ActualWidth);
-                    int ih = (int)Math.Ceiling(element.ActualHeight);
-                    _bridge.NetFlyoutToggleAt((int)topLeft.X, (int)topLeft.Y,
-                        (int)topLeft.X + iw, (int)topLeft.Y + ih);
-                    e.Handled = true;
-                    return;
+                        Point topLeft = element.PointToScreen(new Point(0, 0));
+                        int iw = (int)Math.Ceiling(element.ActualWidth);
+                        int ih = (int)Math.Ceiling(element.ActualHeight);
+                        _bridge.NetFlyoutToggleAt((int)topLeft.X, (int)topLeft.Y,
+                            (int)topLeft.X + iw, (int)topLeft.Y + ih);
+                        e.Handled = true;
+                        return;
+                    }
+                }
+                else /* netModeClick == 2: v3.8, riquadro di rete stile Windows 8 */
+                {
+                    if (!_net8FlyoutInit)
+                    {
+                        _net8FlyoutInit = _bridge.Net8FlyoutInit();
+                        /* come SetWin7NetworkFlyout per la variante Win7: il
+                         * core deve saperlo prima dei click sintetici. */
+                        try { _bridge.SetWin8NetworkFlyout(_net8FlyoutInit); } catch { }
+                    }
+                    if (_net8FlyoutInit)
+                    {
+                        try
+                        {
+                            var stLang = RetroBar.Utilities.Settings.Instance;
+                            int langIdx = Math.Max(0,
+                                Array.IndexOf(kLangCodes, stLang.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode));
+                            _bridge.Net8FlyoutSetLanguage(langIdx);
+                        }
+                        catch { }
+
+                        Point topLeft = element.PointToScreen(new Point(0, 0));
+                        int iw = (int)Math.Ceiling(element.ActualWidth);
+                        int ih = (int)Math.Ceiling(element.ActualHeight);
+                        _bridge.Net8FlyoutToggleAt((int)topLeft.X, (int)topLeft.Y,
+                            (int)topLeft.X + iw, (int)topLeft.Y + ih);
+                        e.Handled = true;
+                        return;
+                    }
                 }
             }
 
@@ -6250,7 +6313,10 @@ namespace Win7Taskbar
                  *                           batteria: riquadro Win32 di Windows
                  *   Windows 10/11   = 0  -> riquadro della shell               */
                 bool clockWin7   = st.UseNativeClockFlyout;      /* tendina: "Windows 7" */
-                bool networkWin7 = st.NetworkFlyoutMode == 0;    /* "Windows 7 (ricreato)" */
+                /* v3.8: la rete ha tre scelte: 1 = Win7 ricreato, 0 =
+                 * Windows 10/11 (sistema), 2 = Win8 ricreato. */
+                int networkStyle = st.NetworkFlyoutMode == 0 ? 1
+                                 : (st.NetworkFlyoutMode == 2 ? 2 : 0);
                 bool volumeWin7  = st.UseClassicVolumeMixer;     /* tendina: "Windows 7" */
                 bool batteryWin7 = st.UseBatteryFlyout;          /* tendina: "Windows 7" */
 
@@ -6258,15 +6324,17 @@ namespace Win7Taskbar
                 WriteImmersiveShellValue("UseWin32BatteryFlyout", batteryWin7 ? 1 : 0);
                 WriteImmersiveShellValue("EnableMtcUvc", volumeWin7 ? 0 : 1);
 
-                _bridge.SetFlyoutPreferences(clockWin7, networkWin7, volumeWin7, batteryWin7);
+                _bridge.SetFlyoutPreferences(clockWin7, networkStyle, volumeWin7, batteryWin7);
 
                 string modern = "?";
                 try { modern = _bridge.IsModernFlyoutHostAvailable() ? "si" : "no"; }
                 catch { }
 
+                string netStyleName = networkStyle == 1 ? "Windows7"
+                                    : (networkStyle == 2 ? "Windows8" : "Windows10/11");
                 _bridge.Log(
                     "SETTINGS: orologio=" + (clockWin7 ? "Windows7" : "Windows10/11") +
-                    " rete=" + (networkWin7 ? "Windows7" : "Windows10/11") +
+                    " rete=" + netStyleName +
                     " volume=" + (volumeWin7 ? "Windows7" : "Windows10/11") +
                     " batteria=" + (batteryWin7 ? "Windows7" : "Windows10/11") +
                     " lingua=" + (st.Language ?? Settings.DefaultLanguageCode) +

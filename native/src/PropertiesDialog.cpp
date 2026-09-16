@@ -243,7 +243,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         m_seconds = seconds;
         m_nativeFlyout = nativeFlyout;
         m_enableSearch = enableSearch;
-        m_netFlyout = (netFlyout == 1) ? 1 : 0;
+        /* v3.8: 0 = Windows 7 (ricreato), 1 = Windows 10/11 (sistema),
+         * 2 = Windows 8 (ricreato). Valori fuori elenco -> Windows 7. */
+        m_netFlyout = (netFlyout >= 0 && netFlyout <= 2) ? netFlyout : 0;
         m_classicVolume = classicVolume ? 1 : 0;
         m_batteryFlyout = batteryFlyout ? 1 : 0;
         m_aeroPeek = aeroPeek ? 1 : 0;
@@ -456,9 +458,14 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
     msg.nativeFlyout =
         (SendDlgItemMessageW(m_hWnd, IDC_CMB_CLOCK, CB_GETCURSEL, 0, 0) == 1)
             ? 1 : 0;
-    msg.netFlyoutMode =
-        (SendDlgItemMessageW(m_hWnd, IDC_CMB_NETFLY, CB_GETCURSEL, 0, 0) == 1)
-            ? 1 : 0;
+    /* v3.8: la tendina ora ha tre voci e l'INDICE e' il modo (0/1/2):
+     * il pacchetto lo porta cosi' com'e', limitato per difesa. */
+    {
+        const LRESULT netSel =
+            SendDlgItemMessageW(m_hWnd, IDC_CMB_NETFLY, CB_GETCURSEL, 0, 0);
+        msg.netFlyoutMode = (netSel >= 0 && netSel <= 2)
+            ? static_cast<int32_t>(netSel) : 0;
+    }
     /* La finestra non ha piu' il controllo Aero Peek: il campo resta nel
      * pacchetto (compatibilita' con i campi aggiunti in coda) e rimanda
      * indietro il valore ricevuto all'apertura, senza toccarlo. */
@@ -642,9 +649,12 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         ComboBox_SetCurSel(hCC, self->m_nativeFlyout ? 1 : 0);
 
         HWND hCN = GetDlgItem(hwnd, IDC_CMB_NETFLY);
-        ComboBox_AddString(hCN, S.netWin7);        /* 0 = ricreato */
+        ComboBox_AddString(hCN, S.netWin7);        /* 0 = ricreato (Windows 7) */
         ComboBox_AddString(hCN, S.netModern);      /* 1 = sistema */
-        ComboBox_SetCurSel(hCN, self->m_netFlyout ? 1 : 0);
+        /* v3.8: terza voce: la variante Windows 8 ricreata (implementazione
+         * Administratox), indicizzata 2 anche nel pacchetto WM_COPYDATA. */
+        ComboBox_AddString(hCN, S.netWin8);        /* 2 = ricreato (Windows 8) */
+        ComboBox_SetCurSel(hCN, self->m_netFlyout);
 
         HWND hCV = GetDlgItem(hwnd, IDC_CMB_VOLUME);
         ComboBox_AddString(hCV, kFlyoutWin7);      /* 0 = flyout stile Windows 7 */

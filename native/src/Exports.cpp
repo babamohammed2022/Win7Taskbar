@@ -923,7 +923,10 @@ extern "C" W7T_API void W7T_CALL W7T_SetFlyoutPreferences(
     int32_t batteryWin7) {
     w7t::FlyoutPreferences prefs;
     prefs.clock   = clockWin7   ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
-    prefs.network = networkWin7 ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    /* v3.8: per la rete c'e' una terza possibilita': 2 = Windows 8
+     * (ricreato). Per 0 e 1 il significato e' immutato. */
+    prefs.network = networkWin7 == 2 ? w7t::FlyoutStyle::Win8
+                    : (networkWin7 ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern);
     prefs.volume  = volumeWin7  ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
     prefs.battery = batteryWin7 ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
     w7t::SetFlyoutPreferences(prefs);
@@ -1181,6 +1184,65 @@ extern "C" W7T_API void W7T_CALL W7T_NetFlyoutSetLanguage(int32_t appLanguageInd
         w7tnet::W7TNetFlyout_SetLanguage(appLanguageIndex);
     W7T_SEH_CATCH
     W7T_SEH_END
+}
+
+/* ------------------------------------------------------------------ */
+/* v3.8: flyout di rete variazione Windows 8 (riquadro ricreato;        */
+/* implementazione della variante: Administratox). Inizializza (e       */
+/* quindi usa) la STESSA logica di rete del flyout Windows 7: niente    */
+/* duplicati, niente rischi per il comportamento Win7. Ponte dichiarato */
+/* in NetLogicBridge.h.                                                 */
+/* ------------------------------------------------------------------ */
+#include "Win8NetworkFlyout.h"
+
+extern "C" W7T_API int32_t W7T_CALL W7T_Net8FlyoutInit(void) {
+    int32_t r = 0;
+    W7T_SEH_TRY
+        r = w7t::Win8NetworkFlyout::Instance().Init() ? 1 : 0;
+    W7T_SEH_CATCH
+    W7T_SEH_END
+    return r;
+}
+
+extern "C" W7T_API void W7T_Net8FlyoutUninit(void) {
+    W7T_SEH_TRY
+        w7t::Win8NetworkFlyout::Instance().Uninit();
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
+/* v3.8: chiude il riquadro Windows 8 senza de-inizializzare il modulo (la
+ * modalita' di rete e' cambiata ad altra voce: il riquadro non deve
+ * restare sullo schermo sotto un'etichetta diversa). */
+extern "C" W7T_API void W7T_Net8FlyoutHide(void) {
+    W7T_SEH_TRY
+        w7t::Win8NetworkFlyout::Instance().Hide();
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_Net8FlyoutToggleAt(const RECT* rcIcon) {
+    W7T_SEH_TRY
+        if (rcIcon != nullptr) {
+            w7t::Win8NetworkFlyout::Instance().SetAnchorRect(*rcIcon);
+        }
+        w7t::Win8NetworkFlyout::Instance().Toggle();
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_Net8FlyoutSetLanguage(int32_t appLanguageIndex) {
+    W7T_SEH_TRY
+        w7t::Win8NetworkFlyout::Instance().SetLanguage(appLanguageIndex);
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
+/* v3.8: il frontend dichiara pronto il riquadro di rete variante Windows 8
+ * (modulo inizializzato e modo "Windows 8 (ricreato)" attivo). Stesso patto
+ * di W7T_SetWin7NetworkFlyout: senza avviso il core ripiega sulla shell. */
+extern "C" W7T_API void W7T_CALL W7T_SetWin8NetworkFlyout(int32_t ready) {
+    TrayService::Instance().SetWin8NetworkFlyout(ready != 0);
 }
 
 /* v2.36/v2.38: modulo (DLL) che possiede la finestra proprietaria di

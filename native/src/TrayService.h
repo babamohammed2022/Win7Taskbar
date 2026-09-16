@@ -220,6 +220,8 @@ public:
     /* v2.62: il frontend dichiara pronta (o no) l'esperienza del riquadro di
      * rete di Windows 7: vedi SendClick. */
     void SetWin7NetworkFlyout(bool ready);
+    /* v3.8: stessa cosa per il riquadro di rete variante Windows 8. */
+    void SetWin8NetworkFlyout(bool ready);
 
     /* Riordino del modello dal trascinamento del livello gestito: sposta
      * l'icona accanto a un'altra e muove il pulsante reale con
@@ -393,6 +395,9 @@ private:
     void StopBatteryUiARetry();
 
     bool                                 m_win7NetworkFlyoutReady = false;
+    /* v3.8: riquadro di rete Windows 8 pronto (frontend lo ha inizializzato
+     * e la modalita' scelta e' "Windows 8 (ricreato)"). */
+    bool                                 m_win8NetworkFlyoutReady = false;
 
     /* v2.63: batteria - stato della verifica differita. */
     RECT                                 m_pendingBatteryAnchor = {};

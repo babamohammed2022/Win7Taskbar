@@ -207,11 +207,13 @@ namespace RetroBar.Utilities
         /// 1 = "Windows 10/11" (flyout moderno nativo). Persistente e
         /// mutualmente esclusivo. L'icona di rete resta sempre quella
         /// originale di Windows: cambia solo il flyout aperto al click.
+        /// v3.8: 2 = "Windows 8 (ricreato)" (variante grafica ricostruita da
+        /// Administratox; la logica di rete e' la stessa del modulo Win7).
         /// </summary>
         public int NetworkFlyoutMode
         {
             get => _networkFlyoutMode;
-            set => SetField(ref _networkFlyoutMode, value == 1 ? 1 : 0);
+            set => SetField(ref _networkFlyoutMode, value == 1 ? 1 : (value == 2 ? 2 : 0));
         }
 
         private bool _useClassicVolumeMixer;

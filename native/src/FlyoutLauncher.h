@@ -50,9 +50,12 @@ namespace w7t {
 /*  Stile del riquadro. I valori numerici sono quelli del pacchetto          */
 /*  WM_COPYDATA e dell'ABI pubblica: 0 = Windows 7 (classico/Win32),         */
 /*  1 = Windows 10/11 (immersivo della shell).                               */
+/*  v3.8: 2 = Windows 8 (riquadro ricreato, solo per la rete; la             */
+/*  variante vive in Win8NetworkFlyout.cpp, implementazione: Administratox). */
 enum class FlyoutStyle : int32_t {
     Win7   = 0,
-    Modern = 1
+    Modern = 1,
+    Win8   = 2
 };
 
 struct FlyoutPreferences {

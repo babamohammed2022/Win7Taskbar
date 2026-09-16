@@ -533,3 +533,13 @@ project is GPL-3.0-or-later (see the LICENSE file).
 3ds
  - Some of the graphic resources of the project.
  - Inspiration for the XAML theme idea.
+
+Administratox
+ - Implementation of the network flyout's "Windows 8 (recreated)" variant
+   (native/src/Win8NetworkFlyout.cpp, selected from Properties with
+   "Windows 8 (ricreato)"): the graphical recreation of the Windows 8 side
+   networks pane. The underlying network logic is the project's existing
+   one - the MIT-licensed port of the Windhawk mod "Windows 7 Network
+   Flyout Recreation" v5.0.0 by babamohammed, whose attribution is carried
+   in the header of native/src/Win7NetworkFlyout.cpp - and is shared, not
+   duplicated, with the Windows 7 flyout (bridge: native/src/NetLogicBridge.h).
