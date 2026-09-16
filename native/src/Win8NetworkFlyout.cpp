@@ -4928,6 +4928,18 @@ static void CharmsApplyFrame(HWND hwnd, int x) {
     }
 }
 
+/* v1.21.15: la taskbar di Win7Taskbar e essa stessa topmost e si rialza
+ * periodicamente, quindi il riquadro - pur essendo WS_EX_TOPMOST - le
+ * restava DIETRO mentre scivolava (caso segnalato). Rialzo neutro in testa
+ * al gruppo dei topmost (niente spostamenti, ridimensionamenti o attivazione),
+ * richiamato a ogni frame dell animazione e una volta a scivolo finito. */
+static void CharmsRaiseOverTaskbar(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) return;
+    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+                 SWP_NOSENDCHANGING | SWP_NOREDRAW);
+}
+
 static void CharmsAnimStop(HWND hwnd, BOOL hideWindow) {
     if (g_CharmsAnimTimer && hwnd && IsWindow(hwnd))
         KillTimer(hwnd, CHARMS_ANIM_TIMER_ID);
@@ -4986,6 +4998,9 @@ static void CharmsAnimTick(HWND hwnd) {
     if (paneDone) x = g_CharmsAnimToX;
     if (x != g_CharmsAnimCurX)
         CharmsApplyFrame(hwnd, x);
+    /* v1.21.15: durante l animazione il riquadro resta SOPRA la taskbar
+     * (rialzo una volta per frame, costo nullo dal vsync) */
+    CharmsRaiseOverTaskbar(hwnd);
 
     BOOL easeOut = TRUE;
     BOOL contentDone = TRUE;
@@ -5000,6 +5015,7 @@ static void CharmsAnimTick(HWND hwnd) {
     if (paneDone && contentDone && titleDone) {
         BOOL hide = (g_CharmsAnimState == CHARMS_ANIM_OUT);
         CharmsAnimStop(hwnd, hide);
+        if (!hide) CharmsRaiseOverTaskbar(hwnd);
     }
 }
 
@@ -5045,6 +5061,7 @@ static void CharmsAnimStart(HWND hwnd, BOOL slidingIn) {
         if (slidingIn) {
             CharmsApplyFrame(hwnd, destX);
             ShowWindow(hwnd, SW_SHOW);
+            CharmsRaiseOverTaskbar(hwnd);
         }
         return;
     }
@@ -5115,8 +5132,10 @@ static void CharmsAnimStart(HWND hwnd, BOOL slidingIn) {
     // Park at the start frame before the window becomes visible so the
     // first painted pixels are already off-screen / clipped.
     CharmsApplyFrame(hwnd, startX);
-    if (slidingIn && !visible)
+    if (slidingIn && !visible) {
         ShowWindow(hwnd, SW_SHOW);
+        CharmsRaiseOverTaskbar(hwnd);
+    }
 
     if (g_CharmsAnimTimer) {
         KillTimer(hwnd, CHARMS_ANIM_TIMER_ID);
@@ -11432,25 +11451,15 @@ void W8NetUninit() {
 // Wrapping interno per la facciata Win7Taskbar (w7t::Win8NetworkFlyout)
 // ============================================================================
 
-/* Ordine lingue dell app (0=it, 1=en, 2=es, 3=fr, 4=de, 5=pt, 6=pl, 7=ru,
- * 8=ja, 9=zh, 10=ar) -> codice lingua della mod (1=en, 2=it, 3=es, 4=fr,
- * 5=ru, 6=de, 7=pt, 8=pl, 9=nl, 10=ro, 11=tr; 0=auto). ja/zh/ar non hanno
- * tabella nella mod: ripiegano sull inglese, come nel porting Windows 7. */
+/* v1.21.15: la variante Windows 8 segue la LINGUA DI SISTEMA (richiesta
+ * esplicita), non quella impostata nell app: internalLang resta 0 (auto
+ * = GetUserDefaultUILanguage) qualunque indice arrivi. Firma invariata,
+ * cosi l ingresso unico W7T_SetLanguage continua a colpirla senza toccare
+ * gli altri percorsi (batteria e flyout Windows 7 seguono la lingua
+ * dell app come prima). */
 void W8NetSetLanguage(int appLanguageIndex) {
-    int internalLang = 0;
-    switch (appLanguageIndex) {
-        case 0: internalLang = 2; break;   /* it */
-        case 1: internalLang = 1; break;   /* en */
-        case 2: internalLang = 3; break;   /* es */
-        case 3: internalLang = 4; break;   /* fr */
-        case 4: internalLang = 6; break;   /* de */
-        case 5: internalLang = 7; break;   /* pt */
-        case 6: internalLang = 8; break;   /* pl */
-        case 7: internalLang = 5; break;   /* ru */
-        case 8: case 9: case 10: internalLang = 1; break; /* ja/zh/ar -> en */
-        default: internalLang = 0; break;
-    }
-    g_Settings.language = internalLang;
+    (void)appLanguageIndex;
+    g_Settings.language = 0;
     DetermineLocale();
     CharmsAccentColorInvalidate();
     if (g_hWndFlyout && IsWindow(g_hWndFlyout) && IsWindowVisible(g_hWndFlyout))

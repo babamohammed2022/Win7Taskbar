@@ -85,6 +85,36 @@ namespace Win7Taskbar.Models
 
         public ObservableCollection<TaskGroup> Groups { get; }
 
+        // v1.21.15: ordine personalizzato dal trascinamento (meccanismo
+        // copiato da RetroBar): lista di sessione, svuotata ad ogni
+        // MoveTaskGroup e usata da RefreshWindows per non far tornare i
+        // bottoni alla posizione di default al prossimo refresh.
+        private readonly List<TaskGroup> _userOrder = new();
+
+        /// <summary>Sposta un gruppo alla posizione di inserimento
+        /// <paramref name="rawInsertIndex"/> (indice fra i bottoni, 0..Count;
+        /// la semantica e' quella del trascinamento: il bottone va PRIMA
+        /// dell'i-esimo bottone corrente). Registra l'ordine risultante
+        /// come preferenza di sessione.</summary>
+        public void MoveTaskGroup(TaskGroup group, int rawInsertIndex)
+        {
+            int cur = Groups.IndexOf(group);
+            if (cur < 0)
+            {
+                return;
+            }
+            int index = rawInsertIndex;
+            if (index < 0) index = 0;
+            if (index > Groups.Count) index = Groups.Count;
+            if (index > cur) index--;
+            if (index != cur)
+            {
+                Groups.Move(cur, index);
+            }
+            _userOrder.Clear();
+            _userOrder.AddRange(Groups);
+        }
+
         public NotificationArea NotificationArea { get; }
 
         public ClockModel Clock { get; }
@@ -381,6 +411,22 @@ namespace Win7Taskbar.Models
             // senza deduplica la lista desired sforava e Move() lanciava
             // ArgumentOutOfRangeException al primo evento del core.)
             var desired = new List<TaskGroup>(Groups.Count);
+            // v1.21.15: riordino con trascinamento (come RetroBar): se
+            // l'utente ha già spostato dei bottoni, QUELL'ordine comanda
+            // per tutti i gruppi che coinvolge; i gruppi spariti si
+            // purgano, i gruppi nuovi si accodano più sotto con la regola
+            // normale. Di sessione, non salvato su disco (come RetroBar).
+            if (_userOrder.Count > 0)
+            {
+                _userOrder.RemoveAll(g => !Groups.Contains(g));
+                foreach (TaskGroup g in _userOrder)
+                {
+                    if (!desired.Contains(g))
+                    {
+                        desired.Add(g);
+                    }
+                }
+            }
             foreach (PinInfo pin in pins)
             {
                 TaskGroup? g = Groups.FirstOrDefault(x => PinMatches(pin, x));

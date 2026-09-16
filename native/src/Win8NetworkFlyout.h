@@ -37,8 +37,9 @@ public:
     void Hide();
     bool IsVisible() const;
 
-    /* Lingua dell'app: 0=it,1=en,2=es,3=fr,4=de,5=pt,6=pl,7=ru,8=ja,9=zh,10=ar.
-     * Qualunque altro valore ripiega sull'inglese. */
+    /* v1.21.15: la variante Windows 8 segue la LINGUA DI SISTEMA (scelta
+     * da brief): il valore dell'indice arrivato dall'ingresso unico e'
+     * ignorato, al riquadro va sempre l'auto (GetUserDefaultUILanguage). */
     void SetLanguage(int appLang);
 
     /* v3.8: rilascio GDI su DLL_PROCESS_DETACH, solo se il modulo e' stato

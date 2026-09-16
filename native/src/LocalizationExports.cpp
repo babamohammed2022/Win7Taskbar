@@ -54,9 +54,9 @@ extern "C" __declspec(dllexport) void __stdcall W7T_SetLanguage(const char* twoL
          * W7TNetFlyout_SetLanguage. */
         w7t::BatteryFlyout::Instance().SetLanguage(index);
         w7tnet::W7TNetFlyout_SetLanguage(index);
-        /* v3.8: anche la variante Windows 8 del flyout di rete segue la
-         * lingua dell'app con una chiamata sola (posta al thread del suo
-         * riquadro, senza attendere). */
+        /* v3.8/1.21.15: la stessa chiamata raggiunge anche la variante
+         * Windows 8 del flyout di rete, che pero' per scelta di brief
+         * segue sempre la LINGUA DI SISTEMA (l indice e' ignorato). */
         w7t::Win8NetworkFlyout::Instance().SetLanguage(index);
     } W7T_SEH_CATCH {} W7T_SEH_END
 }

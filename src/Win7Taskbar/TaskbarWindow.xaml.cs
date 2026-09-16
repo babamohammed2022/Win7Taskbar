@@ -7,6 +7,7 @@ using RetroBar.Utilities;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows.Data;
+using System.Windows.Documents;
 using System.Globalization;
 using System;
 using System.Collections.Generic;
@@ -989,8 +990,259 @@ namespace Win7Taskbar
         //  Drag file to task buttons
         // ---------------------------------------------------------------
 
+        // ---------------------------------------------------------------
+        // v1.21.15: spostamento dei bottoni con trascinamento, meccanismo
+        // copiato da RetroBar (ManagedShell TaskList): si preme un
+        // bottone (es. Chrome) e lo si trascina orizzontalmente; una
+        // barretta verticale segna il punto di inserimento e al rilascio
+        // il gruppo si sposta li. L ordine scelto resta tutta la sessione
+        // (come in RetroBar: niente salvataggio su disco).
+        // ---------------------------------------------------------------
+        private const string TaskGroupReorderFormat = "W7T.TaskGroupReorder";
+
+        private FrameworkElement? _reorderCandidate;
+        private Point _reorderPressPoint;
+        private TaskGroup? _reorderDragging;
+        private TaskGroupInsertionAdorner? _insertionAdorner;
+
+        /// <summary>Riga verticale (ombreggiata + nucleo chiaro) che segna
+        /// il punto di inserimento, come l'indicatore di RetroBar.</summary>
+        private sealed class TaskGroupInsertionAdorner : Adorner
+        {
+            private readonly double _x;
+
+            public TaskGroupInsertionAdorner(UIElement adorned, double x)
+                : base(adorned)
+            {
+                _x = x;
+                IsHitTestVisible = false;
+            }
+
+            protected override void OnRender(DrawingContext dc)
+            {
+                double h = AdornedElement.RenderSize.Height;
+                var glow = new Pen(
+                    new SolidColorBrush(Color.FromArgb(110, 0, 0, 0)), 6.0);
+                if (glow.CanFreeze) glow.Freeze();
+                var core = new Pen(Brushes.White, 2.0);
+                if (core.CanFreeze) core.Freeze();
+                dc.DrawLine(glow, new Point(_x, 2), new Point(_x, h - 2));
+                dc.DrawLine(core, new Point(_x, 2), new Point(_x, h - 2));
+            }
+        }
+
+        private void TaskButton_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (_reorderCandidate == null || _reorderDragging != null)
+            {
+                return;
+            }
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                _reorderCandidate = null;
+                return;
+            }
+
+            Point pos = e.GetPosition(this);
+            Vector delta = pos - _reorderPressPoint;
+            if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance)
+            {
+                return;
+            }
+
+            FrameworkElement sourceButton = _reorderCandidate;
+            _reorderCandidate = null;
+            if (sourceButton.DataContext is not TaskGroup group)
+            {
+                return;
+            }
+
+            _reorderDragging = group;
+            try
+            {
+                DragDrop.DoDragDrop(sourceButton,
+                    new DataObject(TaskGroupReorderFormat, group),
+                    DragDropEffects.Move);
+            }
+            catch (Exception)
+            {
+                // Drag annullato dal sistema operativo (bottone perso,
+                // transito su DDE...): nessun ordine cambia, si ripulisce.
+            }
+            finally
+            {
+                _reorderDragging = null;
+                HideInsertionMark();
+            }
+        }
+
+        /// <summary>Indice di inserimento davanti al clic: la x del
+        /// puntatore rispetto alla meta destra/sinistra di ogni bottone,
+        /// lo stesso conto che fa RetroBar.</summary>
+        private int TaskGroupInsertionIndexAt(Point posInList)
+        {
+            int count = TaskList.Items.Count;
+            for (int i = 0; i < count; i++)
+            {
+                if (TaskList.ItemContainerGenerator.ContainerFromIndex(i)
+                        is FrameworkElement container)
+                {
+                    Point p = container.TransformToAncestor(TaskList)
+                                       .Transform(new Point(0, 0));
+                    if (posInList.X < p.X + container.ActualWidth / 2)
+                    {
+                        return i;
+                    }
+                }
+            }
+            return count;
+        }
+
+        private double TaskGroupInsertionXAt(int index)
+        {
+            int count = TaskList.Items.Count;
+            if (count == 0)
+            {
+                return 2;
+            }
+            if (index >= count)
+            {
+                if (TaskList.ItemContainerGenerator.ContainerFromIndex(count - 1)
+                        is FrameworkElement last)
+                {
+                    return last.TransformToAncestor(TaskList)
+                               .Transform(new Point(0, 0)).X + last.ActualWidth;
+                }
+                return TaskList.ActualWidth;
+            }
+            if (TaskList.ItemContainerGenerator.ContainerFromIndex(index)
+                    is FrameworkElement target)
+            {
+                return target.TransformToAncestor(TaskList)
+                             .Transform(new Point(0, 0)).X;
+            }
+            return 2;
+        }
+
+        private void ShowInsertionMark(int index)
+        {
+            try
+            {
+                AdornerLayer? layer = AdornerLayer.GetAdornerLayer(TaskList);
+                if (layer == null)
+                {
+                    return;
+                }
+                HideInsertionMark();
+                _insertionAdorner =
+                    new TaskGroupInsertionAdorner(TaskList, TaskGroupInsertionXAt(index));
+                layer.Add(_insertionAdorner);
+            }
+            catch (Exception)
+            {
+                // Manca solo il feedback visivo: il drop funziona uguale.
+            }
+        }
+
+        private void HideInsertionMark()
+        {
+            if (_insertionAdorner == null)
+            {
+                return;
+            }
+            try
+            {
+                AdornerLayer.GetAdornerLayer(TaskList)?.Remove(_insertionAdorner);
+            }
+            catch (Exception)
+            {
+                // layer gia' smontato
+            }
+            _insertionAdorner = null;
+        }
+
+        /// <summary>Ramo comune di Hover/Drop del riordino: ritorna true
+        /// quando l evento riguardava lo spostamento dei bottoni (in quel
+        /// caso i percorsi preesistenti del drop dei file non si toccano).
+        /// </summary>
+        private bool HandleTaskGroupReorderHover(object sender, DragEventArgs e)
+        {
+            if (_reorderDragging == null ||
+                !e.Data.GetDataPresent(TaskGroupReorderFormat))
+            {
+                return false;
+            }
+            e.Effects = DragDropEffects.Move;
+            try
+            {
+                Point pos = e.GetPosition(TaskList);
+                ShowInsertionMark(TaskGroupInsertionIndexAt(pos));
+            }
+            catch (Exception)
+            {
+                // senza indicatore il drop funziona lo stesso
+            }
+            e.Handled = true;
+            return true;
+        }
+
+        private bool HandleTaskGroupReorderDrop(object sender, DragEventArgs e)
+        {
+            if (_reorderDragging == null ||
+                !e.Data.GetDataPresent(TaskGroupReorderFormat))
+            {
+                return false;
+            }
+            try
+            {
+                if (e.Data.GetData(TaskGroupReorderFormat) is TaskGroup group)
+                {
+                    Point pos = e.GetPosition(TaskList);
+                    _viewModel.MoveTaskGroup(
+                        group, TaskGroupInsertionIndexAt(pos));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Riordino del bottone non riuscito: {ex.Message}");
+            }
+            HideInsertionMark();
+            e.Handled = true;
+            return true;
+        }
+
+        private void TaskList_DragOver(object sender, DragEventArgs e)
+        {
+            if (!HandleTaskGroupReorderHover(sender, e))
+            {
+                e.Effects = DragDropEffects.None;
+                e.Handled = true;
+            }
+        }
+
+        private void TaskList_Drop(object sender, DragEventArgs e)
+        {
+            if (!HandleTaskGroupReorderDrop(sender, e))
+            {
+                e.Handled = true;
+            }
+        }
+
+        private void TaskList_DragLeave(object sender, DragEventArgs e)
+        {
+            HideInsertionMark();
+        }
+
         private void TaskButton_DragOver(object sender, DragEventArgs e)
         {
+            // v1.21.15: spostamento dei bottoni (riordino stile RetroBar),
+            // indipendente dal drop dei file dei rami sotto.
+            if (HandleTaskGroupReorderHover(sender, e))
+            {
+                return;
+            }
+
             // v1.7.3: the cursor shows "forbidden" when the target
             // executable declares (via the registry) that it cannot open
             // the dragged file type - exactly like the real taskbar.
@@ -1027,6 +1279,14 @@ namespace Win7Taskbar
 
         private void TaskButton_Drop(object sender, DragEventArgs e)
         {
+            // v1.21.15: rilascio che sposta il bottone (riordino stile
+            // RetroBar). Il ramo file piu' sotto continua a trattare solo
+            // DataFormats.FileDrop come prima.
+            if (HandleTaskGroupReorderDrop(sender, e))
+            {
+                return;
+            }
+
             e.Handled = true;
 
             try
@@ -2293,6 +2553,15 @@ namespace Win7Taskbar
             _pressedWhileActive =
                 sender is FrameworkElement { DataContext: TaskGroup group } &&
                 group.IsActive;
+
+            // v1.21.15: possibile inizio dello spostamento del bottone
+            // (riordino stile RetroBar). Diventa drag vero solo oltre la
+            // soglia del sistema: un click normale non vede differenze.
+            if (sender is FrameworkElement pressedButton)
+            {
+                _reorderCandidate = pressedButton;
+                _reorderPressPoint = e.GetPosition(this);
+            }
 
             // INCOMPLETE / TEMPORARILY DISABLED: keep the complete Jump List
             // gesture implementation in TaskbarWindow.JumpList.cs, but do not

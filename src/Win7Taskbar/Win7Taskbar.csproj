@@ -256,7 +256,24 @@
          (Win8NetworkFlyoutSafe, Win8NetPwdClass, Win8NetFlyout_TrayInfoWnd,
          Win8NetFlyout_ConnectMutex) so the two modules can coexist in one
          process without window-class collisions. -->
-<Version>1.21.14-alpha</Version>
+<!-- 1.21.15-alpha: three requested fixes on top of the full Win8 mod
+         port. 1) The Windows 8 network pane now always follows the SYSTEM
+         UI language (GetUserDefaultUILanguage) instead of the app setting,
+         as briefed. 2) During the Charms slide animation the pane is now
+         raised to the top of the topmost band once per vsync frame (and on
+         slide-in start/finish), so it slides OVER the taskbar instead of
+         slipping behind it: both windows are topmost and ours periodically
+         re-raises itself, which used to cover the pane mid-animation.
+         3) Task bar buttons can be rearranged by drag and drop, mechanism
+         copied from RetroBar (ManagedShell TaskList): press a task button
+         (e.g. Chrome), drag it left or right; a vertical insertion marker
+         shows the drop slot and on release the group moves there. The
+         custom order stays for the rest of the session exactly like
+         RetroBar (not persisted to disk) and survives the periodic window
+         refresh; new buttons still append, default pinned-first order is
+         untouched until the first manual move. File drops onto task
+         buttons keep working unchanged. -->
+<Version>1.21.15-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
