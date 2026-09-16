@@ -15,6 +15,10 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <!-- Makes the inbox WindowsDesktop System.Drawing reference available
+         for CopyFromScreen; no NuGet or third-party dependency is added. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseSystemDrawing>true</UseSystemDrawing>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>
@@ -121,7 +125,15 @@
          switcher; the remaining paint paths use RAII guards (ScopeGuards.h)
          and every entry point catches. The v1.7.4 shell menu stays as the
          automatic fallback if the popup path cannot be reached. -->
-    <Version>1.7.5-alpha</Version>
+    <!-- 1.8.0-alpha follow-up: tracked #32768 context-menu windows are
+         promoted above the topmost AppBar; the private notification-area
+         settings imitation and its ABI/resources are removed in favor of
+         the native Windows page; stacked separators move 2% right and the
+         3+ pair is tightened by 1.5%; the language-restorer GDI+ checkmark
+         path is restored while all global shortcuts and shortcut hints stay
+         absent; taskmgr.exe is intentionally omitted from overflow because
+         its renewed IDs caused large runs of duplicate entries. -->
+    <Version>1.8.0-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

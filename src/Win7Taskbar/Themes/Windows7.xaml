@@ -18,6 +18,15 @@
     <BitmapImage x:Key="OverflowTilePressedImage"
                  UriSource="../Resources/Win7_Overflow_TilePressed.png" />
 
+    <!-- User-supplied 236x166 DWM preview frame. Overrides.xaml slices this
+         single bitmap around its exact transparent aperture. -->
+    <BitmapImage x:Key="DwmPreviewBorderImage"
+                 UriSource="../Resources/DWMBorder.png" />
+    <!-- Alpha-only fallback until TaskbarWindow derives an in-memory
+         luminance-times-alpha mask from the same unchanged PNG. -->
+    <BitmapImage x:Key="DwmPreviewBorderMaskImage"
+                 UriSource="../Resources/DWMBorder.png" />
+
     <!-- TASKBAR BACKGROUND PNG - texture on top of transparency -->
     <BitmapImage x:Key="TaskbarBackgroundImage"
                  UriSource="../Resources/taskbarBackground.png" />
@@ -1707,11 +1716,15 @@
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 IsHitTestVisible="False">
+                            <!-- Exactly 2% narrower/shorter than the original
+                                 tray-hover tile (98%), still centred on exactly
+                                 the same icon geometry; do not compound this
+                                 scale on later visual adjustments. -->
                             <Image x:Name="HoverTileImg"
-                                   Width="30"
-                                   Height="40"
-                                   Canvas.Left="-15"
-                                   Canvas.Top="-20"
+                                   Width="29.4"
+                                   Height="39.2"
+                                   Canvas.Left="-14.7"
+                                   Canvas.Top="-19.6"
                                    Stretch="Fill"
                                    SnapsToDevicePixels="True"
                                    Source="{DynamicResource TrayTileHoverImage}"

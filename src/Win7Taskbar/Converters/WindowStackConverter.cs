@@ -163,13 +163,29 @@ namespace Win7Taskbar.Converters
     }
 
     /// <summary>
-    /// v1.7.2: X offset (pixel) della linea ESTERNA dei separatori di
-    /// gruppo. Con due o piu' schede aperte il bordo esterno scivola
-    /// leggermente verso destra: 2% della larghezza del pulsante per
-    /// scheda aperta, contando fino a 3 schede (con piu' di 3 resta come
-    /// a 3). Multi-binding: values[0] = pulsante (ActualWidth),
-    /// values[1] = WindowCount. Con meno di 2 schede non ci sono
-    /// separatori: offset 0.
+    /// v1.7.2: X offset (pixel) delle linee dei separatori di gruppo.
+    /// Con due o piu' schede aperte il bordo esterno scivolava verso
+    /// destra del 2% della larghezza del pulsante per scheda aperta,
+    /// contando fino a 3 schede (con piu' di 3 resta come a 3).
+    ///
+    /// v1.7.6: two additions on top of the v1.7.2 position, both purely
+    /// rightward and both percentages of the button width (so they stay
+    /// proportional at every DPI and every button size):
+    ///  - every stacked-borders line includes the previous +2.5%, then
+    ///    moves a further +2% right;
+    ///  - with MORE THAN 2 sheets open the OUTER line gets a further
+    ///    +2.5% rightward. 3 sheets and 3+ sheets are one case: the count
+    ///    is clamped at 3, no new per-sheet case above it was invented.
+    ///
+    /// At 3+ the inner line moves another 1.5% toward the outer line,
+    /// tightening the width/gap occupied by the pair.
+    ///
+    /// Multi-binding: values[0] = button ActualWidth, values[1] =
+    /// WindowCount. parameter = "outer" (default) or "inner". Below two
+    /// sheets there are no separators at all: offset 0.
+    /// RenderTransform only: like the rest of the overlay, the shift takes
+    /// no layout space, the icon keeps the size and position it has with a
+    /// single open window.
     /// </summary>
     [ValueConversion(typeof(double), typeof(double))]
     public sealed class WindowStackOuterBorderOffsetConverter : IMultiValueConverter
@@ -187,8 +203,32 @@ namespace Win7Taskbar.Converters
                 {
                     return 0.0;
                 }
+
+                /* v1.7.2 base, clamped at three sheets (4+ == 3). */
                 int effective = Math.Min(count, 3);
-                return width * 0.02 * (effective - 1);
+                double ratio = 0.02 * (effective - 1);
+
+                /* Existing v1.7.6 placement, the previous +2% shift, and
+                 * the requested additional +0.3% rightward adjustment. */
+                ratio += 0.025 + 0.02 + 0.003;
+
+                bool outer = parameter as string is not "inner";
+                if (outer && count > 2)
+                {
+                    // With more than two open windows, increase the outer
+                    // stacked border offset by exactly another 2.5%.
+                    ratio += 0.025;
+                }
+                else if (!outer && count > 2)
+                {
+                    /* With two visible lines (3+ windows), move the inner
+                     * one 1.5% toward the outer one. This narrows the pair's
+                     * horizontal footprint and therefore the gap, without
+                     * changing the 3px artwork or the button layout. */
+                    ratio += 0.015;
+                }
+
+                return width * ratio;
             }
             catch
             {

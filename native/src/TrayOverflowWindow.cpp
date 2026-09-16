@@ -270,12 +270,18 @@ void TrayOverflowWindow::ForwardClick(int index, bool right) {
     const int32_t y = rc.top + m_pad + row * m_cell + m_cell / 2;
 
     if (right) {
-        TrayService::Instance().SendClick(e.ownerHwnd, e.uid, W7T_TRAY_CLICK_RIGHT, x, y);
+        /* A tray application's context menu is external to this window.
+         * Keep overflow open for this specific action: closing it here made
+         * every right-click unnecessarily destroy the user's icon context. */
+        TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
+                                          W7T_TRAY_CLICK_RIGHT, x, y);
     } else {
-        TrayService::Instance().SendClick(e.ownerHwnd, e.uid, W7T_TRAY_CLICK_LEFT_DOWN, x, y);
-        TrayService::Instance().SendClick(e.ownerHwnd, e.uid, W7T_TRAY_CLICK_LEFT, x, y);
+        TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
+                                          W7T_TRAY_CLICK_LEFT_DOWN, x, y);
+        TrayService::Instance().SendClick(e.ownerHwnd, e.uid,
+                                          W7T_TRAY_CLICK_LEFT, x, y);
+        Hide();   // ordinary activation keeps the Windows 7 close behavior
     }
-    Hide();   // come in Win7: il clic su un'icona chiude il pannello
 }
 
 void TrayOverflowWindow::OnPaint(HDC hdcWindow) {
@@ -452,12 +458,12 @@ LRESULT CALLBACK TrayOverflowWindow::WndProc(HWND hWnd, UINT msg,
             self->m_dragIdx = -1;
         }
         if (PtInRect(&self->m_footerRect, p)) {
-            // v3.0: nulla di piu' nulla di meno del bersaglio shell chiesto
-            // dall'utente: la pagina "Icone di notifica" via CLSID.
-            ShellExecuteW(hWnd, L"open",
-                          L"shell:::{05d7b0f4-2121-4eff-bf6b-ed3f69b894d9}",
-                          nullptr, nullptr, SW_SHOWNORMAL);
+            /* Delegate directly to Windows' native Notification Area
+             * settings page; no in-process applet is interposed. */
             self->Hide();
+            if (W7T_OpenNotificationIconsSettings() != W7T_OK) {
+                AppendCoreLog(L"overflow: pagina nativa Notification Area non disponibile");
+            }
             return 0;
         }
         self->ForwardClick(self->HitTestIcon(p), false);

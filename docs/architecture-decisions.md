@@ -58,29 +58,47 @@ close button, icon metrics) live in `Themes/Overrides.xaml`, never in the upstre
 obvious which values are ours: measured frames, paddings and gradients in the overrides
 file can be traced back to a changelog entry and a screenshot.
 
-## 5. Window previews: disabled until they can be verified
+## 5. Window previews: direct DWM surface, parent-owned chrome
 
-**Decision.** The preview popup is not opened at all (`TaskPreviewsEnabled` in
-`TaskbarWindow.xaml.cs`); hovering a task button shows the app-name tooltip only. Both
-previous implementations are kept, commented out, in `Controls/TaskThumbnail.cs`.
+**Decision.** `Controls/TaskThumbnail.xaml.cs` contains only the essential
+RetroBar DWM path: register the source window, fit it into the 202×109 photo
+aperture, update the destination rectangle while rendering, and always
+deregister on unload. Tiny sources are enlarged toward a 65% minimum while
+preserving aspect ratio, avoiding a fixed frame that visually overwhelms them.
+`TaskbarWindow.xaml` continues to own the Aero frame, close button, layered
+popup placement, activation and navigation.
 
-**Why.** *Unwanted rectangles* inside the popup were reported on real hardware in both
-variants. The live DWM thumbnail (up to v2.54) can fail **silently**: `DwmRegisterThumbnail`
-succeeds and the compositor then never paints, so the only thing visible is the popup
-backdrop, identical for every window. The static `PrintWindow` capture (v2.55) fails
-*loudly* (it returns `FALSE` and we fall back to the app icon), but a `TRUE` return still
-does not prove that the captured surface is the window content - several applications
-answer with an empty or stale surface - and the result also cannot move, which makes the
-popup feel frozen.
+The DWM destination must remain an unpainted WPF surface. In the layered
+preview popup, even an explicit `Background="Transparent"` on
+`TaskThumbnail` participates in WPF composition over that destination and
+can tint the live thumbnail blue. Conversely, opaque brushes over the same
+area in a non-layered popup can cover it with blue or black. Therefore the
+thumbnail control leaves `Background` unset (`null`), and the central frame
+cell has no background, opacity mask, or effect. Chrome belongs only to the
+outer frame images and close button, following RetroBar's ownership model.
+DWM supports the layered popup; using a non-layered popup is not a DWM
+requirement.
 
-**What a future implementation has to prove before this decision is reversed.**
+A short-lived, static `Graphics.CopyFromScreen` capture may provide soft glass
+behind the **outer chrome only**. `TaskPreviewPopup` clips that blurred image to
+the top, left, right and bottom frame bands of every preview item. Above it, the
+accent mask supplies the live Windows color while a low-opacity slice of the
+unchanged source PNG retains the photograph's exact edge and shading detail.
+The complete central aperture remains outside every chrome layer, so this
+backdrop is not a thumbnail fallback and never paints, masks or applies an
+effect to the DWM destination. The capture is made once in `Opened`; its GDI
+bitmap has RAII ownership and the WPF source reference is cleared in `Closed`.
 
-1. A **positive** confirmation that real content was drawn (a pixel read-back, a
-   non-uniformity check), not just a successful return code.
-2. A documented fallback that is invisible to the user: if the check fails, the popup must
-   look intentional (icon + title), not like an empty box.
-3. A single switch to turn the feature back on, so it can be tested per machine without
-   shipping it half-broken.
+DWM registration is not treated as proof of rendering. After a one-shot 350 ms
+delay, the control probes the on-screen destination. If it cannot verify a
+composed frame, the single persisted `UseThumbnailCaptureFallback` switch
+allows a BitBlt screen scrape of the source client area. That scrape is shown
+only when five z-order sample points all belong to the source root window, no
+long black two-pixel border indicates a composition race, and sampled edge
+pixels contain real colour. Otherwise DWM is unregistered and the UI shows the
+application icon plus current title—never an anonymous empty rectangle. All
+DCs, selected GDI objects and HBITMAPs have deterministic RAII cleanup; every
+failure path is guarded and leaves no registered thumbnail behind.
 
 ## 6. The overflow panel is a native popup, its behaviour mirrors Windows 7
 
@@ -252,9 +270,13 @@ no locks are taken across the guarded boundary elsewhere.
 **Revisit if.** A fault repeats in one spot: the log line names the module
 phase, and the guard can then be narrowed to the exact call.
 
-## 13. Jump Lists: managed gesture state machine, native data + popup
+## 13. Jump Lists: incomplete and temporarily disabled
 
-**Decision.** The Windows 7 Jump List opens exclusively from the left-button
+**Current status.** Jump Lists are incomplete, so the task-button entry-point
+call is commented out and they cannot currently be opened. The managed and
+native implementation is intentionally retained in place for completion.
+
+**Decision.** When re-enabled, the Windows 7 Jump List opens exclusively from the left-button
 press + drag-up gesture on a task button (never from the right-click menu),
 and the implementation is split the way the rest of the project is:
 
@@ -293,3 +315,14 @@ under the `JUMPLIST` tag.
 **Revisit if.** Windows removes or renames the automatic-destination read
 APIs, or the bar ever needs per-monitor instances: the pixel-space contract
 stays the same, only the monitor lookup of the anchor changes.
+
+## 14. Notification Area settings: delegate to Windows
+
+**Decision.** Every notification-area “Customize...” entry delegates directly
+to the native Windows page through `W7T_OpenNotificationIconsSettings`. The
+core first opens the shell namespace and retains the existing system fallbacks
+for Windows versions that redirect that namespace. Win7Taskbar does not create,
+register, host, or imitate a Control Panel applet.
+
+Per-icon placement selected by dragging between the taskbar and overflow remains
+portable in `trayicons.ini`; it is taskbar state, not a replacement settings UI.

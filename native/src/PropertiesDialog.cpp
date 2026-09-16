@@ -1,13 +1,11 @@
 // Win7Taskbar - finestra Proprieta' Win32 classica (stile Win7)
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 //
-// v3.7: struttura COPIATA dalla mod di riferimento: template dialogo in
-// memoria con unita' DLU, stesse dimensioni (262x271), stessi pulsanti
-// standard 50x14, tab nativo, texture tema, tema explorer sui figli.
 
 #include "PropertiesDialog.h"
 #include "SehGuard.h"
 #include "Strings.h"
+#include "Common.h"
 /* v2.48: il pulsante "Personalizza..." dell'area di notifica usa LO STESSO
  * comando del menu di overflow della barra (W7T_OpenNotificationIconsSettings,
  * definito nel core nativo): nessuna pagina sostitutiva, nessun percorso
@@ -57,12 +55,11 @@ struct ScopeExit {
 template <typename F>
 ScopeExit<F> MakeScopeExit(F f) { return ScopeExit<F>(f); }
 
-/* Stesse dimensioni della mod di riferimento (unita' DLU).
- * v2.47: la finestra si allunga per ospitare la scheda "Barre degli
- * strumenti" e i nuovi gruppi (Flyout, Area di notifica, Aero Peek).
- * v3.5: altre 14 DLU per la seconda riga del gruppo lingua (l'indicatore
- * della lingua di input). */
-constexpr short MAIN_WIDTH  = 262;
+/* Dimensioni in unita' DLU basate sulla mod di riferimento.
+ * La larghezza include 16 DLU aggiuntive per non troncare l'etichetta
+ * italiana "Gestione attività"; l'altezza ospita la scheda Barre degli
+ * strumenti e la seconda riga del gruppo lingua. */
+constexpr short MAIN_WIDTH  = 278;
 constexpr short MAIN_HEIGHT = 326;
 
 /* v2.50: le tendine di volume e batteria non si chiamano piu' "mixer
@@ -80,6 +77,7 @@ enum CtrlId {
     IDC_TAB_MAIN = 100,
     IDC_GRP_CLOCK, IDC_CHK_SECONDS, IDC_TXT_FLYOUT, IDC_CMB_FLYOUT,
     IDC_GRP_SEARCH, IDC_CHK_SEARCH,
+    IDC_LBL_TASKMGR, IDC_CMB_TASKMGR,
     IDC_GRP_LANG, IDC_CMB_LANG,
     IDC_GRP_NETFLY, IDC_TXT_NETFLY, IDC_CMB_NETFLY,
     IDC_GRP_SYSFLY, IDC_CHK_CLASSIC_VOL, IDC_CHK_BATT_FLYOUT,
@@ -158,7 +156,7 @@ void InitToolbarsList(HWND hwnd, const PropStrings& S,
     LVCOLUMNW col{};
     col.mask = LVCF_WIDTH | LVCF_FMT;
     col.fmt  = LVCFMT_LEFT;
-    col.cx   = 226;
+    col.cx   = 242;
     ListView_InsertColumn(hList, 0, &col);
 
     const wchar_t* names[]  = { S.tbAddress, S.tbDesktop, S.tbLinks };
@@ -192,6 +190,11 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_GRP_CLOCK, p1); vis(IDC_CHK_SECONDS, p1);
     vis(IDC_LBL_CLOCK, p1); vis(IDC_CMB_CLOCK, p1);
     vis(IDC_GRP_SEARCH, p1); vis(IDC_CHK_SEARCH, p1);
+    /* Windows 11 starts at build 22000 (21H2). Windows 10 has only the
+     * ordinary taskmgr command, so this selector must not exist there. */
+    const bool showTaskManagerChoice = p1 && IsWindows11OrBetter();
+    vis(IDC_LBL_TASKMGR, showTaskManagerChoice);
+    vis(IDC_CMB_TASKMGR, showTaskManagerChoice);
     vis(IDC_GRP_NETFLY, p1); vis(IDC_TXT_NETFLY, p1); vis(IDC_CMB_NETFLY, p1);
     vis(IDC_LBL_VOLUME, p1); vis(IDC_CMB_VOLUME, p1);
     vis(IDC_LBL_BATT, p1); vis(IDC_CMB_BATTERY, p1);
@@ -228,10 +231,10 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                             int32_t netFlyout, int32_t classicVolume,
                             int32_t batteryFlyout, int32_t aeroPeek,
                             int32_t toolbarDesktop, int32_t toolbarAddress,
-                            int32_t toolbarLinks, int32_t inputLanguageMode) {
+                            int32_t toolbarLinks, int32_t inputLanguageMode,
+                            int32_t taskManagerMode) {
     try {
         if (m_hWnd && IsWindow(m_hWnd)) {
-            SetForegroundWindow(m_hWnd);
             return;
         }
         m_owner = owner;
@@ -251,6 +254,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         m_inputLanguageMode =
             (inputLanguageMode >= 0 && inputLanguageMode <= 3)
                 ? inputLanguageMode : 1;
+        m_taskManagerMode = IsWindows11OrBetter() &&
+                            taskManagerMode >= 0 && taskManagerMode <= 2
+            ? taskManagerMode : 0;
         m_tbLinks = toolbarLinks ? 1 : 0;
 
         /* v2.47: oltre alle schede e ai controlli standard serve la classe
@@ -304,7 +310,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
             controlCount++;
         };
 
-        addCtrl(TCS_TABS | WS_TABSTOP, 0, 6, 6, 250, 292, IDC_TAB_MAIN,
+        addCtrl(TCS_TABS | WS_TABSTOP, 0, 6, 6, 266, 292, IDC_TAB_MAIN,
                 L"SysTabControl32", L"");
         /* ============================================================
          * PAGINA 1 - "Barra delle applicazioni"
@@ -321,7 +327,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * tendina (orologio, rete, volume, batteria). Passo fra le righe 16
          * DLU (tendina alta 14 + 2 di aria), etichette a 18, tendine a 72
          * larghe 172: la stessa griglia del resto del dialogo. */
-        addCtrl(BS_GROUPBOX, 0, 12, 30, 238, 74, IDC_GRP_NETFLY, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 30, 254, 74, IDC_GRP_NETFLY, L"Button", L"");
         addCtrl(SS_LEFT, 0, 18, 40, 50, 10, IDC_LBL_CLOCK, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 38, 172, 80, IDC_CMB_CLOCK, L"ComboBox", L"");
         addCtrl(SS_LEFT, 0, 18, 56, 50, 10, IDC_TXT_NETFLY, L"Static", L"");
@@ -332,37 +338,36 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 86, 172, 80, IDC_CMB_BATTERY, L"ComboBox", L"");
 
         /* GRUPPO 2 - OROLOGIO: una sola casella, gruppo alto 30. */
-        addCtrl(BS_GROUPBOX, 0, 12, 108, 238, 30, IDC_GRP_CLOCK, L"Button", L"");
-        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 118, 226, 10, IDC_CHK_SECONDS, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 108, 254, 30, IDC_GRP_CLOCK, L"Button", L"");
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 118, 242, 10, IDC_CHK_SECONDS, L"Button", L"");
 
         /* GRUPPO 3 - RICERCA APPLICAZIONI. La casella e' su DUE righe
          * (BS_MULTILINE, alto 20): la sua etichetta e' lunga e in tedesco,
          * polacco e russo non entrerebbe in una riga sola - prima si leggeva
          * "Attiva ricerca a..." e sembrava che la stringa mancasse. Il
          * pulsante sta sotto, dentro il gruppo (142..188). */
-        /* v2.54: il pulsante "Apri ricerca" e' stato TOLTO su richiesta.
-         * Il gruppo "Ricerca applicazioni" resta (con la sua casella e la
-         * sua opzione), e il gruppo si stringe attorno alla casella: senza
-         * il pulsante l'altezza che serviva era 46, ora ne bastano 34. */
-        addCtrl(BS_GROUPBOX, 0, 12, 142, 238, 34, IDC_GRP_SEARCH, L"Button", L"");
-        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 0, 18, 152, 226, 20, IDC_CHK_SEARCH, L"Button", L"");
+        /* Il pulsante "Apri ricerca" resta assente. Su Windows 11 21H2+
+         * la seconda riga sceglie quale Task Manager viene aperto dalla
+         * voce del menu contestuale; ShowTabPage la nasconde su Windows 10. */
+        addCtrl(BS_GROUPBOX, 0, 12, 142, 254, 50, IDC_GRP_SEARCH, L"Button", L"");
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 0, 18, 150, 242, 18, IDC_CHK_SEARCH, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 175, 68, 10, IDC_LBL_TASKMGR, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 88, 172, 172, 80, IDC_CMB_TASKMGR, L"ComboBox", L"");
 
         /* GRUPPO 4 - LINGUA (al posto della sezione Aero Peek della foto).
          * v3.5: due righe - la lingua del programma (come prima) e lo
          * stile dell'indicatore della lingua di input (0 nascosta,
          * 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11). */
-        addCtrl(BS_GROUPBOX, 0, 12, 192, 238, 44, IDC_GRP_LANG, L"Button", L"");
-        addCtrl(SS_LEFT, 0, 18, 202, 50, 10, IDC_LBL_LANG, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 200, 130, 80, IDC_CMB_LANG, L"ComboBox", L"");
-        addCtrl(SS_LEFT, 0, 18, 218, 50, 10, IDC_LBL_LANGBAR, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 216, 130, 80, IDC_CMB_LANGBAR, L"ComboBox", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 196, 254, 44, IDC_GRP_LANG, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 206, 50, 10, IDC_LBL_LANG, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 204, 130, 80, IDC_CMB_LANG, L"ComboBox", L"");
+        addCtrl(SS_LEFT, 0, 18, 222, 50, 10, IDC_LBL_LANGBAR, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 220, 130, 80, IDC_CMB_LANGBAR, L"ComboBox", L"");
 
-        /* GRUPPO 5 - AREA DI NOTIFICA: testo su due righe (20) + pulsante.
-         * v3.5: scivolato in giu' di 14 DLU per fare spazio alla seconda
-         * riga del gruppo lingua. */
-        addCtrl(BS_GROUPBOX, 0, 12, 240, 238, 52, IDC_GRP_NOTIF, L"Button", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 250, 226, 20, IDC_TXT_NOTIF, L"Static", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 18, 272, 76, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
+        /* GRUPPO 5 - AREA DI NOTIFICA: testo su due righe (20) + pulsante. */
+        addCtrl(BS_GROUPBOX, 0, 12, 244, 254, 52, IDC_GRP_NOTIF, L"Button", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 254, 242, 20, IDC_TXT_NOTIF, L"Static", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 18, 276, 76, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
 
         /* ============================================================
          * PAGINA 2 - "Informazioni"
@@ -384,9 +389,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * Coordinates are plain dialog units from the template - nothing on
          * this page is measured or computed at run time any more. The page
          * still ends at ~282 units, like the other two. */
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 234, 196, IDC_TXT_ABOUT, L"Static", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 250, 196, IDC_TXT_ABOUT, L"Static", L"");
         /* v3.5: il gruppo di uscita segue il fondo pagina (+14 DLU). */
-        addCtrl(BS_GROUPBOX, 0, 14, 238, 234, 40, IDC_GRP_EXIT, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 14, 238, 250, 40, IDC_GRP_EXIT, L"Button", L"");
         addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 20, 254, 110, 14, IDC_BTN_EXIT, L"Button", L"");
 
         /* ============================================================
@@ -398,18 +403,18 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * ============================================================ */
         /* v2.50: PAGINA 3 copiata DALLA MOD, spaziature comprese: il testo
          * informativo in alto (14,22) e sotto un unico elenco con le caselle
-         * (SysListView32 in stile report, senza intestazione), largo 230 e
+         * (SysListView32 in stile report, senza intestazione), largo 246 e
          * alto 160. Le tre caselle separate di prima erano troppo distanti
          * fra loro: qui le righe hanno il passo compatto della mod. */
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 234, 26, IDC_TXT_TB_INFO, L"Static", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 250, 26, IDC_TXT_TB_INFO, L"Static", L"");
         addCtrl(LVS_REPORT | LVS_NOCOLUMNHEADER | LVS_SINGLESEL | WS_BORDER | WS_TABSTOP,
-                0, 16, 52, 230, 160, IDC_LST_TOOLBARS, L"SysListView32", L"");
+                0, 16, 52, 246, 160, IDC_LST_TOOLBARS, L"SysListView32", L"");
 
         // ---- pulsanti standard 50x14, come la mod ----
         /* v3.5: la riga scende di 14 DLU con la finestra. */
-        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 88, 306, 50, 14, IDOK, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 144, 306, 50, 14, IDCANCEL, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 200, 306, 50, 14, IDC_BTN_APPLY, L"Button", L"");
+        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 104, 306, 50, 14, IDOK, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 160, 306, 50, 14, IDCANCEL, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 216, 306, 50, 14, IDC_BTN_APPLY, L"Button", L"");
 
         pDlg->cdit = controlCount;
         m_hWnd = CreateDialogIndirectParamW(GetModuleHandleW(nullptr),
@@ -432,6 +437,14 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
     msg.enableSearch =
         (SendDlgItemMessageW(m_hWnd, IDC_CHK_SEARCH, BM_GETCHECK, 0, 0)
             & BST_CHECKED) ? 1 : 0;
+    if (IsWindows11OrBetter()) {
+        const LRESULT selected = SendDlgItemMessageW(
+            m_hWnd, IDC_CMB_TASKMGR, CB_GETCURSEL, 0, 0);
+        msg.taskManagerMode = selected >= 0 && selected <= 2
+            ? static_cast<int32_t>(selected) : 0;
+    } else {
+        msg.taskManagerMode = 0;
+    }
     msg.classicVolume =
         (SendDlgItemMessageW(m_hWnd, IDC_CMB_VOLUME, CB_GETCURSEL, 0, 0) == 1)
             ? 0 : 1;
@@ -462,11 +475,14 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
         msg.lang = (langSel >= 0 && langSel <= 10) ? langSel : 0;
     }
     {
-        /* v3.5: stile dell'indicatore della lingua di input. */
+        /* v3.5: input language indicator style.
+         * v1.7.6: the dropdown no longer offers value 3 ("Windows 10/11"),
+         * so the read stops at 2 too; a CB_ERR (invalid selection) falls
+         * back to the Windows 7 default, as before. */
         const int32_t langBarSel = static_cast<int32_t>(
             SendDlgItemMessageW(m_hWnd, IDC_CMB_LANGBAR, CB_GETCURSEL, 0, 0));
         msg.inputLanguageMode =
-            (langBarSel >= 0 && langBarSel <= 3) ? langBarSel : 1;
+            (langBarSel >= 0 && langBarSel <= 2) ? langBarSel : 1;
     }
     msg.openSearch = openSearch ? 1 : 0;
     msg.closeApp = closeApp ? 1 : 0;
@@ -573,6 +589,7 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SetDlgItemTextW(hwnd, IDC_LBL_CLOCK, S.lblClock);
         SetDlgItemTextW(hwnd, IDC_GRP_SEARCH, S.grpSearch);
         SetDlgItemTextW(hwnd, IDC_CHK_SEARCH, S.chkSearch);
+        SetDlgItemTextW(hwnd, IDC_LBL_TASKMGR, S.lblTaskManager);
         SetDlgItemTextW(hwnd, IDC_GRP_NETFLY, S.grpFlyouts);   /* "Flyout" */
         SetDlgItemTextW(hwnd, IDC_TXT_NETFLY, S.lblNetwork);
         SetDlgItemTextW(hwnd, IDC_LBL_VOLUME, S.lblVolume);
@@ -639,14 +656,29 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         ComboBox_AddString(hCB, kFlyoutBatteryWin10); /* 1 = riquadro reale di Windows 10 */
         ComboBox_SetCurSel(hCB, self->m_batteryFlyout ? 0 : 1);
 
-        /* v3.5: stile dell'indicatore della lingua di input.
-         * 0 nascosta, 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11. */
+        /* v3.5: input language indicator style.
+         * 0 hidden, 1 Windows 7, 2 Windows 8.1.
+         * v1.7.6: the "Windows 10/11" option (value 3) is HIDDEN as
+         * requested: the item is gone from the dropdown. A 3 saved in the
+         * past keeps working until Properties is opened and applied again:
+         * the combo shows it as Windows 8.1 (the nearest available option)
+         * and a fresh Apply normalizes it to 2. The packet field and the
+         * managed-side validation still accept 0..3 for settings files
+         * already written. */
         HWND hCLB = GetDlgItem(hwnd, IDC_CMB_LANGBAR);
         ComboBox_AddString(hCLB, S.langHidden);    /* 0 = nascosta */
         ComboBox_AddString(hCLB, S.langWin7);      /* 1 = Windows 7 */
         ComboBox_AddString(hCLB, S.langWin81);     /* 2 = Windows 8.1 */
-        ComboBox_AddString(hCLB, S.langWin10);     /* 3 = Windows 10/11 */
-        ComboBox_SetCurSel(hCLB, self->m_inputLanguageMode);
+        ComboBox_SetCurSel(hCLB, self->m_inputLanguageMode >= 3
+                                     ? 2 : self->m_inputLanguageMode);
+
+        if (IsWindows11OrBetter()) {
+            HWND hTM = GetDlgItem(hwnd, IDC_CMB_TASKMGR);
+            ComboBox_AddString(hTM, S.taskManagerAuto);
+            ComboBox_AddString(hTM, S.taskManagerModern);
+            ComboBox_AddString(hTM, S.taskManagerLegacy);
+            ComboBox_SetCurSel(hTM, self->m_taskManagerMode);
+        }
 
         SendDlgItemMessageW(hwnd, IDC_CHK_SECONDS, BM_SETCHECK,
                             self->m_seconds ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -693,18 +725,9 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             self->SendApply(false, true);
             DestroyWindow(hwnd);
         } else if (id == IDC_BTN_CUSTOMIZE) {
-            /* "Personalizza..." dell'area di notifica: STESSO comando del menu
-             * di overflow della barra. E' il core nativo che apre la pagina
-             * vera di Windows (CLSID shell:::{05D7B0F4-2121-4EFF-BF6B-ED3F69B894D9},
-             * con i suoi ripieghi): qui non si inventa nessun percorso
-             * alternativo, perche' il comportamento deve essere identico a
-             * quello che l'utente ottiene dall'altro ingresso. */
+            /* Open Windows' native Notification Area settings page
+             * directly; the removed in-process imitation is not involved. */
             if (W7T_OpenNotificationIconsSettings() != W7T_OK) {
-                /* v2.50: ULTIMO ripiego identico a quello del link
-                 * "Personalizza..." della barra (OpenNotificationAreaIconsApplet):
-                 * se la pagina classica non si apre, si apre l'equivalente
-                 * moderno. Cosi' i due ingressi fanno esattamente la stessa
-                 * cosa, nello stesso ordine. */
                 ShellExecuteW(nullptr, L"open", L"ms-settings:taskbar",
                               nullptr, nullptr, SW_SHOW);
             }

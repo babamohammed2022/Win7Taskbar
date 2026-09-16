@@ -121,6 +121,17 @@ namespace Win7Taskbar.Models
             AppId = appId;
             ExePath = exePath;
             Windows = new ObservableCollection<TaskWindow>();
+
+            // UWP/Store pins can have a valid AUMID but no usable filesystem
+            // target. Use the shell AppsFolder activation path as the idle
+            // launch target; regular desktop pins keep their existing path.
+            if (string.IsNullOrWhiteSpace(exePath) &&
+                !string.IsNullOrWhiteSpace(appId) &&
+                appId.IndexOf('!') > 0)
+            {
+                LaunchPath = $"shell:AppsFolder\\{appId}";
+            }
+
             Windows.CollectionChanged += (_, _) =>
             {
                 OnPropertyChanged(nameof(WindowCount));

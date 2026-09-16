@@ -177,6 +177,11 @@ struct PropStrings {
     const wchar_t* linkHelp;
     const wchar_t* txtToolbars;
     const wchar_t* tbDesktop; const wchar_t* tbAddress; const wchar_t* tbLinks;
+    /* Windows 11-only Task Manager selector below App search. */
+    const wchar_t* lblTaskManager;
+    const wchar_t* taskManagerAuto;
+    const wchar_t* taskManagerModern;
+    const wchar_t* taskManagerLegacy;
 };
 
 const PropStrings& PropStringsFor(Lang lang);
@@ -185,12 +190,12 @@ const PropStrings& PropStringsFor(Lang lang);
 /*  Tabella del flyout batteria                                              */
 /* ------------------------------------------------------------------------ */
 struct BattStrings {
-    const wchar_t* remaining;   /* "%d%% di carica rimanente" */
-    const wchar_t* timeLeft;    /* "Tempo restante: %d h %02d min (%d%%)" */
-    const wchar_t* charging;    /* "In carica (%d%%)" */
-    const wchar_t* full;        /* "Carica completa" */
-    const wchar_t* noBattery;   /* "Batteria non rilevata" */
-    const wchar_t* link;        /* "Altre opzioni di risparmio energia" */
+    const wchar_t* remaining;
+    const wchar_t* timeLeft;
+    const wchar_t* charging;
+    const wchar_t* full;
+    const wchar_t* noBattery;
+    const wchar_t* link;
 };
 
 const BattStrings& BattStringsFor(Lang lang);
