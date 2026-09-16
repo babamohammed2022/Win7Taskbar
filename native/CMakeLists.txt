@@ -27,7 +27,7 @@ add_library(Win7TaskbarCore SHARED
     src/TrayOverflowWindow.cpp src/AppSearchWindow.cpp
     src/Win7NetworkFlyout.cpp src/BatteryFlyout.cpp src/JumpListWindow.cpp
     src/PropertiesDialog.cpp src/PinnedApps.cpp src/Exports.cpp
-    src/LanguageSwitcher.cpp
+    src/LanguageSwitcher.cpp src/AeroThumbnailFrame.cpp
     src/Strings.cpp src/LocalizationExports.cpp
     src/TrayFallbackIcons.cpp src/CrashHandler.cpp
     src/TrayPrefsStore.cpp resources/app.rc)

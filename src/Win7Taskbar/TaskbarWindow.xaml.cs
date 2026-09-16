@@ -2986,9 +2986,9 @@ namespace Win7Taskbar
         /// v3.8: pressione sulla miniatura: comincia il POSSIBILE
         /// trascinamento di riordino. Il mouse viene catturato cosi' i
         /// movimenti arrivano tutti qui anche se il cursore scavalca le
-        * altre anteprime; se il rilascio avviene senza superare la soglia
+        /// altre anteprime; se il rilascio avviene senza superare la soglia
         /// di trascinamento, il percorso resta il normale clic che attiva
-        * la finestra.
+        /// la finestra.
         /// </summary>
         private void PreviewThumbnail_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
