@@ -84,7 +84,6 @@ extern "C" {
 #define W7T_EVT_FULLSCREEN_CHANGED 20
 #define W7T_EVT_OVERFLOW_HIDDEN    21   /* v3.2: il pannello overflow si e' chiuso da solo */
 #define W7T_EVT_PINNED_CHANGED     22   /* v2.25: cambiata la cartella dei pin */
-#define W7T_EVT_EXPLORER_RESTART   23   /* v4.1: Explorer riavviato (PID cambiato o TaskbarCreated) */
 
 /* Comandi jump-list / finestra */
 #define W7T_CMD_RESTORE     1

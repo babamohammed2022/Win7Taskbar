@@ -14,16 +14,15 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- *
- * Provenienza della logica:
- *   - via moderna (ImmersiveShell): ImmersiveFlyouts, adattato da
- *     ExplorerPatcher/ImmersiveFlyouts.{h,c} di valinet (GPL-2.0-or-later);
- *   - via classica (Aero Clock): equivalente a
+ * Logic source:
+ *   - modern way (ImmersiveShell): ImmersiveFlyouts, adapted from
+ *     ExplorerPatcher/ImmersiveFlyouts.{h,c} by valinet (GPL-2.0-or-later);
+ *   - classic way (Aero Clock): equivalent to
  *     RetroBar/Utilities/ClockFlyoutLauncher.cs (dremin/RetroBar, Apache-2.0)
- *     e a ManagedShell.UWPInterop/ImmersiveShellHelper.cs
- *     (cairoshell/ManagedShell, Apache-2.0).
- * In entrambi i casi il codice C++ e' stato scritto da zero; nessuna riga di
- * C o di C# e' stata copiata. Vedi CREDITS.txt e THIRD-PARTY-NOTICES.md.
+ *     and ManagedShell.UWPInterop/ImmersiveShellHelper.cs (https://github.com/cairoshell/ManagedShell)
+ *     (cairoshell/ManagedShell, Apache-2.0). Credits to Anixx for the Volume flyout mod in the Windhawk store
+ * In both cases, the C++ code was written from scratch; no lines of
+ * C or C# were copied. See CREDITS.txt and THIRD-PARTY-NOTICES.md.
  */
 
 #include "FlyoutLauncher.h"

@@ -2229,14 +2229,6 @@ namespace Win7Taskbar
             // {
             //     BeginPotentialJumpListDrag(fe, e);
             // }
-
-            // v4.0: task button drag-and-drop reorder. Arms the horizontal
-            // drag detection; a release without crossing the threshold
-            // stays a normal click (see TaskbarWindow.TaskDrag.cs).
-            if (sender is FrameworkElement dragElement)
-            {
-                BeginPotentialTaskDrag(dragElement, e);
-            }
         }
 
         /// <summary>v2.28: avvio robusto: prima la shell nativa con retry,
@@ -2276,14 +2268,6 @@ namespace Win7Taskbar
             // consumes this release: it must not activate the group. A
             // normal click never sets the flag (see TaskbarWindow.JumpList.cs).
             if (ShouldSuppressClickAfterJumpList())
-            {
-                e.Handled = true;
-                return;
-            }
-
-            // v4.0: a consumed task button drag also suppresses the click
-            // (see TaskbarWindow.TaskDrag.cs).
-            if (ShouldSuppressClickAfterTaskDrag())
             {
                 e.Handled = true;
                 return;
@@ -5924,13 +5908,13 @@ namespace Win7Taskbar
         /// v2.46: la sorgente e' l'icona fornita dall'utente (cartella di
         /// documenti con la lente), incorporata come PNG base64
         /// (EmbeddedAssets.SearchIcon: 64x74, ritagliata sul contenuto reale).
-        /// Il file Resources/win7search.png resta come ripiego, cosi' una
-        /// risorsa incorporata illeggibile non lascia il pulsante vuoto.</summary>
+        /// Il ripiego su Resources/win7search.png e' stato rimosso: quel PNG e'
+        /// nel GraphicalResourceBundle e non e' piu' un file runtime.</summary>
         private void LoadSearchIconPixels()
         {
             try
             {
-                if (!TryLoadSearchPixelsFromEmbedded() && !TryLoadSearchPixelsFromFile())
+                if (!TryLoadSearchPixelsFromEmbedded())
                 {
                     return;   /* niente pixel: il core nativo usera' la sua icona */
                 }
@@ -5963,27 +5947,10 @@ namespace Win7Taskbar
         /// Serve solo se la risorsa incorporata non si decodifica.</summary>
         private bool TryLoadSearchPixelsFromFile()
         {
-            try
-            {
-                string path = System.IO.Path.Combine(
-                    AppContext.BaseDirectory, "Resources", "win7search.png");
-                if (!System.IO.File.Exists(path))
-                {
-                    return false;
-                }
-
-                var bmp = new System.Windows.Media.Imaging.BitmapImage();
-                bmp.BeginInit();
-                bmp.UriSource = new Uri(path);
-                bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                bmp.EndInit();
-                return TryCopySearchPixels(bmp);
-            }
-            catch (Exception ex)
-            {
-                _bridge.Log($"lente ricerca (file): {ex.Message}");
-                return false;
-            }
+            // The legacy disk fallback was removed with the duplicated PNG;
+            // the embedded asset failure path already leaves the native
+            // implementation in charge of its own fallback icon.
+            return false;
         }
 
         /// <summary>Estrae i pixel BGRA (top-down) da una sorgente qualsiasi,

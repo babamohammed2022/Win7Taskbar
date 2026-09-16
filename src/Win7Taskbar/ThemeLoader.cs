@@ -15,10 +15,14 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Markup;
 using System.Xml.Linq;
+using Win7Taskbar.Utilities;
 
 namespace Win7Taskbar
 {
@@ -50,6 +54,31 @@ namespace Win7Taskbar
     ///     &lt;ResourceDictionary.MergedDictionaries&gt;
     /// che punta a Base.xaml, e il risultato viene passato a XamlReader.
     /// Il file Themes/Windows7.xaml su disco resta byte-identico all'originale.
+    /// 
+    /// IL TERZO PROBLEMA (1.21.5: mandava in crash l'avvio con
+    /// "Provide value on 'System.Windows.Markup.StaticExtension' threw an
+    /// exception. Line number '10' and line position '6'.")
+    /// ------------------------------------------------------------------
+    /// Il tema dichiara xmlns:bundle="clr-namespace:Win7Taskbar.Utilities"
+    /// SENZA assembly e lo usa in 45 <x:Static Member="bundle:..."/> per le
+    /// immagini del bundle base64. Nello XAML COMPILATO (Overrides.xaml)
+    /// l'omissione e' lecita (vale lo stesso assembly); in quello caricato a
+    /// RUNTIME con XamlReader.Load il tipo non si risolve mai, e il primo
+    /// x:Static muore dentro StaticExtension.ProvideValue. La "riga 10" e'
+    /// la prima x:Static del documento SERIALIZZATO in memoria (il salvataggio
+    /// ricompatta il tag radice su una riga sola e aggiunge la dichiarazione
+    /// XML, quindi i numeri non corrispondono al file su disco).
+    ///
+    /// Il tentativo 1.21.4 (XamlTypeMapper custom) era inefficace: il
+    /// costruttore XamlTypeMapper(string[]) vuole NOMI DI ASSEMBLY, non una
+    /// mappa di namespace, quindi non mappava nulla.
+    ///
+    /// La correzione e' QualifyClrNamespaces: prima del parse, ogni xmlns
+    /// clr-namespace senza assembly viene qualificato IN MEMORIA con
+    /// ";assembly=Win7Taskbar" (il file su disco resta byte-identico). In piu',
+    /// OGNI x:Static viene pre-validato via reflection (ValidateStaticMembers)
+    /// e riverificato dopo il parse (VerifyLoadedImages), cosi' un futuro
+    /// refuso nomina chiave e membro invece di un numero di riga.
     /// </summary>
     public static class ThemeLoader
     {
@@ -62,15 +91,17 @@ namespace Win7Taskbar
         private static readonly XNamespace Presentation =
             "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
 
+        private static readonly XNamespace XamlNamespace =
+            "http://schemas.microsoft.com/winfx/2006/xaml";
+
         /// <summary>
         /// Restituisce il dizionario radice pronto per Application.Resources.
         /// </summary>
         public static ResourceDictionary Build()
         {
-            // Controllo preliminare: il tema e le PNG stanno su disco accanto
-            // all'eseguibile, quindi l'errore di gran lunga piu' frequente
-            // e' uno ZIP estratto senza mantenere le sottocartelle. Meglio un
-            // messaggio che dice cosa manca di una XamlParseException criptica.
+            // Controllo preliminare: il tema e la cartella Resources (slice
+            // native) stanno su disco accanto all'eseguibile. L'errore piu'
+            // frequente e' uno ZIP estratto senza le sottocartelle.
             VerifyLayoutOnDisk();
 
             var root = new ResourceDictionary();
@@ -113,16 +144,16 @@ namespace Win7Taskbar
 
         /// <summary>
         /// Percorso di Themes/Windows7.xaml accanto all'eseguibile.
-        /// Il tema resta un file su disco perche' referenzia le PNG con URI
-        /// relativi ("../Resources/..."), esattamente come nel repository.
+        /// Il tema resta un file su disco (Content, non BAML); le immagini WPF
+        /// arrivano da GraphicalResourceBundle, le otto slice native da Resources/.
         /// </summary>
         public static string ThemeFilePath => Path.Combine(
             AppDomain.CurrentDomain.BaseDirectory, "Themes", "Windows7.xaml");
 
         /// <summary>
-        /// Verifica che accanto all'eseguibile ci siano Themes\ e Resources\,
-        /// e che dentro Resources\ ci siano davvero le PNG del tema. Senza di
-        /// esse il tema carica ma i pulsanti restano vuoti.
+        /// Verifica che accanto all'eseguibile ci siano Themes\ e Resources\.
+        /// Resources\ deve esistere per le otto slice native Aero; le immagini
+        /// WPF del tema arrivano dal bundle Base64, non da quella cartella.
         /// </summary>
         private static void VerifyLayoutOnDisk()
         {
@@ -141,10 +172,6 @@ namespace Win7Taskbar
             {
                 missing.Add("Resources\\");
             }
-            else if (Directory.GetFiles(resources, "*.png", SearchOption.AllDirectories).Length == 0)
-            {
-                missing.Add("Resources\\*.png");
-            }
 
             if (missing.Count > 0)
             {
@@ -152,7 +179,7 @@ namespace Win7Taskbar
                     "Estrazione incompleta: mancano " + string.Join(", ", missing) +
                     " accanto a Win7Taskbar.exe (cartella " + baseDir + "). " +
                     "Estrai di nuovo lo ZIP mantenendo la struttura delle cartelle: " +
-                    "il tema e le immagini vengono letti da disco a runtime.",
+                    "il tema e le slice native Aero vengono letti da disco a runtime.",
                     ThemeFilePath);
             }
         }
@@ -164,7 +191,7 @@ namespace Win7Taskbar
             {
                 throw new FileNotFoundException(
                     "Themes/Windows7.xaml non trovato accanto all'eseguibile. " +
-                    "Il tema e le PNG in Resources/ devono essere copiati nell'output.",
+                    "Il tema deve essere copiato nell'output; le risorse WPF sono nel bundle e le otto slice native restano in Resources/.",
                     path);
             }
 
@@ -173,6 +200,12 @@ namespace Win7Taskbar
             {
                 throw new InvalidOperationException("Themes/Windows7.xaml non e' un XML valido.");
             }
+
+            // 1.21.5 (IL FIX dell'avvio): gli xmlns clr-namespace SENZA
+            // assembly non si risolvono nello XAML caricato a runtime.
+            // Li qualifichiamo in memoria PRIMA del parse; il file su disco
+            // resta byte-identico all'originale.
+            QualifyClrNamespaces(document);
 
             // Inietta <ResourceDictionary.MergedDictionaries> come PRIMO figlio:
             // il parser deve incontrarlo prima delle chiavi che ne dipendono.
@@ -183,8 +216,20 @@ namespace Win7Taskbar
 
             document.Root.AddFirst(mergedElement);
 
-            // BaseUri fa risolvere gli UriSource relativi delle PNG
-            // ("../Resources/...") rispetto alla cartella Themes.
+            // 1.21.5: valida OGNI x:Static via reflection PRIMA del parse, cosi'
+            // un refuso nomina chiave e membro invece di "Line number '10'".
+            List<StaticMemberRef> staticRefs = CollectStaticMembers(document);
+            ValidateStaticMembers(document, staticRefs);
+
+            // BaseUri resta impostato sul file tema (compatibilità parser);
+            // le immagini WPF non usano più UriSource relativi alle PNG.
+            //
+            // 1.21.5: NIENTE XamlTypeMapper custom. Il costruttore
+            // XamlTypeMapper(string[]) vuole NOMI DI ASSEMBLY, non mappe di
+            // namespace: passargli "clr-namespace:...;assembly=..." non mappa
+            // nulla (era il tentativo 1.21.4, inefficace). Con gli xmlns
+            // qualificati qui sopra, la risoluzione standard basta, come per
+            // gli altri namespace del tema (controls:, retroconv:, ...).
             var context = new ParserContext
             {
                 BaseUri = new Uri(path, UriKind.Absolute)
@@ -196,7 +241,18 @@ namespace Win7Taskbar
             document.Save(buffer, SaveOptions.DisableFormatting);
             buffer.Position = 0;
 
-            object loaded = XamlReader.Load(buffer, context);
+            object loaded;
+            try
+            {
+                loaded = XamlReader.Load(buffer, context);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"Impossibile analizzare '{path}' ({staticRefs.Count} riferimenti " +
+                    $"x:Static gia' verificati via reflection): " +
+                    $"{ex.GetType().Name}: {ex.Message}", ex);
+            }
 
             if (loaded is not ResourceDictionary dictionary)
             {
@@ -204,7 +260,247 @@ namespace Win7Taskbar
                     "Themes/Windows7.xaml non contiene un ResourceDictionary.");
             }
 
+            // 1.21.5: nessuna immagine puo' restare null (darebbe una barra
+            // invisibile/rotta senza alcun errore). Meglio un messaggio chiaro.
+            VerifyLoadedImages(dictionary, staticRefs);
+
             return dictionary;
+        }
+
+        /// <summary>
+        /// Rende assembly-qualified ogni xmlns clr-namespace senza assembly.
+        ///
+        /// Lo XAML caricato a runtime con XamlReader.Load NON risolve
+        /// xmlns="clr-namespace:Foo" senza ";assembly=...": il resolver cerca
+        /// il tipo solo negli assembly nominati, e x:Static fallisce dentro
+        /// StaticExtension.ProvideValue. Solo in memoria: il disco resta intatto.
+        /// </summary>
+        private static void QualifyClrNamespaces(XDocument document)
+        {
+            if (document.Root == null)
+            {
+                return;
+            }
+
+            string assemblyName =
+                typeof(ThemeLoader).Assembly.GetName().Name ?? "Win7Taskbar";
+
+            foreach (XAttribute attribute in document.Root.Attributes())
+            {
+                if (!attribute.IsNamespaceDeclaration)
+                {
+                    continue;
+                }
+
+                string value = attribute.Value;
+                if (!value.StartsWith("clr-namespace:", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (value.IndexOf(';') >= 0)
+                {
+                    continue;  // gia' qualificato (mscorlib, RetroBar, ...)
+                }
+
+                attribute.Value = value + ";assembly=" + assemblyName;
+                StartupGuard.Note(
+                    "tema: xmlns '" + value + "' qualificato con '" +
+                    attribute.Value + "'");
+            }
+        }
+
+        /// <summary>Riferimento x:Static trovato nel tema (per la validazione).</summary>
+        private sealed class StaticMemberRef
+        {
+            public string Key = "";
+            public string Prefix = "";
+            public string TypeName = "";
+            public string MemberName = "";
+            public string Raw = "";
+        }
+
+        /// <summary>
+        /// Raccoglie gli elementi &lt;x:Static Member="prefisso:Tipo.membro"&gt;
+        /// del tema. Gli x:Static INLINE negli attributi (es. dentro un Binding)
+        /// non sono elementi e non vengono raccolti: usano namespace gia'
+        /// qualificati e restano responsabilita' del parser XAML.
+        /// </summary>
+        private static List<StaticMemberRef> CollectStaticMembers(XDocument document)
+        {
+            var refs = new List<StaticMemberRef>();
+            foreach (XElement element in document.Descendants(XamlNamespace + "Static"))
+            {
+                XAttribute? memberAttr = element.Attribute("Member");
+                if (memberAttr == null || string.IsNullOrWhiteSpace(memberAttr.Value))
+                {
+                    continue;
+                }
+
+                string raw = memberAttr.Value.Trim();
+                int colon = raw.IndexOf(':');
+                int dot = raw.LastIndexOf('.');
+                if (colon <= 0 || dot <= colon + 1 || dot >= raw.Length - 1)
+                {
+                    continue;  // formato non standard: ci pensera' il parser XAML
+                }
+
+                refs.Add(new StaticMemberRef
+                {
+                    Key = element.Attribute(XamlNamespace + "Key")?.Value ?? "",
+                    Prefix = raw.Substring(0, colon),
+                    TypeName = raw.Substring(colon + 1, dot - colon - 1),
+                    MemberName = raw.Substring(dot + 1),
+                    Raw = raw,
+                });
+            }
+
+            return refs;
+        }
+
+        /// <summary>
+        /// Risolve via reflection OGNI x:Static del tema PRIMA del parse.
+        ///
+        /// Se un membro manca (refuso nel tema), se la chiave non e' nel bundle
+        /// o se il PNG non si decodifica, l'errore nomina l'esatta coppia
+        /// chiave/membro invece di un generico XamlParseException.
+        /// </summary>
+        private static void ValidateStaticMembers(
+            XDocument document, List<StaticMemberRef> refs)
+        {
+            if (refs.Count == 0 || document.Root == null)
+            {
+                return;
+            }
+
+            // prefisso -> namespace (dopo la qualifica con l'assembly).
+            var namespaces = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (XAttribute attribute in document.Root.Attributes())
+            {
+                if (!attribute.IsNamespaceDeclaration)
+                {
+                    continue;
+                }
+
+                // "xmlns" e' il namespace di default (senza prefisso).
+                if (attribute.Name.LocalName != "xmlns")
+                {
+                    namespaces[attribute.Name.LocalName] = attribute.Value;
+                }
+            }
+
+            string ownAssembly =
+                typeof(ThemeLoader).Assembly.GetName().Name ?? "Win7Taskbar";
+
+            const BindingFlags staticFlags =
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy;
+
+            foreach (StaticMemberRef r in refs)
+            {
+                if (!namespaces.TryGetValue(r.Prefix, out string? ns) || ns == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Tema non valido: il prefisso '{r.Prefix}' di x:Static '{r.Raw}' " +
+                        "non e' dichiarato come xmlns nella radice di Themes/Windows7.xaml.");
+                }
+
+                const string clrPrefix = "clr-namespace:";
+                if (!ns.StartsWith(clrPrefix, StringComparison.Ordinal))
+                {
+                    continue;  // non e' un namespace CLR: ci pensa il parser XAML
+                }
+
+                string rest = ns.Substring(clrPrefix.Length);
+                string clrNamespace = rest;
+                string assemblyName = ownAssembly;
+                int semi = rest.IndexOf(';');
+                if (semi >= 0)
+                {
+                    clrNamespace = rest.Substring(0, semi);
+                    const string asmMarker = "assembly=";
+                    int asmAt = rest.IndexOf(
+                        asmMarker, semi, StringComparison.OrdinalIgnoreCase);
+                    if (asmAt >= 0)
+                    {
+                        assemblyName = rest.Substring(asmAt + asmMarker.Length).Trim();
+                    }
+                }
+
+                Type? type = Type.GetType(
+                    clrNamespace + "." + r.TypeName + ", " + assemblyName, false);
+                type ??= typeof(ThemeLoader).Assembly.GetType(
+                    clrNamespace + "." + r.TypeName, false);
+                if (type == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Tema non valido: x:Static '{r.Raw}' (chiave '{r.Key}') - " +
+                        $"tipo '{clrNamespace}.{r.TypeName}' non trovato " +
+                        $"nell'assembly '{assemblyName}'.");
+                }
+
+                bool memberExists = type.GetProperty(r.MemberName, staticFlags) != null ||
+                                    type.GetField(r.MemberName, staticFlags) != null;
+                if (!memberExists)
+                {
+                    throw new InvalidOperationException(
+                        $"Tema non valido: x:Static '{r.Raw}' (chiave '{r.Key}') - " +
+                        $"il tipo '{type.FullName}' non espone alcun membro " +
+                        $"statico pubblico '{r.MemberName}'.");
+                }
+
+                // Membri del bundle grafico: la proprieta' esiste, ma la chiave
+                // potrebbe mancare o il PNG potrebbe non decodificarsi (in
+                // entrambi i casi Get restituisce null invece di lanciare).
+                if (type == typeof(GraphicalResourceBundle))
+                {
+                    if (!GraphicalResourceBundle.Keys.Contains(r.MemberName))
+                    {
+                        throw new InvalidOperationException(
+                            $"Tema non valido: x:Static '{r.Raw}' (chiave '{r.Key}') - " +
+                            $"il bundle grafico non contiene la chiave '{r.MemberName}' " +
+                            $"({GraphicalResourceBundle.Count} chiavi disponibili).");
+                    }
+
+                    if (GraphicalResourceBundle.Get(r.MemberName) == null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Tema non valido: x:Static '{r.Raw}' (chiave '{r.Key}') - " +
+                            $"la chiave '{r.MemberName}' esiste nel bundle ma non si " +
+                            "decodifica (base64 o PNG corrotti in GraphicalResourceBundle.cs).");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Dopo il parse, ogni chiave prodotta da x:Static deve esistere e non
+        /// essere null: un'immagine mancante darebbe una barra invisibile o
+        /// rotta senza alcun errore visibile.
+        /// </summary>
+        private static void VerifyLoadedImages(
+            ResourceDictionary dictionary, List<StaticMemberRef> refs)
+        {
+            foreach (StaticMemberRef r in refs)
+            {
+                if (string.IsNullOrEmpty(r.Key))
+                {
+                    continue;
+                }
+
+                if (!dictionary.Contains(r.Key))
+                {
+                    throw new InvalidOperationException(
+                        $"Tema non valido: dopo il parse manca la chiave '{r.Key}' " +
+                        $"(x:Static '{r.Raw}').");
+                }
+
+                if (dictionary[r.Key] == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Tema non valido: la chiave '{r.Key}' (x:Static '{r.Raw}') " +
+                        "vale null dopo il parse: l'immagine non e' stata caricata.");
+                }
+            }
         }
     }
 }

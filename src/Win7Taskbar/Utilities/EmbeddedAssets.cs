@@ -42,7 +42,8 @@ namespace Win7Taskbar.Utilities
         /// v2.47: icona della ricerca, quella fornita dall'utente
         /// (image-2.png: cartella di documenti con la lente). E' la copia
         /// INCORPORATA in base64 - l'utente l'ha chiesta cosi' - e vince sul
-        /// file su disco: Resources/win7search.png resta solo come ripiego.
+        /// file su disco: il ripiego Resources/win7search.png e' stato rimosso
+        /// (il PNG e' nel GraphicalResourceBundle, non un file runtime).
         ///
         /// Ritagliata sul contenuto reale (215x249) e ridotta a 80x93 px: alla
         /// barra si disegna dentro 22 px, quindi la sorgente ha quasi quattro

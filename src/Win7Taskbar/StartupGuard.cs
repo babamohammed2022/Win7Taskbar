@@ -551,14 +551,67 @@ namespace Win7Taskbar
             }
         }
 
+        /// <summary>
+        /// Appiattisce la catena InnerException in righe "← Tipo: messaggio".
+        ///
+        /// XamlParseException e InvalidOperationException sono quasi sempre
+        /// involucri: la causa vera ("Type reference cannot find...") vive
+        /// nelle inner. Senza queste righe la finestra di errore mostra solo
+        /// l'involucro e non si capisce nulla.
+        /// </summary>
+        public static string FormatInnerCauses(Exception ex, int maxDepth = 4)
+        {
+            try
+            {
+                var sb = new StringBuilder();
+                Exception? inner = ex.InnerException;
+                int depth = 0;
+                while (inner != null && depth < maxDepth)
+                {
+                    string[] parts = (inner.Message ?? "").Split(
+                        new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    string firstLine = parts.Length > 0 ? parts[0] : "";
+                    if (sb.Length > 0)
+                    {
+                        sb.AppendLine();
+                    }
+                    sb.Append($"  ← {inner.GetType().Name}: {firstLine}");
+                    inner = inner.InnerException;
+                    depth++;
+                }
+
+                if (inner != null)
+                {
+                    if (sb.Length > 0)
+                    {
+                        sb.AppendLine();
+                    }
+                    sb.Append("  ← ...");
+                }
+
+                return sb.ToString();
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
         private static void ShowFatal(Exception ex, string? reportPath)
         {
             try
             {
+                string causes = FormatInnerCauses(ex);
+                if (!string.IsNullOrEmpty(causes))
+                {
+                    causes = "Cause:\n" + causes + "\n\n";
+                }
+
                 string text =
                     "Win7Taskbar non e' riuscito ad avviarsi.\n\n" +
                     $"Fase: {CurrentStage}\n" +
-                    $"Errore: {ex.GetType().Name}: {ex.Message}\n\n" +
+                    $"Errore: {ex.GetType().Name}: {ex.Message}\n" +
+                    causes + "\n" +
                     (SafeMode
                         ? "L'avvio era gia' in modalita' provvisoria.\n\n"
                         : "Al prossimo avvio il programma entrera' automaticamente in " +

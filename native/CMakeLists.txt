@@ -14,12 +14,6 @@ project(Win7TaskbarCore VERSION 1.7.0 DESCRIPTION "Win7Taskbar native backend" L
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-# v4.0.1: static MSVC runtime (/MT) so the DLL has no dependency on
-# vcruntime140.dll / msvcp140.dll. Without this, machines that lack the
-# MSVC Redistributable get a DllNotFoundException at startup even though
-# Win7TaskbarCore.dll IS next to the executable (the loader fails on the
-# missing CRT, but Windows reports it as "DLL not found").
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 if(NOT WIN32)
     message(FATAL_ERROR
         "Win7TaskbarCore can only be built for Windows. On Linux use the MinGW-w64 "

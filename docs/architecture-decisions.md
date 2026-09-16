@@ -36,13 +36,14 @@ mean a radically different, and much more fragile, delivery model.
 
 ## 3. The Windows 7 theme is loaded, not compiled
 
-**Decision.** `Themes/Windows7.xaml` stays byte-identical to the upstream theme and is
-loaded at runtime by `ThemeLoader.cs`, which merges a base dictionary *in memory* before
-parsing.
+**Decision.** `Themes/Windows7.xaml` is loaded at runtime by `ThemeLoader.cs`, which merges
+a base dictionary *in memory* before parsing. WPF theme images are resolved through
+`GraphicalResourceBundle` (Base64 PNG payloads) rather than loose files under `Resources/`.
 
-**Why.** The theme is an upstream work and a compatibility target: keeping it untouched
-makes it possible to drop in a newer version of the theme without touching the code. But it
-has 16 `BasedOn` styles that expect a base dictionary with same-named keys, and WPF skips
+**Why.** Loading from disk (instead of compiling to BAML) keeps the theme editable as a
+content file next to the executable. Image centralization removes binary noise from the
+repository while preserving the original PNG bytes. The theme still has 16 `BasedOn`
+styles that expect a base dictionary with same-named keys, and WPF skips
 same-named entries instead of falling back to sibling dictionaries - which produced the
 `Cannot find resource named 'TaskbarWindow'` failure. Injecting the base dictionary into
 the in-memory document is the arrangement that works; the file on disk is never rewritten.

@@ -168,7 +168,19 @@
          EnsureDwmPreviewBorderMask, so the two paths draw the same border;
          the grayscale overlay, the clipped static blur, the title band, the
          close button and the live DWM thumbnail are untouched. -->
-    <Version>1.15.1-alpha</Version>
+    <!-- 1.21.4-alpha: XamlTypeMapper attempt in ThemeLoader - INEFFECTIVE
+         (that ctor takes assembly names, not namespace mappings), kept for
+         history. The real startup-crash fix is 1.21.5-alpha below. -->
+    <!-- 1.21.5-alpha: startup crash "Provide value on 'StaticExtension' ...
+         Line number '10'" fixed for real. The theme's assembly-less
+         xmlns:bundle can never resolve under XamlReader.Load, so the first
+         x:Static died in ProvideValue. ThemeLoader now qualifies every
+         clr-namespace xmlns in memory before parsing, pre-validates all
+         x:Static members via reflection (naming key+member on mismatch),
+         verifies loaded images are non-null, and both Windows7.xaml copies
+         carry the required ";assembly=Win7Taskbar". Fatal dialogs also show
+         the inner-exception chain (StartupGuard.FormatInnerCauses). -->
+    <Version>1.21.5-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
@@ -205,13 +217,8 @@
     <ProjectReference Include="..\RetroBar.Shim\RetroBar.Shim.csproj" />
   </ItemGroup>
 
-  <!--
-    Le PNG del tema devono restare FILE SU DISCO, non risorse incorporate:
-    Windows7.xaml le referenzia con UriSource="../Resources/..." relativo
-    alla cartella Themes, quindi l'albero Resources/ va replicato accanto
-    all'eseguibile esattamente com'e' nel repository.
-    English: Theme PNGs must stay as files on disk, not embedded resources.
-  -->
+  <!-- WPF images are served by GraphicalResourceBundle.cs. Only the eight
+       native Aero 9-slice PNGs remain on disk and are copied for the DLL. -->
   <ItemGroup>
     <Content Include="Resources\**\*.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

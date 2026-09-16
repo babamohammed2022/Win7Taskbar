@@ -1,6 +1,6 @@
 # Win7Taskbar
 
-<img src="docs/icon-256.png" alt="Win7Taskbar" width="96" align="left" hspace="12" vspace="4">
+<img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
 
 A Windows 7-inspired taskbar recreation and for Windows 10 and 11.
 
@@ -18,7 +18,6 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 ## Screenshot
 
 <img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
-
 
 
 ## Requirements
@@ -72,9 +71,14 @@ Please read [`AGENTS.md`](./docs/AGENTS.md) before making changes.
 * WinBoeing777 - Testing on Windows 10 22H2 and providing resources
 * AdministratoX - Testing on Windows 11 25H2
 
-Win7Taskbar was created using work from projects including RetroBar, ExplorerPatcher, and ManagedShell.
+Win7Taskbar was created using work from projects including RetroBar, ExplorerPatcher, and ManagedShell, but it is an independent project and is not affiliated with or endorsed by any of them. It acts as a community open-source project to help improve the user's experience.
 
 Additional information and attribution details are available in the `docs` folder.
+
+## Note
+
+This software is not endorsed by, affiliated with, or sponsored by Microsoft Corporation.
+Windows and related trademarks are the property of Microsoft Corporation.
 
 ## License
 

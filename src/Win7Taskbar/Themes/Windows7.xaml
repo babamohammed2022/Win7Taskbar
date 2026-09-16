@@ -3,7 +3,13 @@
                     xmlns:system="clr-namespace:System;assembly=mscorlib"
                     xmlns:controls="clr-namespace:RetroBar.Controls;assembly=RetroBar"
                     xmlns:retroconv="clr-namespace:RetroBar.Converters;assembly=RetroBar"
-                    xmlns:retrosettings="clr-namespace:RetroBar.Utilities;assembly=RetroBar">
+                    xmlns:retrosettings="clr-namespace:RetroBar.Utilities;assembly=RetroBar"
+                    xmlns:bundle="clr-namespace:Win7Taskbar.Utilities;assembly=Win7Taskbar">
+
+    <!-- 1.21.5: ";assembly=Win7Taskbar" above is REQUIRED, do not remove it.
+         Without the assembly qualifier, XamlReader.Load cannot resolve this
+         namespace at runtime and every x:Static below dies inside
+         StaticExtension.ProvideValue (startup crash "Line number '10'"). -->
 
     <!-- Win7 Superbar height at 96 DPI -->
 
@@ -11,25 +17,19 @@
          The three chevron images (9x7 arrow + 21x20 glass tiles) are files
          in the ../Resources folder next to Themes (same mechanism as the
          stock RetroBar theme Start icons). -->
-    <BitmapImage x:Key="OverflowArrowImage"
-                 UriSource="../Resources/Win7_Overflow_Arrow.png" />
-    <BitmapImage x:Key="OverflowTileHoverImage"
-                 UriSource="../Resources/Win7_Overflow_TileHover.png" />
-    <BitmapImage x:Key="OverflowTilePressedImage"
-                 UriSource="../Resources/Win7_Overflow_TilePressed.png" />
+    <x:Static x:Key="OverflowArrowImage" Member="bundle:GraphicalResourceBundle.win7_overflow_arrow" />
+    <x:Static x:Key="OverflowTileHoverImage" Member="bundle:GraphicalResourceBundle.win7_overflow_tilehover" />
+    <x:Static x:Key="OverflowTilePressedImage" Member="bundle:GraphicalResourceBundle.win7_overflow_tilepressed" />
 
     <!-- User-supplied 236x166 DWM preview frame. Overrides.xaml slices this
          single bitmap around its exact transparent aperture. -->
-    <BitmapImage x:Key="DwmPreviewBorderImage"
-                 UriSource="../Resources/DWMBorder.png" />
+    <x:Static x:Key="DwmPreviewBorderImage" Member="bundle:GraphicalResourceBundle.dwmborder" />
     <!-- Alpha-only fallback until TaskbarWindow derives an in-memory
          luminance-times-alpha mask from the same unchanged PNG. -->
-    <BitmapImage x:Key="DwmPreviewBorderMaskImage"
-                 UriSource="../Resources/DWMBorder.png" />
+    <x:Static x:Key="DwmPreviewBorderMaskImage" Member="bundle:GraphicalResourceBundle.dwmborder" />
 
     <!-- TASKBAR BACKGROUND PNG - texture on top of transparency -->
-    <BitmapImage x:Key="TaskbarBackgroundImage"
-                 UriSource="../Resources/taskbarBackground.png" />
+    <x:Static x:Key="TaskbarBackgroundImage" Member="bundle:GraphicalResourceBundle.taskbarbackground" />
     <ImageBrush x:Key="TaskbarTextureBrush"
                 ImageSource="{DynamicResource TaskbarBackgroundImage}"
                 TileMode="Tile"
@@ -44,9 +44,9 @@
                 ViewportUnits="Absolute"
                 Stretch="Fill"
                 Opacity="1" />
-    <BitmapImage x:Key="Win7_ShowDesktopImage" UriSource="../Resources/win7showdesktop.png" />
-    <BitmapImage x:Key="Win7_ShowDesktopImageScaled" UriSource="../Resources/win7showdesktop.png" />
-    <BitmapImage x:Key="Win7_TaskbarTextureImage" UriSource="../Resources/win7taskbar.png" />
+    <x:Static x:Key="Win7_ShowDesktopImage" Member="bundle:GraphicalResourceBundle.win7showdesktop" />
+    <x:Static x:Key="Win7_ShowDesktopImageScaled" Member="bundle:GraphicalResourceBundle.win7showdesktop" />
+    <x:Static x:Key="Win7_TaskbarTextureImage" Member="bundle:GraphicalResourceBundle.win7taskbar" />
     <ImageBrush x:Key="Win7_TaskbarTextureBrush"
                 ImageSource="{StaticResource Win7_TaskbarTextureImage}"
                 TileMode="Tile"
@@ -70,31 +70,31 @@
 
     <!-- ===== WIN7 THEME RESOURCES FROM https://github.com/ramensoftware/windows-11-taskbar-styling-guide/tree/main/Themes/Windows7/ThemeResources =====
          All resources implemented, excluding those already present (unmodified) -->
-    <BitmapImage x:Key="Win7_ActiveNormalImage" UriSource="../Resources/Win7/ActiveNormal.png" />
-    <BitmapImage x:Key="Win7_InactiveNormalImage" UriSource="../Resources/Win7/InactiveNormal.png" />
-    <BitmapImage x:Key="Win7_InactivePointerOverImage" UriSource="../Resources/Win7/InactivePointerOver.png" />
-    <BitmapImage x:Key="Win7_NotRunningPointerOverImage" UriSource="../Resources/Win7/notRunningPointerOver.png" />
-    <BitmapImage x:Key="Win7_NotRunningPressedImage" UriSource="../Resources/Win7/notRunningPressed.png" />
-    <BitmapImage x:Key="Win7_RequestingAttentionImage" UriSource="../Resources/Win7/requestingAttention.png" />
-    <BitmapImage x:Key="Win7_DesktopNormalImage" UriSource="../Resources/Win7/desktopNormal.png" />
-    <BitmapImage x:Key="Win7_DesktopPointerOverImage" UriSource="../Resources/Win7/desktopPointerOver.png" />
-    <BitmapImage x:Key="Win7_DesktopPressedImage" UriSource="../Resources/Win7/desktopPressed.png" />
-    <BitmapImage x:Key="Win7_SearchImage" UriSource="../Resources/Win7/search.png" />
-    <BitmapImage x:Key="Win7_TaskViewImage" UriSource="../Resources/Win7/taskview.png" />
-    <BitmapImage x:Key="Win7_WidgetsPointerOverImage" UriSource="../Resources/Win7/widgetsPointerOver.png" />
-    <BitmapImage x:Key="Win7_WidgetsPressedImage" UriSource="../Resources/Win7/widgetsPressed.png" />
-    <BitmapImage x:Key="Win7_AeroPeekImage" UriSource="../Resources/Win7/AeroPeek.png" />
-    <BitmapImage x:Key="Win7_AeroPeekBlueImage" UriSource="../Resources/Win7/AeroPeekBlue.png" />
-    <BitmapImage x:Key="Win7_OverflowNormalImage" UriSource="../Resources/Win7/overflowNormal.png" />
-    <BitmapImage x:Key="Win7_OverflowPointerOverImage" UriSource="../Resources/Win7/overflowPointerOver.png" />
-    <BitmapImage x:Key="Win7_OverflowPressedImage" UriSource="../Resources/Win7/overflowPressed.png" />
-    <BitmapImage x:Key="Win7_TrayPointerOverImage" UriSource="../Resources/Win7/trayPointerOver.png" />
-    <BitmapImage x:Key="Win7_TrayPressedImage" UriSource="../Resources/Win7/trayPressed.png" />
-    <BitmapImage x:Key="Win7_ClockPointerOverImage" UriSource="../Resources/Win7/clockPointerOver.png" />
-    <BitmapImage x:Key="Win7_ClockPressedImage" UriSource="../Resources/Win7/clockPressed.png" />
-    <BitmapImage x:Key="Win7_OrbNormalImage" UriSource="../Resources/Win7/orbNormal.png" />
-    <BitmapImage x:Key="Win7_OrbHoverImage" UriSource="../Resources/Win7/orbHover.png" />
-    <BitmapImage x:Key="Win7_OrbPressedImage" UriSource="../Resources/Win7/orbPressed.png" />
+    <x:Static x:Key="Win7_ActiveNormalImage" Member="bundle:GraphicalResourceBundle.win7_activenormal" />
+    <x:Static x:Key="Win7_InactiveNormalImage" Member="bundle:GraphicalResourceBundle.win7_inactivenormal" />
+    <x:Static x:Key="Win7_InactivePointerOverImage" Member="bundle:GraphicalResourceBundle.win7_inactivepointerover" />
+    <x:Static x:Key="Win7_NotRunningPointerOverImage" Member="bundle:GraphicalResourceBundle.win7_notrunningpointerover" />
+    <x:Static x:Key="Win7_NotRunningPressedImage" Member="bundle:GraphicalResourceBundle.win7_notrunningpressed" />
+    <x:Static x:Key="Win7_RequestingAttentionImage" Member="bundle:GraphicalResourceBundle.win7_requestingattention" />
+    <x:Static x:Key="Win7_DesktopNormalImage" Member="bundle:GraphicalResourceBundle.win7_desktopnormal" />
+    <x:Static x:Key="Win7_DesktopPointerOverImage" Member="bundle:GraphicalResourceBundle.win7_desktoppointerover" />
+    <x:Static x:Key="Win7_DesktopPressedImage" Member="bundle:GraphicalResourceBundle.win7_desktoppressed" />
+    <x:Static x:Key="Win7_SearchImage" Member="bundle:GraphicalResourceBundle.win7_search" />
+    <x:Static x:Key="Win7_TaskViewImage" Member="bundle:GraphicalResourceBundle.win7_taskview" />
+    <x:Static x:Key="Win7_WidgetsPointerOverImage" Member="bundle:GraphicalResourceBundle.win7_widgetspointerover" />
+    <x:Static x:Key="Win7_WidgetsPressedImage" Member="bundle:GraphicalResourceBundle.win7_widgetspressed" />
+    <x:Static x:Key="Win7_AeroPeekImage" Member="bundle:GraphicalResourceBundle.win7_aeropeek" />
+    <x:Static x:Key="Win7_AeroPeekBlueImage" Member="bundle:GraphicalResourceBundle.win7_aeropeekblue" />
+    <x:Static x:Key="Win7_OverflowNormalImage" Member="bundle:GraphicalResourceBundle.win7_overflownormal" />
+    <x:Static x:Key="Win7_OverflowPointerOverImage" Member="bundle:GraphicalResourceBundle.win7_overflowpointerover" />
+    <x:Static x:Key="Win7_OverflowPressedImage" Member="bundle:GraphicalResourceBundle.win7_overflowpressed" />
+    <x:Static x:Key="Win7_TrayPointerOverImage" Member="bundle:GraphicalResourceBundle.win7_traypointerover" />
+    <x:Static x:Key="Win7_TrayPressedImage" Member="bundle:GraphicalResourceBundle.win7_traypressed" />
+    <x:Static x:Key="Win7_ClockPointerOverImage" Member="bundle:GraphicalResourceBundle.win7_clockpointerover" />
+    <x:Static x:Key="Win7_ClockPressedImage" Member="bundle:GraphicalResourceBundle.win7_clockpressed" />
+    <x:Static x:Key="Win7_OrbNormalImage" Member="bundle:GraphicalResourceBundle.win7_orbnormal" />
+    <x:Static x:Key="Win7_OrbHoverImage" Member="bundle:GraphicalResourceBundle.win7_orbhover" />
+    <x:Static x:Key="Win7_OrbPressedImage" Member="bundle:GraphicalResourceBundle.win7_orbpressed" />
 
     <ImageBrush x:Key="Win7_ActiveNormalBrush" ImageSource="{StaticResource Win7_ActiveNormalImage}" Stretch="Fill" />
     <ImageBrush x:Key="Win7_InactiveNormalBrush" ImageSource="{StaticResource Win7_InactiveNormalImage}" Stretch="Fill" />
@@ -122,22 +122,17 @@
     <!-- Win7 TRAY/CLOCK real hover (PNG from the Windhawk Win7 skin in
          ../Resources): NOT rectangles — just the two vertical "whiskers" of
          light on the sides | icon | with a glow at the bottom. Rest: INVISIBLE. -->
-    <BitmapImage x:Key="TrayTileHoverImage"
-                 UriSource="../Resources/Win7_Tray_TileHover.png" />
-    <BitmapImage x:Key="TrayTilePressedImage"
-                 UriSource="../Resources/Win7_Tray_TilePressed.png" />
+    <x:Static x:Key="TrayTileHoverImage" Member="bundle:GraphicalResourceBundle.win7_tray_tilehover" />
+    <x:Static x:Key="TrayTilePressedImage" Member="bundle:GraphicalResourceBundle.win7_tray_tilepressed" />
     <!-- v1.7.3: the soft-edged vertical strip for the window-count
          separators (3x43, feathered alpha). v1.7.4: the file previously
          lived only in the repo-root Resources folder, which the project
          never copies to the output - THAT was why every loading mechanism
          found nothing. It now sits next to the tile PNGs that demonstrably
-         ship and render, and loads with the same relative UriSource. -->
-    <BitmapImage x:Key="Win7_WindowStackBorderImage"
-                 UriSource="../Resources/multiplewindowborder.png" />
-    <BitmapImage x:Key="ClockTileHoverImage"
-                 UriSource="../Resources/Win7_Clock_TileHover.png" />
-    <BitmapImage x:Key="ClockTilePressedImage"
-                 UriSource="../Resources/Win7_Clock_TilePressed.png" />
+         ship and render via GraphicalResourceBundle (no loose PNG URI). -->
+    <x:Static x:Key="Win7_WindowStackBorderImage" Member="bundle:GraphicalResourceBundle.multiplewindowborder" />
+    <x:Static x:Key="ClockTileHoverImage" Member="bundle:GraphicalResourceBundle.win7_clock_tilehover" />
+    <x:Static x:Key="ClockTilePressedImage" Member="bundle:GraphicalResourceBundle.win7_clock_tilepressed" />
 
     <system:Double x:Key="TaskbarHeight">40</system:Double>
     <system:Double x:Key="TaskbarRowHeight">34</system:Double>
@@ -642,18 +637,12 @@
                       Offset="1.0" />
     </LinearGradientBrush>
 
-    <BitmapImage x:Key="StartButtonImageBottom"
-                 UriSource="../Resources/startwin7orb.png" />
-    <BitmapImage x:Key="StartButtonImageBottomScaled"
-                 UriSource="../Resources/startwin7orbscaled.png" />
-    <BitmapImage x:Key="StartButtonImageTop"
-                 UriSource="../Resources/startwin7orb.png" />
-    <BitmapImage x:Key="StartButtonImageTopScaled"
-                 UriSource="../Resources/startwin7orbscaled.png" />
-    <BitmapImage x:Key="StartButtonImageLarge"
-                 UriSource="../Resources/startwin7orb.png" />
-    <BitmapImage x:Key="StartButtonImageLargeScaled"
-                 UriSource="../Resources/startwin7orbscaled.png" />
+    <x:Static x:Key="StartButtonImageBottom" Member="bundle:GraphicalResourceBundle.startwin7orb" />
+    <x:Static x:Key="StartButtonImageBottomScaled" Member="bundle:GraphicalResourceBundle.startwin7orbscaled" />
+    <x:Static x:Key="StartButtonImageTop" Member="bundle:GraphicalResourceBundle.startwin7orb" />
+    <x:Static x:Key="StartButtonImageTopScaled" Member="bundle:GraphicalResourceBundle.startwin7orbscaled" />
+    <x:Static x:Key="StartButtonImageLarge" Member="bundle:GraphicalResourceBundle.startwin7orb" />
+    <x:Static x:Key="StartButtonImageLargeScaled" Member="bundle:GraphicalResourceBundle.startwin7orbscaled" />
 
     <Style TargetType="MenuItem"
            x:Key="TaskManMenuItem">
