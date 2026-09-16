@@ -272,30 +272,6 @@ void RecalcDpiMetrics(UINT dpi) {
 #define WM_UPDATE_REFRESH_TIMER  (WM_USER + 112)
 #define WM_UPDATE_HOTKEY       (WM_USER + 113)
 
-/* v3.8 (variante Windows 8, implementazione: Administratox): richiesta di
- * connect/disconnect dal NUOVO flyout Windows 8, instradata qui sul thread
- * del modulo cosi' i due flyout condividono la STESSA logica (Questa, non
- * una copia). Il lParam e' un W8NetLogicRequest* su heap: la proprieta'
- * passa al gestore. */
-#define WM_W8NET_LOGIC_ACTION  (WM_USER + 130)
-
-/* op richieste dalla variante Windows 8 (arrivano come wParam; lParam e'
- * un W8NetLogicRequest* su heap, proprieta' al gestore - come nel resto
- * del modulo). ENSURE prepara la finestra della logica nascosta cosi' i
- * messaggi e le notifiche hanno la loro pompa anche se l'utente non ha
- * mai aperto il riquadro Windows 7. */
-enum W8NetLogicOp : int {
-    W8NET_LOGIC_OP_CONNECT = 1,
-    W8NET_LOGIC_OP_DISCONNECT = 2,
-    W8NET_LOGIC_OP_ENSURE = 3
-};
-
-struct W8NetLogicRequest {
-    int op;             /* W8NetLogicOp */
-    WCHAR ssid[33];
-};
-/* Implementato nel blocco aggiuntivo in coda al file (in cerca: "v3.8"). */
-static void HandleW8NetLogicAction(int op, W8NetLogicRequest* req);
 
 static UINT g_uTaskbarCreated = 0;
 static DWORD g_dwFlyoutOwnerThreadId = 0;
@@ -9811,20 +9787,6 @@ DWORD WINAPI HotkeyThreadProc(LPVOID lpParam) {
                 Wh_Log(L"HotkeyThreadProc: exception while toggling flyout, ignored");
             }
         }
-        /* v3.8: richieste del riquadro variante Windows 8 (stessa catena di
-         * recapito di WM_TOGGLE_FLYOUT_REQUEST, stessa guardia, stessa
-         * tolleranza alle eccezioni). Eseguite qui, sul thread proprietario
-         * della finestra della logica. */
-        if (msg.message == WM_W8NET_LOGIC_ACTION && !ctx->isUninitializing) {
-            try {
-                HandleW8NetLogicAction((int)msg.wParam,
-                    reinterpret_cast<W8NetLogicRequest*>(msg.lParam));
-            } catch (...) {
-                Wh_Log(L"HotkeyThreadProc: exception while serving a Windows 8 logic request, ignored");
-            }
-        }
-        // High Contrast toggled while the flyout is not yet open:
-        // refresh the cache so the next paint uses the correct palette.
         if (msg.message == WM_SETTINGCHANGE && msg.wParam == SPI_SETHIGHCONTRAST) {
             RefreshHighContrastNow();
             if (g_hWndFlyout && IsWindow(g_hWndFlyout) && IsWindowVisible(g_hWndFlyout))
@@ -10184,264 +10146,29 @@ void W7TNetFlyout_Hide() { HideFlyoutWindow(); }
 } // namespace w7tnet
 
 // ============================================================================
-//  v3.8 - PONTE SULLA LOGICA DI RETE ESISTENTE (variante flyout Windows 8;
-//  implementazione della variante: Administratox). Nessuna riga della logica
-//  qui sopra e' stata modificata: questo blocco si LIMITA a leggere lo stato
-//  gia' prodotto dal modulo e a postare richieste eseguite dalle stesse
-//  funzioni usate dal flyout Windows 7, sul thread che le sa gestire (lo
-//  stesso giro di WM_TOGGLE_FLYOUT_REQUEST: PostThreadMessage al thread
-//  dell'hotkey, proprietario naturale della finestra della logica).
-//  Il riquadro Windows 8 vive in Win8NetworkFlyout.cpp.
+//  v4.0 - ESCLUSIONE RECIPROCA TRA I DUE FLYOUT DI RETE
+// ----------------------------------------------------------------------------
+//  Con il porting completo della mod "Windows 8x Network Flyout Recreation"
+//  (Win8NetworkFlyout.cpp) la variante Windows 8 ha la SUA logica nativa:
+//  non serve piu' il ponte sullo stato di questo modulo. Resta solo una
+//  cosa: aprendo il riquadro Windows 8, quello Windows 7 - se aperto per
+//  qualche percorso laterale (hotkey della mod, ad esempio) - si chiude.
+//  Dichiarazioni in NetLogicBridge.h.
 // ============================================================================
 #include "NetLogicBridge.h"
 
 namespace w7tnet {
 
-BOOL W8NetLogic_IsInitialized() {
-    /* Lettura rilassata: vale un'approssimazione (il peggio e' un doppio
-     * Init evitato dalla gestione delle finestre/thread del modulo). */
-    return g_Initialized;
-}
-
-BOOL W8NetLogic_CaptureState(W8NetSnapshot* out) {
-    if (out == NULL)
-        return FALSE;
-    ZeroMemory(out, sizeof(*out));
-    if (!g_Initialized) {
-        return FALSE;
-    }
-    try {
-        NetworkStateSnapshot snap = {};
-        CaptureNetworkState(&snap);          /* gia' protetta da csLock   */
-        int count = snap.networkCount;
-        if (count < 0) count = 0;
-        if (count > kW8NetMaxItems) count = kW8NetMaxItems;
-        out->itemCount = count;
-        for (int i = 0; i < count; ++i) {
-            const WifiNetworkItem& src = snap.networks[i];
-            W8NetItem& dst = out->items[i];
-            StringCchCopyW(dst.ssid, ARRAYSIZE(dst.ssid), src.ssid);
-            dst.displaySuffix = src.displaySuffix;
-            dst.secured = src.isSecured ? 1 : 0;
-            dst.signalPercent = (int)(src.signalQuality > 100 ? 100 : src.signalQuality);
-            dst.connState = (int)src.connState;   /* stessi valori InterStato */
-            dst.hasProfile = src.hasProfile ? 1 : 0;
-            dst.hasInternet = src.hasInternetAccess ? 1 : 0;
-            dst.adhoc = (src.dot11BssType == dot11_BSS_type_independent) ? 1 : 0;
-        }
-        out->ethernetConnected = snap.ethernetConnected ? 1 : 0;
-        StringCchCopyW(out->ethernetName, ARRAYSIZE(out->ethernetName),
-                       snap.ethernetNetworkName);
-        out->ethernetHasInternet = snap.ethernetHasInternet ? 1 : 0;
-        out->anyWifiConnected = 0;
-        for (int i = 0; i < count; ++i) {
-            if (out->items[i].connState == (int)CONN_STATE_CONNECTED) {
-                out->anyWifiConnected = 1;
-                break;
-            }
-        }
-        return TRUE;
-    } catch (...) {
-        /* Non-restituibili: il chiamante tratta "falso" come non disponibile. */
-        Wh_Log(L"W8NetLogic_CaptureState: eccezione intercettata, nessuna copia");
-        return FALSE;
-    }
-}
-
-void W8NetLogic_RequestRefresh() {
-    if (!g_Initialized)
-        return;
-    W7T_SEH_TRY
-    {
-        if (g_hWndFlyout && IsWindow(g_hWndFlyout)) {
-            PostMessageW(g_hWndFlyout, WM_REFRESH_DATA, TRUE, 0);
-        }
-    }
-    W7T_SEH_CATCH
-    W7T_SEH_END
-}
-
-/* Consegna comune: un'operazione giunge SUL THREAD DELL'HOTKEY del modulo
- * (il thread che possiedera' la finestra della logica, nata o da nascere). */
-static int W8NetPostLogicOp(int op, const WCHAR* ssid) {
-    if (!g_Initialized || g_Ctx.dwHotkeyThreadId == 0) {
-        return 1; /* modulo non pronto */
-    }
-    if ((op != W8NET_LOGIC_OP_ENSURE) && (ssid == NULL || ssid[0] == L'\0')) {
-        return 4; /* ssid mancante */
-    }
-    std::unique_ptr<W8NetLogicRequest> req(new (std::nothrow) W8NetLogicRequest);
-    if (!req) {
-        Wh_Log(L"W8NetPostLogicOp: allocazione richiesta fallita");
-        return 3;
-    }
-    req->op = op;
-    req->ssid[0] = L'\0';
-    if (ssid != NULL) {
-        StringCchCopyW(req->ssid, ARRAYSIZE(req->ssid), ssid);
-    }
-    if (!PostThreadMessageW(g_Ctx.dwHotkeyThreadId, WM_W8NET_LOGIC_ACTION,
-                            (WPARAM)op, (LPARAM)req.get())) {
-        Wh_Log(L"W8NetPostLogicOp: PostThreadMessage fallita (%lu)", GetLastError());
-        return 3;
-    }
-    req.release(); /* la proprieta' passa al gestore sul thread del modulo */
-    return 0;
-}
-
-int W8NetLogic_EnsureLogicReady() {
-    int rc = 3;
-    W7T_SEH_TRY
-        rc = W8NetPostLogicOp(W8NET_LOGIC_OP_ENSURE, NULL);
-    W7T_SEH_CATCH
-    W7T_SEH_END
-    return rc;
-}
-
 BOOL W8NetLogic_IsWin7FlyoutVisible() {
-    /* Stessa espressione usata dal modulo per "riquadro aperto" (v. il
-     * calcolo della visibilita' in Capture/Show). Lettura di comodo:
-     * serve solo a decidere chi si eclissa, mai a scrivere. */
-    return (g_Initialized && g_hWndFlyout &&
-            IsWindow(g_hWndFlyout) && IsWindowVisible(g_hWndFlyout)) ? TRUE : FALSE;
+    if (g_hWndFlyout == NULL || !IsWindow(g_hWndFlyout)) return FALSE;
+    if (!IsWindowVisible(g_hWndFlyout)) return FALSE;
+    if (IsIconic(g_hWndFlyout)) return FALSE;
+    return TRUE;
 }
 
 void W8NetLogic_HideWin7FlyoutIfOpen() {
-    /* Esclusione reciproca coi riquadri: se il riquadro Windows 7 e' visibile
-     * lo chiude (HideFlyoutWindow e' gia' pronto ad essere chiamato da
-     * qualunque thread). I due riquadri sullo stesso angolo non devono mai
-     * comparire insieme: la scelta e' una sola, non ne spettano due. */
-    if (!W8NetLogic_IsWin7FlyoutVisible())
-        return;
-    W7T_SEH_TRY
+    if (W8NetLogic_IsWin7FlyoutVisible())
         HideFlyoutWindow();
-    W7T_SEH_CATCH
-    W7T_SEH_END
-}
-
-int W8NetLogic_Connect(const WCHAR* ssid) {
-    int rc = 3;
-    W7T_SEH_TRY
-        rc = W8NetPostLogicOp(W8NET_LOGIC_OP_CONNECT, ssid);
-    W7T_SEH_CATCH
-    W7T_SEH_END
-    return rc;
-}
-
-int W8NetLogic_Disconnect(const WCHAR* ssid) {
-    int rc = 3;
-    W7T_SEH_TRY
-        rc = W8NetPostLogicOp(W8NET_LOGIC_OP_DISCONNECT, ssid);
-    W7T_SEH_CATCH
-    W7T_SEH_END
-    return rc;
-}
-
-/* La finestra della logica nasce NASCOSTA anche nel percorso normale (viene
- * mostrata solo dopo dal ramo di apertura). Se l'utente non ha mai aperto il
- * riquadro Windows 7 su questa postazione, la finestra non esiste: senza di
- * lei niente pompa dei messaggi/notifiche e niente destinatario delle
- * operazioni. Questa procedura esegue, sul thread dell'hotkey del modulo
- * (l'unico che la crea nel percorso normale), la STESSA creazione di quel
- * ramo, fermandosi prima di qualunque "Show". I parametri sono copiati dal
- * ramo che apre il riquadro Windows 7: se quel ramo cambia, cambiare anche
- * qui (le due parti devono restare identiche nella sostanza). */
-static void W8NetEnsureHiddenLogicWindow() {
-    if (!g_Initialized || g_Ctx.isUninitializing)
-        return;
-    if (g_hWndFlyout && IsWindow(g_hWndFlyout))
-        return;
-    if (!g_Ctx.hWlanClient) {
-        DWORD dwMaxClient = 2, dwCurVer = 0;
-        if (WlanOpenHandle(dwMaxClient, NULL, &dwCurVer, &g_Ctx.hWlanClient) == ERROR_SUCCESS) {
-            WlanRegisterNotification(g_Ctx.hWlanClient, WLAN_NOTIFICATION_SOURCE_ALL, TRUE,
-                                     WlanNotificationCallback, &g_Ctx, NULL, NULL);
-            Wh_Log(L"W8NetEnsure: WLAN handle opened lazily");
-        } else {
-            g_Ctx.hWlanClient = NULL;
-            Wh_Log(L"W8NetEnsure: WLAN handle still unavailable");
-        }
-    }
-    if (!g_flyoutClassRegistered) {
-        HINSTANCE hInst = HINST_THISCOMPONENT;
-        WNDCLASSW wc = {0};
-        wc.lpfnWndProc   = FlyoutWndProc;
-        wc.hInstance     = hInst;
-        wc.lpszClassName = L"Win7NetworkFlyoutSafe";
-        wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
-        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-        if (RegisterClassW(&wc)) {
-            g_flyoutClassRegistered = true;
-        } else {
-            Wh_Log(L"W8NetEnsure: RegisterClassW failed (%lu)", GetLastError());
-            return;
-        }
-    }
-    RECT rcClient = { 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT };
-    DWORD dwExStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LEFT;
-    DWORD dwStyle = WS_POPUP | WS_CLIPCHILDREN | WS_BORDER;
-    if (g_Settings.useRoundedCorners)
-        dwStyle |= WS_THICKFRAME;
-    AdjustWindowRectEx(&rcClient, dwStyle, FALSE, dwExStyle);
-    g_hWndFlyout = CreateWindowExW(dwExStyle, L"Win7NetworkFlyoutSafe", L"", dwStyle,
-        0, 0, rcClient.right - rcClient.left, rcClient.bottom - rcClient.top,
-        NULL, NULL, HINST_THISCOMPONENT, NULL);
-    if (!g_hWndFlyout) {
-        Wh_Log(L"W8NetEnsure: CreateWindowExW failed (%lu)", GetLastError());
-        return;
-    }
-    g_dwFlyoutOwnerThreadId = GetCurrentThreadId();
-    Wh_Log(L"W8NetEnsure: finestra della logica creata nascosta (condivisa col riquadro Windows 7)");
-    /* Pompa dei messaggi viva: primo rinfresco del modello, come fa il
-     * ramo di apertura a finestra creata. */
-    PostMessageW(g_hWndFlyout, WM_REFRESH_DATA, TRUE, 0);
-}
-
-/* Esegue SUL THREAD DELL'HOTKEY del modulo (proprietario della finestra
- * della logica): prima garantisce la finestra nascosta, poi - per il
- * connect/disconnect - risolve di nuovo lo ssid -> indice (la lista puo'
- * essere cambiata da quando il riquadro Win8 l'ha letta) e chiama le
- * funzioni ORIGINALI. */
-static void HandleW8NetLogicAction(int op, W8NetLogicRequest* req) {
-    std::unique_ptr<W8NetLogicRequest> guard(req);   /* sempre liberato */
-    try {
-        if (op == W8NET_LOGIC_OP_ENSURE) {
-            W8NetEnsureHiddenLogicWindow();
-            return;
-        }
-        if (req == NULL ||
-            (op != W8NET_LOGIC_OP_CONNECT && op != W8NET_LOGIC_OP_DISCONNECT)) {
-            Wh_Log(L"W8NetLogicAction: richiesta non valida (op=%d, req=%p)", op, req);
-            return;
-        }
-        if (!g_Ctx.hWlanClient) {
-            LogSsidSafe(L"W8NetLogicAction: modulo non pronto (WLAN handle assente), scartata la richiesta per",
-                        req->ssid);
-            return;
-        }
-        int index = -1;
-        EnterCriticalSection(&g_Ctx.csLock);
-        for (int i = 0; i < g_NetworkCount; ++i) {
-            if (lstrcmpiW(g_NetworkList[i].ssid, req->ssid) == 0) {
-                index = i;
-                break;
-            }
-        }
-        LeaveCriticalSection(&g_Ctx.csLock);
-        if (index < 0) {
-            LogSsidSafe(L"W8NetLogicAction: rete sparita prima dell'operazione su",
-                        req->ssid);
-            return;
-        }
-        if (op == W8NET_LOGIC_OP_CONNECT) {
-            ConnectToNetwork(index);        /* logica ORIGINALE, identica   */
-        } else {
-            DisconnectFromNetwork(index);   /* logica ORIGINALE, identica   */
-        }
-    } catch (...) {
-        LogSsidSafe(L"W8NetLogicAction: eccezione durante l'operazione su",
-                    req != NULL ? req->ssid : L"?");
-    }
 }
 
 } // namespace w7tnet

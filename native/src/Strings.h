@@ -204,27 +204,4 @@ struct BattStrings {
 
 const BattStrings& BattStringsFor(Lang lang);
 
-/* ------------------------------------------------------------------------ */
-/*  Tabella del flyout di rete variante Windows 8                            */
-/*                                                                           */
-/*  v3.8 (implementazione variante: Administratox): testi del pannello       */
-/*  laterale scuro. Se una lingua manca il ripiego e' l'inglese, come nel    */
-/*  resto del progetto; mai testi hardcoded nel modulo.                      */
-/* ------------------------------------------------------------------------ */
-struct W8NetStrings {
-    const wchar_t* title;         /* barra in cima al pannello ("Networks") */
-    const wchar_t* connect;
-    const wchar_t* disconnect;
-    const wchar_t* connecting;    /* sottotitolo riga durante il connect    */
-    const wchar_t* disconnecting;
-    const wchar_t* connected;
-    const wchar_t* secured;       /* sottotitolo rete protetta              */
-    const wchar_t* open;          /* sottotitolo rete aperta                */
-    const wchar_t* cantConnect;   /* errore di connessione                  */
-    const wchar_t* noNetworks;    /* lista vuota                            */
-    const wchar_t* notAvailable;  /* logica/flyout Win7 non disponibile     */
-};
-
-const W8NetStrings& W8NetStringsFor(Lang lang);
-
 } // namespace w7t

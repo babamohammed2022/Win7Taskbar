@@ -239,7 +239,24 @@
          ABN_FULLSCREENAPP's lParam already carries the enter/exit flag
          straight from the shell, so the case now reuses the established
          ShowWindow(SW_HIDE/SW_SHOW) pattern of ABN_WINDOWARRANGE above it. -->
-    <Version>1.21.13-alpha</Version>
+    <!-- 1.21.14-alpha: the "Windows 8 (ricreato)" network flyout variant is
+         now a COMPLETE port of AdmXP8's MIT-licensed Windhawk mod "Windows
+         8x Network Flyout Recreation" v1.0.0 (github.com/AdmXP8, credited
+         in docs/CREDITS.txt): full-height Charms-style pane with vsync
+         slide animation, live Wi-Fi list with signal bars,
+         connect/disconnect with native-style password dialog, Ethernet
+         state, Home/Work/Public network categories, privacy mode,
+         tooltips, context menu, dark theme and all 11 built-in languages.
+         The only part left out, as requested, is the Control Panel
+         restyling (namespace Win7NetworkCenterLinks). Integration reuses
+         the WinhawkShim.h compatibility layer already used by the Windows
+         7 flyout port, the same TrayService anchor route as RetroBar, the
+         same facade API as before, and mutual exclusion with the Windows 7
+         flyout. The ported module's window class names were renamed
+         (Win8NetworkFlyoutSafe, Win8NetPwdClass, Win8NetFlyout_TrayInfoWnd,
+         Win8NetFlyout_ConnectMutex) so the two modules can coexist in one
+         process without window-class collisions. -->
+<Version>1.21.14-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

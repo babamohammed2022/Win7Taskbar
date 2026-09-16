@@ -1,14 +1,16 @@
-// Win7Taskbar - flyout di rete variazione Windows 8 (riquadro ricreato)
+// Win7Taskbar - flyout di rete variazione Windows 8
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 //
-// Implementazione della variante Windows 8: Administratox.
+// Variante originale della mod Windhawk: AdmXP8 (github.com/AdmXP8),
+// "Windows 8x Network Flyout Recreation" v1.0.0, licenza MIT.
 //
-// Il modulo mostra il riquadro di rete nello stile del pannello laterale
-// di Windows 8 (fondo scuro, scivolo dal bordo destro, righe piane), ma
-// NON implementa alcuna logica di rete: enumerazione, stato, connect,
-// disconnect ed errori arrivano dalla STESSA logica gia' usata dal flyout
-// Windows 7 (ponte dichiarato in NetLogicBridge.h). Ogni operazione qui
-// e' asincrona: niente attese su API WLAN nel thread di interfaccia.
+// Win8NetworkFlyout.cpp e' il porting COMPLETO di quella mod (riquadro
+// laterale tipo Charms con animazione, WLAN/Ethernet, password, categorie
+// Home/Public/Work, privacy, tooltip, menu contestuale, temi, 11 lingue);
+// e' esclusa solo la parte Pannello di controllo. Questo header dichiara
+// la piccola facciata usata dal resto del progetto (ancora, apertura e
+// chiusura, lingua): e' identica a prima del porting e non e' cambiato
+// niente dei suoi consumatori (CoreBridge/TrayService/Localization).
 
 #pragma once
 #include <windows.h>

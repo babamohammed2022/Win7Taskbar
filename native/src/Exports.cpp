@@ -19,6 +19,7 @@
 #define W7T_BUILDING_DLL 1
 
 #include "Common.h"
+#include "Win8NetworkFlyout.h"
 #include <shellapi.h>
 #include "SehGuard.h"
 #include "WindowManager.h"
@@ -1171,6 +1172,9 @@ extern "C" W7T_API void W7T_CALL W7T_NetFlyoutUninit(void) {
 
 extern "C" W7T_API void W7T_CALL W7T_NetFlyoutToggleAt(const RECT* rcIcon) {
     W7T_SEH_TRY
+        /* Esclusione reciproca, anche su questo percorso diretto: mai i
+         * due riquadri visibili insieme. */
+        w7t::Win8NetworkFlyout::Instance().Hide();
         w7tnet::W7TNetFlyout_SetAnchorRect(rcIcon);
         w7tnet::W7TNetFlyout_Toggle();
     W7T_SEH_CATCH
@@ -1187,13 +1191,11 @@ extern "C" W7T_API void W7T_CALL W7T_NetFlyoutSetLanguage(int32_t appLanguageInd
 }
 
 /* ------------------------------------------------------------------ */
-/* v3.8: flyout di rete variazione Windows 8 (riquadro ricreato;        */
-/* implementazione della variante: Administratox). Inizializza (e       */
-/* quindi usa) la STESSA logica di rete del flyout Windows 7: niente    */
-/* duplicati, niente rischi per il comportamento Win7. Ponte dichiarato */
-/* in NetLogicBridge.h.                                                 */
-/* ------------------------------------------------------------------ */
-#include "Win8NetworkFlyout.h"
+/* v3.8/v4.0: flyout di rete variazione Windows 8 - PORTING COMPLETO   */
+/* della mod "Windows 8x Network Flyout Recreation" v1.0.0 (AdmXP8/     */
+/* Administratox, MIT): riquadro laterale tipo Charms con propria       */
+/* logica WLAN/Ethernet nativa. Esclusa solo la parte Pannello di       */
+/* controllo. Facciata: Win8NetworkFlyout.h.                           */
 
 extern "C" W7T_API int32_t W7T_CALL W7T_Net8FlyoutInit(void) {
     int32_t r = 0;

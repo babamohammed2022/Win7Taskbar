@@ -1,13 +1,15 @@
 // Win7Taskbar - shim di compatibilita' per l'API Windhawk
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 //
-// Il file Win7NetworkFlyout.cpp e' un porting fedele della mod Windhawk
-// "Windows 7 Network Flyout Recreation" v5.0.0 (autore babamohammed,
-// licenza MIT come da policy del repository ramensoftware/windhawk-mods:
-// le mod senza licenza esplicita sono pubblicate sotto MIT).
+// I file Win7NetworkFlyout.cpp e Win8NetworkFlyout.cpp sono i porting
+// fedeli delle mod Windhawk "Windows 7 Network Flyout Recreation" v5.0.0
+// (autore babamohammed) e "Windows 8x Network Flyout Recreation" v1.0.0
+// (autore AdmXP8/Administratox), entrambe MIT secondo la policy del
+// repository ramensoftware/windhawk-mods (le mod senza licenza esplicita
+// sono pubblicate sotto MIT).
 // Questo shim sostituisce le sole funzioni dell'API di caricamento di
-// Windhawk (logging, impostazioni, hooking) senza toccare la logica del
-// flyout. Gli hook di funzione non sono necessari nel porting (la parte
+// Windhawk (logging, impostazioni, hooking) senza toccare la logica dei
+// flyout. Gli hook di funzione non sono necessari nei porting (la parte
 // Pannello di controllo e' esclusa e l'intercettazione del click avviene
 // nel tray di Win7Taskbar), quindi SetFunctionHook ritorna sempre false.
 
