@@ -1,8 +1,8 @@
 # Risorse grafiche centralizzate
 
-Il bundle `GraphicalResourceBundle` conserva byte-per-byte ogni PNG della cartella runtime `src/Win7Taskbar/Resources`, codificato in Base64. Gli asset originali sono mantenuti.
+Il bundle `GraphicalResourceBundle` conserva byte-per-byte i 52 PNG già usati dal tema WPF, codificati in Base64. I file PNG WPF duplicati sono stati rimossi; il mapping mantiene nome e percorso/provenienza originali. Restano nella cartella `Resources/` soltanto le otto slice PNG necessarie al renderer nativo Aero 9-slice, intenzionalmente fuori dal bundle gestito.
 
-Numero asset: **52**.
+Numero asset nel bundle: **52**. PNG rimasti su disco per il codice nativo: **8**.
 
 | ID | Nome originale | Percorso originale | Formato | Utilizzo | Chiave bundle |
 |---|---|---|---|---|---|

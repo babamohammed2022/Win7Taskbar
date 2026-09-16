@@ -205,13 +205,8 @@
     <ProjectReference Include="..\RetroBar.Shim\RetroBar.Shim.csproj" />
   </ItemGroup>
 
-  <!--
-    Le PNG del tema devono restare FILE SU DISCO, non risorse incorporate:
-    Windows7.xaml le referenzia con UriSource="../Resources/..." relativo
-    alla cartella Themes, quindi l'albero Resources/ va replicato accanto
-    all'eseguibile esattamente com'e' nel repository.
-    English: Theme PNGs must stay as files on disk, not embedded resources.
-  -->
+  <!-- WPF images are served by GraphicalResourceBundle.cs. Only the eight
+       native Aero 9-slice PNGs remain on disk and are copied for the DLL. -->
   <ItemGroup>
     <Content Include="Resources\**\*.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
