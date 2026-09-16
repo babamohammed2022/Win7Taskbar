@@ -18,6 +18,8 @@
 
 #include "ShellMenu.h"
 #include "Strings.h"
+#include "RaiiWrappers.h"
+#include "ScopeGuards.h"
 #include <vector>
 #include <string>
 
@@ -219,6 +221,180 @@ int32_t AnchorYToTaskbarTop(int32_t x, int32_t y, bool bottomEdge) {
     return mi.rcWork.bottom;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Native menu icons, for the program-icon (Superbar) menus ONLY.       */
+/*                                                                     */
+/*  Rules:                                                             */
+/*   - ONLY icons drawn or supplied by Windows itself: the documented    */
+/*     HBMMENU_POPUP_* glyph handles for Restore/Minimize/Maximize/     */
+/*     Close (the menu code draws them themed, like the caption         */
+/*     buttons - no bitmap is invented here) and the application's      */
+/*     real shell icon for the pin-menu launch row.                      */
+/*   - Everything icon-related is best effort and exception-guarded:     */
+/*     any failure degrades to the plain menu, which keeps working       */
+/*     exactly as before.                                                */
+/*   - The tray/bar/clock/generic menus never pass through here.         */
+/* ------------------------------------------------------------------ */
+
+/* The four caption glyphs Windows itself draws in menus. Shared system
+ * handles: never destroyed, never modified. Move/Size have no native
+ * menu glyph, so they intentionally stay icon-less. */
+HBITMAP SystemGlyphForCommand(UINT commandId) noexcept {
+    switch (commandId) {
+    case SC_RESTORE:  return HBMMENU_POPUP_RESTORE;
+    case SC_MINIMIZE: return HBMMENU_POPUP_MINIMIZE;
+    case SC_MAXIMIZE: return HBMMENU_POPUP_MAXIMIZE;
+    case SC_CLOSE:    return HBMMENU_POPUP_CLOSE;
+    default:          return nullptr;
+    }
+}
+
+/* Attaches a bitmap to one menu item, looked up by command id. Best
+ * effort: failures are swallowed on purpose, the menu works with or
+ * without the icon. */
+void SetItemBitmapByCommand(HMENU menu, UINT commandId,
+                            HBITMAP bitmap) noexcept {
+    if (menu == nullptr || bitmap == nullptr) {
+        return;
+    }
+    try {
+        MENUITEMINFOW info = {};
+        info.cbSize   = sizeof(info);
+        info.fMask    = MIIM_BITMAP;
+        info.hbmpItem = bitmap;
+        SetMenuItemInfoW(menu, commandId, FALSE, &info);
+    } catch (...) {
+        /* icon unavailable: the row stays text-only */
+    }
+}
+
+/* Walks a window system menu (cloned or rebuilt - both use SC_* ids) and
+ * attaches the native glyph where Windows has one. Custom application
+ * rows keep whatever id they came with and are never touched. */
+void ApplySystemMenuGlyphs(HMENU menu) noexcept {
+    if (menu == nullptr) {
+        return;
+    }
+    try {
+        const int count = GetMenuItemCount(menu);
+        for (int i = 0; i < count; ++i) {
+            MENUITEMINFOW info = {};
+            info.cbSize = sizeof(info);
+            info.fMask  = MIIM_ID | MIIM_FTYPE;
+            if (!GetMenuItemInfoW(menu, static_cast<UINT>(i), TRUE, &info)) {
+                continue;
+            }
+            if ((info.fType & MFT_SEPARATOR) != 0) {
+                continue;
+            }
+            HBITMAP glyph = SystemGlyphForCommand(info.wID);
+            if (glyph != nullptr) {
+                MENUITEMINFOW set = {};
+                set.cbSize   = sizeof(set);
+                set.fMask    = MIIM_BITMAP;
+                set.hbmpItem = glyph;
+                SetMenuItemInfoW(menu, static_cast<UINT>(i), TRUE, &set);
+            }
+        }
+    } catch (...) {
+        /* icon pass failed: the menu below is still the correct one */
+    }
+}
+
+/* Converts a shell HICON into a 32-bit alpha menu bitmap sized to the
+ * system menu-check metrics (DPI aware through GetSystemMetrics). The
+ * returned HBITMAP is owned by the caller (DeleteObject); nullptr when
+ * the icon cannot be converted. Standard recipe: transparent DIB plus
+ * DrawIconEx, so per-pixel alpha survives. */
+HBITMAP IconToMenuBitmap(HICON icon) noexcept {
+    if (icon == nullptr) {
+        return nullptr;
+    }
+    try {
+        int cx = GetSystemMetrics(SM_CXMENUCHECK);
+        int cy = GetSystemMetrics(SM_CYMENUCHECK);
+        if (cx <= 0 || cy <= 0) {
+            cx = 16;
+            cy = 16;
+        }
+        if (cx > 64) {
+            cx = 64;
+        }
+        if (cy > 64) {
+            cy = 64;
+        }
+
+        BITMAPV5HEADER bi = {};
+        bi.bV5Size        = sizeof(bi);
+        bi.bV5Width       = cx;
+        bi.bV5Height      = -cy; /* top-down */
+        bi.bV5Planes      = 1;
+        bi.bV5BitCount    = 32;
+        bi.bV5Compression = BI_BITFIELDS;
+        bi.bV5RedMask     = 0x00FF0000;
+        bi.bV5GreenMask   = 0x0000FF00;
+        bi.bV5BlueMask    = 0x000000FF;
+        bi.bV5AlphaMask   = 0xFF000000;
+
+        WindowDcGuard screenDc(nullptr, GetDC(nullptr));
+        if (!screenDc.valid()) {
+            return nullptr;
+        }
+
+        void* bits = nullptr;
+        raii::BitmapHandle owned(CreateDIBSection(
+            screenDc.get(), reinterpret_cast<BITMAPINFO*>(&bi),
+            DIB_RGB_COLORS, &bits, nullptr, 0));
+        if (!owned || bits == nullptr) {
+            return nullptr;
+        }
+        ZeroMemory(bits,
+            static_cast<size_t>(cx) * static_cast<size_t>(cy) * 4);
+
+        MemDcGuard memDc(screenDc.get());
+        if (!memDc.valid()) {
+            return nullptr;
+        }
+        SelectGuard selected(memDc.get(), owned.get());
+        if (selected.old() == nullptr) {
+            return nullptr;
+        }
+        if (!DrawIconEx(memDc.get(), 0, 0, icon, cx, cy, 0, nullptr,
+                        DI_NORMAL)) {
+            return nullptr;
+        }
+        /* Premultiply for the menu blender and verify the icon really
+         * carries alpha: legacy mask-only icons leave every alpha byte
+         * at zero, which would render as an empty slot - better no icon
+         * than a blank one. */
+        uint8_t* px = static_cast<uint8_t*>(bits);
+        const size_t byteCount =
+            static_cast<size_t>(cx) * static_cast<size_t>(cy) * 4;
+        bool hasAlpha = false;
+        for (size_t i = 0; i < byteCount; i += 4) {
+            const uint32_t a = px[i + 3];
+            if (a != 0) {
+                hasAlpha = true;
+                px[i + 0] = static_cast<uint8_t>((px[i + 0] * a + 127) / 255);
+                px[i + 1] = static_cast<uint8_t>((px[i + 1] * a + 127) / 255);
+                px[i + 2] = static_cast<uint8_t>((px[i + 2] * a + 127) / 255);
+            } else {
+                px[i + 0] = 0;
+                px[i + 1] = 0;
+                px[i + 2] = 0;
+            }
+        }
+        if (!hasAlpha) {
+            return nullptr;
+        }
+        /* The guards above deselect and release the DCs on the way out;
+         * only the finished bitmap is handed to the caller. */
+        return owned.release();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
 } /* namespace */
 
 int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
@@ -313,6 +489,11 @@ int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
         BuildFallbackWindowMenu(popup, ownerHwnd);
     }
 
+    /* Native caption glyphs (Restore/Minimize/Maximize/Close) drawn by
+     * Windows itself. Best effort: without them this is still the exact
+     * menu built above. */
+    ApplySystemMenuGlyphs(popup);
+
     int32_t chosen = 0;
     {
         ForegroundMenuScope scope(menuOwner);
@@ -357,6 +538,10 @@ int32_t ShellMenu::ShowGroupMenu(HWND ownerHwnd, int32_t x, int32_t y,
     AppendMenuW(popup, MF_STRING, kGroupCloseId,
                 closeText != nullptr ? closeText : S(StrId::GroupClose));
 
+    /* Native minimize/close glyphs drawn by Windows itself. Best effort. */
+    SetItemBitmapByCommand(popup, kGroupMinimizeId, HBMMENU_POPUP_MINIMIZE);
+    SetItemBitmapByCommand(popup, kGroupCloseId, HBMMENU_POPUP_CLOSE);
+
     int32_t chosen = 0;
     {
         ForegroundMenuScope scope(menuOwner);
@@ -374,6 +559,62 @@ int32_t ShellMenu::ShowGroupMenu(HWND ownerHwnd, int32_t x, int32_t y,
         return 2;
     }
     return 0;
+}
+
+int32_t ShellMenu::ShowPinMenu(int32_t x, int32_t y, bool bottomEdge,
+                               const wchar_t* launchText,
+                               const wchar_t* pinText,
+                               const wchar_t* lnkPath,
+                               const wchar_t* targetPath) {
+    y = AnchorYToTaskbarTop(x, y, bottomEdge);
+    HWND menuOwner = GetMenuOwnerWindow();
+    if (menuOwner == nullptr) {
+        return 0;
+    }
+
+    HMENU popup = CreatePopupMenu();
+    if (popup == nullptr) {
+        return 0;
+    }
+
+    /* Same two rows, same ids (1/2) the generic menu produced for the pin:
+     * the managed switch on the result does not change. */
+    AppendMenuW(popup, MF_STRING, 1,
+                launchText != nullptr ? launchText : L"");
+    AppendMenuW(popup, MF_STRING, 2,
+                pinText != nullptr ? pinText : L"");
+
+    /* The launch row shows the application's real shell icon (lnk icon
+     * location, packaged tile image or exe icon, resolved by the one
+     * project-wide resolver - never redrawn). The pin row has no icon:
+     * Windows exposes no native pin glyph, and an invented one is worse
+     * than none. The bitmap must outlive TrackPopupMenuEx, so RAII holds
+     * it until tracking ends; any failure leaves a plain text menu. */
+    raii::BitmapHandle launchBitmap;
+    try {
+        raii::IconHandle appIcon(ResolveAppIcon(
+            (lnkPath != nullptr && lnkPath[0] != 0) ? lnkPath : nullptr,
+            (targetPath != nullptr && targetPath[0] != 0) ? targetPath : nullptr,
+            /*large=*/false));
+        if (appIcon) {
+            launchBitmap.reset(IconToMenuBitmap(appIcon.get()));
+        }
+        if (launchBitmap) {
+            SetItemBitmapByCommand(popup, 1, launchBitmap.get());
+        }
+    } catch (...) {
+        launchBitmap.reset();
+    }
+
+    int32_t chosen = 0;
+    {
+        ForegroundMenuScope scope(menuOwner);
+        chosen = static_cast<int32_t>(TrackPopupMenuEx(
+            popup, CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
+    }
+
+    DestroyMenu(popup);
+    return chosen;
 }
 
 int32_t ShellMenu::ShowContextMenu(int32_t x, int32_t y, bool bottomEdge,

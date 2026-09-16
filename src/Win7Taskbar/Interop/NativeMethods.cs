@@ -1312,6 +1312,18 @@ namespace Win7Taskbar.Interop
             [MarshalAs(UnmanagedType.LPWStr)] string minimizeText,
             [MarshalAs(UnmanagedType.LPWStr)] string closeText);
 
+        // Pinned (idle) app menu: launch / pin-unpin rows with the app's
+        // real shell icon on the launch row. Returns 1 = launch,
+        // 2 = pin toggle, 0 = cancelled.
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
+                   CharSet = CharSet.Unicode)]
+        public static extern int W7T_ShowPinMenu(
+            int x, int y, int bottomEdge,
+            [MarshalAs(UnmanagedType.LPWStr)] string launchText,
+            [MarshalAs(UnmanagedType.LPWStr)] string pinText,
+            [MarshalAs(UnmanagedType.LPWStr)] string lnkPath,
+            [MarshalAs(UnmanagedType.LPWStr)] string targetPath);
+
         // -----------------------------------------------------------------
         //  Icone di sistema (fumetti di notifica)
         // -----------------------------------------------------------------

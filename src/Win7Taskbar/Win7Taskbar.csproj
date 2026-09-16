@@ -180,7 +180,15 @@
          verifies loaded images are non-null, and both Windows7.xaml copies
          carry the required ";assembly=Win7Taskbar". Fatal dialogs also show
          the inner-exception chain (StartupGuard.FormatInnerCauses). -->
-    <Version>1.21.5-alpha</Version>
+    <!-- 1.21.6-alpha: native icons in the program-icon (Superbar) context
+         menus. The window system menu and the group menu use the documented
+         HBMMENU_POPUP_* glyphs drawn by Windows itself (Restore, Minimize,
+         Maximize, Close); the idle-pin menu uses the new W7T_ShowPinMenu
+         export and shows the app's real shell icon on the launch row.
+         All icon work is best-effort and exception-guarded: when an icon
+         is unavailable the row stays text-only and the menu works as
+         before. Tray, bar, clock and generic menus are untouched. -->
+    <Version>1.21.6-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

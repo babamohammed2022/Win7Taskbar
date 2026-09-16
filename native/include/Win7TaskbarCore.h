@@ -390,6 +390,17 @@ W7T_API int32_t  W7T_CALL W7T_ShowGroupMenu(uint64_t hwnd, int32_t x, int32_t y,
                                             const wchar_t* minimizeText,
                                             const wchar_t* closeText);
 
+/* Pinned (idle) app menu: "launch" / "pin-unpin" rows, with the app's real
+ * shell icon on the launch row. Ritorna 1=launch, 2=pin toggle, 0=annullato.
+ * The generic W7T_ShowContextMenu* menus are untouched by the icon work:
+ * only program-icon (Superbar) menus gain native icons. */
+W7T_API int32_t  W7T_CALL W7T_ShowPinMenu(int32_t x, int32_t y,
+                                          int32_t bottomEdge,
+                                          const wchar_t* launchText,
+                                          const wchar_t* pinText,
+                                          const wchar_t* lnkPath,
+                                          const wchar_t* targetPath);
+
 
 /* v2.7: pannello overflow nativo (vetro Aero vero). Se W7T_OverflowInit
  * ritorna 0 il managed layer usa il fallback WPF. */

@@ -803,6 +803,20 @@ namespace Win7Taskbar.Interop
             => NativeMethods.W7T_ShowGroupMenu(hwnd, x, y, bottomEdge ? 1 : 0,
                                                minimizeText, closeText);
 
+        /// <summary>
+        /// Native menu of an idle pin (pinned but not running app): the
+        /// "launch" / "pin-unpin" rows. Returns 1 = launch, 2 = pin toggle,
+        /// 0 = cancelled. The launch row shows the app's real shell icon;
+        /// when the icon is unavailable the row stays text-only and the
+        /// menu works all the same.
+        /// </summary>
+        public int ShowPinMenu(int x, int y, string launchText,
+                               string pinText, string lnkPath,
+                               string targetPath, bool bottomEdge = true)
+            => NativeMethods.W7T_ShowPinMenu(x, y, bottomEdge ? 1 : 0,
+                                             launchText, pinText,
+                                             lnkPath, targetPath);
+
         // ---------------------------------------------------------------
 
         private static ImageSource CreateBitmap(byte[] pixels, int width, int height)
