@@ -232,7 +232,14 @@
          the other three flyouts unchanged), the Properties network combo
          gains the third item in all 11 languages, and the pane's UI text
          is translated for every supported language with English fallback. -->
-    <Version>1.21.12-alpha</Version>
+    <!-- 1.21.13-alpha: taskbar now hides for fullscreen apps again. The
+         native AppBar callback acknowledged ABN_FULLSCREENAPP without
+         acting on it (it was supposed to wait for a cross-layer event that
+         never fired), so a YouTube/player fullscreen never hid the bar.
+         ABN_FULLSCREENAPP's lParam already carries the enter/exit flag
+         straight from the shell, so the case now reuses the established
+         ShowWindow(SW_HIDE/SW_SHOW) pattern of ABN_WINDOWARRANGE above it. -->
+    <Version>1.21.13-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
