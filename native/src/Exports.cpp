@@ -1051,7 +1051,11 @@ extern "C" W7T_API int32_t W7T_CALL W7T_AppSearchInit(uint64_t ownerTaskbar,
                               argbPixels, iconW, iconH) ? 1 : 0;
 }
 
-extern "C" W7T_API void W7T_CALL W7T_AppSearchShow(int32_t x, int32_t y) {
+/* v1.21.30: the managed side passes the active theme (0 Win7, 1 Win8.1)
+ * so the search window repaints with the matching skin on every open. */
+extern "C" W7T_API void W7T_CALL W7T_AppSearchShow(int32_t x, int32_t y,
+        int32_t theme) {
+    g_appSearch.SetTheme(theme);
     g_appSearch.Show(x, y);
 }
 

@@ -29,6 +29,12 @@ public:
     void Show(int anchorX, int anchorY);
     void Hide();
     bool IsVisible() const { return m_hWnd != nullptr && IsWindowVisible(m_hWnd); }
+    /* v1.21.30: 0 = Windows 7 (blu traslucido), 1 = Windows 8.1 metro
+     * (viola fisso, opaco, geometrico). */
+    void SetTheme(int32_t theme) {
+        m_theme = (theme == 1) ? 1 : 0;
+        if (m_hWnd != nullptr) InvalidateRect(m_hWnd, nullptr, TRUE);
+    }
 private:
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
     void MaybeRescanIfStale();
@@ -70,6 +76,7 @@ private:
     }
     UINT m_dpi = 96;
 
+    int32_t m_theme = 0;
     HWND m_hWnd = nullptr;
     HICON m_searchIcon = nullptr;
     std::thread m_scanThread;

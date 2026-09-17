@@ -436,7 +436,9 @@ W7T_API void    W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
 W7T_API void    W7T_CALL W7T_SetExtraSettings(int32_t flyoutColorMode,
         uint32_t flyoutColorRgb, int32_t connectionPrivacyMode);
 W7T_API int32_t W7T_CALL W7T_GetExtraFlyoutColor(uint32_t* outRgb);
-W7T_API void    W7T_CALL W7T_AppSearchShow(int32_t x, int32_t y);
+/* v1.21.30: theme selects the search skin (0 Win7, 1 Win8.1 metro). */
+W7T_API void    W7T_CALL W7T_AppSearchShow(int32_t x, int32_t y,
+        int32_t theme);
 W7T_API void    W7T_CALL W7T_AppSearchHide(void);
 W7T_API int32_t W7T_CALL W7T_AppSearchIsVisible(void);
 /* ------------------------------------------------------------------ */

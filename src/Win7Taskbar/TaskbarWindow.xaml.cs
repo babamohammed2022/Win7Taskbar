@@ -7183,7 +7183,10 @@ namespace Win7Taskbar
             }
 
             Point tl = StartButton.PointToScreen(new Point(0, 0));
-            _bridge.AppSearchShow((int)tl.X, (int)tl.Y);
+            /* v1.21.30: la ricerca usa la skin del tema attivo
+             * (0 Win7 blu, 1 Win8.1 metro viola). */
+            _bridge.AppSearchShow((int)tl.X, (int)tl.Y,
+                RetroBar.Utilities.Settings.Instance.ThemeSelection);
         }
 
         /// <summary>v3.3: Proprietà = vera finestra Win32 nel core nativo
