@@ -96,6 +96,8 @@ constexpr PropStrings kPropIt = {
     L"Collegamenti",
     /* Task Manager selector (Windows 11 only). */
     L"Gestione attività:", L"Automatico (predefinito)", L"Gestione attività", L"Gestione attività (classico)",
+    /* v3.8: terza voce della tendina rete. */
+    L"Windows 8 (ricreato)",
 };
 constexpr PropStrings kPropEn = {
     L"Properties",
@@ -147,6 +149,8 @@ constexpr PropStrings kPropEn = {
     L"Links",
     /* Task Manager selector (Windows 11 only). */
     L"Task Manager:", L"Automatic (default)", L"Task Manager (Windows 11)", L"Task Manager (Legacy)",
+    /* v3.8: terza voce della tendina rete. */
+    L"Windows 8 (recreated)",
 };
 constexpr PropStrings kPropEs = {
     L"Propiedades",
@@ -198,6 +202,8 @@ constexpr PropStrings kPropEs = {
     L"Vínculos",
     /* Task Manager selector (Windows 11 only). */
     L"Administrador de tareas:", L"Automático (predeterminado)", L"Administrador de tareas (Windows 11)", L"Administrador de tareas (heredado)",
+    /* v3.8: terza voce della tendina rete. */
+    L"Windows 8 (recreado)",
 };
 constexpr PropStrings kPropFr = {
     L"Propriétés",
@@ -249,6 +255,8 @@ constexpr PropStrings kPropFr = {
     L"Liens",
     /* Task Manager selector (Windows 11 only). */
     L"Gestionnaire des tâches:", L"Automatique (par défaut)", L"Gestionnaire des tâches (Windows 11)", L"Gestionnaire des tâches (hérité)",
+    /* v3.8: terza voce della tendina rete. */
+    L"Windows 8 (recréé)",
 };
 constexpr PropStrings kPropDe = {
     L"Eigenschaften",
@@ -298,6 +306,8 @@ constexpr PropStrings kPropDe = {
     L"Links",
     /* Task Manager selector (Windows 11 only). */
     L"Task-Manager:", L"Automatisch (Standard)", L"Task-Manager (Windows 11)", L"Task-Manager (Legacy)",
+    /* v3.8: terza voce della tendina rete. */
+    L"Windows 8 (nachgebaut)",
 };
 constexpr PropStrings kPropPt = {
     L"Propriedades",
@@ -348,6 +358,8 @@ constexpr PropStrings kPropPt = {
     L"Links",
     /* Task Manager selector (Windows 11 only). */
     L"Gestor de Tarefas:", L"Automático (predefinição)", L"Gestor de Tarefas (Windows 11)", L"Gestor de Tarefas (Legado)",
+    /* v3.8: terza voce della tendina rete. */
+    L"Windows 8 (recriado)",
 };
 constexpr PropStrings kPropPl = {
     L"Właściwości",
@@ -397,6 +409,8 @@ constexpr PropStrings kPropPl = {
     L"Łącza",
     /* Task Manager selector (Windows 11 only). */
     L"Menedżer zadań:", L"Automatycznie (domyślne)", L"Menedżer zadań (Windows 11)", L"Menedżer zadań (starszy)",
+    /* v3.8: terza voce della tendina rete. */
+    L"Windows 8 (odtworzony)",
 };
 constexpr PropStrings kPropRu = {
     L"Свойства",
@@ -446,6 +460,8 @@ constexpr PropStrings kPropRu = {
     L"Ссылки",
     /* Task Manager selector (Windows 11 only). */
     L"Диспетчер задач:", L"Автоматически (по умолчанию)", L"Диспетчер задач (Windows 11)", L"Диспетчер задач (классический)",
+    /* v3.8: terza voce della tendina rete. */
+    L"Windows 8 (воссозданный)",
 };
 constexpr PropStrings kPropJa = {
     L"プロパティ",
@@ -491,6 +507,8 @@ constexpr PropStrings kPropJa = {
     L"リンク",
     /* Task Manager selector (Windows 11 only). */
     L"タスク マネージャー:", L"自動 (既定)", L"タスク マネージャー (Windows 11)", L"タスク マネージャー (レガシ)",
+    /* v3.8: terza voce della tendina rete. */
+    L"Windows 8 (再現)",
 };
 constexpr PropStrings kPropZh = {
     L"属性",
@@ -534,6 +552,8 @@ constexpr PropStrings kPropZh = {
     L"链接",
     /* Task Manager selector (Windows 11 only). */
     L"任务管理器:", L"自动（默认）", L"任务管理器 (Windows 11)", L"任务管理器（旧版）",
+    /* v3.8: terza voce della tendina rete. */
+    L"Windows 8 (重新创建)",
 };
 
 /* Arabic - contributed by mahmogamer (see CREDITS.txt). */
@@ -578,6 +598,8 @@ constexpr PropStrings kPropAr = {
     L"الارتباطات",
     /* Task Manager selector (Windows 11 only). */
     L"إدارة المهام:", L"تلقائي (افتراضي)", L"إدارة المهام (Windows 11)", L"إدارة المهام (قديم)",
+    /* v3.8: terza voce della tendina rete. */
+    L"Windows 8 (معاد إنشاؤه)",
 };
 
 /* ------------------------------------------------------------------------ */
@@ -917,8 +939,8 @@ constexpr ExtraStrings kExtraIt = {
     L"Colore di sistema",
     L"Colore personalizzato",
     L"Scegli colore...",
-    L"Il flyout Windows 8 (ricreato) non è incluso in questa versione: il "
-    L"colore viene salvato ma non applicato. Windows non viene modificato.",
+    L"Usato dal flyout Windows 8 (ricreato) quando è attivo: Colore di sistema segue il colore di Windows, "
+    L"Colore personalizzato usa quello scelto. Windows non viene modificato.",
     L"Modalità privacy:",
     L"Normale (nomi reali)",
     L"Privacy (nomi generici)",
@@ -940,8 +962,8 @@ constexpr ExtraStrings kExtraEn = {
     L"System color",
     L"Custom color",
     L"Choose color...",
-    L"The recreated Windows 8 flyout is not included in this version yet: "
-    L"the color is saved but not applied. Windows is not modified.",
+    L"Used by the recreated Windows 8 flyout when it is active: System color follows the Windows "
+    L"color, Custom color uses the one you pick. Windows is not modified.",
     L"Privacy mode:",
     L"Normal (real names)",
     L"Privacy (generic names)",
@@ -962,8 +984,8 @@ constexpr ExtraStrings kExtraEs = {
     L"Color del sistema",
     L"Color personalizado",
     L"Elegir color...",
-    L"El flyout de Windows 8 (recreado) aún no está incluido: el color se "
-    L"guarda pero no se aplica. Windows no se modifica.",
+    L"Lo usa el flyout de Windows 8 (recreado) cuando está activo: Color del sistema sigue el color "
+    L"de Windows y Color personalizado usa el elegido. Windows no se modifica.",
     L"Modo de privacidad:",
     L"Normal (nombres reales)",
     L"Privacidad (nombres genéricos)",
@@ -985,8 +1007,8 @@ constexpr ExtraStrings kExtraFr = {
     L"Couleur du système",
     L"Couleur personnalisée",
     L"Choisir une couleur...",
-    L"Le flyout Windows 8 (recréé) n'est pas encore inclus : la couleur est "
-    L"enregistrée mais pas appliquée. Windows n'est pas modifié.",
+    L"Utilisé par le flyout Windows 8 (recréé) lorsqu'il est actif : Couleur du système suit la "
+    L"couleur de Windows, Couleur personnalisée utilise celle choisie. Windows n'est pas modifié.",
     L"Mode confidentialité :",
     L"Normal (noms réels)",
     L"Confidentialité (noms génériques)",
@@ -1008,8 +1030,8 @@ constexpr ExtraStrings kExtraDe = {
     L"Systemfarbe",
     L"Benutzerdefinierte Farbe",
     L"Farbe wählen...",
-    L"Das nachgebaute Windows 8-Flyout fehlt noch: die Farbe wird "
-    L"gespeichert, aber nicht angewendet. Windows wird nicht verändert.",
+    L"Wird vom nachgebildeten Windows 8-Flyout verwendet, wenn es aktiv ist: Systemfarbe folgt der "
+    L"Windows-Farbe, Benutzerdefinierte Farbe nutzt die gewählte. Windows wird nicht verändert.",
     L"Datenschutzmodus:",
     L"Normal (echte Namen)",
     L"Datenschutz (generische Namen)",
@@ -1031,8 +1053,8 @@ constexpr ExtraStrings kExtraPt = {
     L"Cor do sistema",
     L"Cor personalizada",
     L"Escolher cor...",
-    L"O flyout do Windows 8 (recriado) ainda não está incluído: a cor é "
-    L"guardada mas não aplicada. O Windows não é alterado.",
+    L"Usado pelo flyout do Windows 8 (recriado) quando está ativo: Cor do sistema segue a cor do "
+    L"Windows, Cor personalizada usa a escolhida. O Windows não é alterado.",
     L"Modo de privacidade:",
     L"Normal (nomes reais)",
     L"Privacidade (nomes genéricos)",
@@ -1054,8 +1076,8 @@ constexpr ExtraStrings kExtraPl = {
     L"Kolor systemowy",
     L"Kolor niestandardowy",
     L"Wybierz kolor...",
-    L"Odtworzony flyout Windows 8 nie jest jeszcze dołączony: kolor jest "
-    L"zapisywany, ale nie stosowany. Windows nie jest zmieniany.",
+    L"Używany przez odtworzony flyout Windows 8, gdy jest aktywny: Kolor systemowy podąża za "
+    L"kolorem Windows, Kolor niestandardowy używa wybranego. Windows nie jest zmieniany.",
     L"Tryb prywatności:",
     L"Normalny (prawdziwe nazwy)",
     L"Prywatność (nazwy ogólne)",
@@ -1077,8 +1099,8 @@ constexpr ExtraStrings kExtraRu = {
     L"Системный цвет",
     L"Пользовательский цвет",
     L"Выбрать цвет...",
-    L"Воссозданный flyout Windows 8 пока не включён: цвет сохраняется, но не "
-    L"применяется. Windows не изменяется.",
+    L"Используется воссозданным flyout Windows 8, когда он активен: системный цвет следует за "
+    L"цветом Windows, пользовательский — за выбранным. Windows не изменяется.",
     L"Режим конфиденциальности:",
     L"Обычный (реальные имена)",
     L"Конфиденциальность (общие имена)",
@@ -1100,7 +1122,8 @@ constexpr ExtraStrings kExtraJa = {
     L"システムの色",
     L"カスタム色",
     L"色を選択...",
-    L"再現版 Windows 8 フライアウトは未収録です。色は保存されますが適用されません。Windows は変更されません。",
+    L"再現版 Windows 8 フライアウトが有効なときに使用されます。システムの色は Windows の色に従い、"
+    L"カスタム色は選択した色を使います。Windows は変更されません。",
     L"プライバシーモード:",
     L"通常（実際の名前）",
     L"プライバシー（一般的な名前）",
@@ -1121,7 +1144,7 @@ constexpr ExtraStrings kExtraZh = {
     L"系统颜色",
     L"自定义颜色",
     L"选择颜色...",
-    L"重建的 Windows 8 弹出面板尚未包含：颜色会被保存但不会应用。不会修改 Windows。",
+    L"重建的 Windows 8 浮出控件启用时使用：系统颜色跟随 Windows 的颜色，自定义颜色使用所选颜色。不会修改 Windows。",
     L"隐私模式:",
     L"普通（真实名称）",
     L"隐私（通用名称）",
@@ -1141,8 +1164,8 @@ constexpr ExtraStrings kExtraAr = {
     L"لون النظام",
     L"لون مخصص",
     L"اختيار لون...",
-    L"لوحة Windows 8 (المُعاد إنشاؤها) غير مضمّنة بعد: يُحفظ اللون دون "
-    L"تطبيقه. لا يتغيّر Windows.",
+    L"تُستخدم في لوحة Windows 8 المُعاد إنشاؤها عند تفعيلها: لون النظام يتبع لون Windows، واللون "
+    L"المخصص يستخدم اللون المختار. لا يتغيّر Windows.",
     L"وضع الخصوصية:",
     L"عادي (أسماء حقيقية)",
     L"الخصوصية (أسماء عامة)",

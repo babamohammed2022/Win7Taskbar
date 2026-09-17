@@ -533,3 +533,19 @@ project is GPL-3.0-or-later (see the LICENSE file).
 3ds
  - Some of the graphic resources of the project.
  - Inspiration for the XAML theme idea.
+
+AdmXP8 (Administratox)
+ - Author of the MIT-licensed Windhawk mod "Windows 8x Network Flyout
+   Recreation" v1.0.0 (github.com/AdmXP8, published in the
+   ramensoftware/windhawk-mods repository, MIT by repository policy for
+   mods without an explicit license). Since v1.21.14 the network flyout's
+   "Windows 8 (recreated)" variant (native/src/Win8NetworkFlyout.cpp,
+   selected from Properties with "Windows 8 (ricreato)") is a COMPLETE
+   port of that mod: Charms-style full-height pane with vsync slide
+   animation, live Wi-Fi list with signal bars, connect/disconnect with
+   native-style password dialog, Ethernet state, Home/Work/Public network
+   categories, privacy mode, tooltips, context menu, dark theme and all
+   11 built-in languages. The only part excluded from the port is the
+   Control Panel restyling (Network and Sharing Center), as it is outside
+   this project's scope. Attribution is also carried in the header of
+   native/src/Win8NetworkFlyout.cpp.

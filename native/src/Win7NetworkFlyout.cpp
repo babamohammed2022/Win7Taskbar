@@ -272,6 +272,7 @@ void RecalcDpiMetrics(UINT dpi) {
 #define WM_UPDATE_REFRESH_TIMER  (WM_USER + 112)
 #define WM_UPDATE_HOTKEY       (WM_USER + 113)
 
+
 static UINT g_uTaskbarCreated = 0;
 static DWORD g_dwFlyoutOwnerThreadId = 0;
 // All async-connect threads that may still be running (the current one plus
@@ -9808,8 +9809,6 @@ DWORD WINAPI HotkeyThreadProc(LPVOID lpParam) {
                 Wh_Log(L"HotkeyThreadProc: exception while toggling flyout, ignored");
             }
         }
-        // High Contrast toggled while the flyout is not yet open:
-        // refresh the cache so the next paint uses the correct palette.
         if (msg.message == WM_SETTINGCHANGE && msg.wParam == SPI_SETHIGHCONTRAST) {
             RefreshHighContrastNow();
             if (g_hWndFlyout && IsWindow(g_hWndFlyout) && IsWindowVisible(g_hWndFlyout))
@@ -10165,5 +10164,33 @@ void W7TNetFlyout_Toggle() {
 
 void W7TNetFlyout_Show() { ShowFlyoutWindow(); }
 void W7TNetFlyout_Hide() { HideFlyoutWindow(); }
+
+} // namespace w7tnet
+
+// ============================================================================
+//  v4.0 - ESCLUSIONE RECIPROCA TRA I DUE FLYOUT DI RETE
+// ----------------------------------------------------------------------------
+//  Con il porting completo della mod "Windows 8x Network Flyout Recreation"
+//  (Win8NetworkFlyout.cpp) la variante Windows 8 ha la SUA logica nativa:
+//  non serve piu' il ponte sullo stato di questo modulo. Resta solo una
+//  cosa: aprendo il riquadro Windows 8, quello Windows 7 - se aperto per
+//  qualche percorso laterale (hotkey della mod, ad esempio) - si chiude.
+//  Dichiarazioni in NetLogicBridge.h.
+// ============================================================================
+#include "NetLogicBridge.h"
+
+namespace w7tnet {
+
+BOOL W8NetLogic_IsWin7FlyoutVisible() {
+    if (g_hWndFlyout == NULL || !IsWindow(g_hWndFlyout)) return FALSE;
+    if (!IsWindowVisible(g_hWndFlyout)) return FALSE;
+    if (IsIconic(g_hWndFlyout)) return FALSE;
+    return TRUE;
+}
+
+void W8NetLogic_HideWin7FlyoutIfOpen() {
+    if (W8NetLogic_IsWin7FlyoutVisible())
+        HideFlyoutWindow();
+}
 
 } // namespace w7tnet

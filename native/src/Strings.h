@@ -182,6 +182,10 @@ struct PropStrings {
     const wchar_t* taskManagerAuto;
     const wchar_t* taskManagerModern;
     const wchar_t* taskManagerLegacy;
+    /* v3.8: terza voce della tendina del flyout di rete ("Windows 8
+     * (ricreato)"). In CODA alla struttura: i valori posizionali delle
+     * tabelle per lingua non devono slittare. */
+    const wchar_t* netWin8;
 };
 
 const PropStrings& PropStringsFor(Lang lang);

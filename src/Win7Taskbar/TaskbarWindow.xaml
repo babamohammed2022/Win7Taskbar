@@ -312,11 +312,19 @@
                           HorizontalScrollBarVisibility="Hidden"
                           VerticalScrollBarVisibility="Disabled"
                           VerticalAlignment="Stretch"
-                          PreviewMouseWheel="TaskListScroller_PreviewMouseWheel">
+                          PreviewMouseWheel="TaskListScroller_PreviewMouseWheel"
+                          AllowDrop="True"
+                          DragOver="TaskList_DragOver"
+                          Drop="TaskList_Drop"
+                          DragLeave="TaskList_DragLeave">
             <ItemsControl x:Name="TaskList"
                           ItemsSource="{Binding Groups}"
                           VerticalAlignment="Stretch"
-                          HorizontalAlignment="Left">
+                          HorizontalAlignment="Left"
+                          AllowDrop="True"
+                          DragOver="TaskList_DragOver"
+                          Drop="TaskList_Drop"
+                          DragLeave="TaskList_DragLeave">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <!-- StackPanel orizzontale, non WrapPanel: lo
@@ -371,6 +379,7 @@
                                 Click="TaskButton_Click"
                                 MouseDown="TaskButton_MouseDown"
                                 PreviewMouseDown="TaskButton_PreviewMouseDown"
+                                PreviewMouseMove="TaskButton_PreviewMouseMove"
                                 MouseWheel="TaskButton_MouseWheel"
                                 MouseEnter="TaskButton_MouseEnter"
                                 MouseLeave="TaskButton_MouseLeave"

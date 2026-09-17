@@ -286,10 +286,16 @@ bool AppBarService::HandleCallback(uint32_t wParam, int32_t lParam) {
             return true;
 
         case ABN_FULLSCREENAPP:
-            /* App a schermo intero: la barra deve farsi da parte.
-             * Il frontend ha gia' il suo percorso (W7T_EVT_FULLSCREEN_CHANGED
-             * da WindowManager); qui si dichiara solo gestita, come fanno
-             * le shell che non vogliono l'animazione di default. */
+            /* App a schermo intero: la shell passa in lParam TRUE quando
+             * un'app fullscreen si affaccia, FALSE quando finisce. Stesso
+             * trattamento di ABN_WINDOWARRANGE qui sopra: la barra si toglie
+             * di mezzo subito, senza passare dal C# (nessuna animazione).
+             *
+             * E' l'unico segnale affidabile per questo caso: un video che
+             * va fullscreen resta nella stessa HWND gia' in primo piano
+             * (il browser), quindi non scatta EVENT_SYSTEM_FOREGROUND e non
+             * si puo' rilevare da li'. */
+            ShowWindow(m_hwnd, lParam ? SW_HIDE : SW_SHOW);
             return true;
 
         case ABN_STATECHANGE:

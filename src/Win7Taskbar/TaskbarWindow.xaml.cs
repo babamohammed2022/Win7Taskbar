@@ -7,6 +7,7 @@ using RetroBar.Utilities;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows.Data;
+using System.Windows.Documents;
 using System.Globalization;
 using System;
 using System.Collections.Generic;
@@ -35,6 +36,10 @@ namespace Win7Taskbar
         private const string DwmPreviewAccentBrushKey = "DwmPreviewAccentBrush";
         private const string DwmPreviewBorderMaskImageKey = "DwmPreviewBorderMaskImage";
         private bool _dwmPreviewMaskReady;
+        // Ultimo colore di colorizzazione DWM con cui e' stata tinta la
+        // cornice delle anteprime: il raffronto col valore vivo copre i
+        // cambi di "colore dietro" che non alzano alcun messaggio.
+        private uint? _dwmAccentArgb;
         private bool _appBarRegistered;
         private bool _shuttingDown;
 
@@ -780,22 +785,45 @@ namespace Win7Taskbar
         {
             try
             {
-                if (RetroBar.Utilities.Settings.Instance.NetworkFlyoutMode == 0)
+                int netMode = RetroBar.Utilities.Settings.Instance.NetworkFlyoutMode;
+                if (netMode == 0)
                 {
                     if (!_netFlyoutInit)
                     {
                         _netFlyoutInit = _bridge.NetFlyoutInit();
                     }
                     _bridge.SetWin7NetworkFlyout(_netFlyoutInit);
+                    _bridge.SetWin8NetworkFlyout(false);
                     _bridge.Log(_netFlyoutInit
                         ? "rete: riquadro Windows 7 pronto"
                         : "rete: riquadro Windows 7 non disponibile");
                 }
+                else if (netMode == 2)
+                {
+                    /* v3.8: variante Windows 8 (riquadro ricreato). Il suo
+                     * Init porta su anche la logica di rete condivisa del
+                     * modulo Windows 7 (una volta sola per processo). */
+                    if (!_net8FlyoutInit)
+                    {
+                        _net8FlyoutInit = _bridge.Net8FlyoutInit();
+                    }
+                    _bridge.SetWin7NetworkFlyout(false);
+                    _bridge.SetWin8NetworkFlyout(_net8FlyoutInit);
+                    _bridge.Log(_net8FlyoutInit
+                        ? "rete: riquadro Windows 8 (ricreato) pronto"
+                        : "rete: riquadro Windows 8 non disponibile");
+                }
                 else
                 {
-                    /* Scelta dell'utente: il riquadro di sistema. Il core
-                     * apre quello (nessun modulo nostro da preparare). */
+                    /* Scelta dell'utente: modalita' senza riquadro Windows 8.
+                     * Se il cambio e' arrivato a riquadro aperto, lo si
+                     * chiude: ogni modalita' spettina un riquadro SOLO. */
+                    if (_net8FlyoutInit)
+                    {
+                        try { _bridge.Net8FlyoutHide(); } catch { }
+                    }
                     _bridge.SetWin7NetworkFlyout(false);
+                    _bridge.SetWin8NetworkFlyout(false);
                 }
             }
             catch (Exception ex)
@@ -962,8 +990,259 @@ namespace Win7Taskbar
         //  Drag file to task buttons
         // ---------------------------------------------------------------
 
+        // ---------------------------------------------------------------
+        // v1.21.15: spostamento dei bottoni con trascinamento, meccanismo
+        // copiato da RetroBar (ManagedShell TaskList): si preme un
+        // bottone (es. Chrome) e lo si trascina orizzontalmente; una
+        // barretta verticale segna il punto di inserimento e al rilascio
+        // il gruppo si sposta li. L ordine scelto resta tutta la sessione
+        // (come in RetroBar: niente salvataggio su disco).
+        // ---------------------------------------------------------------
+        private const string TaskGroupReorderFormat = "W7T.TaskGroupReorder";
+
+        private FrameworkElement? _reorderCandidate;
+        private Point _reorderPressPoint;
+        private TaskGroup? _reorderDragging;
+        private TaskGroupInsertionAdorner? _insertionAdorner;
+
+        /// <summary>Riga verticale (ombreggiata + nucleo chiaro) che segna
+        /// il punto di inserimento, come l'indicatore di RetroBar.</summary>
+        private sealed class TaskGroupInsertionAdorner : Adorner
+        {
+            private readonly double _x;
+
+            public TaskGroupInsertionAdorner(UIElement adorned, double x)
+                : base(adorned)
+            {
+                _x = x;
+                IsHitTestVisible = false;
+            }
+
+            protected override void OnRender(DrawingContext dc)
+            {
+                double h = AdornedElement.RenderSize.Height;
+                var glow = new Pen(
+                    new SolidColorBrush(Color.FromArgb(110, 0, 0, 0)), 6.0);
+                if (glow.CanFreeze) glow.Freeze();
+                var core = new Pen(Brushes.White, 2.0);
+                if (core.CanFreeze) core.Freeze();
+                dc.DrawLine(glow, new Point(_x, 2), new Point(_x, h - 2));
+                dc.DrawLine(core, new Point(_x, 2), new Point(_x, h - 2));
+            }
+        }
+
+        private void TaskButton_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (_reorderCandidate == null || _reorderDragging != null)
+            {
+                return;
+            }
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                _reorderCandidate = null;
+                return;
+            }
+
+            Point pos = e.GetPosition(this);
+            Vector delta = pos - _reorderPressPoint;
+            if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance)
+            {
+                return;
+            }
+
+            FrameworkElement sourceButton = _reorderCandidate;
+            _reorderCandidate = null;
+            if (sourceButton.DataContext is not TaskGroup group)
+            {
+                return;
+            }
+
+            _reorderDragging = group;
+            try
+            {
+                DragDrop.DoDragDrop(sourceButton,
+                    new DataObject(TaskGroupReorderFormat, group),
+                    DragDropEffects.Move);
+            }
+            catch (Exception)
+            {
+                // Drag annullato dal sistema operativo (bottone perso,
+                // transito su DDE...): nessun ordine cambia, si ripulisce.
+            }
+            finally
+            {
+                _reorderDragging = null;
+                HideInsertionMark();
+            }
+        }
+
+        /// <summary>Indice di inserimento davanti al clic: la x del
+        /// puntatore rispetto alla meta destra/sinistra di ogni bottone,
+        /// lo stesso conto che fa RetroBar.</summary>
+        private int TaskGroupInsertionIndexAt(Point posInList)
+        {
+            int count = TaskList.Items.Count;
+            for (int i = 0; i < count; i++)
+            {
+                if (TaskList.ItemContainerGenerator.ContainerFromIndex(i)
+                        is FrameworkElement container)
+                {
+                    Point p = container.TransformToAncestor(TaskList)
+                                       .Transform(new Point(0, 0));
+                    if (posInList.X < p.X + container.ActualWidth / 2)
+                    {
+                        return i;
+                    }
+                }
+            }
+            return count;
+        }
+
+        private double TaskGroupInsertionXAt(int index)
+        {
+            int count = TaskList.Items.Count;
+            if (count == 0)
+            {
+                return 2;
+            }
+            if (index >= count)
+            {
+                if (TaskList.ItemContainerGenerator.ContainerFromIndex(count - 1)
+                        is FrameworkElement last)
+                {
+                    return last.TransformToAncestor(TaskList)
+                               .Transform(new Point(0, 0)).X + last.ActualWidth;
+                }
+                return TaskList.ActualWidth;
+            }
+            if (TaskList.ItemContainerGenerator.ContainerFromIndex(index)
+                    is FrameworkElement target)
+            {
+                return target.TransformToAncestor(TaskList)
+                             .Transform(new Point(0, 0)).X;
+            }
+            return 2;
+        }
+
+        private void ShowInsertionMark(int index)
+        {
+            try
+            {
+                AdornerLayer? layer = AdornerLayer.GetAdornerLayer(TaskList);
+                if (layer == null)
+                {
+                    return;
+                }
+                HideInsertionMark();
+                _insertionAdorner =
+                    new TaskGroupInsertionAdorner(TaskList, TaskGroupInsertionXAt(index));
+                layer.Add(_insertionAdorner);
+            }
+            catch (Exception)
+            {
+                // Manca solo il feedback visivo: il drop funziona uguale.
+            }
+        }
+
+        private void HideInsertionMark()
+        {
+            if (_insertionAdorner == null)
+            {
+                return;
+            }
+            try
+            {
+                AdornerLayer.GetAdornerLayer(TaskList)?.Remove(_insertionAdorner);
+            }
+            catch (Exception)
+            {
+                // layer gia' smontato
+            }
+            _insertionAdorner = null;
+        }
+
+        /// <summary>Ramo comune di Hover/Drop del riordino: ritorna true
+        /// quando l evento riguardava lo spostamento dei bottoni (in quel
+        /// caso i percorsi preesistenti del drop dei file non si toccano).
+        /// </summary>
+        private bool HandleTaskGroupReorderHover(object sender, DragEventArgs e)
+        {
+            if (_reorderDragging == null ||
+                !e.Data.GetDataPresent(TaskGroupReorderFormat))
+            {
+                return false;
+            }
+            e.Effects = DragDropEffects.Move;
+            try
+            {
+                Point pos = e.GetPosition(TaskList);
+                ShowInsertionMark(TaskGroupInsertionIndexAt(pos));
+            }
+            catch (Exception)
+            {
+                // senza indicatore il drop funziona lo stesso
+            }
+            e.Handled = true;
+            return true;
+        }
+
+        private bool HandleTaskGroupReorderDrop(object sender, DragEventArgs e)
+        {
+            if (_reorderDragging == null ||
+                !e.Data.GetDataPresent(TaskGroupReorderFormat))
+            {
+                return false;
+            }
+            try
+            {
+                if (e.Data.GetData(TaskGroupReorderFormat) is TaskGroup group)
+                {
+                    Point pos = e.GetPosition(TaskList);
+                    _viewModel.MoveTaskGroup(
+                        group, TaskGroupInsertionIndexAt(pos));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Riordino del bottone non riuscito: {ex.Message}");
+            }
+            HideInsertionMark();
+            e.Handled = true;
+            return true;
+        }
+
+        private void TaskList_DragOver(object sender, DragEventArgs e)
+        {
+            if (!HandleTaskGroupReorderHover(sender, e))
+            {
+                e.Effects = DragDropEffects.None;
+                e.Handled = true;
+            }
+        }
+
+        private void TaskList_Drop(object sender, DragEventArgs e)
+        {
+            if (!HandleTaskGroupReorderDrop(sender, e))
+            {
+                e.Handled = true;
+            }
+        }
+
+        private void TaskList_DragLeave(object sender, DragEventArgs e)
+        {
+            HideInsertionMark();
+        }
+
         private void TaskButton_DragOver(object sender, DragEventArgs e)
         {
+            // v1.21.15: spostamento dei bottoni (riordino stile RetroBar),
+            // indipendente dal drop dei file dei rami sotto.
+            if (HandleTaskGroupReorderHover(sender, e))
+            {
+                return;
+            }
+
             // v1.7.3: the cursor shows "forbidden" when the target
             // executable declares (via the registry) that it cannot open
             // the dragged file type - exactly like the real taskbar.
@@ -1000,6 +1279,14 @@ namespace Win7Taskbar
 
         private void TaskButton_Drop(object sender, DragEventArgs e)
         {
+            // v1.21.15: rilascio che sposta il bottone (riordino stile
+            // RetroBar). Il ramo file piu' sotto continua a trattare solo
+            // DataFormats.FileDrop come prima.
+            if (HandleTaskGroupReorderDrop(sender, e))
+            {
+                return;
+            }
+
             e.Handled = true;
 
             try
@@ -1235,6 +1522,8 @@ namespace Win7Taskbar
             {
                 try { _bridge.NetFlyoutUninit(); } catch { }
                 try { _bridge.SetWin7NetworkFlyout(false); } catch { }
+                try { _bridge.Net8FlyoutUninit(); } catch { }
+                try { _bridge.SetWin8NetworkFlyout(false); } catch { }
 
                 if (_appBarRegistered && _hwndSource != null)
                 {
@@ -1539,6 +1828,8 @@ namespace Win7Taskbar
                 // v2.37 punto 16: anche il flyout di rete parla la lingua
                 // dell'app (traduzioni gia' presenti nella mod).
                 try { _bridge.NetFlyoutSetLanguage(lang); } catch { }
+                // v3.8: anche il riquadro variante Windows 8.
+                try { _bridge.Net8FlyoutSetLanguage(lang); } catch { }
                 st.NetworkFlyoutMode = netFlyout;
                 st.UseClassicVolumeMixer = classicVolume == 1;
                 st.UseBatteryFlyout = batteryFlyout == 1;
@@ -1727,6 +2018,16 @@ namespace Win7Taskbar
                     return;
                 }
 
+                /* Unchanged colour: nothing to re-tint. The message path and
+                 * the drift check (EnsureDwmAccentFresh) can both fire for
+                 * the same change, so the last applied value is recorded
+                 * here and doubles as the de-dup key. */
+                if (_dwmAccentArgb == argb)
+                {
+                    return;
+                }
+                _dwmAccentArgb = argb;
+
                 // Opacity comes from the derived shaded-alpha mask. Keep
                 // this brush opaque: using the DWM alpha here as well
                 // would multiply frame transparency a second time.
@@ -1755,6 +2056,37 @@ namespace Win7Taskbar
                 // startup or the live DWM thumbnail relationship.
                 try { _bridge.Log($"preview accent update: {ex.Message}"); }
                 catch { }
+            }
+        }
+
+        /// <summary>
+        /// Copertura del caso in cui il "colore dietro" le anteprime cambia
+        /// senza che WM_DWMCOLORIZATIONCOLORCHANGED venga mai trasmesso
+        /// (accento automatico preso dallo sfondo, slideshow del tema,
+        /// passaggio a contrasto elevato su Windows 10/11): confronta il
+        /// colore di colorizzazione vivo con l'ultimo effettivamente
+        /// applicato e, solo a deriva reale, riesegue lo stesso identico
+        /// percorso del messaggio (brush + invalidazione dei frame nativi).
+        /// Una query DWM per controllo; la logica di render non cambia.
+        /// </summary>
+        private void EnsureDwmAccentFresh()
+        {
+            try
+            {
+                if (NativeMethods.DwmGetColorizationColor(out uint live,
+                                                        out _) < 0)
+                {
+                    return;
+                }
+
+                if (_dwmAccentArgb != live)
+                {
+                    UpdateDwmPreviewAccentColor();
+                }
+            }
+            catch
+            {
+                /* Come il resto del percorso accento: cosmetico, mai fatale. */
             }
         }
 
@@ -2270,6 +2602,30 @@ namespace Win7Taskbar
                 sender is FrameworkElement { DataContext: TaskGroup group } &&
                 group.IsActive;
 
+            // v1.21.15: possibile inizio dello spostamento del bottone
+            // (riordino stile RetroBar). Diventa drag vero solo oltre la
+            // soglia del sistema: un click normale non vede differenze.
+            //
+            // v1.21.16: the two drag systems of this branch are both compiled
+            // and both stay intact. ARMED IS THE PERSISTENT ONE (extra
+            // settings -> icon order, TaskbarWindow.TaskOrder.cs): its order
+            // is written to settings.json and rebuilt after a restart, which
+            // is what the brief asks for. The session order below, merged
+            // from the other pull request, is left complete but not armed:
+            // two gestures capturing the same press would fight over the
+            // mouse and produce two indicators and two independent moves for
+            // one drop. Set this constant to true to run the RetroBar-style
+            // session order instead (the persistent one then simply never
+            // starts, because it steps back as soon as the pointer is owned
+            // by another gesture).
+            const bool UseRetroBarSessionReorder = false;
+            if (UseRetroBarSessionReorder &&
+                sender is FrameworkElement pressedButton)
+            {
+                _reorderCandidate = pressedButton;
+                _reorderPressPoint = e.GetPosition(this);
+            }
+
             // INCOMPLETE / TEMPORARILY DISABLED: keep the complete Jump List
             // gesture implementation in TaskbarWindow.JumpList.cs, but do not
             // arm it until its remaining behavior has been completed.
@@ -2481,9 +2837,9 @@ namespace Win7Taskbar
          * Il candidato e' l'elemento premuto; il riordino vero parte solo
          * oltre la soglia di trascinamento del sistema, cosi' il clic
          * semplice resta "attiva la finestra". */
-        private FrameworkElement? _reorderCandidate;
-        private Point _reorderStartScreen;
-        private bool _reorderActive;
+        private FrameworkElement? _previewReorderCandidate;
+        private Point _previewReorderStartScreen;
+        private bool _previewReorderActive;
 
         /// <summary>
         /// v2.53: apertura del tooltip di testo del pulsante della Superbar.
@@ -2786,6 +3142,11 @@ namespace Win7Taskbar
         {
             try
             {
+                /* ... e il colore dietro puo' cambiare anche MENTRE il popup
+                 * e' aperto: il timer di permanenza ticca gia', agganciarvi
+                 * il confronto rende l'adattamento dinamico a costo zero. */
+                EnsureDwmAccentFresh();
+
                 if (TaskPreviewPopup?.IsOpen != true)
                 {
                     _previewWatchTimer?.Stop();
@@ -3105,6 +3466,12 @@ namespace Win7Taskbar
         {
             try
             {
+                /* Il colore dietro puo' essere cambiato mentre il popup era
+                 * chiuso senza alzare alcun messaggio: l'apertura e' il
+                 * momento in cui la tinta torna visibile, quindi si verifica
+                 * adesso. */
+                EnsureDwmAccentFresh();
+
                 CaptureTaskPreviewBackdrop();
 
                 /* v2.45: punto unico di controllo dopo che il popup e' davvero a
@@ -3208,7 +3575,7 @@ namespace Win7Taskbar
         /// </summary>
         private void PreviewThumbnail_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            bool wasReorder = _reorderActive;
+            bool wasReorder = _previewReorderActive;
             ClearPreviewReorderState();
             if (wasReorder)
             {
@@ -3275,9 +3642,9 @@ namespace Win7Taskbar
                     return;   /* finestra sola nel gruppo: niente da riordinare */
                 }
 
-                _reorderCandidate = element;
-                _reorderStartScreen = element.PointToScreen(e.GetPosition(element));
-                _reorderActive = false;
+                _previewReorderCandidate = element;
+                _previewReorderStartScreen = element.PointToScreen(e.GetPosition(element));
+                _previewReorderActive = false;
                 element.CaptureMouse();
             }
             catch (Exception ex)
@@ -3296,7 +3663,7 @@ namespace Win7Taskbar
         {
             try
             {
-                if (_reorderCandidate == null)
+                if (_previewReorderCandidate == null)
                 {
                     return;
                 }
@@ -3307,19 +3674,19 @@ namespace Win7Taskbar
                     return;
                 }
 
-                Point screenNow = _reorderCandidate.PointToScreen(
-                    e.GetPosition(_reorderCandidate));
+                Point screenNow = _previewReorderCandidate.PointToScreen(
+                    e.GetPosition(_previewReorderCandidate));
 
-                if (!_reorderActive)
+                if (!_previewReorderActive)
                 {
-                    double dx = screenNow.X - _reorderStartScreen.X;
-                    double dy = screenNow.Y - _reorderStartScreen.Y;
+                    double dx = screenNow.X - _previewReorderStartScreen.X;
+                    double dy = screenNow.Y - _previewReorderStartScreen.Y;
                     double threshold = SystemParameters.MinimumHorizontalDragDistance;
                     if (dx * dx + dy * dy < threshold * threshold)
                     {
                         return;
                     }
-                    _reorderActive = true;
+                    _previewReorderActive = true;
                 }
 
                 ReorderPreviewsAtCursor(screenNow);
@@ -3342,7 +3709,7 @@ namespace Win7Taskbar
         private void ReorderPreviewsAtCursor(Point screenPoint)
         {
             if (_previewGroup is not { Windows.Count: > 1 } group ||
-                _reorderCandidate?.DataContext is not TaskWindow dragged ||
+                _previewReorderCandidate?.DataContext is not TaskWindow dragged ||
                 TaskPreviewItems == null)
             {
                 return;
@@ -3397,15 +3764,15 @@ namespace Win7Taskbar
         /// <summary>Rilascia la cattura del mouse e dimentica il riordino.</summary>
         private void ClearPreviewReorderState()
         {
-            if (_reorderCandidate != null)
+            if (_previewReorderCandidate != null)
             {
-                if (_reorderCandidate.IsMouseCaptured)
+                if (_previewReorderCandidate.IsMouseCaptured)
                 {
-                    _reorderCandidate.ReleaseMouseCapture();
+                    _previewReorderCandidate.ReleaseMouseCapture();
                 }
-                _reorderCandidate = null;
+                _previewReorderCandidate = null;
             }
-            _reorderActive = false;
+            _previewReorderActive = false;
         }
 
         /// <summary>
@@ -3584,9 +3951,9 @@ namespace Win7Taskbar
 
             if (group.Windows.Count == 0)
             {
-                // Idle pin: launch / pin-unpin. Dedicated menu with the
-                // app's real icon on the launch row (not the generic menu:
-                // that one is shared with the bar, the clock and the tray).
+                // Idle pin: launch / pin-unpin. Dedicated text-only menu
+                // (not the generic menu: that one is shared with the bar,
+                // the clock and the tray).
                 string pinText = group.IsPinned
                     ? L("lang_menu_unpin",
                         "Unpin this program from taskbar")
@@ -3606,7 +3973,7 @@ namespace Win7Taskbar
                 catch (EntryPointNotFoundException)
                 {
                     // Native DLL older than the managed side: same two
-                    // rows through the generic menu, without the icon.
+                    // rows through the generic menu.
                     choice = _bridge.ShowContextMenu(
                         x, y, bottomEdge: true, launchText, pinText);
                 }
@@ -4566,6 +4933,9 @@ namespace Win7Taskbar
 
         // v2.36: flyout di rete Windows 7.
         private bool _netFlyoutInit;
+
+        // v3.8: flyout di rete variante Windows 8 (riquadro ricreato).
+        private bool _net8FlyoutInit;
         private readonly Dictionary<ulong, bool> _networkOwnerCache = new();
 
         /// <summary>True se l'icona tray appartiene a pnidui.dll (rete).
@@ -4637,36 +5007,69 @@ namespace Win7Taskbar
             // non viene inoltrato al proprietario (altrimenti si aprirebbe
             // anche il flyout moderno); con "Windows 10/11" si inoltra come
             // prima. Il tasto destro continua ad aprire il menu nativo.
-            if (RetroBar.Utilities.Settings.Instance.NetworkFlyoutMode == 0 &&
-                IsNetworkTrayIcon(icon))
+            // v3.8: stessa conseguenza per "Windows 8 (ricreato)".
+            int netModeClick = RetroBar.Utilities.Settings.Instance.NetworkFlyoutMode;
+            if ((netModeClick == 0 || netModeClick == 2) && IsNetworkTrayIcon(icon))
             {
-                if (!_netFlyoutInit)
+                if (netModeClick == 0)
                 {
-                    _netFlyoutInit = _bridge.NetFlyoutInit();
-                    /* v2.62: il core deve saperlo, perche' il clic sulle
-                     * icone di rete RICREATE lo gestisce lui. */
-                    try { _bridge.SetWin7NetworkFlyout(_netFlyoutInit); } catch { }
-                }
-                if (_netFlyoutInit)
-                {
-                    // v2.37 punto 16: sincronizza la lingua del flyout con
-                    // quella dell'app prima di ogni apertura.
-                    try
+                    if (!_netFlyoutInit)
                     {
-                        var stLang = RetroBar.Utilities.Settings.Instance;
-                        int langIdx = Math.Max(0,
-                            Array.IndexOf(kLangCodes, stLang.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode));
-                        _bridge.NetFlyoutSetLanguage(langIdx);
+                        _netFlyoutInit = _bridge.NetFlyoutInit();
+                        /* v2.62: il core deve saperlo, perche' il clic sulle
+                         * icone di rete RICREATE lo gestisce lui. */
+                        try { _bridge.SetWin7NetworkFlyout(_netFlyoutInit); } catch { }
                     }
-                    catch { }
+                    if (_netFlyoutInit)
+                    {
+                        // v2.37 punto 16: sincronizza la lingua del flyout con
+                        // quella dell'app prima di ogni apertura.
+                        try
+                        {
+                            var stLang = RetroBar.Utilities.Settings.Instance;
+                            int langIdx = Math.Max(0,
+                                Array.IndexOf(kLangCodes, stLang.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode));
+                            _bridge.NetFlyoutSetLanguage(langIdx);
+                        }
+                        catch { }
 
-                    Point topLeft = element.PointToScreen(new Point(0, 0));
-                    int iw = (int)Math.Ceiling(element.ActualWidth);
-                    int ih = (int)Math.Ceiling(element.ActualHeight);
-                    _bridge.NetFlyoutToggleAt((int)topLeft.X, (int)topLeft.Y,
-                        (int)topLeft.X + iw, (int)topLeft.Y + ih);
-                    e.Handled = true;
-                    return;
+                        Point topLeft = element.PointToScreen(new Point(0, 0));
+                        int iw = (int)Math.Ceiling(element.ActualWidth);
+                        int ih = (int)Math.Ceiling(element.ActualHeight);
+                        _bridge.NetFlyoutToggleAt((int)topLeft.X, (int)topLeft.Y,
+                            (int)topLeft.X + iw, (int)topLeft.Y + ih);
+                        e.Handled = true;
+                        return;
+                    }
+                }
+                else /* netModeClick == 2: v3.8, riquadro di rete stile Windows 8 */
+                {
+                    if (!_net8FlyoutInit)
+                    {
+                        _net8FlyoutInit = _bridge.Net8FlyoutInit();
+                        /* come SetWin7NetworkFlyout per la variante Win7: il
+                         * core deve saperlo prima dei click sintetici. */
+                        try { _bridge.SetWin8NetworkFlyout(_net8FlyoutInit); } catch { }
+                    }
+                    if (_net8FlyoutInit)
+                    {
+                        try
+                        {
+                            var stLang = RetroBar.Utilities.Settings.Instance;
+                            int langIdx = Math.Max(0,
+                                Array.IndexOf(kLangCodes, stLang.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode));
+                            _bridge.Net8FlyoutSetLanguage(langIdx);
+                        }
+                        catch { }
+
+                        Point topLeft = element.PointToScreen(new Point(0, 0));
+                        int iw = (int)Math.Ceiling(element.ActualWidth);
+                        int ih = (int)Math.Ceiling(element.ActualHeight);
+                        _bridge.Net8FlyoutToggleAt((int)topLeft.X, (int)topLeft.Y,
+                            (int)topLeft.X + iw, (int)topLeft.Y + ih);
+                        e.Handled = true;
+                        return;
+                    }
                 }
             }
 
@@ -6278,7 +6681,10 @@ namespace Win7Taskbar
                  *                           batteria: riquadro Win32 di Windows
                  *   Windows 10/11   = 0  -> riquadro della shell               */
                 bool clockWin7   = st.UseNativeClockFlyout;      /* tendina: "Windows 7" */
-                bool networkWin7 = st.NetworkFlyoutMode == 0;    /* "Windows 7 (ricreato)" */
+                /* v3.8: la rete ha tre scelte: 1 = Win7 ricreato, 0 =
+                 * Windows 10/11 (sistema), 2 = Win8 ricreato. */
+                int networkStyle = st.NetworkFlyoutMode == 0 ? 1
+                                 : (st.NetworkFlyoutMode == 2 ? 2 : 0);
                 bool volumeWin7  = st.UseClassicVolumeMixer;     /* tendina: "Windows 7" */
                 bool batteryWin7 = st.UseBatteryFlyout;          /* tendina: "Windows 7" */
 
@@ -6286,7 +6692,7 @@ namespace Win7Taskbar
                 WriteImmersiveShellValue("UseWin32BatteryFlyout", batteryWin7 ? 1 : 0);
                 WriteImmersiveShellValue("EnableMtcUvc", volumeWin7 ? 0 : 1);
 
-                _bridge.SetFlyoutPreferences(clockWin7, networkWin7, volumeWin7, batteryWin7);
+                _bridge.SetFlyoutPreferences(clockWin7, networkStyle, volumeWin7, batteryWin7);
 
                 /* v1.21.7: the extra settings follow the same principle - the
                  * configuration read here IS the decision. The privacy mode
@@ -6299,9 +6705,11 @@ namespace Win7Taskbar
                 try { modern = _bridge.IsModernFlyoutHostAvailable() ? "si" : "no"; }
                 catch { }
 
+                string netStyleName = networkStyle == 1 ? "Windows7"
+                                    : (networkStyle == 2 ? "Windows8" : "Windows10/11");
                 _bridge.Log(
                     "SETTINGS: orologio=" + (clockWin7 ? "Windows7" : "Windows10/11") +
-                    " rete=" + (networkWin7 ? "Windows7" : "Windows10/11") +
+                    " rete=" + netStyleName +
                     " volume=" + (volumeWin7 ? "Windows7" : "Windows10/11") +
                     " batteria=" + (batteryWin7 ? "Windows7" : "Windows10/11") +
                     " lingua=" + (st.Language ?? Settings.DefaultLanguageCode) +
@@ -6330,9 +6738,11 @@ namespace Win7Taskbar
         ///   - privacy -> changes ONLY the text drawn by the recreated
         ///                connection flyout. No network API, no Windows
         ///                setting.
-        ///   - colour  -> kept by the core for the Windows 8-style flyout,
-        ///                which does not exist in this version: no Windows 7
-        ///                flyout changes its look.
+        ///   - colour  -> drawn by the recreated Windows 8 flyout when it is
+        ///                the active one ("system colour" is the accent read
+        ///                from Windows every time it paints). No Windows 7
+        ///                flyout changes its look and nothing in Windows is
+        ///                written.
         ///   - skin    -> the only loadable skin is still Windows 7: the
         ///                choice reaches ThemeLoader at startup (see
         ///                App.xaml.cs).

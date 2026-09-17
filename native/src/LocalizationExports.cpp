@@ -35,6 +35,7 @@
 #include "Strings.h"
 #include "BatteryFlyout.h"
 #include "Win7NetworkFlyout.h"
+#include "Win8NetworkFlyout.h"   /* v3.8: anche la variante Windows 8 cambia lingua */
 #include "SehGuard.h"
 
 #include <windows.h>
@@ -53,6 +54,10 @@ extern "C" __declspec(dllexport) void __stdcall W7T_SetLanguage(const char* twoL
          * W7TNetFlyout_SetLanguage. */
         w7t::BatteryFlyout::Instance().SetLanguage(index);
         w7tnet::W7TNetFlyout_SetLanguage(index);
+        /* v3.8/1.21.15: la stessa chiamata raggiunge anche la variante
+         * Windows 8 del flyout di rete, che pero' per scelta di brief
+         * segue sempre la LINGUA DI SISTEMA (l indice e' ignorato). */
+        w7t::Win8NetworkFlyout::Instance().SetLanguage(index);
     } W7T_SEH_CATCH {} W7T_SEH_END
 }
 

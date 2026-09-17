@@ -9,6 +9,7 @@
 #endif
 
 #include "BatteryFlyout.h"
+#include "Win8NetworkFlyout.h"   /* v3.8: rilascio GDI del riquadro Win8 */
 
 namespace {
 
@@ -157,6 +158,9 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved
             // when the flyout was never shown, so shutdown never constructs
             // the singleton under the loader lock.
             w7t::BatteryFlyout::ShutdownIfCreated();
+            /* v3.8: rilascio font GDI del riquadro di rete variante Windows
+             * 8 (se non e' mai stato aperto la chiamata e' un no-op). */
+            w7t::Win8NetworkFlyout::ShutdownIfCreated();
             break;
         default:
             break;

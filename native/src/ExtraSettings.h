@@ -18,14 +18,17 @@
  * The native core receives the values with W7T_SetExtraSettings and keeps
  * them here:
  *
- *   - privacy mode -> passed straight to the recreated network flyout
- *     (w7tnet::W7TNetFlyout_SetPrivacyMode): it changes only the text OUR
- *     flyout draws, never the connections or Windows;
- *   - flyout colour (system or custom) -> kept for the recreated
- *     Windows 8-style flyout, which does NOT exist yet in this version
- *     (native/src/Win8NetworkFlyout.cpp is not compiled: see
- *     CMakeLists.txt). The value is persisted and queryable, applied to
- *     nothing: no Windows 7 flyout is touched by this setting.
+ *   - privacy mode -> passed to the recreated network flyouts
+ *     (w7tnet::W7TNetFlyout_SetPrivacyMode for the Windows 7 one; the
+ *     Windows 8 one reads it here when it paints). It changes only the text
+ *     OUR flyouts draw, never the connections or Windows;
+ *   - flyout colour (system or custom) -> used by the recreated Windows 8
+ *     flyout, which is part of this build (native/src/Win8NetworkFlyout.cpp,
+ *     compiled since v1.21.16: see CMakeLists.txt). "System colour" asks the
+ *     Windows accent colour live every time the pane paints, "custom colour"
+ *     uses the value stored in the configuration. The Windows 7-style flyout
+ *     is not touched by this setting, and nothing in Windows (accent colour,
+ *     theme, personalisation) is ever written.
  *
  * QuerySystemAccentColor() resolves the system accent colour when needed
  * (DwmGetColorizationColor, with a registry fallback). The Properties window
