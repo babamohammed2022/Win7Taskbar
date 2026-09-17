@@ -285,7 +285,7 @@
          (PR #27). Nothing was dropped from either one; the only code touched
          during the union is where the two visual drag systems would have
          collided (see TaskbarWindow.xaml.cs and TaskbarViewModel.cs). -->
-    <Version>1.21.30-alpha</Version>
+    <Version>1.21.31-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
