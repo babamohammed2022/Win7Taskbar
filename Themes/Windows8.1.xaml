@@ -1537,11 +1537,14 @@
                                  tray-hover tile (98%), still centred on exactly
                                  the same icon geometry; do not compound this
                                  scale on later visual adjustments. -->
-                            <Image x:Name="HoverTileImg"
-                                   Width="29.4"
-                                   Height="39.2"
-                                   Canvas.Left="-14.7"
-                                   Canvas.Top="-19.6"
+                                   <!-- v1.21.24: 98% (2% in meno) x 0,975 (2,5% in meno chiesto
+                                        nella prova) = 95,55% della tessera originale: 30 x 40 ->
+                                        28,665 x 38,22, sempre centrata sulla stessa icona
+                                        (meta' della misura come offset, come prima). -->
+                                   Width="28.665"
+                                   Height="38.22"
+                                   Canvas.Left="-14.3325"
+                                   Canvas.Top="-19.11"
                                    Stretch="Fill"
                                    SnapsToDevicePixels="True"
                                    Source="{DynamicResource TrayTileHoverImage}"
@@ -2039,7 +2042,8 @@
                         <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
                                      Value="Vertical">
                             <Setter TargetName="HoverCanvas" Property="Margin" Value="0,13,0,0" />
-                            <Setter TargetName="HoverTileImg" Property="Height" Value="27" />
+                            <!-- v1.21.24: stesso 2,5% sulla barra verticale (27 -> 26,325). -->
+                            <Setter TargetName="HoverTileImg" Property="Height" Value="26.325" />
                         </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -2889,6 +2893,20 @@
                     </Rectangle.OpacityMask>
                 </Rectangle>
 
+                <!-- v1.21.24 - bordo luminoso dello spigolo: la striscia
+                     verticale della banda (3 px) prosegue dentro l'angolo,
+                     cosi' il perimetro e' continuo e lo spigolo pieno. -->
+                <Rectangle Grid.Row="0" Grid.Column="0"
+                           Width="3" HorizontalAlignment="Left"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="0,0,3,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
                 <Rectangle Grid.Row="0" Grid.Column="1"
                            Fill="{DynamicResource DwmPreviewAccentBrush}">
                     <Rectangle.OpacityMask>
@@ -2904,6 +2922,17 @@
                     <Rectangle.OpacityMask>
                         <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
                                     Viewbox="119,0,17,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="0" Grid.Column="2"
+                           Width="3" HorizontalAlignment="Right"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="233,0,3,38"
                                     ViewboxUnits="Absolute"
                                     Stretch="Fill" />
                     </Rectangle.OpacityMask>
@@ -2939,6 +2968,17 @@
                     </Rectangle.OpacityMask>
                 </Rectangle>
 
+                <Rectangle Grid.Row="2" Grid.Column="0"
+                           Width="3" HorizontalAlignment="Left"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="0,147,3,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
                 <Rectangle Grid.Row="2" Grid.Column="1"
                            Fill="{DynamicResource DwmPreviewAccentBrush}">
                     <Rectangle.OpacityMask>
@@ -2958,6 +2998,17 @@
                                     Stretch="Fill" />
                     </Rectangle.OpacityMask>
                 </Rectangle>
+
+                <Rectangle Grid.Row="2" Grid.Column="2"
+                           Width="3" HorizontalAlignment="Right"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="233,147,3,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
             </Grid>
 
             <!-- velatura in scala di grigio del bordo, 18 per cento come nel tema 7 -->
@@ -2965,6 +3016,15 @@
                 <Rectangle.Fill>
                     <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
                                 Viewbox="100,0,17,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="0"
+                       Width="3" HorizontalAlignment="Left" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="0,0,3,38"
                                 ViewboxUnits="Absolute"
                                 Stretch="Fill" />
                 </Rectangle.Fill>
@@ -2981,6 +3041,15 @@
                 <Rectangle.Fill>
                     <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
                                 Viewbox="119,0,17,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="2"
+                       Width="3" HorizontalAlignment="Right" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="233,0,3,38"
                                 ViewboxUnits="Absolute"
                                 Stretch="Fill" />
                 </Rectangle.Fill>
@@ -3009,6 +3078,15 @@
                                 Stretch="Fill" />
                 </Rectangle.Fill>
             </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="0"
+                       Width="3" HorizontalAlignment="Left" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="0,147,3,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
             <Rectangle Grid.Row="2" Grid.Column="1" Opacity="0.18">
                 <Rectangle.Fill>
                     <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
@@ -3021,6 +3099,15 @@
                 <Rectangle.Fill>
                     <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
                                 Viewbox="119,147,17,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="2"
+                       Width="3" HorizontalAlignment="Right" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="233,147,3,19"
                                 ViewboxUnits="Absolute"
                                 Stretch="Fill" />
                 </Rectangle.Fill>
@@ -3045,11 +3132,15 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
+                           <!-- v1.21.24 - arte 17x17 disegnata all'8% in meno (15,64 DIP);
+                                bersaglio di clic invariato a 20x20. Stretch=Uniform perche'
+                                ora c'e' una scala (prima era 1:1) e HighQuality perche' con
+                                NearestNeighbor una scala frazionaria salterebbe righe. -->
                     <Image x:Name="CloseGlyph"
                            Source="{x:Static bundle:PreviewAssets.Win81PreviewClose}"
-                           Width="17" Height="17" Stretch="None"
+                           Width="15.64" Height="15.64" Stretch="Uniform"
                            SnapsToDevicePixels="True"
-                           RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                           RenderOptions.BitmapScalingMode="HighQuality" />
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="CloseGlyph"

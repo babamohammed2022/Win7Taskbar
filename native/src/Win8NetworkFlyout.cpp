@@ -2867,6 +2867,24 @@ struct GdipGraphicsHolder {
 };
 static GdipCreateHICONFromBitmapFunc pGdipCreateHICONFromBitmap = NULL;
 
+/* v1.21.24 - GDI+ anche per i RIEMPIMENTI del riquadro di connessione.
+ *
+ * Finora GDI+ serviva solo alle immagini (bitmap, ridimensionamenti, icone).
+ * Queste quattro voci permettono di stendere un velo BIANCO TRASLUCIDO su
+ * quello che c'e' gia' sulla superficie, invece di calcolare a mano una tinta
+ * opaca sul colore del pannello. Si caricano come le altre e restano
+ * OPZIONALI: non entrano nel controllo che disabilita GDI+ perche' il velo ha
+ * comunque la sua ricaduta opaca (CharmsFillHover). */
+typedef int (WINAPI *GdipCreateFromHDCFunc)(HDC, void**);
+typedef int (WINAPI *GdipCreateSolidFillFunc)(unsigned int, void**);
+typedef int (WINAPI *GdipFillRectangleFunc)(void*, void*, int, int, int, int);
+typedef int (WINAPI *GdipDeleteBrushFunc)(void*);
+
+static GdipCreateFromHDCFunc pGdipCreateFromHDC = NULL;
+static GdipCreateSolidFillFunc pGdipCreateSolidFill = NULL;
+static GdipFillRectangleFunc pGdipFillRectangle = NULL;
+static GdipDeleteBrushFunc pGdipDeleteBrush = NULL;
+
 static BOOL g_inPasswordPrompt = FALSE;
 LRESULT CALLBACK ToolbarWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, DWORD_PTR uIdSubclass);
 static WCHAR g_TooltipBuffer[1024] = {0};
@@ -4732,6 +4750,13 @@ static BOOL InitGdiPlusRendering() {
     pGdipDisposeImage = (GdipDisposeImageFunc)GetProcAddress(g_hGdiPlus, "GdipDisposeImage");
     pGdipCreateBitmapFromStream = (GdipCreateBitmapFromStreamFunc)GetProcAddress(g_hGdiPlus, "GdipCreateBitmapFromStream");
     pGdipCreateHICONFromBitmap = (GdipCreateHICONFromBitmapFunc)GetProcAddress(g_hGdiPlus, "GdipCreateHICONFromBitmap");
+    /* v1.21.24: veli traslucidi. Se mancano, i riempimenti restano opachi. */
+    pGdipCreateFromHDC   = (GdipCreateFromHDCFunc)GetProcAddress(g_hGdiPlus, "GdipCreateFromHDC");
+    pGdipCreateSolidFill = (GdipCreateSolidFillFunc)GetProcAddress(g_hGdiPlus, "GdipCreateSolidFill");
+    pGdipFillRectangle   = (GdipFillRectangleFunc)GetProcAddress(g_hGdiPlus, "GdipFillRectangle");
+    pGdipDeleteBrush     = (GdipDeleteBrushFunc)GetProcAddress(g_hGdiPlus, "GdipDeleteBrush");
+    if (!pGdipCreateFromHDC || !pGdipCreateSolidFill || !pGdipFillRectangle || !pGdipDeleteBrush)
+        Wh_Log(L"GDI+: riempimenti traslucidi non disponibili, i veli restano opachi");
     if (!pGdipCreateBitmapFromHICON || !pGdipSetInterpolationMode || !pGdipDrawImageRectI ||
         !pGdipDeleteGraphics || !pGdipCreateBitmapFromScan0 || !pGdipGetImageGraphicsContext ||
         !pGdipSetPixelOffsetMode || !pGdipGraphicsClear || !pGdipCreateHBITMAPFromBitmap ||
@@ -9107,6 +9132,10 @@ static BOOL g_CharmsAirplaneOn         = FALSE;
 static BOOL g_CharmsWifiRadioOn        = TRUE;
 static RECT g_rcCharmsAutoConnect      = {0,0,0,0};
 static BOOL g_CharmsAutoConnect        = TRUE;
+
+/* v1.21.24 - il mouse e' sopra la riga "Connetti automaticamente": fino alla
+ * 1.21.23 quella riga non dava alcun riscontro al passaggio del mouse. */
+static BOOL g_CharmsAutoConnectHover    = FALSE;
 static BOOL g_CharmsExpandedConnected  = FALSE;  // expanded row is the active connection
 static HWND g_hWndCharmsPwEdit         = NULL;
 static HWND g_hWndCharmsConnectBtn     = NULL;
@@ -9266,6 +9295,78 @@ static COLORREF CharmsBlendWhite(COLORREF bg, int whitePercent) {
     g += ((255 - g) * whitePercent) / 100;
     b += ((255 - b) * whitePercent) / 100;
     return RGB(r, g, b);
+}
+
+/* v1.21.24 - velo bianco traslucido disegnato con GDI+.
+ *
+ * Riempie rc con un bianco all'alpha indicato (0-255): il velo si SOMMA a
+ * quello che c'e' sotto invece di sostituirlo, quindi resta corretto anche se
+ * sotto c'e' qualcosa di diverso dalla tinta piana del pannello.
+ *
+ * Tre accorgimenti, in quest'ordine:
+ *  - GDI+ e' opzionale: se le funzioni non sono state caricate si esce subito;
+ *  - il velo e' verificato leggendo il pixel prima e dopo: se la superficie
+ *    non ha accettato la fusione (nessun cambiamento), si ricade sul
+ *    riempimento opaco di sempre;
+ *  - tutto dentro un try/catch C++ - questa funzione viene chiamata anche
+ *    fuori dalle guardie SEH del disegno.
+ *
+ * Restituisce true quando il velo e' stato disegnato (anche con la ricaduta).
+ */
+static bool CharmsFillWhiteAlpha(HDC hdc, const RECT* rc, int alpha) {
+    if (!hdc || !rc) return false;
+    if (rc->right <= rc->left || rc->bottom <= rc->top) return true;
+    if (alpha <= 0) return true;
+    if (alpha > 255) alpha = 255;
+    if (!pGdipCreateFromHDC || !pGdipCreateSolidFill || !pGdipFillRectangle || !pGdipDeleteBrush)
+        return false;
+
+    const int probeX = rc->left + (rc->right - rc->left) / 2;
+    const int probeY = rc->top  + (rc->bottom - rc->top) / 2;
+    COLORREF before = GetPixel(hdc, probeX, probeY);
+
+    try {
+        /* RAII: il Graphics e il pennello escono da qui in ogni caso. */
+        GdipGraphicsHolder gfx;
+        if (pGdipCreateFromHDC(hdc, &gfx.gfx) != 0 || !gfx.gfx) return false;
+
+        struct BrushGuard {
+            void* brush = NULL;
+            ~BrushGuard() { if (brush != NULL) pGdipDeleteBrush(brush); }
+        } brushGuard;
+
+        const unsigned int argb = ((unsigned int)alpha << 24) | 0x00FFFFFFu;
+        if (pGdipCreateSolidFill(argb, &brushGuard.brush) != 0 || !brushGuard.brush)
+            return false;
+
+        if (pGdipFillRectangle(gfx.gfx, brushGuard.brush, rc->left, rc->top,
+                               rc->right - rc->left, rc->bottom - rc->top) != 0)
+            return false;
+    } catch (...) {
+        return false;
+    }
+
+    COLORREF after = GetPixel(hdc, probeX, probeY);
+    if (after == CLR_INVALID || after == before) return false;
+    return true;
+}
+
+/* Velo di hover/selezione con la stessa percentuale di bianco usata dal resto
+ * del pannello (CharmsBlendWhite): prima si prova la fusione vera con GDI+,
+ * se non riesce si usa il riempimento opaco. */
+static void CharmsFillHover(HDC hdc, const RECT* rc, int whitePercent) {
+    if (!hdc || !rc) return;
+    if (whitePercent < 0)   whitePercent = 0;
+    if (whitePercent > 100) whitePercent = 100;
+
+    const int alpha = (whitePercent * 255 + 50) / 100;   /* 14% -> 36, 30% -> 77 */
+    if (CharmsFillWhiteAlpha(hdc, rc, alpha)) return;
+
+    HBRUSH hBr = CreateSolidBrush(CharmsBlendWhite(CharmsPaneBg(), whitePercent));
+    if (hBr) {
+        FillRect(hdc, rc, hBr);
+        DeleteObject(hBr);
+    }
 }
 
 static void DrawCharmsToggle(HDC hdc, int x, int y, BOOL on) {
@@ -9549,10 +9650,13 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
         // instead of the old hardcoded blue.
         if (isExpanded || i == g_CharmsHoveredRow) {
             RECT rcHi = { ox, rowTop, panelW + ox, rowTop + blockH };
-            HBRUSH hBrHi = CreateSolidBrush(
-                CharmsBlendWhite(CharmsPaneBg(), isExpanded ? 22 : 14));
-            FillRect(hdc, &rcHi, hBrHi);
-            DeleteObject(hBrHi);
+            /* v1.21.24: velo vero con GDI+ (con ricaduta opaca) invece del
+             * riempimento calcolato sul colore del pannello. Il riquadro resta
+             * dentro il pannello (la fascia di sinistra e' trasparente per
+             * colore e non va mai riempita, nemmeno da GDI+). */
+            if (rcHi.right > panelW) rcHi.right = panelW;
+            if (rcHi.left  < 0)      rcHi.left  = 0;
+            CharmsFillHover(hdc, &rcHi, isExpanded ? 22 : 14);
         }
 
         // Name on the left, signal bars right-aligned at the pane margin.
@@ -9625,6 +9729,16 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
                 // "Connect automatically" - custom drawn rather than a child
                 // control, so it can sit on the color-keyed layered pane
                 // without a theme fighting the Metro look.
+                /* v1.21.24 - hover: la riga si accende come le altre righe del
+                 * pannello quando il mouse ci passa sopra (stato tenuto da
+                 * WM_MOUSEMOVE). Prima non c'era alcun riscontro. */
+                if (g_CharmsAutoConnectHover) {
+                    RECT rcChkHi = { cx - ScaleDpi(2), curY - ScaleDpi(2),
+                                     panelW - margin + ox, curY + ScaleDpi(20) };
+                    if (rcChkHi.right > panelW) rcChkHi.right = panelW;
+                    if (rcChkHi.left  < 0)      rcChkHi.left  = 0;
+                    CharmsFillHover(hdc, &rcChkHi, 14);
+                }
                 int chkX = cx + ScaleDpi(6);
                 int chkY = curY + ScaleDpi(2);
                 DrawCharmsCheckbox(hdc, chkX, chkY, g_CharmsAutoConnect);
@@ -10848,8 +10962,14 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
         POINT pt = {mx,my};
 
         if (g_UseCharmsTestStyle) {
+            /* v1.21.24: questa sorveglianza tocca lo stato del pannello e le
+             * finestre dei pulsanti (GetWindowRect su controlli figli): la
+             * stessa guardia SEH del disegno, cosi' un guasto qui resta un
+             * passaggio del mouse perso invece di un crash. */
+            W7T_SEH_TRY {
             BOOL wasLink = g_IsHoveringLink;
             int  wasRow  = g_CharmsHoveredRow;
+            BOOL wasChkHover = g_CharmsAutoConnectHover;
             g_IsHoveringLink = PtInRect(&g_rcCharmsLink, pt) != 0;
             BOOL overToggle = PtInRect(&g_rcCharmsAirplaneToggle, pt) ||
                               PtInRect(&g_rcCharmsWifiToggle, pt) ||
@@ -10859,6 +10979,8 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
                 if (PtInRect(&g_rcCharmsRows[i], pt)) { newRow = i; break; }
             }
             g_CharmsHoveredRow = newRow;
+            /* v1.21.24: hover della riga "Connetti automaticamente". */
+            g_CharmsAutoConnectHover = PtInRect(&g_rcCharmsAutoConnect, pt) != 0;
             POINT ptScreen = pt;
             ClientToScreen(hwnd, &ptScreen);
             auto hoverOf = [&](HWND h) -> BOOL {
@@ -10877,11 +10999,17 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             SetCursor(LoadCursor(NULL, (g_IsHoveringLink || overToggle || newRow != -1 ||
                                         g_CharmsConnectHover ||
                                         g_CharmsCancelHover) ? IDC_HAND : IDC_ARROW));
-            if (wasLink != g_IsHoveringLink || wasRow != g_CharmsHoveredRow) {
+            if (wasLink != g_IsHoveringLink || wasRow != g_CharmsHoveredRow ||
+                wasChkHover != g_CharmsAutoConnectHover) {
                 InvalidateRect(hwnd, NULL, FALSE);
                 TRACKMOUSEEVENT tme = {sizeof(TRACKMOUSEEVENT),TME_LEAVE,hwnd,0};
                 TrackMouseEvent(&tme);
             }
+            }
+            W7T_SEH_CATCH {
+                w7t::LogTagged(L"NET8", L"WM_MOUSEMOVE (pannello di connessione): eccezione ignorata");
+            }
+            W7T_SEH_END
             break;
         }
 
@@ -10929,6 +11057,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
         g_IsHoveringConnectButton = FALSE;
         g_HoveredRowIndex = -1;
         g_CharmsHoveredRow = -1;
+        g_CharmsAutoConnectHover = FALSE;   /* v1.21.24 */
         if (g_CharmsConnectHover) {
             g_CharmsConnectHover = FALSE;
             if (g_hWndCharmsConnectBtn && IsWindow(g_hWndCharmsConnectBtn))
@@ -10953,6 +11082,11 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
         POINT pt = {lx,ly};
 
         if (g_UseCharmsTestStyle) {
+            /* v1.21.24: il clic dentro il pannello tocca lo stato, lo shell e
+             * le finestre figlie: stessa guardia SEH della sorveglianza del
+             * mouse. Le `break` interne escono dal case come prima (il frame
+             * SEH lo stacca il pop RAII). */
+            W7T_SEH_TRY {
             if (PtInRect(&g_rcCharmsLink, pt)) {
                 /* v1.21.17: launch and slide-out both guarded: a failure here
                  * must not take the taskbar down. */
@@ -11011,6 +11145,11 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
                 g_CharmsExpandedRow = -1;
                 InvalidateRect(hwnd, NULL, TRUE);
             }
+            }
+            W7T_SEH_CATCH {
+                w7t::LogTagged(L"NET8", L"WM_LBUTTONDOWN (pannello di connessione): eccezione ignorata");
+            }
+            W7T_SEH_END
             break;
         }
 
