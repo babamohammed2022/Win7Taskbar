@@ -1704,9 +1704,9 @@ namespace Win7Taskbar
 
         /// <summary>
         /// v1.21.28 - cambio posizione a runtime: chiude popup/anteprime che
-        * altrimenti resterebbero ancorati alle coordinate del lato vecchio,
-        * riapplica orientamento e geometria e rin egocia l'AppBar sul nuovo
-        * edge. Chiamato all'avvio (OnLoaded) e dal pacchetto Proprietà.
+        /// altrimenti resterebbero ancorati alle coordinate del lato vecchio,
+        /// riapplica orientamento e geometria e rinegocia l'AppBar sul nuovo
+        /// edge. Chiamato all'avvio (OnLoaded) e dal pacchetto Proprietà.
         /// </summary>
         internal void ApplyTaskbarPosition()
         {
