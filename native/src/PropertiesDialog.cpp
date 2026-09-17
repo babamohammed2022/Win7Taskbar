@@ -1118,8 +1118,8 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         /* v1.21.8: text, fonts and tab pages are final here, so the command
          * buttons can be measured and put in the corner, and the window can
          * be pulled back inside the work area if it does not fit. */
-        FitDialogToWorkArea(hwnd);
-        LayoutCommandButtons(hwnd);
+        self->FitDialogToWorkArea(hwnd);
+        self->LayoutCommandButtons(hwnd);
 
         return TRUE;
     }

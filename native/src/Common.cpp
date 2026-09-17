@@ -562,6 +562,11 @@ HICON ResolveAppIcon(const wchar_t* lnk, const wchar_t* target, bool large) {
     }
 
     if (lnk != nullptr && lnk[0] != 0) {
+        /* v1.21.8: filled when the shortcut names an icon that
+         * ExtractIconExW cannot read. The shell is asked for that same file
+         * after the COM scope below, so the SEH guard is never nested. */
+        std::wstring iconFallbackPath;
+
         W7T_SEH_TRY {
             IShellLinkW* link = nullptr;
             if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr,
@@ -594,23 +599,10 @@ HICON ResolveAppIcon(const wchar_t* lnk, const wchar_t* target, bool large) {
                                     if (smallIcon) DestroyIcon(smallIcon);
                                 }
 
-                                /* Second chance, still on the file named by
-                                 * the shortcut and never on the .lnk (which
-                                 * would carry the link overlay): the shell can
-                                 * draw an icon for files ExtractIconEx does
-                                 * not read. Only reached when the extraction
-                                 * above failed, so a good icon is never
-                                 * replaced by a generic one. */
-                                SHFILEINFOW sfiIcon{};
-                                W7T_SEH_TRY {
-                                    if (SHGetFileInfoW(iconResolved, 0, &sfiIcon,
-                                            sizeof(sfiIcon), f) &&
-                                        sfiIcon.hIcon != nullptr) {
-                                        pf->Release();
-                                        link->Release();
-                                        return sfiIcon.hIcon;
-                                    }
-                                } W7T_SEH_CATCH {} W7T_SEH_END
+                                /* The extraction failed even though the
+                                 * shortcut names an icon: remember the path
+                                 * and let the shell have a try below. */
+                                iconFallbackPath = iconResolved;
                             }
                         }
                     }
@@ -619,6 +611,22 @@ HICON ResolveAppIcon(const wchar_t* lnk, const wchar_t* target, bool large) {
                 link->Release();
             }
         } W7T_SEH_CATCH {} W7T_SEH_END
+
+        /* Second chance, on the file the shortcut itself names and never on
+         * the .lnk (which would carry the link overlay): the shell can draw an
+         * icon for a file ExtractIconExW does not read. Only reached when the
+         * extraction above failed, so a working icon is never replaced by a
+         * generic one, and it keeps priority over the packaged and target
+         * fallbacks below because the shortcut is the user's own choice. */
+        if (!iconFallbackPath.empty()) {
+            SHFILEINFOW sfiIcon{};
+            W7T_SEH_TRY {
+                if (SHGetFileInfoW(iconFallbackPath.c_str(), 0, &sfiIcon,
+                        sizeof(sfiIcon), f) && sfiIcon.hIcon != nullptr) {
+                    return sfiIcon.hIcon;
+                }
+            } W7T_SEH_CATCH {} W7T_SEH_END
+        }
 
         /* v1.7.2: scorciatoie di app pacchettizzate (UWP): il lnk non ha
          * GetIconLocation utile (il glifo e' nel pacchetto). L'AppUserModelID
