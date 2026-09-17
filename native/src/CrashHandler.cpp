@@ -33,6 +33,44 @@ void WriteCrashLine(HANDLE file, const wchar_t* text) noexcept
     WriteFile(file, nl, 2, &written, nullptr);
 }
 
+/* v1.21.18: the same event, as one line in log-core.txt - the file a tester
+ * is already asked for. Win32 only, fixed buffers, because the heap may
+ * already be unusable when this runs. The path rule is the one
+ * w7t::AppendCoreLog() uses: log-core.txt beside the running module. */
+void AppendCrashToCoreLog(const wchar_t* summary) noexcept
+{
+    if (summary == nullptr) return;
+
+    wchar_t modulePath[MAX_PATH]{};
+    if (GetModuleFileNameW(nullptr, modulePath, ARRAYSIZE(modulePath)) == 0) return;
+    int lastSlash = -1;
+    for (int i = 0; modulePath[i] != L'\0'; i++) {
+        if (modulePath[i] == L'\\') lastSlash = i;
+    }
+    if (lastSlash < 0) return;
+    modulePath[lastSlash + 1] = L'\0';
+
+    wchar_t logPath[MAX_PATH]{};
+    lstrcpynW(logPath, modulePath, ARRAYSIZE(logPath));
+    lstrcatW(logPath, L"log-core.txt");
+
+    HANDLE file = CreateFileW(logPath, FILE_APPEND_DATA,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return;
+
+    SYSTEMTIME now{};
+    GetLocalTime(&now);
+    wchar_t line[512]{};
+    wsprintfW(line, L"%04u-%02u-%02u %02u:%02u:%02u.%03u [CRASH] %s\r\n",
+              now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute,
+              now.wSecond, now.wMilliseconds, summary);
+    DWORD written = 0;
+    WriteFile(file, line, static_cast<DWORD>(lstrlenW(line)) * sizeof(wchar_t),
+              &written, nullptr);
+    CloseHandle(file);
+}
+
 void WriteCrashReport(EXCEPTION_POINTERS* ep) noexcept
 {
     if (InterlockedExchange(&g_crashReporting, 1) != 0) return;
@@ -100,6 +138,57 @@ void WriteCrashReport(EXCEPTION_POINTERS* ep) noexcept
     DWORD pathLength = GetModuleFileNameW(nullptr, processPath, ARRAYSIZE(processPath));
     if (pathLength > 0) {
         WriteCrashLine(file, processPath);
+    }
+
+    /* v1.21.18: WHICH module faulted and at which offset. Without this a
+     * report only carries a bare address, which is useless across runs. */
+    if (ep != nullptr && ep->ExceptionRecord != nullptr &&
+        ep->ExceptionRecord->ExceptionAddress != nullptr) {
+        HMODULE faultModule = nullptr;
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCWSTR>(
+                                   ep->ExceptionRecord->ExceptionAddress),
+                               &faultModule) &&
+            faultModule != nullptr) {
+            wchar_t modulePath[MAX_PATH]{};
+            if (GetModuleFileNameW(faultModule, modulePath, ARRAYSIZE(modulePath)) > 0) {
+                const unsigned long long offset =
+                    static_cast<unsigned long long>(
+                        reinterpret_cast<ULONG_PTR>(
+                            ep->ExceptionRecord->ExceptionAddress) -
+                        reinterpret_cast<ULONG_PTR>(faultModule));
+                /* A path is longer than the 256-char line buffer used
+                 * above, so these two lines get a buffer of their own. */
+                wchar_t moduleLine[MAX_PATH + 64]{};
+                wsprintfW(moduleLine, L"faultingModule=%s", modulePath);
+                WriteCrashLine(file, moduleLine);
+                wsprintfW(moduleLine, L"faultingOffset=+0x%I64X", offset);
+                WriteCrashLine(file, moduleLine);
+
+                wchar_t summary[400]{};
+                wsprintfW(summary, L"unhandled exception 0x%08lX in %s +0x%I64X",
+                          ep->ExceptionRecord->ExceptionCode, modulePath, offset);
+                AppendCrashToCoreLog(summary);
+            }
+        }
+    }
+
+    /* The log the tester is asked for, so one file already has the story. */
+    {
+        wchar_t coreLog[MAX_PATH]{};
+        lstrcpynW(coreLog, processPath, ARRAYSIZE(coreLog));
+        int lastSlash = -1;
+        for (int i = 0; coreLog[i] != L'\0'; i++) {
+            if (coreLog[i] == L'\\') lastSlash = i;
+        }
+        if (lastSlash >= 0) {
+            coreLog[lastSlash + 1] = L'\0';
+            lstrcatW(coreLog, L"log-core.txt");
+            wchar_t logLine[MAX_PATH + 16]{};
+            wsprintfW(logLine, L"coreLog=%s", coreLog);
+            WriteCrashLine(file, logLine);
+        }
     }
 
     CloseHandle(file);

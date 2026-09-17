@@ -1345,6 +1345,20 @@ void w7t::AppendCoreLog(const wchar_t* line) {
         return;
     }
 
+    /* v1.21.18: one header line per process, so every log says which build
+     * wrote it. "local" means the DLL was compiled without the release stamp. */
+    static volatile LONG s_stampWritten = 0;
+    if (InterlockedCompareExchange(&s_stampWritten, 1, 0) == 0) {
+        wchar_t header[192] = {};
+        const int headerChars = wsprintfW(
+            header, L"=== Win7Taskbar core build: %s ===\r\n", W7T_BUILD_STAMP);
+        if (headerChars > 0) {
+            DWORD done = 0;
+            WriteFile(file, header,
+                      static_cast<DWORD>(headerChars) * sizeof(wchar_t), &done, nullptr);
+        }
+    }
+
     SYSTEMTIME now = {};
     GetLocalTime(&now);
     wchar_t buffer[640];

@@ -118,22 +118,27 @@ namespace Win7Taskbar.Controls
         }
 
         /// <summary>
-        /// v1.21.8: destination rectangle of the live thumbnail, in the CLIENT
+        /// v1.21.18: destination rectangle of the live thumbnail, in the CLIENT
         /// coordinates of the window that hosts this control.
         ///
         /// DWM_THUMBNAIL_PROPERTIES.rcDestination is documented as "the area in
         /// the destination window where the thumbnail will be rendered", i.e.
-        /// client coordinates, and DWM stretches rcSource into it. Two details
-        /// therefore matter and both are handled here:
+        /// client coordinates in device pixels, and DWM stretches rcSource into
+        /// it. Two details therefore matter and both are handled here:
         ///
-        ///   * the rectangle must come from the CURRENT layout and the CURRENT
-        ///     DPI of the monitor the popup is on. The old code multiplied a
-        ///     scale sampled once at Loaded time, so a popup that opened or
-        ///     moved on a monitor with different scaling drew the live surface
-        ///     somewhere else at the wrong size;
-        ///   * each edge is rounded on its own, exactly like the frame's own
-        ///     layout rounding, so the aperture of the frame and the DWM
-        ///     rectangle stay the same rectangle even at 125%/150%.
+        ///   * the rectangle must come from the CURRENT layout, the CURRENT
+        ///     monitor and the CURRENT transform chain. Both corners are taken
+        ///     with PointToScreen - device pixels, every transform applied -
+        ///     and the popup's own client origin is subtracted. The old code
+        ///     multiplied a DIP rectangle by VisualTreeHelper.GetDpi, which
+        ///     stops being the painted rectangle as soon as the element's
+        ///     physical size is not exactly its DIP size times the monitor
+        ///     scale (fractional sizes at 125%/150%, and the popup's own
+        ///     normalisation that keeps the previews at their 100%-DPI pixel
+        ///     geometry);
+        ///   * each edge is rounded on its own, exactly the way WPF rounds the
+        ///     frame's own layout, so the aperture of the frame and the DWM
+        ///     rectangle stay the same rectangle at every display scaling.
         ///
         /// No value is guessed: when the layout is not ready yet the caller
         /// skips the update instead of painting the thumbnail at a wrong place.
@@ -153,22 +158,32 @@ namespace Win7Taskbar.Controls
                     return false;
                 }
 
-                DpiScale dpi = VisualTreeHelper.GetDpi(this);
-                if (dpi.DpiScaleX <= 0 || dpi.DpiScaleY <= 0)
-                {
-                    return false;
-                }
-
-                Point topLeft = TransformToAncestor(root).Transform(new Point(0, 0));
-                Point bottomRight = TransformToAncestor(root)
-                    .Transform(new Point(ActualWidth, ActualHeight));
+                /* v1.21.18: PHYSICAL pixels come from PointToScreen alone.
+                 * PointToScreen maps through the whole transform chain -
+                 * layout transforms, the DPI of the monitor the popup is on,
+                 * layout rounding - and returns device pixels, which is what
+                 * DWM_THUMBNAIL_PROPERTIES.rcDestination uses. The previous
+                 * version multiplied DIP coordinates by VisualTreeHelper
+                 * .GetDpi, which is only correct while the element's own DIP
+                 * size times the monitor scale is the size actually painted:
+                 * at 125% the fixed 236x166 preview geometry lands on half
+                 * pixels (207.5 px tall), so the raw multiplication and the
+                 * painted aperture could disagree by up to one pixel and the
+                 * live surface sat a fraction of a pixel off its own frame.
+                 * Taking both corners in screen space and subtracting the
+                 * popup's own client origin removes the guesswork: the two
+                 * points share the same transform chain, so the difference is
+                 * exactly where the aperture was drawn inside the popup. */
+                Point topLeft = PointToScreen(new Point(0, 0));
+                Point bottomRight = PointToScreen(new Point(ActualWidth, ActualHeight));
+                Point clientOrigin = root.PointToScreen(new Point(0, 0));
 
                 rect = new NativeMethods.RECT
                 {
-                    Left = (int)Math.Round(topLeft.X * dpi.DpiScaleX),
-                    Top = (int)Math.Round(topLeft.Y * dpi.DpiScaleY),
-                    Right = (int)Math.Round(bottomRight.X * dpi.DpiScaleX),
-                    Bottom = (int)Math.Round(bottomRight.Y * dpi.DpiScaleY)
+                    Left = (int)Math.Round(topLeft.X - clientOrigin.X),
+                    Top = (int)Math.Round(topLeft.Y - clientOrigin.Y),
+                    Right = (int)Math.Round(bottomRight.X - clientOrigin.X),
+                    Bottom = (int)Math.Round(bottomRight.Y - clientOrigin.Y)
                 };
                 return rect.Right > rect.Left && rect.Bottom > rect.Top;
             }

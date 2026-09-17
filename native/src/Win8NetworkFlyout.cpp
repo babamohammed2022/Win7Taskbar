@@ -2882,9 +2882,19 @@ typedef enum {
     STR_PWD_EMPTY,
     STR_TRAY_TROUBLESHOOT,
     STR_TRAY_NETWORK_SETTINGS,
-    // New strings for HomeGroup fallback
-    STR_ADVANCED_SHARING_TITLE,
-    STR_ADVANCED_SHARING_DESC,
+
+    // Windows 8 Charms "Networks" pane (v1.21.18): the pane used to draw
+    // hardcoded English literals; these are the strings it now takes from
+    // the same pack as every other surface of the flyout. Appended at the
+    // end on purpose, so every existing id keeps its value.
+    STR_CHARMS_TITLE_NETWORKS,
+    STR_CHARMS_CONNECTIONS,
+    STR_CHARMS_WIFI,
+    STR_CHARMS_AIRPLANE,
+    STR_CHARMS_ON,
+    STR_CHARMS_OFF,
+    STR_CHARMS_VIEW_SETTINGS,
+    STR_CHARMS_ENTER_KEY,
     STR_COUNT
 } LocaleStringId;
 
@@ -2940,6 +2950,14 @@ static const LocalePack g_Locales[] = {
         L"Please enter a network security key.",
         L"Troubleshoot problems",
         L"Open Network and Sharing Center",
+        L"Networks",
+        L"Connections",
+        L"Wi-Fi",
+        L"Airplane mode",
+        L"On",
+        L"Off",
+        L"View Connection Settings",
+        L"Enter the network security key",
     }},
     { 0x0410, {
         L"Attualmente connesso a:",
@@ -2987,6 +3005,14 @@ static const LocalePack g_Locales[] = {
         L"Inserire una chiave di sicurezza di rete.",
         L"Risoluzione problemi",
         L"Apri Centro connessioni di rete e condivisione",
+        L"Reti",
+        L"Connessioni",
+        L"Wi-Fi",
+        L"Modalit\u00E0 aereo",
+        L"Attivata",
+        L"Disattivata",
+        L"Visualizza impostazioni connessione",
+        L"Immettere la chiave di sicurezza di rete",
     }},
     { 0x040A, {
         L"Conectado actualmente a:",
@@ -3034,6 +3060,14 @@ static const LocalePack g_Locales[] = {
         L"Escriba una clave de seguridad de red.",
         L"Solucionar problemas",
         L"Abrir el Centro de redes y recursos compartidos",
+        L"Redes",
+        L"Conexiones",
+        L"Wi-Fi",
+        L"Modo avi\u00F3n",
+        L"Activado",
+        L"Desactivado",
+        L"Ver configuraci\u00F3n de conexi\u00F3n",
+        L"Escriba la clave de seguridad de red",
     }},
     { 0x040C, {
         L"Connect\u00E9 actuellement \u00E0 :",
@@ -3081,6 +3115,14 @@ static const LocalePack g_Locales[] = {
         L"Veuillez entrer une cl\u00E9 de s\u00E9curit\u00E9 r\u00E9seau.",
         L"R\u00E9soudre les probl\u00E8mes",
         L"Ouvrir le Centre R\u00E9seau et partage",
+        L"R\u00E9seaux",
+        L"Connexions",
+        L"Wi-Fi",
+        L"Mode avion",
+        L"Activ\u00E9",
+        L"D\u00E9sactiv\u00E9",
+        L"Afficher les param\u00E8tres de connexion",
+        L"Entrez la cl\u00E9 de s\u00E9curit\u00E9 r\u00E9seau",
     }},
     { 0x0419, {
         L"\u0422\u0435\u043A\u0443\u0449\u0435\u0435 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435:",
@@ -3128,6 +3170,14 @@ static const LocalePack g_Locales[] = {
         L"\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043A\u043B\u044E\u0447 \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E\u0441\u0442\u0438.",
         L"\u0423\u0441\u0442\u0440\u0430\u043D\u0435\u043D\u0438\u0435 \u043D\u0435\u043F\u043E\u043B\u0430\u0434\u043E\u043A",
         L"\u0426\u0435\u043D\u0442\u0440 \u0441\u0435\u0442\u0435\u0439 \u0438 \u043E\u0431\u0449\u0435\u0433\u043E \u0434\u043E\u0441\u0442\u0443\u043F\u0430",
+        L"\u0421\u0435\u0442\u0438",
+        L"\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F",
+        L"Wi-Fi",
+        L"\u0420\u0435\u0436\u0438\u043C \u043F\u043E\u043B\u0435\u0442\u0430",
+        L"\u0412\u043A\u043B.",
+        L"\u0412\u044B\u043A\u043B.",
+        L"\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u043E\u0432 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F",
+        L"\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043A\u043B\u044E\u0447 \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E\u0441\u0442\u0438 \u0441\u0435\u0442\u0438",
     }},
     { 0x0407, {
         L"Verbunden mit:",
@@ -3175,6 +3225,14 @@ static const LocalePack g_Locales[] = {
         L"Bitte Sicherheitsschl\u00FCssel eingeben.",
         L"Problembehandlung",
         L"Netzwerkcenter \u00F6ffnen",
+        L"Netzwerke",
+        L"Verbindungen",
+        L"WLAN",
+        L"Flugzeugmodus",
+        L"Ein",
+        L"Aus",
+        L"Verbindungseinstellungen anzeigen",
+        L"Geben Sie den Netzwerksicherheitsschl\u00FCssel ein",
     }},
     { 0x0816, {
         L"Ligado a:",
@@ -3222,6 +3280,14 @@ static const LocalePack g_Locales[] = {
         L"Insira a chave de seguran\u00E7a.",
         L"Resolver problemas",
         L"Abrir Centro de Rede",
+        L"Redes",
+        L"Conex\u00F5es",
+        L"Wi-Fi",
+        L"Modo avi\u00E3o",
+        L"Ativado",
+        L"Desativado",
+        L"Ver configura\u00E7\u00F5es de conex\u00E3o",
+        L"Digite a chave de seguran\u00E7a de rede",
     }},
     { 0x0415, {
         L"Obecnie połączono z:",
@@ -3269,6 +3335,14 @@ static const LocalePack g_Locales[] = {
         L"Wprowadź klucz zabezpieczeń sieci.",
         L"Rozwiązywanie problemów",
         L"Otwórz Centrum sieci i udostępniania",
+        L"Sieci",
+        L"Po\u0142\u0105czenia",
+        L"Wi-Fi",
+        L"Tryb samolotowy",
+        L"W\u0142\u0105czone",
+        L"Wy\u0142\u0105czone",
+        L"Wy\u015Bwietl ustawienia po\u0142\u0105czenia",
+        L"Wprowad\u017A klucz bezpiecze\u0144stwa sieci",
     }},
     { 0x0413, {
         L"Momenteel verbonden met:",
@@ -3316,6 +3390,14 @@ static const LocalePack g_Locales[] = {
         L"Voer een netwerkbeveiligingssleutel in.",
         L"Problemen oplossen",
         L"Netwerkcentrum openen",
+        L"Netwerken",
+        L"Verbindingen",
+        L"Wi-Fi",
+        L"Vliegtuigmodus",
+        L"Aan",
+        L"Uit",
+        L"Verbindingsinstellingen weergeven",
+        L"Voer de netwerkbeveiligingssleutel in",
     }},
     { 0x0418, {
         L"Conectat în prezent la:",
@@ -3363,6 +3445,14 @@ static const LocalePack g_Locales[] = {
         L"Introduceți o cheie de securitate a rețelei.",
         L"Remediere probleme",
         L"Deschide Centrul de rețea și partajare",
+        L"Re\u021Bele",
+        L"Conexiuni",
+        L"Wi-Fi",
+        L"Mod avion",
+        L"Activat",
+        L"Dezactivat",
+        L"Afi\u0219a\u021Bi set\u0103rile de conexiune",
+        L"Introduce\u021Bi cheia de securitate a re\u021Belei",
     }},
     { 0x041F, {
         L"Şu anda bağlı:",
@@ -3410,6 +3500,14 @@ static const LocalePack g_Locales[] = {
         L"Lütfen bir ağ güvenlik anahtarı girin.",
         L"Sorunları gider",
         L"Ağ ve Paylaşım Merkezini Aç",
+        L"A\u011Flar",
+        L"Ba\u011Flant\u0131lar",
+        L"Wi-Fi",
+        L"U\u00E7ak modu",
+        L"A\u00E7\u0131k",
+        L"Kapal\u0131",
+        L"Ba\u011Flant\u0131 ayarlar\u0131n\u0131 g\u00F6r\u00FCnt\u00FCle",
+        L"A\u011F g\u00FCvenlik anahtar\u0131n\u0131 girin",
     }},
 };
 
@@ -5478,6 +5576,37 @@ static DWORD SafeWlanGetAvailableNetworkList(HANDLE hClient,
     }
 }
 
+/* v1.21.18: the CURRENT connection of an interface. Unlike the available
+ * network list this answer never depends on the radio having scanned, so it
+ * is what makes a connected machine show its connection even when the list
+ * comes back empty. WlanQueryInterface is not one of the calls the first
+ * batch already guarded, hence its own pair. */
+static DWORD WlanQueryCurrentConnectionInner(HANDLE hClient, const GUID* pInterfaceGuid,
+                                             PVOID* outData, DWORD* outSize) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanQueryInterface(hClient, pInterfaceGuid,
+                                    wlan_intf_opcode_current_connection,
+                                    NULL, outSize, outData, NULL);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanQueryCurrentConnection(HANDLE hClient, const GUID* pInterfaceGuid,
+                                            PVOID* outData, DWORD* outSize) {
+    try {
+        return WlanQueryCurrentConnectionInner(hClient, pInterfaceGuid, outData, outSize);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
 static DWORD WlanScanInner(HANDLE hClient, const GUID* pInterfaceGuid) {
     DWORD result = ERROR_INVALID_PARAMETER;
     W7T_SEH_TRY
@@ -5762,6 +5891,78 @@ void RefreshWifiData(HANDLE hClient) {
             WlanFreeMemory(pBssList);
         }
         if (pProfList) WlanFreeMemory(pProfList);
+    }
+    /* v1.21.18: empty list, but is the machine really offline? The available
+     * network list is empty until the radio has scanned (right after logon, or
+     * after an adapter has been re-enabled), and it stays empty on an
+     * interface that is connected to a network whose beacons are not in the
+     * scan cache. The driver knows the connection without any scan, so the
+     * connected row is taken from there: the pane then shows the connection
+     * the user is actually on instead of a blank section. */
+    if (tempCount == 0 && pIfList) {
+        for (DWORD i = 0; i < pIfList->dwNumberOfItems && tempCount < 50; i++) {
+            PVOID connData = NULL;
+            DWORD connSize = 0;
+            const DWORD connResult = SafeWlanQueryCurrentConnection(
+                hClient, &pIfList->InterfaceInfo[i].InterfaceGuid,
+                &connData, &connSize);
+            if (connResult != ERROR_SUCCESS || !connData ||
+                connSize < sizeof(WLAN_CONNECTION_ATTRIBUTES)) {
+                if (connData) WlanFreeMemory(connData);
+                continue;
+            }
+            WLAN_CONNECTION_ATTRIBUTES attr;
+            CopyMemory(&attr, connData, sizeof(attr));
+            WlanFreeMemory(connData);
+            if (attr.isState != wlan_interface_state_connected)
+                continue;
+
+            WifiNetworkItem& item = tempList[tempCount];
+            ZeroMemory(&item, sizeof(item));
+            const size_t ssidLen = (size_t)attr.wlanAssociationAttributes.dot11Ssid.uSSIDLength;
+            if (ssidLen > 0) {
+                BYTE cleanSsid[33] = {0};
+                size_t cleanLen = (ssidLen < 32u) ? ssidLen : 32u;
+                for (size_t k = 0; k < cleanLen; k++) {
+                    cleanSsid[k] = (attr.wlanAssociationAttributes.dot11Ssid.ucSSID[k] == 0)
+                                   ? (BYTE)' '
+                                   : attr.wlanAssociationAttributes.dot11Ssid.ucSSID[k];
+                }
+                cleanSsid[cleanLen] = 0;
+                int converted = MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)cleanSsid,
+                                                    (int)cleanLen, item.ssid, 32);
+                if (converted <= 0) {
+                    for (size_t k = 0; k < cleanLen; k++)
+                        item.ssid[k] = (WCHAR)cleanSsid[k];
+                    converted = (int)cleanLen;
+                }
+                item.ssid[converted] = L'\0';
+            } else if (attr.strProfileName[0] != L'\0') {
+                /* A hidden network still has a profile name. */
+                StringCchCopyW(item.ssid, 33, attr.strProfileName);
+            } else {
+                StringCchCopyW(item.ssid, 33, L"Hidden Network");
+            }
+            item.isSecured = attr.wlanSecurityAttributes.bSecurityEnabled;
+            item.signalQuality = attr.wlanAssociationAttributes.wlanSignalQuality;
+            item.interfaceGuid = pIfList->InterfaceInfo[i].InterfaceGuid;
+            item.dot11BssType = attr.wlanAssociationAttributes.dot11BssType;
+            item.hasProfile = TRUE;      /* it is connected: the profile exists */
+            item.hasInternetAccess = FALSE;
+            item.connState = CONN_STATE_CONNECTED;
+            item.operationStartTime = 0;
+            item.authAlgorithm = attr.wlanSecurityAttributes.dot11AuthAlgorithm;
+            item.cipherAlgorithm = attr.wlanSecurityAttributes.dot11CipherAlgorithm;
+            item.displaySuffix = 0;
+            item.hasBssid = FALSE;
+            ZeroMemory(item.bssid, sizeof(item.bssid));
+            tempCount++;
+            break;                        /* one connected row is what the pane shows */
+        }
+        if (tempCount > 0) {
+            w7t::LogTagged(L"NET8",
+                           L"available-network list was empty: connected network read from the driver");
+        }
     }
     WlanFreeMemory(pIfList);
     {
@@ -7185,6 +7386,42 @@ void DisconnectFromNetwork(int index) {
     }
 }
 
+/* v1.21.18: the connect / disconnect paths talk to the WLAN driver - profile
+ * XML built and written, then a connection attempt, all of it on the flyout
+ * thread. They get the same two shields as the shell launches, in the
+ * established shape: SEH inside, C++ catch outside, one pair per action. */
+static void SafeConnectToNetwork(int index, const WCHAR* inlinePassword = NULL) {
+    try {
+        W7T_SEH_TRY
+        {
+            ConnectToNetwork(index, inlinePassword);
+        }
+        W7T_SEH_CATCH
+        {
+            w7t::LogTagged(L"NET8", L"connect faulted: ignored (index %d)", index);
+        }
+        W7T_SEH_END
+    } catch (...) {
+        w7t::LogTagged(L"NET8", L"connect raised a C++ exception: ignored (index %d)", index);
+    }
+}
+
+static void SafeDisconnectFromNetwork(int index) {
+    try {
+        W7T_SEH_TRY
+        {
+            DisconnectFromNetwork(index);
+        }
+        W7T_SEH_CATCH
+        {
+            w7t::LogTagged(L"NET8", L"disconnect faulted: ignored (index %d)", index);
+        }
+        W7T_SEH_END
+    } catch (...) {
+        w7t::LogTagged(L"NET8", L"disconnect raised a C++ exception: ignored (index %d)", index);
+    }
+}
+
 void CheckConnectionTimeouts() {
     if (!g_Ctx.hWlanClient) return;
 
@@ -8431,10 +8668,10 @@ void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
 
         switch (cmd) {
         case IDM_CONNECT:
-            ConnectToNetwork(targetIndex);
+            SafeConnectToNetwork(targetIndex);
             break;
         case IDM_DISCONNECT:
-            DisconnectFromNetwork(targetIndex);
+            SafeDisconnectFromNetwork(targetIndex);
             break;
         case IDM_STATUS:
 case IDM_PROPERTIES:
@@ -8906,14 +9143,15 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     int cxTitle = margin + oxTitle;
 
     SelectObject(hdc, hFontTitle);
-    TextOutW(hdc, cxTitle, curY, L"Networks", 8);
+    TextOutW(hdc, cxTitle, curY, LOC(STR_CHARMS_TITLE_NETWORKS),
+             lstrlenW(LOC(STR_CHARMS_TITLE_NETWORKS)));
     curY += ScaleDpi(56);
 
     // Link: the hover state is a full-width lighter band (like every other
     // hit target in the pane), not an underline. The rect is measured from
     // the actual text extent so the click area matches what's drawn.
     SelectObject(hdc, hFontBody);
-    const wchar_t* linkText = L"View Connection Settings";
+    const wchar_t* linkText = LOC(STR_CHARMS_VIEW_SETTINGS);
     SIZE linkSz; GetTextExtentPoint32W(hdc, linkText, lstrlenW(linkText), &linkSz);
     int linkPadY = ScaleDpi(8);
     if (g_IsHoveringLink) {
@@ -8928,11 +9166,16 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
 
     // Airplane mode section
     SelectObject(hdc, hFontSection);
-    TextOutW(hdc, cx, curY, L"Airplane mode", 13);
+    TextOutW(hdc, cx, curY, LOC(STR_CHARMS_AIRPLANE),
+             lstrlenW(LOC(STR_CHARMS_AIRPLANE)));
     curY += ScaleDpi(30);
     SelectObject(hdc, hFontBody);
-    TextOutW(hdc, cx, curY + ScaleDpi(3),
-             g_CharmsAirplaneOn ? L"On" : L"Off", g_CharmsAirplaneOn ? 2 : 3);
+    {
+        const WCHAR* airplaneState =
+            g_CharmsAirplaneOn ? LOC(STR_CHARMS_ON) : LOC(STR_CHARMS_OFF);
+        TextOutW(hdc, cx, curY + ScaleDpi(3), airplaneState,
+                 lstrlenW(airplaneState));
+    }
     {
         int tx = panelW - margin - ScaleDpi(44) + ox, ty = curY;
         DrawCharmsToggle(hdc, tx, ty, g_CharmsAirplaneOn);
@@ -8948,7 +9191,8 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     BOOL isAnyConnected = (paintState.ethernetConnected || isWifiConnected);
 
     SelectObject(hdc, hFontSection);
-    TextOutW(hdc, cx, curY, L"Connections", 11);
+    TextOutW(hdc, cx, curY, LOC(STR_CHARMS_CONNECTIONS),
+             lstrlenW(LOC(STR_CHARMS_CONNECTIONS)));
     curY += ScaleDpi(30);
 
     if (isAnyConnected) {
@@ -8963,17 +9207,32 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
         SelectObject(hdc, hFontBodyBold);
         TextOutW(hdc, cx, curY, displayName, lstrlenW(displayName));
         SelectObject(hdc, hFontBody);
-        TextOutW(hdc, cx, curY + ScaleDpi(18), L"Connected", 9);
+        TextOutW(hdc, cx, curY + ScaleDpi(18), LOC(STR_CONNECTED_TEXT),
+                 lstrlenW(LOC(STR_CONNECTED_TEXT)));
+        curY += ScaleDpi(52);
+    } else {
+        /* v1.21.18: nothing to show is a state, not an empty area. Windows 8
+         * prints one of these two lines, and an empty section reads as a
+         * broken pane. */
+        const WCHAR* stateText = (paintState.networkCount > 0)
+            ? LOC(STR_CONNECTIONS_AVAILABLE)
+            : LOC(STR_NO_CONNECTIONS);
+        SelectObject(hdc, hFontBody);
+        TextOutW(hdc, cx, curY, stateText, lstrlenW(stateText));
         curY += ScaleDpi(52);
     }
 
     // Wi-Fi section
     SelectObject(hdc, hFontSection);
-    TextOutW(hdc, cx, curY, L"Wi-Fi", 5);
+    TextOutW(hdc, cx, curY, LOC(STR_CHARMS_WIFI),
+             lstrlenW(LOC(STR_CHARMS_WIFI)));
     curY += ScaleDpi(30);
     SelectObject(hdc, hFontBody);
-    TextOutW(hdc, cx, curY + ScaleDpi(3),
-             g_CharmsWifiRadioOn ? L"On" : L"Off", g_CharmsWifiRadioOn ? 2 : 3);
+    {
+        const WCHAR* wifiState =
+            g_CharmsWifiRadioOn ? LOC(STR_CHARMS_ON) : LOC(STR_CHARMS_OFF);
+        TextOutW(hdc, cx, curY + ScaleDpi(3), wifiState, lstrlenW(wifiState));
+    }
     {
         int tx = panelW - margin - ScaleDpi(44) + ox, ty = curY;
         DrawCharmsToggle(hdc, tx, ty, g_CharmsWifiRadioOn);
@@ -9032,7 +9291,7 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
 
         // "Connected" sits just left of the signal bars, as in Windows 8.
         if (isConnected) {
-            const wchar_t* connText = L"Connected";
+            const wchar_t* connText = LOC(STR_CONNECTED_TEXT);
             SIZE connSz;
             GetTextExtentPoint32W(hdc, connText, lstrlenW(connText), &connSz);
             TextOutW(hdc, barsX - ScaleDpi(10) - connSz.cx, curY,
@@ -9051,7 +9310,7 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
                 // "Connect automatically" belongs to already-saved networks,
                 // and including it here is what made this panel so tall.
                 SelectObject(hdc, hFontBody);
-                const wchar_t* pwLabel = L"Enter the network security key";
+                const wchar_t* pwLabel = LOC(STR_CHARMS_ENTER_KEY);
                 TextOutW(hdc, cx, curY, pwLabel, lstrlenW(pwLabel));
                 curY += ScaleDpi(24);
 
@@ -9095,7 +9354,7 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
                 DrawCharmsCheckbox(hdc, chkX, chkY, g_CharmsAutoConnect);
                 SelectObject(hdc, hFontBody);
                 SetTextColor(hdc, RGB(255,255,255));
-                const wchar_t* chkText = L"Connect automatically";
+                const wchar_t* chkText = LOC(STR_CHK_CONNECT_AUTO);
                 SIZE chkSz;
                 GetTextExtentPoint32W(hdc, chkText, lstrlenW(chkText), &chkSz);
                 TextOutW(hdc, chkX + ScaleDpi(24), curY, chkText, lstrlenW(chkText));
@@ -9111,7 +9370,8 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
             int btnX = panelW - margin - btnW + ox;
             if (g_hWndCharmsConnectBtn) {
                 SetWindowTextW(g_hWndCharmsConnectBtn,
-                               isConnected ? L"Disconnect" : L"Connect");
+                               isConnected ? LOC(STR_BTN_DISCONNECT)
+                                           : LOC(STR_BTN_CONNECT));
                 MoveWindow(g_hWndCharmsConnectBtn, btnX, curY, btnW, btnH, TRUE);
                 ShowWindow(g_hWndCharmsConnectBtn, SW_SHOW);
             }
@@ -9349,9 +9609,15 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             EnterCriticalSection(&g_Ctx.csLock);
             netCountNow = g_NetworkCount;
             LeaveCriticalSection(&g_Ctx.csLock);
-            w7t::LogTagged(L"NET8", L"pane opened: %d network(s) listed, WLAN %s",
+            BOOL ethernetNow = FALSE;
+            EnterCriticalSection(&g_Ctx.csLock);
+            ethernetNow = g_EthernetConnected;
+            LeaveCriticalSection(&g_Ctx.csLock);
+            w7t::LogTagged(L"NET8",
+                           L"pane opened: %d network(s) listed, WLAN %s, cable %s",
                            netCountNow,
-                           g_Ctx.hWlanClient ? L"available" : L"unavailable");
+                           g_Ctx.hWlanClient ? L"available" : L"unavailable",
+                           ethernetNow ? L"connected" : L"not connected");
             if (netCountNow == 0) {
                 /* An empty list has two possible causes: the radio has not
                  * scanned yet, or there is no WLAN client at all (the service
@@ -9524,7 +9790,7 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                 return 0;
             case VK_RETURN:
                 if (showWifiList && g_KeyboardSelectedIndex >= 0 && g_KeyboardSelectedIndex < keyNetworkCount)
-                    ConnectToNetwork(g_KeyboardSelectedIndex);
+                    SafeConnectToNetwork(g_KeyboardSelectedIndex);
                 return 0;
             case VK_LEFT:
                 HideFlyoutVisual(hwnd);
@@ -10495,7 +10761,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             int ci = HitTestRows(lx,ly);
             if (ci != -1) {
                 if (g_SelectedRowIndex == ci) {
-                    ConnectToNetwork(ci);
+                    SafeConnectToNetwork(ci);
                 } else {
                     g_SelectedRowIndex = ci;
                     SetKeyboardFocus(g_SelectedRowIndex);
@@ -10540,7 +10806,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
         }
         if (wid == IDC_CHARMS_CONNECT_BUTTON && g_CharmsExpandedRow != -1) {
             if (g_CharmsExpandedConnected) {
-                DisconnectFromNetwork(g_CharmsExpandedRow);
+                SafeDisconnectFromNetwork(g_CharmsExpandedRow);
             } else {
                 // AskForPasswordAndConnect captures auto-connect from the
                 // Win7 checkbox control, so mirror the charms checkbox into
@@ -10550,7 +10816,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
                                  g_CharmsAutoConnect ? BST_CHECKED : BST_UNCHECKED, 0);
                 WCHAR pwBuf[65] = {0};
                 if (g_hWndCharmsPwEdit) GetWindowTextW(g_hWndCharmsPwEdit, pwBuf, ARRAYSIZE(pwBuf));
-                ConnectToNetwork(g_CharmsExpandedRow, pwBuf[0] ? pwBuf : NULL);
+                SafeConnectToNetwork(g_CharmsExpandedRow, pwBuf[0] ? pwBuf : NULL);
                 SecureZeroMemory(pwBuf, sizeof(pwBuf));
             }
             g_CharmsExpandedRow = -1;
@@ -10558,7 +10824,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             break;
         }
         if (wid == IDC_CONN_BUTTON && g_SelectedRowIndex != -1) {
-            ConnectToNetwork(g_SelectedRowIndex);
+            SafeConnectToNetwork(g_SelectedRowIndex);
             break;
         }
         break;
@@ -11954,17 +12220,14 @@ void W8NetUninit() {
 // Wrapping interno per la facciata Win7Taskbar (w7t::Win8NetworkFlyout)
 // ============================================================================
 
-/* v1.21.15: la variante Windows 8 segue la LINGUA DI SISTEMA (richiesta
- * esplicita), non quella impostata nell app: internalLang resta 0 (auto
- * = GetUserDefaultUILanguage) qualunque indice arrivi. Firma invariata,
- * cosi l ingresso unico W7T_SetLanguage continua a colpirla senza toccare
- * gli altri percorsi (batteria e flyout Windows 7 seguono la lingua
- * dell app come prima). */
+/* The index of the program's language list is what decides the language of
+ * this pane (W7T_Net8FlyoutSetLanguage is called by the managed layer both
+ * after Properties and before the first toggle). The signature is unchanged,
+ * so the single entry point keeps working for the battery flyout and for the
+ * recreated Windows 7 flyout exactly as before. */
 void W8NetSetLanguage(int appLanguageIndex) {
-    /* v1.21.17: the index of the program's language list is honoured, instead
-     * of being dropped in favour of the system language (an Italian program
-     * showed an English pane). The mapping lives in DetermineLocale(), which
-     * also keeps the pack right after every LoadSettings(). */
+    /* The mapping lives in DetermineLocale(), together with the system
+     * fallback used until the program has spoken. */
     g_AppLanguageIndex = appLanguageIndex;
     DetermineLocale();
     CharmsAccentColorInvalidate();
@@ -12024,6 +12287,14 @@ namespace {
 /* Init/Uninit vengono chiamati una volta sola per sessione (stesso patto
  * degli altri moduli integrati). Stato minimo tenuto qui, non nel modulo. */
 bool s_net8Initialized = false;
+
+/* v1.21.18: the program announces its language once, at startup, while this
+ * module has not been initialised yet - the Windows 8 pane is created on its
+ * first open. The index used to be dropped in that case, so the pane opened
+ * with the default English pack until the user changed the language again.
+ * It is remembered here and applied the moment Init() succeeds. -1 = the
+ * program has not spoken yet. */
+int s_pendingAppLanguage = -1;
 }
 
 Win8NetworkFlyout& Win8NetworkFlyout::Instance() {
@@ -12046,6 +12317,20 @@ bool Win8NetworkFlyout::Init() {
     W7T_SEH_END
     if (ok != FALSE) {
         s_net8Initialized = true;
+        /* The language that arrived before Init() is applied now, with the
+         * same guard as any other call into the module. */
+        if (s_pendingAppLanguage >= 0) {
+            const int pending = s_pendingAppLanguage;
+            s_pendingAppLanguage = -1;
+            W7T_SEH_TRY
+            {
+                w8tnet::W8NetSetLanguage(pending);
+            }
+            W7T_SEH_CATCH
+            {
+            }
+            W7T_SEH_END
+        }
         return true;
     }
     return false;
@@ -12150,8 +12435,12 @@ void Win8NetworkFlyout::RefreshFlyoutColour() {
 }
 
 void Win8NetworkFlyout::SetLanguage(int appLang) {
-    if (!s_net8Initialized)
+    /* v1.21.18: before Init() the index is kept, not dropped (see
+     * s_pendingAppLanguage): the pane must open in the program's language. */
+    if (!s_net8Initialized) {
+        s_pendingAppLanguage = appLang;
         return;
+    }
     W7T_SEH_TRY
     {
         w8tnet::W8NetSetLanguage(appLang);

@@ -102,6 +102,24 @@ if (-not (Test-Path $coreDll)) {
     Fail "dist/Win7TaskbarCore.dll not found: build the native core first (native/), or drop -SkipNative."
 }
 
+# v1.21.18: -SkipNative means "reuse dist/", and a dist/ older than the native
+# sources is exactly how a package ends up carrying a core without the last
+# round of fixes. This script only WARNS (timestamps after a git checkout are
+# not proof); the hard guarantee is the build stamp the release workflow looks
+# for inside the packaged DLL.
+if ($SkipNative) {
+    $coreTime = (Get-Item $coreDll).LastWriteTimeUtc
+    $newestSource = Get-ChildItem (Join-Path $native 'src') -File -Recurse -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    if ($newestSource -and ($newestSource.LastWriteTimeUtc -gt $coreTime.AddMinutes(2))) {
+        Write-Host ("    !!  dist/Win7TaskbarCore.dll ({0:u}) is older than native/src/{1} ({2:u}):" -f `
+            $coreTime, $newestSource.Name, $newestSource.LastWriteTimeUtc) -ForegroundColor Yellow
+        Write-Host "    !!  the package may be carrying a stale native core: rebuild the native project" -ForegroundColor Yellow
+    } else {
+        Write-Host "    dist/Win7TaskbarCore.dll is at least as new as native/src/" -ForegroundColor Green
+    }
+}
+
 # ---------------------------------------------------------------------------
 # 2. managed application, self-contained
 # ---------------------------------------------------------------------------
@@ -156,6 +174,31 @@ foreach ($required in @('Win7TaskbarCore.dll', 'System.Private.CoreLib.dll', 'Pr
 }
 foreach ($folder in @('Themes', 'Resources', 'Languages')) {
     if (-not (Test-Path (Join-Path $out $folder))) { Fail "$folder\ is missing from the package" }
+}
+
+# v1.21.18: the native core carries the revision it was compiled from (CMake
+# stamp: -DW7T_BUILD_STAMP, or the checkout's HEAD when that is not given).
+# If the checkout has a git revision, the packaged DLL must contain it: a
+# package built from this source tree with a stale dist/Win7TaskbarCore.dll is
+# exactly what made a whole round of fixes invisible to the tester, and it
+# stops the release HERE instead of shipping.
+$packedCore = Join-Path $out 'Win7TaskbarCore.dll'
+$gitSha = $null
+try {
+    $gitSha = (& git -C $root rev-parse HEAD 2>$null | Select-Object -First 1)
+    if ($gitSha) { $gitSha = $gitSha.Trim() }
+} catch { $gitSha = $null }
+if ($gitSha -and $gitSha.Length -ge 7) {
+    $coreText = [System.Text.Encoding]::Unicode.GetString(
+        [System.IO.File]::ReadAllBytes($packedCore))
+    if (-not $coreText.Contains($gitSha)) {
+        Fail ("$packedCore does not contain the build stamp $gitSha: the package is " +
+              "carrying a native core that was not built from this revision " +
+              "(rebuild it: cmake --build native/build --config $Configuration)")
+    }
+    Write-Host "    native core build stamp verified: $gitSha" -ForegroundColor Green
+} else {
+    Write-Host "    (no git revision available: build stamp not verified)" -ForegroundColor Yellow
 }
 $runtimeConfig = Get-Content (Join-Path $out 'Win7Taskbar.runtimeconfig.json') -Raw | ConvertFrom-Json
 $included = $runtimeConfig.runtimeOptions.includedFrameworks

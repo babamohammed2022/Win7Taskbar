@@ -2813,8 +2813,17 @@ namespace Win7Taskbar
         /// pulsante o sull'anteprima.</summary>
         private const int PreviewWatchIntervalMs = 200;
 
-        /// <summary>Distacco fra barra e anteprima (come gli altri riquadri).</summary>
+        /// <summary>Distacco fra barra e anteprima (come gli altri riquadri).
+        /// Value in 100%-DPI pixels: ApplyPreviewPopupDpiNormalisation keeps
+        /// the whole preview at that geometry, so the placement converts it to
+        /// DIPs with the same factor the popup is scaled by.</summary>
         private const int PreviewGapPx = 4;
+
+        /* v1.21.18: fattore di normalizzazione applicato al contenuto del
+         * popup anteprime (1 / scala DPI del monitor). 1 = nessuna
+         * normalizzazione: a 100% il contenuto e' gia' quello disegnato. */
+        private double _previewDpiNormalisation = 1.0;
+        private double _previewNormalisedDpiScale = 0.0;
 
         /* v2.46: TimerLease, non DispatcherTimer: si smontano con Dispose()
          * (stop + distacco del gestore) e in chiusura non resta nessun timer
@@ -3085,27 +3094,37 @@ namespace Win7Taskbar
         {
             var edge = (TaskbarEdge)GetThumbnailEdge(_previewAnchor ?? (DependencyObject)this);
 
+            /* v1.21.18: PreviewGapPx is a 100%-DPI distance, like every other
+             * preview measurement (see ApplyPreviewPopupDpiNormalisation);
+             * the offsets below are DIPs of the monitor the popup is on, so
+             * the gap is converted with the same factor the popup content is
+             * normalised by. At 100% the factor is 1 and nothing changes. */
+            double previewScale = _previewNormalisedDpiScale > 0.0
+                ? _previewNormalisedDpiScale
+                : 1.0;
+            double gap = PreviewGapPx / previewScale;
+
             double dx = (targetSize.Width - popupSize.Width) / 2.0;
             double dy;
 
             switch (edge)
             {
                 case TaskbarEdge.Top:
-                    dy = targetSize.Height + PreviewGapPx;
+                    dy = targetSize.Height + gap;
                     break;
 
                 case TaskbarEdge.Left:
-                    dx = targetSize.Width + PreviewGapPx;
+                    dx = targetSize.Width + gap;
                     dy = (targetSize.Height - popupSize.Height) / 2.0;
                     break;
 
                 case TaskbarEdge.Right:
-                    dx = -popupSize.Width - PreviewGapPx;
+                    dx = -popupSize.Width - gap;
                     dy = (targetSize.Height - popupSize.Height) / 2.0;
                     break;
 
                 default:   /* barra in basso: anteprima SOPRA il pulsante */
-                    dy = -popupSize.Height - PreviewGapPx;
+                    dy = -popupSize.Height - gap;
                     break;
             }
 
@@ -3146,6 +3165,11 @@ namespace Win7Taskbar
                  * e' aperto: il timer di permanenza ticca gia', agganciarvi
                  * il confronto rende l'adattamento dinamico a costo zero. */
                 EnsureDwmAccentFresh();
+
+                /* v1.21.18: the popup can be dragged to a monitor with another
+                 * scaling while it is open; the normalisation is re-checked
+                 * here because it only costs a DPI read when nothing moved. */
+                ApplyPreviewPopupDpiNormalisation(false);
 
                 if (TaskPreviewPopup?.IsOpen != true)
                 {
@@ -3216,13 +3240,21 @@ namespace Win7Taskbar
                     return;
                 }
 
-                Matrix toDevice = popupSource.CompositionTarget?.TransformToDevice
-                                  ?? Matrix.Identity;
+                /* v1.21.18: the capture covers the popup's real client area,
+                 * asked to Windows in device pixels, instead of multiplying
+                 * the WPF size by the monitor scale. The two agree at 100%;
+                 * with the preview geometry normalisation (see
+                 * ApplyPreviewPopupDpiNormalisation) the WPF size is no longer
+                 * the physical one, and the capture must follow the window,
+                 * not the layout. */
                 Point screenOrigin = TaskPreviewPopupRoot.PointToScreen(new Point(0, 0));
-                int pixelWidth = Math.Max(1, (int)Math.Ceiling(
-                    TaskPreviewPopupRoot.ActualWidth * toDevice.M11));
-                int pixelHeight = Math.Max(1, (int)Math.Ceiling(
-                    TaskPreviewPopupRoot.ActualHeight * toDevice.M22));
+                int pixelWidth = 1;
+                int pixelHeight = 1;
+                if (NativeMethods.GetClientRect(popupSource.Handle, out NativeMethods.RECT client))
+                {
+                    pixelWidth = Math.Max(1, client.Right - client.Left);
+                    pixelHeight = Math.Max(1, client.Bottom - client.Top);
+                }
 
                 // Bitmap and Graphics are IDisposable; GetHbitmap has separate
                 // ownership and is wrapped immediately in SafePreviewHBitmap.
@@ -3401,6 +3433,120 @@ namespace Win7Taskbar
         }
 
         /// <summary>
+        /// v1.21.18: the preview popup keeps its 100%-DPI pixel geometry at
+        /// every display scaling.
+        ///
+        /// The preview is a bitmap-designed surface: the 9-slice DWMBorder.png
+        /// frame has 17/38/19-pixel slices, the aperture is 202x109 and the
+        /// live DWM surface is stretched into exactly that aperture. Those
+        /// numbers are whole pixels at 100%; at 125% the frame is 166 DIPs =
+        /// 207.5 device pixels tall and the aperture 136.25, so something has
+        /// to be rounded - which is how the frame stops being 1:1 with its own
+        /// slices and the live surface ends up a fraction of a pixel off the
+        /// opening it belongs to. Scaling the popup content by the inverse of
+        /// the monitor scale puts all of those numbers back on whole pixels:
+        /// one preview pixel stays one screen pixel, exactly as at 100%, and
+        /// the frame, the aperture and the DWM rectangle agree by
+        /// construction. The popup itself is still positioned in DIPs, so it
+        /// keeps hanging on its own task button.
+        ///
+        /// At 100% this is a no-op (no transform). Every failure leaves the
+        /// normal, monitor-scaled layout in place: the preview keeps working,
+        /// it just keeps the old rounding.
+        /// </summary>
+        private void ApplyPreviewPopupDpiNormalisation(bool force)
+        {
+            try
+            {
+                if (TaskPreviewPopupRoot == null)
+                {
+                    return;
+                }
+
+                /* The popup's own window transform is authoritative for the
+                 * monitor the popup is on; GetDpi on the visual is the
+                 * fallback for the moment the popup is created but not yet
+                 * connected to its HwndSource. */
+                double scale = 0.0;
+                if (PresentationSource.FromVisual(TaskPreviewPopupRoot)
+                        is HwndSource popupSource &&
+                    popupSource.CompositionTarget is { } popupTarget)
+                {
+                    scale = popupTarget.TransformToDevice.M11;
+                }
+
+                if (scale <= 0.0)
+                {
+                    var dpi = VisualTreeHelper.GetDpi(TaskPreviewPopupRoot);
+                    scale = dpi.DpiScaleX;
+                }
+
+                if (scale <= 0.0)
+                {
+                    return;
+                }
+
+                if (!force && Math.Abs(scale - _previewNormalisedDpiScale) < 0.001)
+                {
+                    return;
+                }
+
+                _previewNormalisedDpiScale = scale;
+
+                if (Math.Abs(scale - 1.0) < 0.001)
+                {
+                    TaskPreviewPopupRoot.LayoutTransform = null;
+                    _previewDpiNormalisation = 1.0;
+                    return;
+                }
+
+                double inverse = 1.0 / scale;
+                TaskPreviewPopupRoot.LayoutTransform =
+                    new ScaleTransform(inverse, inverse);
+                _previewDpiNormalisation = inverse;
+
+                /* Re-layout before anything measures the popup, then rebuild
+                 * the native frames: they are cached by rendered size, which
+                 * just changed. */
+                TaskPreviewPopupRoot.UpdateLayout();
+                RefreshNativePreviewFrames();
+            }
+            catch (Exception ex)
+            {
+                /* Back to "nothing applied": the next call tries again instead
+                 * of believing it already succeeded, and the placement keeps
+                 * the un-normalised gap. */
+                _previewNormalisedDpiScale = 0.0;
+                _previewDpiNormalisation = 1.0;
+                Debug.WriteLine($"preview dpi normalisation: {ex.Message}");
+            }
+        }
+
+        /// <summary>One diagnostic line per opening: a report about the
+        /// previews on a 125% display can then be checked against what the app
+        /// actually applied.</summary>
+        private void LogPreviewDpiNormalisation()
+        {
+            try
+            {
+                if (Math.Abs(_previewNormalisedDpiScale - 1.0) < 0.001)
+                {
+                    _bridge.Log("preview popup: DPI 100%, geometry unchanged");
+                    return;
+                }
+
+                _bridge.Log(
+                    $"preview popup: monitor DPI {(_previewNormalisedDpiScale * 100):0}%, " +
+                    $"geometry normalised by {_previewDpiNormalisation:0.###} " +
+                    "(previews keep their 100% pixel size)");
+            }
+            catch
+            {
+                /* Diagnostics only. */
+            }
+        }
+
+        /// <summary>
         /// Re-applies the native frame to every preview of the open popup
         /// after the DWM colorization colour changed: the cached bitmaps were
         /// tinted with the previous accent, while the XAML layer re-evaluates
@@ -3471,6 +3617,12 @@ namespace Win7Taskbar
                  * momento in cui la tinta torna visibile, quindi si verifica
                  * adesso. */
                 EnsureDwmAccentFresh();
+
+                /* v1.21.18: normalise the geometry BEFORE the first frame is
+                 * painted and before the backdrop is captured, so the capture
+                 * has the size the popup really occupies. */
+                ApplyPreviewPopupDpiNormalisation(true);
+                LogPreviewDpiNormalisation();
 
                 CaptureTaskPreviewBackdrop();
 

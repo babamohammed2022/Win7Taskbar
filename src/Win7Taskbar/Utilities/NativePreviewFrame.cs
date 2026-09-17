@@ -110,14 +110,35 @@ namespace Win7Taskbar.Utilities
 
             try
             {
-                /* Rendered at device pixels and handed back with the matching
-                 * DPI, so the image maps 1:1 onto the element at any scale:
-                 * no resampling of the corners, no soft border at 125%/150%. */
-                DpiScale dpi = VisualTreeHelper.GetDpi(host);
-                int pxWidth = (int)Math.Round(width * dpi.DpiScaleX);
-                int pxHeight = (int)Math.Round(height * dpi.DpiScaleY);
+                /* v1.21.18: the size handed to the core is the size the frame
+                 * is RENDERED at, in device pixels, read from the visual
+                 * itself (PointToScreen maps through the whole transform
+                 * chain). "DIP size x monitor DPI" was only true while the
+                 * preview popup scaled with the monitor: the popup now keeps
+                 * its 100%-DPI pixel geometry (see
+                 * TaskbarWindow.ApplyPreviewPopupDpiNormalisation), and at
+                 * 125% a 166-DIP-tall frame lands on 207.5 device pixels, so
+                 * the raw multiplication could hand the core a size the frame
+                 * is not painted at - and the image would then be resampled,
+                 * which is exactly the soft border this class exists to
+                 * avoid. */
+                Point topLeft = host.PointToScreen(new Point(0, 0));
+                Point bottomRight = host.PointToScreen(new Point(width, height));
+                int pxWidth = (int)Math.Round(bottomRight.X - topLeft.X);
+                int pxHeight = (int)Math.Round(bottomRight.Y - topLeft.Y);
                 if (pxWidth <= 0 || pxHeight <= 0 ||
                     pxWidth > MaxSidePx || pxHeight > MaxSidePx)
+                {
+                    return null;
+                }
+
+                /* Effective device pixels per DIP, from the measured size: the
+                 * bitmap is declared at that DPI, so the brush maps it 1:1
+                 * onto the element and the 9-slice corners are never
+                 * resampled. */
+                double scaleX = pxWidth / width;
+                double scaleY = pxHeight / height;
+                if (scaleX <= 0 || scaleY <= 0)
                 {
                     return null;
                 }
@@ -127,8 +148,7 @@ namespace Win7Taskbar.Utilities
                     return null;
                 }
 
-                var key = new FrameKey(pxWidth, pxHeight, accent,
-                                       dpi.DpiScaleX, dpi.DpiScaleY);
+                var key = new FrameKey(pxWidth, pxHeight, accent, scaleX, scaleY);
                 if (Cache.TryGetValue(key, out var cached))
                 {
                     return cached;
@@ -159,7 +179,7 @@ namespace Win7Taskbar.Utilities
                  * width * 4: that is Pbgra32 exactly, no conversion. */
                 BitmapSource bitmap = BitmapSource.Create(
                     pxWidth, pxHeight,
-                    96.0 * dpi.DpiScaleX, 96.0 * dpi.DpiScaleY,
+                    96.0 * scaleX, 96.0 * scaleY,
                     PixelFormats.Pbgra32, null,
                     pixels, pxWidth * 4);
                 bitmap.Freeze();
