@@ -417,7 +417,6 @@ namespace Win7Taskbar.Models
             // v1.21.7: the variable is no longer read-only, because step 3b
             // applies the user's ordering layer to it.
             List<TaskGroup> desired = new List<TaskGroup>(Groups.Count);
-            var desired = new List<TaskGroup>(Groups.Count);
             // v1.21.15: riordino con trascinamento (come RetroBar): se
             // l'utente ha già spostato dei bottoni, QUELL'ordine comanda
             // per tutti i gruppi che coinvolge; i gruppi spariti si
