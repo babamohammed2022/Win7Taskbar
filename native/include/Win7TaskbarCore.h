@@ -426,7 +426,9 @@ W7T_API void    W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         /* v1.21.7: extra settings section (fields appended at the end, like
          * all the others added over the years). */
         int32_t flyoutColorMode, int32_t flyoutColorRgb,
-        int32_t connectionPrivacyMode, int32_t themeSelection);
+        int32_t connectionPrivacyMode, int32_t themeSelection,
+        /* v1.21.28: taskbar position (0 Bottom,1 Top,2 Left,3 Right). */
+        int32_t taskbarPosition);
 
 /* v1.21.7: secondary settings published by the frontend (which stores them
  * in its own configuration: the core writes no file). The privacy mode
