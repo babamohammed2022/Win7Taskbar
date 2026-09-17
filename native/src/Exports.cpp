@@ -31,6 +31,7 @@
 #include "AppSearchWindow.h"
 #include "PropertiesDialog.h"
 #include "FlyoutLauncher.h"
+#include "ExtraSettings.h"     /* v1.21.7: extra settings of the taskbar */
 #include "AudioService.h"
 #include "JumpListWindow.h"     /* v2.38 */
 #include "LanguageSwitcher.h"   /* v1.4: selettore della lingua */
@@ -929,6 +930,48 @@ extern "C" W7T_API void W7T_CALL W7T_SetFlyoutPreferences(
     w7t::SetFlyoutPreferences(prefs);
 }
 
+/* ---------------------------------------------------------------------- */
+/*  v1.21.7 - Extra settings: ONE single publication point                */
+/* ---------------------------------------------------------------------- */
+/*  The managed layer stays the only configuration of the program (the     */
+/*  entries of the extra settings live in settings.json like all the       */
+/*  others). The values arrive here when they change, at startup and at    */
+/*  every OK/Apply:
+ *
+ *    - the privacy mode goes straight to the recreated network flyout,
+ *      which changes ONLY the drawn names (no network API, no Windows
+ *      setting);
+ *    - the flyout colour (system or custom) stays available to the
+ *      recreated Windows 8-style flyout, which does not exist yet in this
+ *      version (Win8NetworkFlyout.cpp is not compiled). No Windows 7 flyout
+ *      reads this value: its look does not change, as required. */
+extern "C" W7T_API void W7T_CALL W7T_SetExtraSettings(
+    int32_t flyoutColorMode, uint32_t flyoutColorRgb,
+    int32_t connectionPrivacyMode) {
+    W7T_SEH_TRY
+        w7t::extras::SetFlyoutColorMode(flyoutColorMode);
+        w7t::extras::SetFlyoutCustomColor(flyoutColorRgb);
+        /* The privacy mode is applied here too: this is the call the managed
+         * layer makes after saving the choice, so the flyout is always in
+         * step with the configuration with no further round trip. */
+        w7t::extras::SetConnectionPrivacyMode(connectionPrivacyMode);
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
+/* Resolved colour of the recreated flyout: the system accent when the mode
+ * is "system colour" (asked to the system EVERY time), the chosen colour
+ * otherwise. The frontend uses it to show what would be applied; the
+ * Windows 8-style flyout will use it to draw itself. */
+extern "C" W7T_API int32_t W7T_CALL W7T_GetExtraFlyoutColor(uint32_t* outRgb) {
+    if (outRgb == nullptr) return 0;
+    W7T_SEH_TRY {
+        *outRgb = w7t::extras::ResolveFlyoutColor();
+        return 1;
+    } W7T_SEH_CATCH {} W7T_SEH_END
+    return 0;
+}
+
 /* La porta dei riquadri moderni di questa build. Il frontend la usa per non
  * duplicare il giudizio sulla versione di Windows. */
 extern "C" W7T_API int32_t W7T_CALL W7T_IsModernFlyoutHostAvailable(void) {
@@ -972,7 +1015,9 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t enableSearch, int32_t netFlyout, int32_t classicVolume,
         int32_t batteryFlyout, int32_t aeroPeek, int32_t toolbarDesktop,
         int32_t toolbarAddress, int32_t toolbarLinks,
-        int32_t inputLanguageMode, int32_t taskManagerMode) {
+        int32_t inputLanguageMode, int32_t taskManagerMode,
+        int32_t flyoutColorMode, int32_t flyoutColorRgb,
+        int32_t connectionPrivacyMode, int32_t themeSelection) {
     try {
         /* v3.6: l'ordine DEVE essere quello della firma Show(): nativeFlyout,
          * enableSearch, netFlyout. Prima erano invertiti (netFlyout al posto
@@ -982,7 +1027,9 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
                           seconds, nativeFlyout, enableSearch,
                           netFlyout, classicVolume, batteryFlyout, aeroPeek,
                           toolbarDesktop, toolbarAddress, toolbarLinks,
-                          inputLanguageMode, taskManagerMode);
+                          inputLanguageMode, taskManagerMode,
+                          flyoutColorMode, flyoutColorRgb,
+                          connectionPrivacyMode, themeSelection);
     } catch (...) { /* mai propagare */ }
 }
 

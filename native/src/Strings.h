@@ -186,6 +186,12 @@ struct PropStrings {
 
 const PropStrings& PropStringsFor(Lang lang);
 
+/*  Table of the "Extra settings" section                                    */
+/*                                                                           */
+/*  It is a table of its own, like the battery flyout one: the secondary     */
+/*  settings have their own page and their texts have nothing in common      */
+/*  with the entries of the other tabs. Adding an entry here (and the        */
+/*  eleven translations) does not touch PropStrings.                         */
 /* ------------------------------------------------------------------------ */
 /*  Tabella del flyout batteria                                              */
 /* ------------------------------------------------------------------------ */

@@ -477,7 +477,25 @@ namespace Win7Taskbar.Interop
             int seconds, int nativeFlyout, int enableSearch, int netFlyout,
             int classicVolume, int batteryFlyout,
             int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
-            int inputLanguageMode, int taskManagerMode);
+            int inputLanguageMode, int taskManagerMode,
+            // v1.21.7: extra settings section.
+            int flyoutColorMode, int flyoutColorRgb,
+            int connectionPrivacyMode, int themeSelection);
+
+        /// <summary>
+        /// v1.21.7: publishes the extra settings. flyoutColorMode 0 = system
+        /// colour, 1 = custom; flyoutColorRgb = 0x00RRGGBB;
+        /// connectionPrivacyMode 0 = normal, 1 = privacy (presentation only,
+        /// in the recreated flyout).
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_SetExtraSettings(int flyoutColorMode,
+            int flyoutColorRgb, int connectionPrivacyMode);
+
+        /// <summary>v1.21.7: resolved colour of the recreated Windows
+        /// 8-style flyout (system accent or chosen colour). 1 = ok.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_GetExtraFlyoutColor(out uint rgb);
 
         // v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]

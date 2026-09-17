@@ -530,11 +530,33 @@ namespace Win7Taskbar.Interop
         public void PropertiesShow(IntPtr owner, int lang, int seconds, int nativeFlyout,
             int enableSearch, int netFlyout, int classicVolume, int batteryFlyout,
             int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
-            int inputLanguageMode, int taskManagerMode)
+            int inputLanguageMode, int taskManagerMode,
+            int flyoutColorMode, int flyoutColorRgb,
+            int connectionPrivacyMode, int themeSelection)
             => NativeMethods.W7T_PropertiesShow((ulong)owner, lang, seconds, nativeFlyout,
                 enableSearch, netFlyout, classicVolume, batteryFlyout,
                 aeroPeek, toolbarDesktop, toolbarAddress, toolbarLinks,
-                inputLanguageMode, taskManagerMode);
+                inputLanguageMode, taskManagerMode,
+                flyoutColorMode, flyoutColorRgb,
+                connectionPrivacyMode, themeSelection);
+
+        /// <summary>
+        /// v1.21.7: settings of the extra section published to the core (a
+        /// single call). The configuration stays in the managed layer: what
+        /// crosses this boundary is only what has to be applied.
+        /// </summary>
+        public void SetExtraSettings(int flyoutColorMode, int flyoutColorRgb,
+                                     int connectionPrivacyMode)
+            => NativeMethods.W7T_SetExtraSettings(flyoutColorMode, flyoutColorRgb,
+                connectionPrivacyMode);
+
+        /// <summary>
+        /// v1.21.7: the colour the recreated Windows 8-style flyout would use
+        /// right now (system accent or chosen colour). The core resolves it by
+        /// asking the system every time.
+        /// </summary>
+        public bool GetExtraFlyoutColor(out uint rgb)
+            => NativeMethods.W7T_GetExtraFlyoutColor(out rgb) == 1;
 
         /// <summary>v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).</summary>
         public bool NetFlyoutInit() => NativeMethods.W7T_NetFlyoutInit() == 1;

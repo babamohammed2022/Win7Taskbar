@@ -330,3 +330,63 @@ register, host, or imitate a Control Panel applet.
 
 Per-icon placement selected by dragging between the taskbar and overflow remains
 portable in `trayicons.ini`; it is taskbar state, not a replacement settings UI.
+
+## 15. Extra settings: one configuration, one tab, no parallel system
+
+**Decision.** The secondary options added in v1.21.7 (flyout colour for the
+recreated flyout, privacy mode of the recreated connection flyout, skin
+selection, icon order) are ordinary entries of the existing configuration:
+fields in `src/RetroBar.Shim/Utilities/Settings.cs`, persisted in the same
+`%AppData%\Win7Taskbar\settings.json`, edited in a fourth tab of the same
+native Properties dialog (`Impostazioni extra`), published to the core with a
+single export (`W7T_SetExtraSettings`) and labelled by the same 11 language
+dictionaries. No new file, no registry key, no parallel settings window.
+
+**Why.** A second configuration source would immediately diverge from the
+first one on unpin/uninstall/language change, and would have to re-implement
+atomic save, first-run detection and the language table. Extending the
+existing one keeps every option testable with the same tools and makes the
+whole tab removable in one commit.
+
+**Consequences.** The native dialog only *reports* what the user picked
+(`PropsApplyMsg`, appended tail fields - the receiver reads only the fields
+the packet actually carries); the managed side validates, saves and
+republishes. Settings that have no consumer in this build (the flyout colour)
+are stored and queryable but change nothing, which is stated in
+`docs/FEATURE-STATUS.md` instead of being silently applied to a flyout the
+setting does not belong to.
+
+**Revisit if.** A skin or flyout arrives that needs its own assets and
+defaults: the plug-in point is the theme id → file map in `ThemeLoader` plus
+`TaskbarThemeIds.IsImplemented`, not a new settings system.
+
+## 16. Icon order is a layer above pinning - never Explorer's own order
+
+**Decision.** Reordering the taskbar icons changes only the order in which the
+software taskbar lays out its own buttons. Discovery stays what it always was
+(shell pin folder first, then running applications) and is reordered by
+`Models/VirtualTaskbarOrder.cs` from an ordered list of stable keys
+(AppUserModelID, else executable path, else the launch `.lnk`) stored in the
+same `settings.json`. The gesture is ordinary WPF mouse capture on the button
+(the tray-drag mechanism): threshold, ghost icon, hand hit-test and an
+insertion caret drawn as a 2 px window over the target button.
+
+**Why.** The pinned-items folder, the shell shortcuts and the real taskbar
+belong to Windows: writing to them from a reimplementation would change the
+user's actual taskbar configuration, would be lost on the next Explorer
+restart, and could not be undone by uninstalling the program. An internal
+list keyed by application identity is reversible, survives restarts, has no
+effect outside the program, and does not replace the pinning system - it is
+applied on top of it. Keys that no longer resolve are kept, so a temporarily
+missing application does not lose its place and no configuration is destroyed.
+
+**Consequences.** Items with no stable identity are never reordered and stay
+where discovery puts them; a drag that does not end as an exact permutation of
+the shown buttons is discarded without touching the configuration; an empty
+list is byte-for-byte the old behaviour. Ordering remains per-user because the
+configuration is.
+
+**Revisit if.** Windows exposes a documented per-application identity for
+taskbar items that survives reinstall (for example a stable package identity
+for all Win32 apps): the key function in `VirtualTaskbarOrder` is the single
+place to change.

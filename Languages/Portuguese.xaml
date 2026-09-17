@@ -51,4 +51,6 @@
     <s:String x:Key="lang_address_tip">Endereço: digite um caminho ou URL e pressione Enter</s:String>
     <s:String x:Key="lang_tray_pin_tip">Mover entre a bandeja e o transbordamento (fixar/desafixar)</s:String>
     <s:String x:Key="lang_close_tip">Fechar</s:String>
+    <!-- v1.21.7: the only managed string of the extra settings section -->
+    <s:String x:Key="lang_icon_order_drag_hint">Solte para alterar a ordem</s:String>
 </ResourceDictionary>

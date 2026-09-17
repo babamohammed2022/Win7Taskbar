@@ -1559,6 +1559,54 @@ namespace Win7Taskbar
                     : st.TaskManagerMode;
                 st.TaskManagerMode = taskManagerMode is >= 0 and <= 2
                     ? taskManagerMode : 0;
+
+                /* v1.21.7 - extra settings (offsets 60, 64, 68, 72 = a
+                 * 76-byte packet). Same rule as the previous fields: only what
+                 * the packet really contains is read, so an older core never
+                 * clears anything. */
+                if (cds.cbData >= 76)
+                {
+                    int flyoutColorMode = System.Runtime.InteropServices.Marshal
+                        .ReadInt32(cds.lpData, 60);
+                    int flyoutColorRgb = System.Runtime.InteropServices.Marshal
+                        .ReadInt32(cds.lpData, 64);
+                    int privacyMode = System.Runtime.InteropServices.Marshal
+                        .ReadInt32(cds.lpData, 68);
+                    int themeSelection = System.Runtime.InteropServices.Marshal
+                        .ReadInt32(cds.lpData, 72);
+
+                    st.FlyoutColorMode = flyoutColorMode == 1 ? 1 : 0;
+
+                    /* The colour arrives as 0x00RRGGBB and is stored in the
+                     * canonical "#RRGGBB" form (the property normalizes and
+                     * SetField saves). With the "system colour" mode the custom
+                     * colour is NOT touched: the previous choice stays, and the
+                     * user finds it again when switching back to custom. */
+                    if (flyoutColorMode == 1)
+                    {
+                        st.FlyoutCustomColor = "#" + (flyoutColorRgb & 0xFFFFFF)
+                            .ToString("X6", System.Globalization.CultureInfo.InvariantCulture);
+                    }
+
+                    st.ConnectionFlyoutPrivacyMode = privacyMode == 1 ? 1 : 0;
+
+                    /* Skin: the Windows 8.1 one does not exist yet, so 1
+                     * never becomes the stored choice (see TaskbarThemeIds). A
+                     * packet asking for it falls back to Windows 7: no fake
+                     * theme loaded by hand. */
+                    if (themeSelection == RetroBar.Utilities.TaskbarThemeIds.Windows81 &&
+                        !RetroBar.Utilities.TaskbarThemeIds.IsImplemented(
+                            RetroBar.Utilities.TaskbarThemeIds.Windows81))
+                    {
+                        _bridge.Log("proprieta': skin Windows 8.1 non disponibile, resta Windows 7");
+                    }
+                    st.ThemeSelection = themeSelection;
+
+                    /* The choice is saved: it is published to the core right
+                     * away, so the recreated flyout speaks the chosen mode
+                     * without waiting for a restart. */
+                    ApplyExtraSettings();
+                }
                 if (hasToolbars)
                 {
                     /* Le caselle della scheda "Barre degli strumenti" sono le
@@ -2229,6 +2277,17 @@ namespace Win7Taskbar
             // {
             //     BeginPotentialJumpListDrag(fe, e);
             // }
+
+            // v1.21.7: possible button reorder (extra settings -> icon
+            // order). The gesture is the tray one: immediate capture, and the
+            // drag only starts past the system threshold. A normal click is
+            // unchanged. If the Jump List is re-armed one day,
+            // BeginPotentialTaskOrderDrag steps back by itself while that
+            // gesture owns the pointer.
+            if (sender is FrameworkElement orderElement)
+            {
+                BeginPotentialTaskOrderDrag(orderElement, e);
+            }
         }
 
         /// <summary>v2.28: avvio robusto: prima la shell nativa con retry,
@@ -2269,6 +2328,16 @@ namespace Win7Taskbar
             // normal click never sets the flag (see TaskbarWindow.JumpList.cs).
             if (ShouldSuppressClickAfterJumpList())
             {
+                e.Handled = true;
+                return;
+            }
+
+            // v1.21.7: the release that ends a reorder is not a click: moving
+            // an icon must not bring the application to the foreground (same
+            // rule as the Jump List gesture).
+            if (_taskOrderConsumedClick)
+            {
+                _taskOrderConsumedClick = false;
                 e.Handled = true;
                 return;
             }
@@ -2439,6 +2508,14 @@ namespace Win7Taskbar
                 return;
             }
 
+            // v1.21.7: neither does the icon reorder: while a button is being
+            // dragged no tooltip appears over the bar.
+            if (IsTaskOrderDragActive())
+            {
+                e.Handled = true;
+                return;
+            }
+
             _openButtonTip = sender as ToolTip;
         }
 
@@ -2576,6 +2653,13 @@ namespace Win7Taskbar
              * while its list is open (or being dragged out) would stack two
              * flyovers over one button - Windows 7 shows one or the other. */
             if (IsJumpListGestureActive())
+            {
+                return;
+            }
+
+            /* v1.21.7: the same holds for the icon reorder: the pointer is
+             * moving a button, not looking at one. */
+            if (IsTaskOrderDragActive())
             {
                 return;
             }
@@ -6204,6 +6288,13 @@ namespace Win7Taskbar
 
                 _bridge.SetFlyoutPreferences(clockWin7, networkWin7, volumeWin7, batteryWin7);
 
+                /* v1.21.7: the extra settings follow the same principle - the
+                 * configuration read here IS the decision. The privacy mode
+                 * goes to the recreated connection flyout, the colour stays
+                 * available for the Windows 8-style flyout (not implemented
+                 * yet): see ApplyExtraSettings. */
+                ApplyExtraSettings();
+
                 string modern = "?";
                 try { modern = _bridge.IsModernFlyoutHostAvailable() ? "si" : "no"; }
                 catch { }
@@ -6222,6 +6313,54 @@ namespace Win7Taskbar
             catch (Exception ex)
             {
                 _bridge.Log("SETTINGS: applicazione preferenze riquadri fallita: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// v1.21.7 - publishes the extra settings to the native core
+        /// (W7T_SetExtraSettings).
+        ///
+        /// This is the single publication point, called at startup (inside
+        /// ApplyShellFlyoutPreferences) and after every OK/Apply of the
+        /// Properties window: the saved configuration and what the core
+        /// applies can therefore never diverge, as with the flyout
+        /// preferences.
+        ///
+        /// Effects, as required:
+        ///   - privacy -> changes ONLY the text drawn by the recreated
+        ///                connection flyout. No network API, no Windows
+        ///                setting.
+        ///   - colour  -> kept by the core for the Windows 8-style flyout,
+        ///                which does not exist in this version: no Windows 7
+        ///                flyout changes its look.
+        ///   - skin    -> the only loadable skin is still Windows 7: the
+        ///                choice reaches ThemeLoader at startup (see
+        ///                App.xaml.cs).
+        /// </summary>
+        internal void ApplyExtraSettings()
+        {
+            try
+            {
+                var st = RetroBar.Utilities.Settings.Instance;
+
+                int colorMode = st.FlyoutColorMode == 1 ? 1 : 0;
+                int colorRgb = st.FlyoutCustomColorRgb;
+                int privacyMode = st.ConnectionFlyoutPrivacyMode == 1 ? 1 : 0;
+
+                _bridge.SetExtraSettings(colorMode, colorRgb, privacyMode);
+
+                _bridge.Log(
+                    "SETTINGS-EXTRA: colore-flyout=" +
+                    (colorMode == 1
+                        ? "personalizzato #" + colorRgb.ToString("X6")
+                        : "sistema") +
+                    " privacy=" + (privacyMode == 1 ? "on" : "off") +
+                    " tema=" + (st.ThemeSelection == 0 ? "Windows7" : "Windows8.1") +
+                    " ordine-icone=" + st.TaskbarIconOrder.Count);
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log("SETTINGS-EXTRA: pubblicazione fallita: " + ex.Message);
             }
         }
 
@@ -6334,7 +6473,12 @@ namespace Win7Taskbar
                     tbAddress ? 1 : 0,
                     tbLinks ? 1 : 0,
                     st.InputLanguageMode,
-                    st.TaskManagerMode);
+                    st.TaskManagerMode,
+                    /* v1.21.7: extra settings (fields appended at the end). */
+                    st.FlyoutColorMode,
+                    st.FlyoutCustomColorRgb,
+                    st.ConnectionFlyoutPrivacyMode,
+                    st.ThemeSelection);
             }
             catch (Exception ex)
             {

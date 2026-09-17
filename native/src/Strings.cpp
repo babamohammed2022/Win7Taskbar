@@ -903,6 +903,262 @@ constexpr ShortStrings kShortAr = {
 
 };
 
+/* ------------------------------------------------------------------------ */
+/*  Extra settings section (its own tab of the Properties window)            */
+/*                                                                           */
+/*  Same rule as the rest of the file: languages outside the list answer in  */
+/*  English, and product names ("Windows 7", "Windows 8.1") are not          */
+/*  translated.                                                              */
+/* ------------------------------------------------------------------------ */
+constexpr ExtraStrings kExtraIt = {
+    L"Impostazioni extra",
+    L"Flyout",
+    L"Colore del flyout:",
+    L"Colore di sistema",
+    L"Colore personalizzato",
+    L"Scegli colore...",
+    L"Il colore si applica solo al flyout ricreato dal programma. Non modifica "
+    L"il colore, il tema o la personalizzazione di Windows.",
+    L"Modalità privacy:",
+    L"Normale (nomi reali)",
+    L"Privacy (nomi generici)",
+    L"Nasconde i nomi delle reti nel flyout di connessione ricreato. Non "
+    L"modifica le connessioni di rete né Windows.",
+    L"Barra delle applicazioni",
+    L"Tema:",
+    L"Windows 7",
+    L"Windows 8.1 (non disponibile)",
+    L"Ordine delle icone:",
+    L"Trascina le icone sulla barra delle applicazioni per cambiarne l'ordine. "
+    L"L'ordine è salvato solo in Win7Taskbar: la barra delle applicazioni di "
+    L"Windows non viene modificata.",
+};
+constexpr ExtraStrings kExtraEn = {
+    L"Extra settings",
+    L"Flyout",
+    L"Flyout color:",
+    L"System color",
+    L"Custom color",
+    L"Choose color...",
+    L"The color applies only to the flyout recreated by the program. It does "
+    L"not change the color, theme or personalization of Windows.",
+    L"Privacy mode:",
+    L"Normal (real names)",
+    L"Privacy (generic names)",
+    L"Hides network names in the recreated connection flyout. It does not "
+    L"change network connections or Windows.",
+    L"Taskbar",
+    L"Theme:",
+    L"Windows 7",
+    L"Windows 8.1 (not available)",
+    L"Icon order:",
+    L"Drag the icons on the taskbar to change their order. The order is saved "
+    L"only in Win7Taskbar: the Windows taskbar is not modified.",
+};
+constexpr ExtraStrings kExtraEs = {
+    L"Configuración extra",
+    L"Flyout",
+    L"Color del flyout:",
+    L"Color del sistema",
+    L"Color personalizado",
+    L"Elegir color...",
+    L"El color se aplica solo al flyout recreado por el programa. No modifica "
+    L"el color, el tema ni la personalización de Windows.",
+    L"Modo de privacidad:",
+    L"Normal (nombres reales)",
+    L"Privacidad (nombres genéricos)",
+    L"Oculta los nombres de las redes en el flyout de conexión recreado. No "
+    L"modifica las conexiones de red ni Windows.",
+    L"Barra de tareas",
+    L"Tema:",
+    L"Windows 7",
+    L"Windows 8.1 (no disponible)",
+    L"Orden de los iconos:",
+    L"Arrastra los iconos en la barra de tareas para cambiar su orden. El "
+    L"orden se guarda solo en Win7Taskbar: la barra de tareas de Windows no se "
+    L"modifica.",
+};
+constexpr ExtraStrings kExtraFr = {
+    L"Paramètres supplémentaires",
+    L"Flyout",
+    L"Couleur du flyout :",
+    L"Couleur du système",
+    L"Couleur personnalisée",
+    L"Choisir une couleur...",
+    L"La couleur s'applique uniquement au flyout recréé par le programme. "
+    L"Elle ne modifie ni la couleur, ni le thème, ni la personnalisation de "
+    L"Windows.",
+    L"Mode confidentialité :",
+    L"Normal (noms réels)",
+    L"Confidentialité (noms génériques)",
+    L"Masque les noms des réseaux dans le flyout de connexion recréé. Ne "
+    L"modifie ni les connexions réseau ni Windows.",
+    L"Barre des tâches",
+    L"Thème :",
+    L"Windows 7",
+    L"Windows 8.1 (non disponible)",
+    L"Ordre des icônes :",
+    L"Faites glisser les icônes sur la barre des tâches pour changer leur "
+    L"ordre. L'ordre est enregistré uniquement dans Win7Taskbar : la barre des "
+    L"tâches de Windows n'est pas modifiée.",
+};
+constexpr ExtraStrings kExtraDe = {
+    L"Weitere Einstellungen",
+    L"Flyout",
+    L"Farbe des Flyouts:",
+    L"Systemfarbe",
+    L"Benutzerdefinierte Farbe",
+    L"Farbe wählen...",
+    L"Die Farbe gilt nur für das vom Programm nachgebildete Flyout. Sie "
+    L"ändert weder Farbe, Design noch Anpassung von Windows.",
+    L"Datenschutzmodus:",
+    L"Normal (echte Namen)",
+    L"Datenschutz (generische Namen)",
+    L"Blendet die Netzwerknamen im nachgebildeten Verbindungs-Flyout aus. "
+    L"Ändert weder Netzwerkverbindungen noch Windows.",
+    L"Taskleiste",
+    L"Design:",
+    L"Windows 7",
+    L"Windows 8.1 (nicht verfügbar)",
+    L"Symbolreihenfolge:",
+    L"Ziehen Sie die Symbole auf der Taskleiste, um ihre Reihenfolge zu "
+    L"ändern. Die Reihenfolge wird nur in Win7Taskbar gespeichert: die "
+    L"Windows-Taskleiste wird nicht geändert.",
+};
+constexpr ExtraStrings kExtraPt = {
+    L"Configurações extras",
+    L"Flyout",
+    L"Cor do flyout:",
+    L"Cor do sistema",
+    L"Cor personalizada",
+    L"Escolher cor...",
+    L"A cor se aplica apenas ao flyout recriado pelo programa. Não altera a "
+    L"cor, o tema nem a personalização do Windows.",
+    L"Modo de privacidade:",
+    L"Normal (nomes reais)",
+    L"Privacidade (nomes genéricos)",
+    L"Oculta os nomes das redes no flyout de conexão recriado. Não altera as "
+    L"conexões de rede nem o Windows.",
+    L"Barra de tarefas",
+    L"Tema:",
+    L"Windows 7",
+    L"Windows 8.1 (indisponível)",
+    L"Ordem dos ícones:",
+    L"Arraste os ícones na barra de tarefas para alterar a ordem. A ordem é "
+    L"salva apenas no Win7Taskbar: a barra de tarefas do Windows não é "
+    L"modificada.",
+};
+constexpr ExtraStrings kExtraPl = {
+    L"Ustawienia dodatkowe",
+    L"Flyout",
+    L"Kolor okna wysuwanego:",
+    L"Kolor systemowy",
+    L"Kolor niestandardowy",
+    L"Wybierz kolor...",
+    L"Kolor dotyczy tylko okna odtworzonego przez program. Nie zmienia "
+    L"koloru, motywu ani personalizacji Windows.",
+    L"Tryb prywatności:",
+    L"Normalny (prawdziwe nazwy)",
+    L"Prywatność (nazwy ogólne)",
+    L"Ukrywa nazwy sieci w odtworzonym oknie połączeń. Nie zmienia połączeń "
+    L"sieciowych ani Windows.",
+    L"Pasek zadań",
+    L"Motyw:",
+    L"Windows 7",
+    L"Windows 8.1 (niedostępny)",
+    L"Kolejność ikon:",
+    L"Przeciągnij ikony na pasku zadań, aby zmienić ich kolejność. Kolejność "
+    L"jest zapisywana tylko w Win7Taskbar: pasek zadań Windows nie jest "
+    L"zmieniany.",
+};
+constexpr ExtraStrings kExtraRu = {
+    L"Дополнительные параметры",
+    L"Flyout",
+    L"Цвет всплывающей панели:",
+    L"Системный цвет",
+    L"Пользовательский цвет",
+    L"Выбрать цвет...",
+    L"Цвет применяется только к всплывающей панели, воссозданной "
+    L"программой. Он не меняет цвет, тему и персонализацию Windows.",
+    L"Режим конфиденциальности:",
+    L"Обычный (реальные имена)",
+    L"Конфиденциальность (общие имена)",
+    L"Скрывает имена сетей в воссозданной панели подключений. Не изменяет "
+    L"сетевые подключения и Windows.",
+    L"Панель задач",
+    L"Тема:",
+    L"Windows 7",
+    L"Windows 8.1 (недоступно)",
+    L"Порядок значков:",
+    L"Перетаскивайте значки на панели задач, чтобы изменить их порядок. "
+    L"Порядок сохраняется только в Win7Taskbar: панель задач Windows не "
+    L"изменяется.",
+};
+constexpr ExtraStrings kExtraJa = {
+    L"詳細設定",
+    L"フライアウト",
+    L"フライアウトの色:",
+    L"システムの色",
+    L"カスタム色",
+    L"色を選択...",
+    L"この色はプログラムが再現するフライアウトにのみ適用されます。Windows "
+    L"の色、テーマ、個人設定は変更しません。",
+    L"プライバシーモード:",
+    L"通常（実際の名前）",
+    L"プライバシー（一般的な名前）",
+    L"再現された接続フライアウトでネットワーク名を隠します。ネットワーク接続や "
+    L"Windows は変更しません。",
+    L"タスクバー",
+    L"テーマ:",
+    L"Windows 7",
+    L"Windows 8.1（使用不可）",
+    L"アイコンの順序:",
+    L"タスクバー上のアイコンをドラッグして順序を変更します。順序は "
+    L"Win7Taskbar にのみ保存され、Windows のタスクバーは変更されません。",
+};
+constexpr ExtraStrings kExtraZh = {
+    L"额外设置",
+    L"浮出控件",
+    L"浮出控件颜色:",
+    L"系统颜色",
+    L"自定义颜色",
+    L"选择颜色...",
+    L"该颜色仅应用于程序重建的浮出控件。不会更改 Windows 的颜色、主题或个性化设置。",
+    L"隐私模式:",
+    L"普通（真实名称）",
+    L"隐私（通用名称）",
+    L"在重建的连接浮出控件中隐藏网络名称。不会更改网络连接或 Windows。",
+    L"任务栏",
+    L"主题:",
+    L"Windows 7",
+    L"Windows 8.1（不可用）",
+    L"图标顺序:",
+    L"在任务栏上拖动图标以更改其顺序。顺序仅保存在 Win7Taskbar 中：不会修改 "
+    L"Windows 任务栏。",
+};
+constexpr ExtraStrings kExtraAr = {
+    L"إعدادات إضافية",
+    L"القائمة المنبثقة",
+    L"لون القائمة المنبثقة:",
+    L"لون النظام",
+    L"لون مخصص",
+    L"اختيار لون...",
+    L"ينطبق اللون فقط على القائمة المنبثقة التي يعيد البرنامج إنشاءها. لا "
+    L"يغيّر لون Windows أو سمته أو تخصيصه.",
+    L"وضع الخصوصية:",
+    L"عادي (أسماء حقيقية)",
+    L"الخصوصية (أسماء عامة)",
+    L"يخفي أسماء الشبكات في قائمة الاتصال المعاد إنشاؤها. لا يغيّر اتصالات "
+    L"الشبكة ولا Windows.",
+    L"شريط المهام",
+    L"السمة:",
+    L"Windows 7",
+    L"Windows 8.1 (غير متاح)",
+    L"ترتيب الأيقونات:",
+    L"اسحب الأيقونات على شريط المهام لتغيير ترتيبها. يُحفظ الترتيب في "
+    L"Win7Taskbar فقط: لا يتم تعديل شريط مهام Windows.",
+};
+
 const PropStrings& PickProp(Lang lang) {
     switch (lang) {
         case Lang::It: return kPropIt;
@@ -1089,6 +1345,22 @@ const wchar_t* GetString(StrId id) {
 
 const PropStrings& PropStringsFor(Lang lang) {
     return PickProp(lang);
+}
+
+const ExtraStrings& ExtraStringsFor(Lang lang) {
+    switch (lang) {
+        case Lang::It: return kExtraIt;
+        case Lang::Es: return kExtraEs;
+        case Lang::Fr: return kExtraFr;
+        case Lang::De: return kExtraDe;
+        case Lang::Pt: return kExtraPt;
+        case Lang::Pl: return kExtraPl;
+        case Lang::Ru: return kExtraRu;
+        case Lang::Ja: return kExtraJa;
+        case Lang::Zh: return kExtraZh;
+        case Lang::Ar: return kExtraAr;
+        default:       return kExtraEn;
+    }
 }
 
 const BattStrings& BattStringsFor(Lang lang) {

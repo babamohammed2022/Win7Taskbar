@@ -40,6 +40,26 @@ inline const wchar_t* DefaultStringSetting(const wchar_t* name) {
     return L"auto";   /* language */
 }
 
+/* v1.21.7 - Flyout settings chosen by the user in the Properties window,
+ * extra settings tab.
+ *
+ * In the Windhawk mod every value came from Wh_GetIntSetting, that is from
+ * the Windhawk panel. In Win7Taskbar the only configuration system is the
+ * settings.json of the managed layer: what lives here is just the copy the
+ * core receives from W7T_SetExtraSettings and that the flyout reads as
+ * before.
+ *
+ * Privacy is the only mod setting the program exposes today: the default
+ * stays 0 (real network names), as in the mod with no configuration. */
+inline int& PrivacyModeValue() {
+    static int value = 0;
+    return value;
+}
+
+inline void SetPrivacyMode(int on) {
+    PrivacyModeValue() = on ? 1 : 0;
+}
+
 } // namespace w7tshim
 
 inline void Wh_Log(const wchar_t* fmt, ...) {
@@ -54,6 +74,11 @@ inline void Wh_Log(const wchar_t* fmt, ...) {
 }
 
 inline int Wh_GetIntSetting(const wchar_t* name) {
+    /* v1.21.7: the user's settings take precedence over the mod defaults
+     * (see w7tshim::PrivacyModeValue). */
+    if (name != nullptr && _wcsicmp(name, L"privacyMode") == 0) {
+        return w7tshim::PrivacyModeValue();
+    }
     return w7tshim::DefaultIntSetting(name);
 }
 

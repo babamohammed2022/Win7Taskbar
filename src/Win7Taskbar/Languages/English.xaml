@@ -51,4 +51,6 @@
     <s:String x:Key="lang_address_tip">Address: type a path or URL and press Enter</s:String>
     <s:String x:Key="lang_tray_pin_tip">Move between tray and overflow (pin/unpin)</s:String>
     <s:String x:Key="lang_close_tip">Close</s:String>
+    <!-- v1.21.7: the only managed string of the extra settings section -->
+    <s:String x:Key="lang_icon_order_drag_hint">Drop to change the order</s:String>
 </ResourceDictionary>

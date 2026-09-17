@@ -3194,6 +3194,28 @@ void W7TNetFlyout_SetLanguage(int appLanguageIndex) {
     }
 }
 
+/* v1.21.7 - Privacy mode of the connection flyouts.
+ *
+ * In the mod it is the "privacyMode" value of the Windhawk panel; here it is
+ * decided by the user in the extra settings tab of the Properties window and
+ * published by the managed layer with W7T_SetExtraSettings.
+ *
+ * The shown name is not stored anywhere: FormatDisplaySSID rebuilds it on
+ * every paint by reading g_Settings.privacyMode, so a change made while the
+ * flyout is open shows at once. That is what the invalidation below is for:
+ * the list switches to the generic names (or back to the real ones) without
+ * having to close and reopen the flyout.
+ *
+ * Nothing else is touched: no network API, no Windows configuration. It is
+ * only the text drawn by our flyout. */
+void W7TNetFlyout_SetPrivacyMode(int mode) {
+    w7tshim::SetPrivacyMode(mode != 0);
+    g_Settings.privacyMode = (mode != 0) ? TRUE : FALSE;
+    if (g_hWndFlyout != NULL && IsWindow(g_hWndFlyout)) {
+        InvalidateRect(g_hWndFlyout, NULL, TRUE);
+    }
+}
+
 static const WCHAR* SignalQualityToString(ULONG quality) {
     if (quality > 80) return LOC(STR_SIG_EXCELLENT);
     if (quality > 60) return LOC(STR_SIG_GOOD);

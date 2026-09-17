@@ -188,7 +188,13 @@
          All icon work is best-effort and exception-guarded: when an icon
          is unavailable the row stays text-only and the menu works as
          before. Tray, bar, clock and generic menus are untouched. -->
-    <Version>1.21.6-alpha</Version>
+    <!-- 1.21.7-alpha: extra settings - a new tab in the Properties window
+         (colour of the recreated flyout, privacy mode of the connection
+         flyouts, theme choice with the Windows 8.1 skin listed but not
+         available) and drag & drop ordering of the taskbar icons. Every entry
+         is stored in settings.json like all the others and touches neither
+         the Windows taskbar, nor Explorer pinning, nor the registry. -->
+    <Version>1.21.7-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

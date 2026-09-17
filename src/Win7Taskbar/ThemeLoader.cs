@@ -143,12 +143,55 @@ namespace Win7Taskbar
         }
 
         /// <summary>
-        /// Percorso di Themes/Windows7.xaml accanto all'eseguibile.
-        /// Il tema resta un file su disco (Content, non BAML); le immagini WPF
-        /// arrivano da GraphicalResourceBundle, le otto slice native da Resources/.
+        /// v1.21.7 - theme file for the selected skin ("Tema" in the extra
+        /// settings).
+        ///
+        /// The map exists because the skin is an ordinary configuration entry:
+        /// here it is known which file it corresponds to, so adding the
+        /// Windows 8.1 skin in the future means putting its name here and
+        /// declaring it available in TaskbarThemeIds - without touching the
+        /// settings system or the rest of the loading. Today the only usable
+        /// id is Windows 7, so this method always returns "Windows7.xaml": no
+        /// fake skin and no missing file looked up at runtime.
         /// </summary>
-        public static string ThemeFilePath => Path.Combine(
-            AppDomain.CurrentDomain.BaseDirectory, "Themes", "Windows7.xaml");
+        public static string ThemeFileNameFor(int themeId) => themeId switch
+        {
+            RetroBar.Utilities.TaskbarThemeIds.Windows81 => "Windows8.1.xaml",
+            _ => "Windows7.xaml",
+        };
+
+        /// <summary>
+        /// Path of the selected theme next to the executable.
+        /// The theme stays a file on disk (Content, not BAML); the WPF images
+        /// come from GraphicalResourceBundle and the eight native slices from
+        /// Resources/.
+        /// </summary>
+        public static string ThemeFilePathFor(int themeId) => Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "Themes", ThemeFileNameFor(themeId));
+
+        /// <summary>
+        /// Path of the theme in use (the skin chosen in Properties).
+        ///
+        /// Theme loading is critical for startup: if the configuration were
+        /// unreadable the code stays on the default skin - the one that really
+        /// exists - instead of failing the startup because of one
+        /// configuration entry.
+        /// </summary>
+        public static string ThemeFilePath
+        {
+            get
+            {
+                try
+                {
+                    return ThemeFilePathFor(
+                        RetroBar.Utilities.Settings.Instance.ThemeSelection);
+                }
+                catch (Exception)
+                {
+                    return ThemeFilePathFor(RetroBar.Utilities.TaskbarThemeIds.Windows7);
+                }
+            }
+        }
 
         /// <summary>
         /// Verifica che accanto all'eseguibile ci siano Themes\ e Resources\.

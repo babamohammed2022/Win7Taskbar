@@ -37,6 +37,13 @@ struct PropsApplyMsg {
     int32_t inputLanguageMode;
     /* Windows 11 only: 0 automatic, 1 modern, 2 legacy 32-bit. */
     int32_t taskManagerMode;
+    /* v1.21.7 - "Extra settings" tab, fields APPENDED AT THE END like the
+     * previous ones (same rule: the receiver reads only what the packet
+     * really carries, see cbData in HandlePropsCopyData). */
+    int32_t flyoutColorMode;       // 0 = system colour, 1 = custom colour
+    int32_t flyoutColorRgb;        // 0x00RRGGBB of the custom colour
+    int32_t connectionPrivacyMode; // 0 = normal, 1 = privacy
+    int32_t themeSelection;        // 0 = Windows 7, 1 = Windows 8.1
 };
 constexpr DWORD kPropsCopyDataId = 'W7PA';
 
@@ -49,7 +56,9 @@ public:
               int32_t batteryFlyout, int32_t aeroPeek,
               int32_t toolbarDesktop, int32_t toolbarAddress,
               int32_t toolbarLinks, int32_t inputLanguageMode,
-              int32_t taskManagerMode);
+              int32_t taskManagerMode,
+              int32_t flyoutColorMode, int32_t flyoutColorRgb,
+              int32_t connectionPrivacyMode, int32_t themeSelection);
 
     /* v2.47: il font del dialogo e' un oggetto GDI: si crea una volta per
      * apertura e si distrugge alla chiusura, nel distruttore della classe
@@ -60,6 +69,12 @@ public:
 private:
     static INT_PTR CALLBACK DlgProc(HWND, UINT, WPARAM, LPARAM);
     void SendApply(bool openSearch, bool closeApp);
+
+    /* v1.21.7: resolves the colour of the swatch on the "Extra settings"
+     * tab and redraws the control (SS_OWNERDRAW, see WM_DRAWITEM).
+     * With "system colour" it asks the system every time, so a change of the
+     * Windows accent is followed without reopening the Properties. */
+    void RefreshExtraSwatchColor();
 
     HWND m_hWnd = nullptr;
     HWND m_owner = nullptr;
@@ -76,6 +91,15 @@ private:
     int32_t m_tbLinks = 0;
     int32_t m_inputLanguageMode = 1;   /* v3.5: stile Windows 7 di default */
     int32_t m_taskManagerMode = 0;     /* automatico */
+    /* v1.21.7 - Extra settings. */
+    int32_t m_flyoutColorMode = 0;     /* 0 = system colour */
+    int32_t m_flyoutColorRgb = 0x0078D7;   /* chosen custom colour */
+    int32_t m_connectionPrivacyMode = 0;
+    int32_t m_themeSelection = 0;      /* Windows 7 (8.1 not available) */
+    /* Colour shown by the swatch next to the two entries: with the "system
+     * colour" mode it is read from the system (see
+     * RefreshExtraSwatchColor). */
+    uint32_t m_extraSwatchRgb = 0x0078D7;
     HFONT m_font = nullptr;   /* RAII: vive quanto il dialogo (v2.47) */
 };
 
