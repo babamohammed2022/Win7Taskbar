@@ -58,7 +58,28 @@ $out = Join-Path $root $OutputDir
 $isWindowsHost = [bool]$env:OS -and ($env:OS -eq 'Windows_NT')
 
 function Step($text) { Write-Host "==> $text" -ForegroundColor Cyan }
-function Fail($text) { Write-Host "!!  $text" -ForegroundColor Red; exit 1 }
+# v1.21.18: "::error::" is a GitHub Actions workflow command: the runner turns
+# the LINE into a check annotation, so a failed package says why on the run
+# page instead of only "Process completed with exit code 1" (the job log itself
+# is not always reachable, e.g. behind a network that blocks the log host).
+function Fail($text) {
+    Write-Host "!!  $text" -ForegroundColor Red
+    Write-Output "::error::$text"
+    exit 1
+}
+function Warn($text) {
+    Write-Host "!!  $text" -ForegroundColor Yellow
+    Write-Output "::warning::$text"
+}
+
+# v1.21.18: an unhandled error (a failed Copy-Item, a JSON that does not parse)
+# leaves the run page with a bare "exit code 1" and nothing else. Report it as
+# an annotation too, with the message PowerShell produced.
+trap {
+    $message = ($_ | Out-String).Trim()
+    Write-Output "::error::publish.ps1 stopped: $message"
+    exit 1
+}
 
 # ---------------------------------------------------------------------------
 # 1. native core
@@ -144,9 +165,12 @@ if ($SkipNative) {
     $newestSource = Get-ChildItem (Join-Path $native 'src') -File -Recurse -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
     if ($newestSource -and ($newestSource.LastWriteTimeUtc -gt $coreTime.AddMinutes(2))) {
-        Write-Host ("    !!  dist/Win7TaskbarCore.dll ({0:u}) is older than native/src/{1} ({2:u}):" -f `
-            $coreTime, $newestSource.Name, $newestSource.LastWriteTimeUtc) -ForegroundColor Yellow
-        Write-Host "    !!  the package may be carrying a stale native core: rebuild the native project" -ForegroundColor Yellow
+        # Format first, warn after: mixing "+" and the format operator in one
+        # expression depends on their precedence, which is not worth relying on.
+        $staleText = ("dist/Win7TaskbarCore.dll ({0:u}) is older than native/src/{1} ({2:u}): " +
+                      "the package may be carrying a stale native core - rebuild the native project") -f `
+                     $coreTime, $newestSource.Name, $newestSource.LastWriteTimeUtc
+        Warn $staleText
     } else {
         Write-Host "    dist/Win7TaskbarCore.dll is at least as new as native/src/" -ForegroundColor Green
     }
@@ -215,22 +239,53 @@ foreach ($folder in @('Themes', 'Resources', 'Languages')) {
 # exactly what made a whole round of fixes invisible to the tester, and it
 # stops the release HERE instead of shipping.
 $packedCore = Join-Path $out 'Win7TaskbarCore.dll'
-$gitSha = $null
+$stampCandidates = @()
+$headSha = $null
 try {
-    $gitSha = (& git -C $root rev-parse HEAD 2>$null | Select-Object -First 1)
-    if ($gitSha) { $gitSha = $gitSha.Trim() }
-} catch { $gitSha = $null }
-if ($gitSha -and $gitSha.Length -ge 7) {
+    $headSha = (& git -C $root rev-parse HEAD 2>$null | Select-Object -First 1)
+    if ($headSha) { $headSha = $headSha.Trim() }
+} catch { $headSha = $null }
+if ($headSha -and $headSha.Length -ge 7) {
+    $stampCandidates += $headSha
+    # A pull_request run checks out the MERGE commit (refs/pull/N/merge): its
+    # second parent is the revision of the branch the package is built from.
+    # Both describe "this source tree", so either stamp is accepted - otherwise
+    # a perfectly fresh core would fail the check on a technicality. A tag or
+    # main push has no second parent here and falls back to HEAD alone.
+    try {
+        $branchSha = (& git -C $root rev-parse "$headSha^2" 2>$null | Select-Object -First 1)
+        if ($branchSha) {
+            $branchSha = $branchSha.Trim()
+            if ($branchSha.Length -ge 7 -and $stampCandidates -notcontains $branchSha) {
+                $stampCandidates += $branchSha
+            }
+        }
+    } catch { }
+}
+if ($stampCandidates.Count -gt 0) {
     $coreText = [System.Text.Encoding]::Unicode.GetString(
         [System.IO.File]::ReadAllBytes($packedCore))
-    if (-not $coreText.Contains($gitSha)) {
-        Fail ("$packedCore does not contain the build stamp $gitSha: the package is " +
-              "carrying a native core that was not built from this revision " +
-              "(rebuild it: cmake --build native/build --config $Configuration)")
+    $matched = $null
+    foreach ($candidate in $stampCandidates) {
+        if ($coreText.Contains($candidate)) { $matched = $candidate; break }
     }
-    Write-Host "    native core build stamp verified: $gitSha" -ForegroundColor Green
+    if (-not $matched) {
+        # Say WHICH revision the packaged DLL does carry: without it the only
+        # visible symptom is "exit code 1" on the run page.
+        $inside = @()
+        foreach ($m in [regex]::Matches($coreText, '(?<![0-9a-fA-F])[0-9a-fA-F]{40}(?![0-9a-fA-F])')) {
+            if ($inside.Count -ge 3) { break }
+            if ($inside -notcontains $m.Value) { $inside += $m.Value }
+        }
+        $insideText = if ($inside.Count -gt 0) { $inside -join ', ' } else { 'none found' }
+        Fail ("$packedCore does not contain the build stamp $($stampCandidates -join ' / '): " +
+              "the package is carrying a native core that was not built from this revision " +
+              "(revisions inside the packaged DLL: $insideText; rebuild it with " +
+              "cmake --build native/build --config $Configuration)")
+    }
+    Write-Host "    native core build stamp verified: $matched" -ForegroundColor Green
 } else {
-    Write-Host "    (no git revision available: build stamp not verified)" -ForegroundColor Yellow
+    Warn "no git revision available: the build stamp of the packaged native core was not verified"
 }
 $runtimeConfig = Get-Content (Join-Path $out 'Win7Taskbar.runtimeconfig.json') -Raw | ConvertFrom-Json
 $included = $runtimeConfig.runtimeOptions.includedFrameworks
