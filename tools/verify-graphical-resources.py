@@ -62,7 +62,9 @@ IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".ico", ".webp", ".ti
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 ICO_SIGNATURE = b"\x00\x00\x01\x00"
 
-EXPECTED_BUNDLE_COUNT = 52
+# v1.21.27: 52 chiavi originarie + bandierina Start Windows 8.1
+# (startwin81flag / startwin81flagscaled) = 54.
+EXPECTED_BUNDLE_COUNT = 54
 
 SKIP_DIR_NAMES = {
     ".git",

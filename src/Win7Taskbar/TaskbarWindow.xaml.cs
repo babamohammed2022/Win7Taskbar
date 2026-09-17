@@ -1599,6 +1599,11 @@ namespace Win7Taskbar
 
             double scale = _hwndSource.CompositionTarget.TransformToDevice.M11;
             IsScaled = scale > 1.0;
+
+            // v1.21.27 - la bandierina Start 8.1 e' ricampionata via GDI+ alla
+            // scala dispositivo del monitor: quando questa cambia (avvio su uno
+            // schermo secondario, WM_DPICHANGED) ripubblica lo sprite nitido.
+            Win7Taskbar.Utilities.StartFlagAssets.ApplyToResources(scale);
         }
 
         private void PositionOnScreen()
@@ -1947,8 +1952,23 @@ namespace Win7Taskbar
                         string appliedSkin = (AppliedThemeSelection ==
                                               RetroBar.Utilities.TaskbarThemeIds.Windows81)
                                                  ? "Windows 8.1" : "Windows 7";
+                        string themeSwapResult = ThemeLoader.ReapplyNow();
                         _bridge.Log("proprieta': skin " + appliedSkin + " -> " +
-                                    ThemeLoader.ReapplyNow());
+                                    themeSwapResult);
+
+                        /* v1.21.27 - ThemeLoader.ReapplyNow sostituisce
+                         * Application.Resources e con esso perde le risorse
+                         * pubblicate a runtime SOPRA il tema: la maschera alpha
+                         * derivata del bordo anteprima (DwmPreviewBorderMaskImage)
+                         * e il pennello d'accento dal vivo (DwmPreviewAccentBrush).
+                         * Senza di esse la cornice delle anteprime torna alla PNG
+                         * grezza ad alpha pieno: "le trasparenze non ci sono".
+                         * Ricostruiamole subito dopo uno swap riuscito. */
+                        if (themeSwapResult.StartsWith(
+                                "tema applicato subito", StringComparison.Ordinal))
+                        {
+                            RestorePreviewResourcesAfterThemeSwap();
+                        }
                     }
 
                     /* The choice is saved: it is published to the core right
@@ -2127,6 +2147,29 @@ namespace Win7Taskbar
         /// percorso del messaggio (brush + invalidazione dei frame nativi).
         /// Una query DWM per controllo; la logica di render non cambia.
         /// </summary>
+        /// <summary>
+        /// v1.21.27 - dopo uno swap del tema (ThemeLoader.ReapplyNow) le risorse
+        /// pubblicate a runtime sopra il dizionario del tema non esistono piu':
+        /// azzera le cache della maschera e dell'accento e ripubblica entrambe nel
+        /// NUOVO Application.Resources, cosi' le anteprime DWM ritrovano la loro
+        /// trasparenza (la maschera alpha derivata) e il colore d'accento dal vivo.
+        /// Idempotente e puramente cosmetica: un'eccezione lascia la cornice XAML.
+        /// </summary>
+        private void RestorePreviewResourcesAfterThemeSwap()
+        {
+            try
+            {
+                _dwmPreviewMaskReady = false;
+                _dwmAccentArgb = null;
+                UpdateDwmPreviewAccentColor();
+            }
+            catch (Exception ex)
+            {
+                try { _bridge.Log($"ripristino risorse anteprima: {ex.Message}"); }
+                catch { }
+            }
+        }
+
         private void EnsureDwmAccentFresh()
         {
             try
