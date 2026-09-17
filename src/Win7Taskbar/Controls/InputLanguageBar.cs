@@ -141,6 +141,15 @@ namespace Win7Taskbar.Controls
             _primary.SetResourceReference(TextBlock.FontFamilyProperty,
                 "GlobalFontFamily");
 
+            /* v1.21.28 - anche la riga secondaria della card Windows 8.1 deve
+             * usare il foreground del tema (bianco): senza, il TextBlock parte
+             * nero di default e la scritta "ITA / IT" esce meta' bianca e meta'
+             * nera, mentre su Windows 7 l'unica riga e' bianca. */
+            _secondary.SetResourceReference(TextBlock.ForegroundProperty,
+                "InputLanguageForeground");
+            _secondary.SetResourceReference(TextBlock.FontFamilyProperty,
+                "GlobalFontFamily");
+
             /* The Windows 8.1 card: three-letter abbreviation on top,
              * two-letter below (RefreshLayout fills the content). */
             var stack = new StackPanel
