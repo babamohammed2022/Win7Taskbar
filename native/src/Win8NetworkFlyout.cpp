@@ -2843,6 +2843,28 @@ static GdipGraphicsClearFunc pGdipGraphicsClear = NULL;
 static GdipCreateHBITMAPFromBitmapFunc pGdipCreateHBITMAPFromBitmap = NULL;
 static GdipDisposeImageFunc pGdipDisposeImage = NULL;
 static GdipCreateBitmapFromStreamFunc pGdipCreateBitmapFromStream = NULL;
+
+/* v1.21.22 - RAII del Graphics GDI+.
+ *
+ * Ogni sito che crea un Graphics con GdipGetImageGraphicsContext deve
+ * rilasciarlo: se una qualunque strada esce prima (o se una conversione
+ * solleva un'eccezione C++), il Graphics restava vivo finche' il processo non
+ * terminava. Il distruttore lo rilascia esattamente una volta, sulla strada
+ * normale e su quella d'errore. */
+struct GdipGraphicsHolder {
+    void* gfx = NULL;
+
+    GdipGraphicsHolder() = default;
+    GdipGraphicsHolder(const GdipGraphicsHolder&) = delete;
+    GdipGraphicsHolder& operator=(const GdipGraphicsHolder&) = delete;
+
+    ~GdipGraphicsHolder() {
+        if (gfx != NULL && pGdipDeleteGraphics != NULL) {
+            pGdipDeleteGraphics(gfx);
+            gfx = NULL;
+        }
+    }
+};
 static GdipCreateHICONFromBitmapFunc pGdipCreateHICONFromBitmap = NULL;
 
 static BOOL g_inPasswordPrompt = FALSE;
@@ -3752,16 +3774,16 @@ static HICON CreateIconFromBase64PNG(const WCHAR* base64Str, int targetWidth = 0
             if (pGdipCreateBitmapFromScan0(targetWidth, targetHeight, 0, 0x00E200B, NULL,
                                             &dstBitmap) == 0 &&
                 dstBitmap) {
-                void* graphics = NULL;
-                if (pGdipGetImageGraphicsContext(dstBitmap, &graphics) == 0 && graphics) {
+                // v1.21.22: il Graphics lo rilascia il RAII, non questo ramo.
+                GdipGraphicsHolder graphics;
+                if (pGdipGetImageGraphicsContext(dstBitmap, &graphics.gfx) == 0 && graphics.gfx) {
                     // 7 is GDI+'s HighQualityBicubic mode; 3 matches the
                     // pixel-offset mode used by DrawIconBicubic below.
-                    pGdipSetInterpolationMode(graphics, 7);
-                    pGdipSetPixelOffsetMode(graphics, 3);
-                    pGdipGraphicsClear(graphics, 0);
-                    scaled = pGdipDrawImageRectI(graphics, srcBitmap, 0, 0,
+                    pGdipSetInterpolationMode(graphics.gfx, 7);
+                    pGdipSetPixelOffsetMode(graphics.gfx, 3);
+                    pGdipGraphicsClear(graphics.gfx, 0);
+                    scaled = pGdipDrawImageRectI(graphics.gfx, srcBitmap, 0, 0,
                                                   targetWidth, targetHeight) == 0;
-                    pGdipDeleteGraphics(graphics);
                 }
                 if (scaled)
                     pGdipCreateHICONFromBitmap(dstBitmap, &hIcon);
@@ -7740,13 +7762,14 @@ static void DrawIconBicubic(HDC hdc, int x, int y, int w, int h, HICON hIcon, vo
         DrawIconEx(hdc, x, y, hIcon, w, h, 0, NULL, DI_NORMAL);
         return;
     }
-    void* gfx = NULL;
-    if (pGdipGetImageGraphicsContext(dstBitmap, &gfx) == 0 && gfx) {
-        pGdipSetInterpolationMode(gfx, 7); 
-        pGdipSetPixelOffsetMode(gfx, 3);   
-        pGdipGraphicsClear(gfx, 0);
-        pGdipDrawImageRectI(gfx, srcBitmap, 0, 0, w, h);
-        pGdipDeleteGraphics(gfx);
+    // v1.21.22: RAII - il Graphics viene rilasciato anche se il disegno
+    // sotto solleva un'eccezione C++.
+    GdipGraphicsHolder gfxHolder;
+    if (pGdipGetImageGraphicsContext(dstBitmap, &gfxHolder.gfx) == 0 && gfxHolder.gfx) {
+        pGdipSetInterpolationMode(gfxHolder.gfx, 7);
+        pGdipSetPixelOffsetMode(gfxHolder.gfx, 3);
+        pGdipGraphicsClear(gfxHolder.gfx, 0);
+        pGdipDrawImageRectI(gfxHolder.gfx, srcBitmap, 0, 0, w, h);
         HBITMAP hBmp = NULL;
         if (pGdipCreateHBITMAPFromBitmap(dstBitmap, &hBmp, 0) == 0 && hBmp) {
             HDC hdcMem = CreateCompatibleDC(hdc);
@@ -8830,6 +8853,13 @@ void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
 
     HMENU hMenu = CreatePopupMenu();
     if (!hMenu) return;
+    /* v1.21.22 - RAII sul menu: qualunque uscita da questa funzione, comprese
+     * le uscite anticipate e un'eccezione C++, lo distrugge. Prima la
+     * DestroyMenu andava ricordata su ogni strada. */
+    struct MenuGuard {
+        HMENU menu;
+        ~MenuGuard() { if (menu != NULL) DestroyMenu(menu); }
+    } menuGuard{ hMenu };
     if (menuItem.connState == CONN_STATE_CONNECTED) {
         AppendMenuW(hMenu, MF_STRING, IDM_DISCONNECT, LOC(STR_CTX_DISCONNECT));
         AppendMenuW(hMenu, MF_STRING, IDM_STATUS,     LOC(STR_CTX_STATUS));
@@ -8844,7 +8874,19 @@ void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
     if (g_Settings.theme == 1) {
         DarkContextMenu::Apply(TRUE);
     }
-    int cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN|TPM_RIGHTBUTTON|TPM_RETURNCMD, pt.x, pt.y, 0, hwnd, NULL);
+    /* v1.21.22: TrackPopupMenu e' codice shell che chiama dentro Explorer:
+     * la guardia SEH lo isola come il resto del flyout. cmdRaw e' volatile
+     * perche' viene scritto dentro il blocco setjmp e letto dopo. */
+    volatile int cmdRaw = 0;
+    W7T_SEH_TRY {
+        cmdRaw = TrackPopupMenu(hMenu, TPM_LEFTALIGN|TPM_RIGHTBUTTON|TPM_RETURNCMD, pt.x, pt.y, 0, hwnd, NULL);
+    }
+    W7T_SEH_CATCH {
+        cmdRaw = 0;
+        w7t::LogTagged(L"NET8", L"TrackPopupMenu ha sollevato un'eccezione: menu contestuale saltato");
+    }
+    W7T_SEH_END
+    const int cmd = cmdRaw;
     if (g_Settings.theme == 1) {
         DarkContextMenu::Restore();
     }
@@ -8864,7 +8906,7 @@ void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
         }
         LeaveCriticalSection(&g_Ctx.csLock);
         if (targetIndex < 0) {
-            DestroyMenu(hMenu);
+            /* v1.21.22: il menu lo distrugge il RAII (menuGuard) all'uscita. */
             return;
         }
 
@@ -8990,7 +9032,7 @@ case IDM_PROPERTIES:
 break;
         }
     }
-    DestroyMenu(hMenu);
+    /* v1.21.22: il menu lo distrugge il RAII (menuGuard) a fine funzione. */
 }
 
 static RECT GetFooterRect() {
@@ -9278,13 +9320,30 @@ static void DrawCharmsCheckbox(HDC hdc, int x, int y, BOOL checked) {
     }
 }
 
+/* v1.21.22 - CINQUE barre, non quattro.
+ *
+ * Windows misura la potenza del segnale Wi-Fi (e cellulare) su cinque
+ * livelli: cinque tacche sono quelle che disegnano la tray e il pannello
+ * reti di Windows 8/8.1 (la mappatura non e' pubblicata, ma il numero di
+ * barre si': vedi la risposta Microsoft "5 signal bars" in
+ * learn.microsoft.com/en-us/answers/questions/3917953). Con quattro barre
+ * l'icona del pannello non corrispondeva ne' all'icona di sistema
+ * (DrawNativeSignalIcon, che usa le icone 152+i a cinque livelli) ne' al
+ * valore letto da WLAN.
+ *
+ * Le misure sono rifatte per stare nella stessa fascia di 22 px che il
+ * pannello riserva all'icona: 5 barre da 3 px con 4 spazi da 2 px = 23 px,
+ * l'ultima tacca alta quanto la fascia (16 px come prima). */
+static int CharmsSignalIconWidth() {
+    return 5 * ScaleDpi(3) + 4 * ScaleDpi(2);
+}
+
 static void DrawCharmsSignalIcon(HDC hdc, int x, int y, ULONG signalQuality) {
-    // Four simple bars, like the Wi-Fi signal glyph in the screenshot.
-    int barW = ScaleDpi(4), gap = ScaleDpi(2), baseY = y + ScaleDpi(16);
-    int bars = (signalQuality >= 80) ? 4 : (signalQuality >= 55) ? 3 :
-               (signalQuality >= 30) ? 2 : 1;
-    for (int i = 0; i < 4; i++) {
-        int barH = ScaleDpi(4) + i * ScaleDpi(4);
+    int barW = ScaleDpi(3), gap = ScaleDpi(2), baseY = y + ScaleDpi(16);
+    int bars = (signalQuality >= 75) ? 5 : (signalQuality >= 55) ? 4 :
+               (signalQuality >= 35) ? 3 : (signalQuality >= 15) ? 2 : 1;
+    for (int i = 0; i < 5; i++) {
+        int barH = ScaleDpi(4) + i * ScaleDpi(3);
         BOOL lit = (i < bars);
         HBRUSH hBr = CreateSolidBrush(lit ? RGB(255,255,255) : RGB(110,165,225));
         RECT rc = { x + i * (barW + gap), baseY - barH, x + i * (barW + gap) + barW, baseY };
@@ -9500,7 +9559,10 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
         SelectObject(hdc, hFontBody);
         SetTextColor(hdc, RGB(255,255,255));
         TextOutW(hdc, cx, curY, displayName, lstrlenW(displayName));
-        int barsX = panelW - margin - ScaleDpi(22) + ox;
+        /* v1.21.22: la larghezza dell'icona la decide l'icona stessa (5 barre
+         * = 23 px a 100% DPI), cosi' resta incolonnata al margine del
+         * pannello anche se le misure cambiano. */
+        int barsX = panelW - margin - CharmsSignalIconWidth() + ox;
         DrawCharmsSignalIcon(hdc, barsX, curY, paintState.networks[i].signalQuality);
 
         // "Connected" sits just left of the signal bars, as in Windows 8.
@@ -10100,8 +10162,20 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
         hOldBmpForPaint  = hOldBmp;
 
         if (g_UseCharmsTestStyle) {
-            DrawCharmsStyleFlyout(hwnd, hdc, WINDOW_WIDTH, WINDOW_HEIGHT);
-            BitBlt(hdcReal, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, hdc, 0, 0, SRCCOPY);
+            /* v1.21.22: il pannello Charms disegna molto - font GDI, testi,
+             * anteprime delle reti - e il try/catch che racchiude il frame
+             * copre le eccezioni C++ (std::bad_alloc e simili), non un access
+             * violation dentro il disegno. Quella la intercetta la guardia
+             * SEH: un frame venuto male resta un frame saltato, invece di
+             * far saltare il message pump di Explorer. */
+            W7T_SEH_TRY {
+                DrawCharmsStyleFlyout(hwnd, hdc, WINDOW_WIDTH, WINDOW_HEIGHT);
+                BitBlt(hdcReal, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, hdc, 0, 0, SRCCOPY);
+            }
+            W7T_SEH_CATCH {
+                Wh_Log(L"FlyoutWndProc: eccezione hardware durante il disegno del pannello Charms, frame saltato");
+            }
+            W7T_SEH_END
             SelectObject(hdc, hOldBmp);
             EndPaint(hwnd, &ps);
             break;

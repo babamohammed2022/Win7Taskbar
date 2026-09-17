@@ -124,8 +124,28 @@
     <!-- Win7 TRAY/CLOCK real hover (PNG from the Windhawk Win7 skin in
          ../Resources): NOT rectangles — just the two vertical "whiskers" of
          light on the sides | icon | with a glow at the bottom. Rest: INVISIBLE. -->
-    <x:Static x:Key="TrayTileHoverImage" Member="bundle:GraphicalResourceBundle.win7_tray_tilehover" />
-    <x:Static x:Key="TrayTilePressedImage" Member="bundle:GraphicalResourceBundle.win7_tray_tilepressed" />
+    <!-- v1.21.22 - skin 8.1: tessere rettangolari piatte, spigoli vivi.
+         Sono ImageSource (non pennelli) perche' la stessa chiave serve
+         sia il Background/ImageBrush dei pulsanti della barra sia
+         Image.Source delle icone dell'area di notifica. -->
+    <DrawingImage x:Key="TrayTileHoverImage">
+        <DrawingImage.Drawing>
+            <GeometryDrawing Brush="#33FFFFFF">
+                <GeometryDrawing.Geometry>
+                    <RectangleGeometry Rect="0,0,1,1" />
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+    <DrawingImage x:Key="TrayTilePressedImage">
+        <DrawingImage.Drawing>
+            <GeometryDrawing Brush="#59FFFFFF">
+                <GeometryDrawing.Geometry>
+                    <RectangleGeometry Rect="0,0,1,1" />
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
+        </DrawingImage.Drawing>
+    </DrawingImage>
     <!-- v1.7.3: the soft-edged vertical strip for the window-count
          separators (3x43, feathered alpha). v1.7.4: the file previously
          lived only in the repo-root Resources folder, which the project
@@ -297,10 +317,11 @@
                       Offset="1.0" />
     </LinearGradientBrush>
 
-    <CornerRadius x:Key="TaskListScrollUpCornerRadius">2,2,0,0</CornerRadius>
-    <CornerRadius x:Key="TaskListScrollDownCornerRadius">0,0,2,2</CornerRadius>
-    <CornerRadius x:Key="TaskListScrollLeftCornerRadius">2,0,0,2</CornerRadius>
-    <CornerRadius x:Key="TaskListScrollRightCornerRadius">0,2,2,0</CornerRadius>
+    <!-- v1.21.22 - skin 8.1: frecce di scorrimento squadrate. -->
+    <CornerRadius x:Key="TaskListScrollUpCornerRadius">0,0,0,0</CornerRadius>
+    <CornerRadius x:Key="TaskListScrollDownCornerRadius">0,0,0,0</CornerRadius>
+    <CornerRadius x:Key="TaskListScrollLeftCornerRadius">0,0,0,0</CornerRadius>
+    <CornerRadius x:Key="TaskListScrollRightCornerRadius">0,0,0,0</CornerRadius>
 
     <SolidColorBrush x:Key="TaskListScrollButtonOuterBorder" Color="#99000000" />
     <SolidColorBrush x:Key="TaskListScrollButtonBorder" Color="#998c9ccc" />
@@ -615,20 +636,20 @@
                             Name="ButtonBorder">
                         <Border BorderThickness="2"
                                 BorderBrush="{DynamicResource TaskButtonOuterBorder}"
-                                CornerRadius="4"
+                                CornerRadius="0"
                                 x:Name="ButtonOuterBorder">
                             <Border BorderThickness="2"
                                     BorderBrush="{DynamicResource TaskButtonInnerBorder}"
                                     Background="{DynamicResource TaskButtonBackground}"
-                                    CornerRadius="3"
+                                    CornerRadius="0"
                                     x:Name="ButtonInnerBorder">
                                 <Border BorderThickness="0,1,1,0"
                                         BorderBrush="{DynamicResource TaskButtonInnerTopRightBorder}"
-                                        CornerRadius="2"
+                                        CornerRadius="0"
                                         x:Name="ButtonInnerTopRightBorder">
                                     <Border BorderThickness="1,0,0,1"
                                             BorderBrush="{DynamicResource TaskButtonInnerBottomLeftBorder}"
-                                            CornerRadius="2"
+                                            CornerRadius="0"
                                             x:Name="ButtonInnerBottomLeftBorder">
                                         <ContentPresenter Margin="6,0"
                                                           VerticalAlignment="Center"
@@ -728,20 +749,20 @@
                             <Border BorderThickness="1,1,1,0"
                                     BorderBrush="{DynamicResource TaskButtonOuterBorderActive}"
                                     Background="{DynamicResource TaskButtonBottomBackgroundActive}"
-                                    CornerRadius="3,3,0,0"
+                                    CornerRadius="0,0,0,0"
                                     x:Name="ButtonOuterBorder">
                                 <Border BorderThickness="1,1,1,0"
                                         BorderBrush="{DynamicResource TaskButtonInnerBorderActive}"
                                         Background="{DynamicResource TaskButtonBackgroundActive}"
-                                        CornerRadius="3,3,0,0"
+                                        CornerRadius="0,0,0,0"
                                         x:Name="ButtonInnerBorder">
                                     <Border BorderThickness="0,1,1,0"
                                             BorderBrush="{DynamicResource TaskButtonInnerTopRightBorderActive}"
-                                            CornerRadius="0,3,0,0"
+                                            CornerRadius="0,0,0,0"
                                             x:Name="ButtonInnerTopRightBorder">
                                         <Border BorderThickness="1,0,0,0"
                                                 BorderBrush="{DynamicResource TaskButtonInnerBottomLeftBorderActive}"
-                                                CornerRadius="3,3,0,0"
+                                                CornerRadius="0,0,0,0"
                                                 x:Name="ButtonInnerBottomLeftBorder">
                                             <ContentPresenter Margin="6,0,6,1"
                                                               VerticalAlignment="Center"
@@ -813,24 +834,24 @@
                         <Border BorderThickness="1"
                                 BorderBrush="{DynamicResource TaskButtonOuterBorderFlashing}"
                                 Background="{DynamicResource TaskButtonBottomBackgroundFlashing}"
-                                CornerRadius="3"
+                                CornerRadius="0"
                                 x:Name="ButtonOuterBorder">
                             <Border BorderThickness="1"
                                     BorderBrush="{DynamicResource TaskButtonInnerBorderFlashing}"
                                     Background="{DynamicResource TaskButtonBackgroundFlashing}"
-                                    CornerRadius="2"
+                                    CornerRadius="0"
                                     x:Name="ButtonInnerBorder">
                                 <Border BorderThickness="0,1,1,0"
                                         BorderBrush="{DynamicResource TaskButtonInnerTopRightBorderFlashing}"
-                                        CornerRadius="2"
+                                        CornerRadius="0"
                                         x:Name="ButtonInnerTopRightBorder">
                                     <Border BorderThickness="1,0,0,1"
                                             BorderBrush="{DynamicResource TaskButtonInnerBottomLeftBorderFlashing}"
-                                            CornerRadius="2"
+                                            CornerRadius="0"
                                             x:Name="ButtonInnerBottomLeftBorder">
                                         <Grid>
                                             <Border Background="{DynamicResource TaskButtonFlashPulseOverlay}"
-                                                    CornerRadius="2"
+                                                    CornerRadius="0"
                                                     Opacity="0.2"
                                                     IsHitTestVisible="False"
                                                     x:Name="FlashPulse" />
@@ -2268,12 +2289,12 @@
                     <Border Background="Transparent">
                         <Border BorderThickness="1"
                                 BorderBrush="Transparent"
-                                CornerRadius="9"
+                                CornerRadius="0"
                                 HorizontalAlignment="Center"
                                 x:Name="ButtonOuterBorder">
                             <Border BorderThickness="1"
                                     BorderBrush="Transparent"
-                                    CornerRadius="9"
+                                    CornerRadius="0"
                                     Background="{TemplateBinding Background}"
                                     HorizontalAlignment="Center"
                                     Padding="{DynamicResource TrayToggleArrowPadding}"
@@ -2775,6 +2796,113 @@
     <Style x:Key="TaskListWrapPanel" TargetType="WrapPanel">
         <Setter Property="Margin" Value="0,0,0,0" />
         <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <!-- ==================================================================
+         v1.21.22 - SKIN WINDOWS 8.1: SPIGOLI VIVI.
+
+         Windows 8.1 e' l'interfaccia piatta e squadrata che ha sostituito il
+         vetro Aero: niente angoli tondi, niente riflessi. Qui vivono le
+         varianti a spigoli vivi delle parti che la skin Windows 7 disegna
+         tonde. Stanno nel file della skin 8.1 e NON nel tema Windows 7, che
+         resta intoccato: e' ThemeLoader a scegliere queste chiavi quando la
+         skin attiva e' la 8.1 (il dizionario principale vince sui dizionari
+         mergiati, l'ordine documentato da Microsoft).
+
+           Win81TaskButtonFrameHover / Active / Notification
+                 cornici piatte dei pulsanti della striscia (sostituiscono le
+                 tre cornici a tre pezzi con gli angoli tondi del tema Win7);
+           Win81TaskPreviewFrameVista
+                 cornice dell'anteprima viva, rettangolare (la versione Win7
+                 e' il vetro Aero con gli angoli tondi);
+           Win81TaskPreviewCloseButton
+                 la X dell'anteprima, 17x17, quella fornita dall'utente:
+                 incorporata in base64 in Utilities/PreviewAssets.cs
+                 (Win81PreviewClose) e rimossa dal repository.
+         ================================================================== -->
+
+    <SolidColorBrush x:Key="Win81TaskButtonFrameFill" Color="#33FFFFFF" />
+    <SolidColorBrush x:Key="Win81TaskButtonFrameFillActive" Color="#59FFFFFF" />
+
+    <ControlTemplate x:Key="Win81TaskButtonFrameHover" TargetType="ContentControl">
+        <Border Background="{DynamicResource Win81TaskButtonFrameFill}" />
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="Win81TaskButtonFrameActive" TargetType="ContentControl">
+        <Border Background="{DynamicResource Win81TaskButtonFrameFillActive}" />
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="Win81TaskButtonFrameNotification" TargetType="ContentControl">
+        <Border Background="{DynamicResource TaskButtonBackgroundFlashing}" />
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="Win81TaskPreviewFrameVista" TargetType="ContentControl">
+        <Grid SnapsToDevicePixels="True">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="38" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="19" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="17" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="17" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Quattro bande piene di colore accento, nessuna maschera: gli
+                 angoli restano a 90 gradi. Stesse misure del frame Win7
+                 (17 px ai lati, 38 in alto, 19 in basso) e stesso centro
+                 vuoto, dove vive la miniatura DWM. -->
+            <Rectangle Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}"
+                       IsHitTestVisible="False" />
+            <Rectangle Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}"
+                       IsHitTestVisible="False" />
+            <Rectangle Grid.Row="1" Grid.Column="0"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}"
+                       IsHitTestVisible="False" />
+            <Rectangle Grid.Row="1" Grid.Column="2"
+                       Fill="{DynamicResource DwmPreviewAccentBrush}"
+                       IsHitTestVisible="False" />
+
+            <ContentPresenter Grid.Row="1" Grid.Column="1"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch" />
+        </Grid>
+    </ControlTemplate>
+
+    <Style x:Key="Win81TaskPreviewCloseButton" TargetType="Button">
+        <!-- 20x20 di bersaglio, arte 17x17 centrata a 1:1. -->
+        <Setter Property="Width" Value="20" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Image x:Name="CloseGlyph"
+                           Source="{x:Static bundle:PreviewAssets.Win81PreviewClose}"
+                           Width="17" Height="17" Stretch="None"
+                           SnapsToDevicePixels="True"
+                           RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="CloseGlyph"
+                                    Property="Opacity" Value="0.85" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="CloseGlyph"
+                                    Property="Opacity" Value="0.7" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
 </ResourceDictionary>

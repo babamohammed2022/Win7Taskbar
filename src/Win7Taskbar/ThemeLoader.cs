@@ -139,7 +139,102 @@ namespace Win7Taskbar
                 // senza eredita' lo stile resta valido (template proprio)
             }
 
+            // v1.21.22 - con la skin Windows 8.1 la barra e le anteprime sono
+            // squadrate: le chiavi della variante 8.1 dichiarate nel tema
+            // prendono il posto di quelle di Overrides.xaml. Con la skin
+            // Windows 7 questa chiamata non avviene e nulla cambia.
+            if (IsWindows81Selected())
+            {
+                ShadowWindows81Keys(root);
+            }
+
             return root;
+        }
+
+        /// <summary>
+        /// v1.21.22 - true quando la skin scelta in Proprieta' e' la 8.1, con
+        /// la stessa prudenza del resto del caricamento: una configurazione non
+        /// leggibile lascia il valore di ripiego, cioe' la skin Windows 7.
+        /// </summary>
+        private static bool IsWindows81Selected()
+        {
+            try
+            {
+                return RetroBar.Utilities.TaskbarThemeIds.Normalize(
+                           RetroBar.Utilities.Settings.Instance.ThemeSelection)
+                       == RetroBar.Utilities.TaskbarThemeIds.Windows81;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// v1.21.22 - cornici e pulsanti a spigoli vivi della skin Windows 8.1.
+        ///
+        /// Il tema 8.1 dichiara le proprie varianti (chiavi "Win81..."), ma il
+        /// dizionario Overrides.xaml e' mergiato DOPO il tema e, come documenta
+        /// Microsoft ("Merged resource dictionaries"), fra due dizionari
+        /// mergiati vince quello aggiunto per ultimo: le chiavi del tema non
+        /// verrebbero mai raggiunte. Qui la variante 8.1 viene copiata nel
+        /// dizionario PRINCIPALE, che ha la precedenza su tutti i mergiati (la
+        /// precedenza e' documentata e vale sia per StaticResource sia per
+        /// DynamicResource).
+        ///
+        /// Solo skin 8.1: con Windows 7 la funzione non viene chiamata e ogni
+        /// chiave resta esattamente quella di Themes/Overrides.xaml. Best
+        /// effort: una variante mancante lascia in piedi la versione Windows 7,
+        /// e la diagnostica non puo' far fallire l'avvio.
+        /// </summary>
+        private static void ShadowWindows81Keys(ResourceDictionary root)
+        {
+            var pairs = new (string Target, string Source)[]
+            {
+                ("TaskPreviewFrameVista", "Win81TaskPreviewFrameVista"),
+                ("TaskPreviewCloseButton", "Win81TaskPreviewCloseButton"),
+                ("TaskButtonFrameHover", "Win81TaskButtonFrameHover"),
+                ("TaskButtonFrameActive", "Win81TaskButtonFrameActive"),
+                ("TaskButtonFrameNotification", "Win81TaskButtonFrameNotification"),
+            };
+
+            var applied = new List<string>();
+            var missing = new List<string>();
+
+            foreach ((string target, string source) in pairs)
+            {
+                try
+                {
+                    object? variant = root[source];
+                    if (variant == null)
+                    {
+                        missing.Add(source);
+                        continue;
+                    }
+
+                    root[target] = variant;
+                    applied.Add(target);
+                }
+                catch
+                {
+                    missing.Add(source);
+                }
+            }
+
+            try
+            {
+                DiagnosticLogger.Write("THEME",
+                    "skin 8.1: chrome a spigoli vivi applicato a " +
+                    string.Join(", ", applied) +
+                    (missing.Count > 0
+                        ? "; varianti mancanti, resta la versione Windows 7: " +
+                          string.Join(", ", missing)
+                        : ""));
+            }
+            catch
+            {
+                /* la diagnostica non e' mai un requisito */
+            }
         }
 
         /// <summary>

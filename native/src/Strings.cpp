@@ -935,12 +935,12 @@ constexpr ShortStrings kShortAr = {
 constexpr ExtraStrings kExtraIt = {
     L"Impostazioni extra",
     L"Flyout",
-    L"Colore del flyout:",
+    L"Colore del flyout di connessione:",
     L"Colore di sistema",
     L"Colore personalizzato",
     L"Scegli colore...",
-    L"Usato dal flyout Windows 8 (ricreato) quando è attivo: Colore di sistema segue il colore di Windows, "
-    L"Colore personalizzato usa quello scelto. Windows non viene modificato.",
+    L"Solo il flyout di connessione di Windows 8 (ricreato) quando è attivo: Colore di sistema segue il colore "
+    L"di Windows, Colore personalizzato usa quello scelto. Windows non viene modificato.",
     L"Modalità privacy:",
     L"Normale (nomi reali)",
     L"Privacy (nomi generici)",
@@ -958,12 +958,12 @@ constexpr ExtraStrings kExtraIt = {
 constexpr ExtraStrings kExtraEn = {
     L"Extra settings",
     L"Flyout",
-    L"Flyout color:",
+    L"Connection flyout color:",
     L"System color",
     L"Custom color",
     L"Choose color...",
-    L"Used by the recreated Windows 8 flyout when it is active: System color follows the Windows "
-    L"color, Custom color uses the one you pick. Windows is not modified.",
+    L"Only the recreated Windows 8 connection flyout uses it when it is active: System color follows the "
+    L"Windows color, Custom color uses the one you pick. Windows is not modified.",
     L"Privacy mode:",
     L"Normal (real names)",
     L"Privacy (generic names)",
@@ -980,12 +980,12 @@ constexpr ExtraStrings kExtraEn = {
 constexpr ExtraStrings kExtraEs = {
     L"Configuración extra",
     L"Flyout",
-    L"Color del flyout:",
+    L"Color del flyout de conexión:",
     L"Color del sistema",
     L"Color personalizado",
     L"Elegir color...",
-    L"Lo usa el flyout de Windows 8 (recreado) cuando está activo: Color del sistema sigue el color "
-    L"de Windows y Color personalizado usa el elegido. Windows no se modifica.",
+    L"Solo lo usa el flyout de conexión de Windows 8 (recreado) cuando está activo: Color del sistema sigue "
+    L"el color de Windows y Color personalizado usa el elegido. Windows no se modifica.",
     L"Modo de privacidad:",
     L"Normal (nombres reales)",
     L"Privacidad (nombres genéricos)",
@@ -1003,12 +1003,12 @@ constexpr ExtraStrings kExtraEs = {
 constexpr ExtraStrings kExtraFr = {
     L"Paramètres supplémentaires",
     L"Flyout",
-    L"Couleur du flyout :",
+    L"Couleur du flyout de connexion :",
     L"Couleur du système",
     L"Couleur personnalisée",
     L"Choisir une couleur...",
-    L"Utilisé par le flyout Windows 8 (recréé) lorsqu'il est actif : Couleur du système suit la "
-    L"couleur de Windows, Couleur personnalisée utilise celle choisie. Windows n'est pas modifié.",
+    L"Seul le flyout de connexion Windows 8 (recréé) l'utilise lorsqu'il est actif : Couleur du système "
+    L"suit la couleur de Windows, Couleur personnalisée utilise celle choisie. Windows n'est pas modifié.",
     L"Mode confidentialité :",
     L"Normal (noms réels)",
     L"Confidentialité (noms génériques)",
@@ -1026,11 +1026,11 @@ constexpr ExtraStrings kExtraFr = {
 constexpr ExtraStrings kExtraDe = {
     L"Weitere Einstellungen",
     L"Flyout",
-    L"Farbe des Flyouts:",
+    L"Farbe des Verbindungs-Flyouts:",
     L"Systemfarbe",
     L"Benutzerdefinierte Farbe",
     L"Farbe wählen...",
-    L"Wird vom nachgebildeten Windows 8-Flyout verwendet, wenn es aktiv ist: Systemfarbe folgt der "
+    L"Nur das nachgebildete Windows 8-Verbindungs-Flyout nutzt sie, wenn es aktiv ist: Systemfarbe folgt der "
     L"Windows-Farbe, Benutzerdefinierte Farbe nutzt die gewählte. Windows wird nicht verändert.",
     L"Datenschutzmodus:",
     L"Normal (echte Namen)",
@@ -1049,12 +1049,12 @@ constexpr ExtraStrings kExtraDe = {
 constexpr ExtraStrings kExtraPt = {
     L"Configurações extras",
     L"Flyout",
-    L"Cor do flyout:",
+    L"Cor do flyout de conexão:",
     L"Cor do sistema",
     L"Cor personalizada",
     L"Escolher cor...",
-    L"Usado pelo flyout do Windows 8 (recriado) quando está ativo: Cor do sistema segue a cor do "
-    L"Windows, Cor personalizada usa a escolhida. O Windows não é alterado.",
+    L"Só o flyout de conexão do Windows 8 (recriado) a usa quando está ativo: Cor do sistema segue a cor "
+    L"do Windows, Cor personalizada usa a escolhida. O Windows não é alterado.",
     L"Modo de privacidade:",
     L"Normal (nomes reais)",
     L"Privacidade (nomes genéricos)",
@@ -1072,12 +1072,12 @@ constexpr ExtraStrings kExtraPt = {
 constexpr ExtraStrings kExtraPl = {
     L"Ustawienia dodatkowe",
     L"Flyout",
-    L"Kolor okna wysuwanego:",
+    L"Kolor okna wysuwanego połączeń:",
     L"Kolor systemowy",
     L"Kolor niestandardowy",
     L"Wybierz kolor...",
-    L"Używany przez odtworzony flyout Windows 8, gdy jest aktywny: Kolor systemowy podąża za "
-    L"kolorem Windows, Kolor niestandardowy używa wybranego. Windows nie jest zmieniany.",
+    L"Używa go tylko odtworzone okno wysuwane połączeń Windows 8, gdy jest aktywne: Kolor systemowy "
+    L"podąża za kolorem Windows, Kolor niestandardowy używa wybranego. Windows nie jest zmieniany.",
     L"Tryb prywatności:",
     L"Normalny (prawdziwe nazwy)",
     L"Prywatność (nazwy ogólne)",
@@ -1095,12 +1095,12 @@ constexpr ExtraStrings kExtraPl = {
 constexpr ExtraStrings kExtraRu = {
     L"Дополнительные параметры",
     L"Flyout",
-    L"Цвет всплывающей панели:",
+    L"Цвет панели подключений:",
     L"Системный цвет",
     L"Пользовательский цвет",
     L"Выбрать цвет...",
-    L"Используется воссозданным flyout Windows 8, когда он активен: системный цвет следует за "
-    L"цветом Windows, пользовательский — за выбранным. Windows не изменяется.",
+    L"Используется только панелью подключений Windows 8 (воссозданной), когда она активна: системный "
+    L"цвет следует за цветом Windows, пользовательский — за выбранным. Windows не изменяется.",
     L"Режим конфиденциальности:",
     L"Обычный (реальные имена)",
     L"Конфиденциальность (общие имена)",
@@ -1118,11 +1118,11 @@ constexpr ExtraStrings kExtraRu = {
 constexpr ExtraStrings kExtraJa = {
     L"詳細設定",
     L"フライアウト",
-    L"フライアウトの色:",
+    L"接続フライアウトの色:",
     L"システムの色",
     L"カスタム色",
     L"色を選択...",
-    L"再現版 Windows 8 フライアウトが有効なときに使用されます。システムの色は Windows の色に従い、"
+    L"再現版 Windows 8 の接続フライアウトだけが有効時に使用します。システムの色は Windows の色に従い、"
     L"カスタム色は選択した色を使います。Windows は変更されません。",
     L"プライバシーモード:",
     L"通常（実際の名前）",
@@ -1140,11 +1140,12 @@ constexpr ExtraStrings kExtraJa = {
 constexpr ExtraStrings kExtraZh = {
     L"额外设置",
     L"浮出控件",
-    L"浮出控件颜色:",
+    L"连接浮出控件颜色:",
     L"系统颜色",
     L"自定义颜色",
     L"选择颜色...",
-    L"重建的 Windows 8 浮出控件启用时使用：系统颜色跟随 Windows 的颜色，自定义颜色使用所选颜色。不会修改 Windows。",
+    L"启用时仅由重建的 Windows 8 连接浮出控件使用：系统颜色跟随 Windows 的颜色，"
+    L"自定义颜色使用所选颜色。不会修改 Windows。",
     L"隐私模式:",
     L"普通（真实名称）",
     L"隐私（通用名称）",
@@ -1160,12 +1161,12 @@ constexpr ExtraStrings kExtraZh = {
 constexpr ExtraStrings kExtraAr = {
     L"إعدادات إضافية",
     L"القائمة المنبثقة",
-    L"لون القائمة المنبثقة:",
+    L"لون قائمة الاتصال المنبثقة:",
     L"لون النظام",
     L"لون مخصص",
     L"اختيار لون...",
-    L"تُستخدم في لوحة Windows 8 المُعاد إنشاؤها عند تفعيلها: لون النظام يتبع لون Windows، واللون "
-    L"المخصص يستخدم اللون المختار. لا يتغيّر Windows.",
+    L"تستخدمها قائمة الاتصال في Windows 8 (المُعاد إنشاؤها) وحدها عند تفعيلها: لون النظام يتبع لون "
+    L"Windows، واللون المخصص يستخدم اللون المختار. لا يتغيّر Windows.",
     L"وضع الخصوصية:",
     L"عادي (أسماء حقيقية)",
     L"الخصوصية (أسماء عامة)",
