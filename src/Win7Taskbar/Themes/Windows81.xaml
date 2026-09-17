@@ -1,3 +1,4 @@
-<!-- TODO: Implement Windows 8.1 theme -->
-<!-- TODO: Add Windows 8.1-specific styles and resources -->
-<!-- TODO: Integrate Windows 8.1 visual elements -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Placeholder for the Windows 8.1 theme. The theme is not implemented yet. -->
+</ResourceDictionary>
