@@ -6696,9 +6696,9 @@ namespace Win7Taskbar
 
                 /* v1.21.7: the extra settings follow the same principle - the
                  * configuration read here IS the decision. The privacy mode
-                 * goes to the recreated connection flyout, the colour stays
-                 * available for the Windows 8-style flyout (not implemented
-                 * yet): see ApplyExtraSettings. */
+                 * goes to the recreated connection flyouts, the colour to the
+                 * recreated Windows 8 one (both of them are part of this
+                 * build): see ApplyExtraSettings. */
                 ApplyExtraSettings();
 
                 string modern = "?";
