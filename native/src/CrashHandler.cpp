@@ -12,6 +12,7 @@
 
 #include "BatteryFlyout.h"
 #include "Win8NetworkFlyout.h"   /* v3.8: rilascio GDI del riquadro Win8 */
+#include "SehGuard.h"            /* W7T_SEH_TRY: la guardia SEH portatile v2 */
 
 namespace {
 
@@ -67,6 +68,96 @@ bool BuildCoreLogPath(wchar_t* out, size_t count) noexcept
     }
     out[used] = L'\0';
     return true;
+}
+
+/* v1.21.19: the CALLERS of the faulting instruction.
+ *
+ * "unhandled exception 0xC0000005 in msvcrt.dll +0x7BDBF" - the line a real
+ * machine produced - says which module died but not which of our calls led
+ * there, and on Windows 11 msvcrt.dll is the CRT that gdiplus, shlwapi and
+ * the shell all call into, so the module name alone identifies nothing.
+ *
+ * This walks the faulting thread's stack from its stack pointer and reports
+ * every value that lands inside a loaded module as "module+offset". Frames
+ * are listed innermost-first, exactly as they are found. It is a heuristic -
+ * data on the stack can look like a return address - but it is the only
+ * portable way to get callers without shipping symbol files, and it is
+ * bounded (max 96 slots, at most 12 frames) and SEH-guarded because a second
+ * fault inside the crash handler would end the process before anything was
+ * written. Win32 only, no allocation: the heap may be gone already. */
+enum { kStackSlots = 96, kMaxStackFrames = 12 };
+
+int CollectStackFrames(const void* stackPointer, wchar_t* out, size_t outCount)
+{
+    if (stackPointer == nullptr || out == nullptr || outCount < 32) return 0;
+    out[0] = L'\0';
+    if (reinterpret_cast<ULONG_PTR>(stackPointer) < 0x10000) return 0;
+
+    int frames = 0;
+    size_t used = 0;
+    /* W7T_SEH_TRY, not __try: the project's portable guard (a vectored
+     * handler + setjmp on both toolchains) and the same one the network
+     * flyouts use. Nothing inside needs unwinding, so the longjmp out of a
+     * faulting read is safe. */
+    W7T_SEH_TRY
+    {
+        const ULONG_PTR* slots = static_cast<const ULONG_PTR*>(stackPointer);
+        for (int i = 0; i < kStackSlots && frames < kMaxStackFrames; i++) {
+            const ULONG_PTR value = slots[i];
+            if (value < 0x10000) continue;
+            MEMORY_BASIC_INFORMATION info{};
+            if (VirtualQuery(reinterpret_cast<LPCVOID>(value), &info, sizeof(info)) != sizeof(info))
+                continue;
+            if (info.State != MEM_COMMIT) continue;
+            if ((info.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE |
+                                 PAGE_EXECUTE_WRITECOPY)) == 0)
+                continue;
+            HMODULE module = nullptr;
+            if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                    GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                    reinterpret_cast<LPCWSTR>(value), &module) ||
+                module == nullptr)
+                continue;
+            wchar_t modulePath[MAX_PATH]{};
+            if (GetModuleFileNameW(module, modulePath, ARRAYSIZE(modulePath)) == 0)
+                continue;
+            const wchar_t* leaf = modulePath;
+            for (const wchar_t* p = modulePath; *p != L'\0'; p++) {
+                if (*p == L'\\' || *p == L'/') leaf = p + 1;
+            }
+            const unsigned long long offset =
+                static_cast<unsigned long long>(value) -
+                static_cast<unsigned long long>(reinterpret_cast<ULONG_PTR>(module));
+            wchar_t frame[160]{};
+            wsprintfW(frame, L"%s+0x%I64X ", leaf, offset);
+            const size_t frameLength = static_cast<size_t>(lstrlenW(frame));
+            if (used + frameLength + 1 >= outCount) break;
+            for (size_t k = 0; k < frameLength; k++) out[used++] = frame[k];
+            out[used] = L'\0';
+            frames++;
+        }
+    }
+    W7T_SEH_CATCH
+    {
+        /* keep whatever was collected so far */
+    }
+    W7T_SEH_END
+    return frames;
+}
+
+/* The stack pointer of the faulting thread, per architecture. */
+const void* FaultingStackPointer(EXCEPTION_POINTERS* ep) noexcept
+{
+    if (ep == nullptr || ep->ContextRecord == nullptr) return nullptr;
+#if defined(_M_X64) || defined(__x86_64__)
+    return reinterpret_cast<const void*>(ep->ContextRecord->Rsp);
+#elif defined(_M_IX86) || defined(__i386__)
+    return reinterpret_cast<const void*>(ep->ContextRecord->Esp);
+#elif defined(_M_ARM64) || defined(__aarch64__)
+    return reinterpret_cast<const void*>(ep->ContextRecord->Sp);
+#else
+    return nullptr;
+#endif
 }
 
 /* v1.21.18: the same event, as one line in log-core.txt - the file a tester
@@ -275,11 +366,41 @@ void WriteCrashReport(EXCEPTION_POINTERS* ep) noexcept
                 wsprintfW(moduleLine, L"faultingOffset=+0x%I64X", offset);
                 WriteCrashLine(file, moduleLine);
 
-                wchar_t summary[400]{};
-                wsprintfW(summary, L"unhandled exception 0x%08lX in %s +0x%I64X",
-                          ep->ExceptionRecord->ExceptionCode, modulePath, offset);
+                wchar_t summary[700]{};
+                /* v1.21.19: the faulting module alone identifies nothing when
+                 * the fault lands in a shared CRT (msvcrt.dll is where
+                 * gdiplus/shlwapi/shell end up); the first callers go in the
+                 * same line, so one log file already answers "who called
+                 * this?". */
+                wchar_t frameTail[240]{};
+                if (CollectStackFrames(FaultingStackPointer(ep), frameTail,
+                                       ARRAYSIZE(frameTail)) > 0) {
+                    wsprintfW(summary, L"unhandled exception 0x%08lX in %s +0x%I64X | %s",
+                              ep->ExceptionRecord->ExceptionCode, modulePath, offset,
+                              frameTail);
+                } else {
+                    wsprintfW(summary, L"unhandled exception 0x%08lX in %s +0x%I64X",
+                              ep->ExceptionRecord->ExceptionCode, modulePath, offset);
+                }
                 AppendCrashToCoreLog(summary);
             }
+        }
+    }
+
+    /* v1.21.19: who called the faulting instruction. The heuristic walk of the
+     * faulting thread's stack, one line per frame, innermost first: in the
+     * report it is the full list (up to 12), so the next round can map it onto
+     * the sources instead of guessing. */
+    {
+        wchar_t frames[1024]{};
+        const int frameCount = CollectStackFrames(FaultingStackPointer(ep), frames,
+                                                  ARRAYSIZE(frames));
+        if (frameCount > 0) {
+            wchar_t framesLine[1200]{};
+            wsprintfW(framesLine, L"stackFrames(%d)=%s", frameCount, frames);
+            WriteCrashLine(file, framesLine);
+        } else {
+            WriteCrashLine(file, L"stackFrames=unavailable");
         }
     }
 

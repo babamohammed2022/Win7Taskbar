@@ -21,19 +21,23 @@ namespace RetroBar.Utilities
     /// <summary>Selectable taskbar skins / Skin della barra selezionabili.</summary>
     public static class TaskbarThemeIds
     {
-        /// <summary>Windows 7 skin: the only implemented one, the default
-        /// value and the safe fallback.</summary>
+        /// <summary>Windows 7 skin: the default value and the safe fallback.</summary>
         public const int Windows7 = 0;
 
-        /// <summary>Windows 8.1 skin: prepared, not implemented yet.</summary>
+        /// <summary>Windows 8.1 skin (v1.21.19): implemented. Its theme file is
+        /// Themes/Windows8.1.xaml - the name ThemeLoader.ThemeFileNameFor maps
+        /// this id to - and its Start button uses the two sprites embedded in
+        /// GraphicalResourceBundle (startwin81flag / startwin81flagscaled).</summary>
         public const int Windows81 = 1;
 
         /// <summary>
         /// True if the given skin really exists in this version: this is the
         /// single judgement that keeps the Properties dropdown and the theme
-        /// file loaded at startup together. No fake skins.
+        /// file loaded at startup together. No fake skins: an id whose theme
+        /// file is not shipped stays out of this list.
         /// </summary>
-        public static bool IsImplemented(int themeId) => themeId == Windows7;
+        public static bool IsImplemented(int themeId) =>
+            themeId == Windows7 || themeId == Windows81;
 
         /// <summary>Normalizes an id read from the configuration.</summary>
         public static int Normalize(int themeId) =>

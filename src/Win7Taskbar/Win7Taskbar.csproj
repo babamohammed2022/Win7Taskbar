@@ -285,7 +285,7 @@
          (PR #27). Nothing was dropped from either one; the only code touched
          during the union is where the two visual drag systems would have
          collided (see TaskbarWindow.xaml.cs and TaskbarViewModel.cs). -->
-    <Version>1.21.18-alpha</Version>
+    <Version>1.21.19-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
@@ -346,6 +346,19 @@
     <Page Remove="Themes\Windows7.xaml" />
     <Resource Remove="Themes\Windows7.xaml" />
     <Content Include="Themes\Windows7.xaml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!--
+      v1.21.19: Windows 8.1 skin, same treatment as Windows7.xaml - loaded from
+      disk at runtime by ThemeLoader (ThemeFileNameFor maps the id to
+      "Windows8.1.xaml"), so it must NOT be compiled into BAML: it is Content
+      and is copied next to the executable. Its Start button reads the two
+      sprites embedded in GraphicalResourceBundle (startwin81flag /
+      startwin81flagscaled), so no PNG has to ship for it.
+    -->
+    <Page Remove="Themes\Windows8.1.xaml" />
+    <Resource Remove="Themes\Windows8.1.xaml" />
+    <Content Include="Themes\Windows8.1.xaml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

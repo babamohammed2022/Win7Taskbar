@@ -5754,6 +5754,16 @@ void TriggerWlanScanIfNeeded(void) {
     WlanFreeMemory(pIfList);
 }
 
+/* v1.21.19: name of the network Windows itself says the machine is on.
+ *
+ * Defined after SafeSysFreeString() (which owns the dynamic SysFreeString
+ * pointer); declared here because RefreshWifiData(), below, is the only
+ * caller. Copied from the recreated Windows 7 flyout, where the same helper
+ * is what keeps the list non-empty on a PC whose WLAN API answers
+ * ERROR_ACCESS_DENIED. */
+static BOOL QueryNlmConnectedNetwork(WCHAR* outName, size_t nameCount,
+                                     BOOL* outHasInternet);
+
 void RefreshWifiData(HANDLE hClient) {
     if (!hClient) {
         w7t::LogTagged(L"NET8", L"network list not refreshed: no WLAN client");
@@ -5924,6 +5934,13 @@ void RefreshWifiData(HANDLE hClient) {
             if (connResult != ERROR_SUCCESS || !connData ||
                 connSize < sizeof(WLAN_CONNECTION_ATTRIBUTES)) {
                 if (connData) WlanFreeMemory(connData);
+                /* v1.21.19: the reason used to be swallowed here, which is why
+                 * an empty list on a connected PC could not be explained from
+                 * the log. ERROR_ACCESS_DENIED (5) is the usual answer on
+                 * Windows 11 without the location permission. */
+                w7t::LogTagged(L"NET8",
+                               L"empty list: WlanQueryInterface(current connection) failed (%lu) on interface %lu",
+                               (unsigned long)connResult, (unsigned long)i);
                 continue;
             }
             WLAN_CONNECTION_ATTRIBUTES attr;
@@ -5977,6 +5994,40 @@ void RefreshWifiData(HANDLE hClient) {
         if (tempCount > 0) {
             w7t::LogTagged(L"NET8",
                            L"available-network list was empty: connected network read from the driver");
+        }
+        if (tempCount == 0) {
+            /* v1.21.19 - the driver refused too (log above: usually
+             * ERROR_ACCESS_DENIED on Windows 11). Windows itself still knows
+             * which network the machine is on: the same last-resort stage the
+             * recreated Windows 7 flyout has, ported here because without it
+             * the pane stayed empty on a PC connected over Wi-Fi. */
+            WCHAR nlmName[64] = {0};
+            BOOL nlmHasInternet = FALSE;
+            if (QueryNlmConnectedNetwork(nlmName, ARRAYSIZE(nlmName), &nlmHasInternet)) {
+                WifiNetworkItem& item = tempList[tempCount];
+                ZeroMemory(&item, sizeof(item));
+                StringCchCopyW(item.ssid, ARRAYSIZE(item.ssid),
+                               (nlmName[0] != L'\0') ? nlmName : L"Network");
+                item.isSecured = FALSE;
+                item.signalQuality = 100;
+                item.dot11BssType = dot11_BSS_type_infrastructure;
+                /* It is the connection in use, so a profile exists for it:
+                 * the pane draws it as the connected row and can offer
+                 * Disconnect, exactly like the Windows 7 flyout does. */
+                item.hasProfile = TRUE;
+                item.hasInternetAccess = nlmHasInternet;
+                item.connState = CONN_STATE_CONNECTED;
+                item.displaySuffix = 0;
+                item.hasBssid = FALSE;
+                ZeroMemory(item.bssid, sizeof(item.bssid));
+                tempCount++;
+                w7t::LogTagged(L"NET8",
+                               L"empty list and silent radio: added the Windows network '%s' (connected)",
+                               item.ssid);
+            } else {
+                w7t::LogTagged(L"NET8",
+                               L"empty list: no WLAN interface connected and NLM says disconnected");
+            }
         }
     }
     WlanFreeMemory(pIfList);
@@ -6105,6 +6156,73 @@ static void SafeSysFreeString(BSTR bstr) {
     if (pSysFreeString) {
         pSysFreeString(bstr);
     }
+}
+
+/* v1.21.19 - LAST RESORT for the network list, copied from the recreated
+ * Windows 7 flyout.
+ *
+ * On Windows 11 24H2 both WlanGetAvailableNetworkList and
+ * WlanQueryInterface(wlan_intf_opcode_current_connection) can answer
+ * ERROR_ACCESS_DENIED (5) - the log of a real machine shows exactly that -
+ * even though the PC is connected over Wi-Fi. The Windows 7 flyout keeps its
+ * list non-empty through the Network List Manager; the Windows 8 pane did not
+ * have that stage, so it showed an empty list on a connected PC.
+ *
+ * Returns TRUE when Windows reports a connection; the name (may be empty,
+ * the caller substitutes a neutral one) and the internet flag come back
+ * through the out parameters. A local NLM instance is used on purpose: it
+ * belongs to the calling thread and cannot race with g_pNLM, which the
+ * Ethernet detection releases on its own thread. */
+static BOOL QueryNlmConnectedNetwork(WCHAR* outName, size_t nameCount,
+                                     BOOL* outHasInternet) {
+    if (outName == NULL || nameCount == 0) {
+        return FALSE;
+    }
+    outName[0] = L'\0';
+    if (outHasInternet) *outHasInternet = FALSE;
+
+    INetworkListManager* pNLM = NULL;
+    const HRESULT createResult = CoCreateInstance(
+        CLSID_NetworkListManager, NULL, CLSCTX_INPROC_SERVER,
+        IID_INetworkListManager, (void**)&pNLM);
+    if (FAILED(createResult) || !pNLM) {
+        w7t::LogTagged(L"NET8",
+                       L"empty list: Network List Manager not available (0x%08X)",
+                       (unsigned)createResult);
+        return FALSE;
+    }
+
+    BOOL connected = FALSE;
+    NLM_CONNECTIVITY connectivity = NLM_CONNECTIVITY_DISCONNECTED;
+    if (SUCCEEDED(pNLM->GetConnectivity(&connectivity))) {
+        connected = (connectivity != NLM_CONNECTIVITY_DISCONNECTED) ? TRUE : FALSE;
+        if (outHasInternet) {
+            *outHasInternet =
+                ((connectivity & NLM_CONNECTIVITY_IPV4_INTERNET) != 0 ||
+                 (connectivity & NLM_CONNECTIVITY_IPV6_INTERNET) != 0) ? TRUE : FALSE;
+        }
+    }
+
+    if (connected) {
+        IEnumNetworks* pEnum = NULL;
+        if (SUCCEEDED(pNLM->GetNetworks(NLM_ENUM_NETWORK_CONNECTED, &pEnum)) && pEnum) {
+            INetwork* pNet = NULL;
+            ULONG fetched = 0;
+            while (pEnum->Next(1, &pNet, &fetched) == S_OK && pNet) {
+                BSTR bstrName = NULL;
+                if (SUCCEEDED(pNet->GetName(&bstrName)) && bstrName && bstrName[0] != L'\0') {
+                    StringCchCopyW(outName, nameCount, bstrName);
+                }
+                if (bstrName) SafeSysFreeString(bstrName);
+                pNet->Release();
+                if (outName[0] != L'\0') break;
+            }
+            pEnum->Release();
+        }
+    }
+
+    pNLM->Release();
+    return connected;
 }
 
 static BOOL ContainsKeywordCI(LPCWSTR str, LPCWSTR keyword) {
@@ -9963,6 +10081,10 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
         // in any drawing helper (std::bad_alloc etc.) must never unwind
         // through Explorer's message dispatch: log it, skip the frame, and
         // still pair BeginPaint with EndPaint below.
+        /* v1.21.19: tengono traccia della bitmap di memoria selezionata nella
+         * DC, cosi' anche il ramo di eccezione la deseleziona (vedi sotto). */
+        HDC     hdcPaintSelected  = NULL;
+        HBITMAP hOldBmpForPaint   = NULL;
         try {
         if (!g_hdcMemPaint || g_memPaintWidth != WINDOW_WIDTH || g_memPaintHeight != WINDOW_HEIGHT) {
             if (g_hdcMemPaint) { DeleteDC(g_hdcMemPaint); g_hdcMemPaint = NULL; }
@@ -9974,6 +10096,8 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
         }
         HDC     hdc     = g_hdcMemPaint;
         HBITMAP hOldBmp = (HBITMAP)SelectObject(hdc, g_hbmMemPaint);
+        hdcPaintSelected = hdc;
+        hOldBmpForPaint  = hOldBmp;
 
         if (g_UseCharmsTestStyle) {
             DrawCharmsStyleFlyout(hwnd, hdc, WINDOW_WIDTH, WINDOW_HEIGHT);
@@ -10378,6 +10502,18 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             // object for this single frame, but the flyout (and explorer.exe)
             // survives and the next frame repaints cleanly.
             Wh_Log(L"FlyoutWndProc: exception during WM_PAINT, frame skipped");
+        }
+        /* v1.21.19: LA BITMAP DI MEMORIA VA SEMPRE DESELEZIONATA, anche quando
+         * il disegno e' finito in eccezione. Un'uscita anomala saltava il
+         * SelectObject di ripristino e lasciava la bitmap agganciata alla DC:
+         * DeleteObject (che non cancella un oggetto selezionato) falliva in
+         * silenzio, la DC restava con la bitmap di un frame precedente e ogni
+         * ridimensionamento ricreava la coppia lasciando dietro di se'
+         * l'oggetto vecchio. Sul percorso normale questa riga e' un secondo
+         * SelectObject dello stesso oggetto, cioe' un no-op. */
+        if (hdcPaintSelected != NULL && hOldBmpForPaint != NULL) {
+            SelectObject(hdcPaintSelected, hOldBmpForPaint);
+            hOldBmpForPaint = NULL;
         }
         EndPaint(hwnd, &ps);
         break;

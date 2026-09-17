@@ -143,6 +143,44 @@ namespace Win7Taskbar
         }
 
         /// <summary>
+        /// v1.21.19 - applica subito la skin appena scelta nelle Impostazioni
+        /// extra, senza aspettare il riavvio del programma.
+        ///
+        /// Build() costruisce un dizionario nuovo di zecca esattamente come
+        /// all'avvio (tema + Overrides + le stesse riparazioni degli stili), e
+        /// Application.Resources e' esattamente la proprieta' che App.xaml.cs
+        /// riempie all'avvio: sostituirla a runtime e' la stessa cosa che
+        /// partire con l'altra skin. Tutti gli elementi del tema sono
+        /// riferimenti DynamicResource (lo stile TaskbarWindow, StartButton,
+        /// SuperbarButton, ...), quindi WPF li ri-risolve e la barra si veste
+        /// con il tema nuovo senza riavvio.
+        ///
+        /// Se la costruzione o la sostituzione falliscono, il tema precedente
+        /// resta in piedi - l'assegnazione avviene solo dopo un Build()
+        /// riuscito - e il chiamante scrive nel log che serve un riavvio.
+        /// </summary>
+        public static string ReapplyNow()
+        {
+            try
+            {
+                var application = System.Windows.Application.Current;
+                if (application == null)
+                {
+                    return "riavvio richiesto (nessuna Application attiva)";
+                }
+
+                ResourceDictionary theme = Build();
+                application.Resources = theme;
+                return "tema applicato subito";
+            }
+            catch (Exception exception)
+            {
+                return "riavvio richiesto (" + exception.GetType().Name + ": " +
+                       exception.Message + ")";
+            }
+        }
+
+        /// <summary>
         /// v1.21.7 - theme file for the selected skin ("Tema" in the extra
         /// settings).
         ///

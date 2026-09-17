@@ -258,15 +258,15 @@ void ShowTabPage(HWND hwnd, int page) {
 /* v1.21.7 - Skins available in THIS version of the program.
  *
  * The index is the one stored in the configuration: 0 = Windows 7,
- * 1 = Windows 8.1. The Windows 8.1 skin is not implemented yet, so the entry
- * stays visible in the dropdown (marked "not available") but can never
- * become the stored value: the selection falls back to Windows 7. When the
- * skin arrives, this function and ThemeLoader.cs (which picks the theme
- * file) are the only two places to change.
+ * 1 = Windows 8.1. Both are implemented now: the Windows 8.1 theme file
+ * (Themes/Windows8.1.xaml) ships with the program and its Start button uses
+ * the two sprites embedded in GraphicalResourceBundle
+ * (startwin81flag / startwin81flagscaled). Windows 7 stays the default and
+ * the fallback for anything unknown.
  *
  * A single function for the judgement, so the dropdown and SendApply cannot
  * diverge. */
-constexpr bool ThemeIsAvailable(int32_t themeId) { return themeId == 0; }
+constexpr bool ThemeIsAvailable(int32_t themeId) { return themeId == 0 || themeId == 1; }
 
 /* v1.21.7 - Colour picker of the extra settings tab.
  *
@@ -1175,10 +1175,10 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             id != IDC_BTN_EXIT &&
             id != IDC_BTN_CUSTOMIZE &&
             /* v1.21.7: the colour button turns "Apply" on only when the user
-             * really confirms a choice; the skin dropdown has nothing to apply
-             * (Windows 8.1 is not available and Windows 7 is already the
-             * stored choice). */
-            id != IDC_BTN_PICK_COLOR && id != IDC_CMB_EX_THEME) {
+             * really confirms a choice. v1.21.19: the skin dropdown is a real
+             * choice too (both skins are implemented), so it uses the generic
+             * rule and enables "Apply" like any other setting. */
+            id != IDC_BTN_PICK_COLOR) {
             EnableWindow(GetDlgItem(hwnd, IDC_BTN_APPLY), TRUE);
         }
         /* ---- v1.21.7: extra settings tab ---- */
@@ -1214,15 +1214,15 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         if (id == IDC_CMB_EX_THEME && act == CBN_SELCHANGE) {
             const int sel = static_cast<int>(
                 SendDlgItemMessageW(hwnd, IDC_CMB_EX_THEME, CB_GETCURSEL, 0, 0));
-            /* The Windows 8.1 skin does not exist yet: the entry is visible
-             * (so the user knows what is coming) but never becomes a stored
-             * choice. No fake theme, no missing file loaded: the dropdown
-             * falls back to Windows 7 and "Apply" stays off for this entry,
-             * because nothing has changed. */
-            if (sel == 1) {
+            /* v1.21.19: the skin is a real choice now. The selected index is
+             * stored as it is (SendApply reads it back through
+             * ThemeIsAvailable(), which rejects anything unknown), so the
+             * dropdown no longer snaps back to Windows 7. */
+            if (ThemeIsAvailable(sel)) {
+                self->m_themeSelection = sel;
+            } else {
                 ComboBox_SetCurSel(GetDlgItem(hwnd, IDC_CMB_EX_THEME), 0);
                 self->m_themeSelection = 0;
-                return TRUE;
             }
             return TRUE;
         }

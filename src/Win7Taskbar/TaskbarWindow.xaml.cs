@@ -43,6 +43,39 @@ namespace Win7Taskbar
         private bool _appBarRegistered;
         private bool _shuttingDown;
 
+        /// <summary>
+        /// v1.21.19: skin attualmente disegnata (id TaskbarThemeIds), cosi' il
+        /// pacchetto delle Impostazioni extra riapplica il tema SOLO quando
+        /// l'utente l'ha davvero cambiato. -1 = non ancora letto: il valore
+        /// arriva dalla configurazione (la stessa che App.xaml.cs usa per
+        /// scegliere il file del tema all'avvio).
+        /// </summary>
+        private int _appliedThemeSelection = -1;
+
+        private int AppliedThemeSelection
+        {
+            get
+            {
+                if (_appliedThemeSelection < 0)
+                {
+                    try
+                    {
+                        _appliedThemeSelection = RetroBar.Utilities.TaskbarThemeIds.Normalize(
+                            RetroBar.Utilities.Settings.Instance.ThemeSelection);
+                    }
+                    catch (Exception)
+                    {
+                        _appliedThemeSelection = RetroBar.Utilities.TaskbarThemeIds.Windows7;
+                    }
+                }
+                return _appliedThemeSelection;
+            }
+            set
+            {
+                _appliedThemeSelection = value;
+            }
+        }
+
         // v3.4: messaggi registrati a livello di sessione.
         // _appBarCallbackMessage = quello passato ad ABM_NEW (notifiche ABN_*).
         // _taskbarCreatedMessage = "TaskbarCreated", trasmesso quando Explorer
@@ -1881,17 +1914,29 @@ namespace Win7Taskbar
 
                     st.ConnectionFlyoutPrivacyMode = privacyMode == 1 ? 1 : 0;
 
-                    /* Skin: the Windows 8.1 one does not exist yet, so 1
-                     * never becomes the stored choice (see TaskbarThemeIds). A
-                     * packet asking for it falls back to Windows 7: no fake
-                     * theme loaded by hand. */
-                    if (themeSelection == RetroBar.Utilities.TaskbarThemeIds.Windows81 &&
-                        !RetroBar.Utilities.TaskbarThemeIds.IsImplemented(
-                            RetroBar.Utilities.TaskbarThemeIds.Windows81))
-                    {
-                        _bridge.Log("proprieta': skin Windows 8.1 non disponibile, resta Windows 7");
-                    }
+                    /* Skin: v1.21.19 - entrambe le skin esistono davvero
+                     * (Windows 7 e Windows 8.1, vedi TaskbarThemeIds). Il
+                     * valore salvato passa comunque da Normalize(), quindi un
+                     * pacchetto che chiede una skin inesistente non entra in
+                     * configurazione e non fa caricare un tema per mano. */
+                    bool themeChanged = themeSelection != AppliedThemeSelection;
                     st.ThemeSelection = themeSelection;
+                    if (themeChanged &&
+                        RetroBar.Utilities.TaskbarThemeIds.IsImplemented(st.ThemeSelection))
+                    {
+                        AppliedThemeSelection = RetroBar.Utilities.TaskbarThemeIds.Normalize(
+                            st.ThemeSelection);
+                        /* La skin si applica SUBITO: sostituire
+                         * Application.Resources e' quello che fa App.xaml.cs
+                         * all'avvio (vedi ThemeLoader.ReapplyNow). Se non
+                         * riesce, resta il tema precedente e il messaggio nel
+                         * log dice che serve un riavvio: nessuna barra rotta. */
+                        string appliedSkin = (AppliedThemeSelection ==
+                                              RetroBar.Utilities.TaskbarThemeIds.Windows81)
+                                                 ? "Windows 8.1" : "Windows 7";
+                        _bridge.Log("proprieta': skin " + appliedSkin + " -> " +
+                                    ThemeLoader.ReapplyNow());
+                    }
 
                     /* The choice is saved: it is published to the core right
                      * away, so the recreated flyout speaks the chosen mode

@@ -949,7 +949,7 @@ constexpr ExtraStrings kExtraIt = {
     L"Barra delle applicazioni",
     L"Tema:",
     L"Windows 7",
-    L"Windows 8.1 (non disponibile)",
+    L"Windows 8.1",
     L"Ordine delle icone:",
     L"Trascina le icone sulla barra delle applicazioni per cambiarne l'ordine. "
     L"L'ordine è salvato solo in Win7Taskbar: la barra delle applicazioni di "
@@ -972,7 +972,7 @@ constexpr ExtraStrings kExtraEn = {
     L"Taskbar",
     L"Theme:",
     L"Windows 7",
-    L"Windows 8.1 (not available)",
+    L"Windows 8.1",
     L"Icon order:",
     L"Drag the icons on the taskbar to change their order. The order is saved "
     L"only in Win7Taskbar: the Windows taskbar is not modified.",
@@ -994,7 +994,7 @@ constexpr ExtraStrings kExtraEs = {
     L"Barra de tareas",
     L"Tema:",
     L"Windows 7",
-    L"Windows 8.1 (no disponible)",
+    L"Windows 8.1",
     L"Orden de los iconos:",
     L"Arrastra los iconos en la barra de tareas para cambiar su orden. El "
     L"orden se guarda solo en Win7Taskbar: la barra de tareas de Windows no se "
@@ -1017,7 +1017,7 @@ constexpr ExtraStrings kExtraFr = {
     L"Barre des tâches",
     L"Thème :",
     L"Windows 7",
-    L"Windows 8.1 (non disponible)",
+    L"Windows 8.1",
     L"Ordre des icônes :",
     L"Faites glisser les icônes sur la barre des tâches pour changer leur "
     L"ordre. L'ordre est enregistré uniquement dans Win7Taskbar : la barre des "
@@ -1040,7 +1040,7 @@ constexpr ExtraStrings kExtraDe = {
     L"Taskleiste",
     L"Design:",
     L"Windows 7",
-    L"Windows 8.1 (nicht verfügbar)",
+    L"Windows 8.1",
     L"Symbolreihenfolge:",
     L"Ziehen Sie die Symbole auf der Taskleiste, um ihre Reihenfolge zu "
     L"ändern. Die Reihenfolge wird nur in Win7Taskbar gespeichert: die "
@@ -1063,7 +1063,7 @@ constexpr ExtraStrings kExtraPt = {
     L"Barra de tarefas",
     L"Tema:",
     L"Windows 7",
-    L"Windows 8.1 (indisponível)",
+    L"Windows 8.1",
     L"Ordem dos ícones:",
     L"Arraste os ícones na barra de tarefas para alterar a ordem. A ordem é "
     L"salva apenas no Win7Taskbar: a barra de tarefas do Windows não é "
@@ -1086,7 +1086,7 @@ constexpr ExtraStrings kExtraPl = {
     L"Pasek zadań",
     L"Motyw:",
     L"Windows 7",
-    L"Windows 8.1 (niedostępny)",
+    L"Windows 8.1",
     L"Kolejność ikon:",
     L"Przeciągnij ikony na pasku zadań, aby zmienić ich kolejność. Kolejność "
     L"jest zapisywana tylko w Win7Taskbar: pasek zadań Windows nie jest "
@@ -1109,7 +1109,7 @@ constexpr ExtraStrings kExtraRu = {
     L"Панель задач",
     L"Тема:",
     L"Windows 7",
-    L"Windows 8.1 (недоступно)",
+    L"Windows 8.1",
     L"Порядок значков:",
     L"Перетаскивайте значки на панели задач, чтобы изменить их порядок. "
     L"Порядок сохраняется только в Win7Taskbar: панель задач Windows не "
@@ -1132,7 +1132,7 @@ constexpr ExtraStrings kExtraJa = {
     L"タスクバー",
     L"テーマ:",
     L"Windows 7",
-    L"Windows 8.1（使用不可）",
+    L"Windows 8.1",
     L"アイコンの順序:",
     L"タスクバー上のアイコンをドラッグして順序を変更します。順序は "
     L"Win7Taskbar にのみ保存され、Windows のタスクバーは変更されません。",
@@ -1152,7 +1152,7 @@ constexpr ExtraStrings kExtraZh = {
     L"任务栏",
     L"主题:",
     L"Windows 7",
-    L"Windows 8.1（不可用）",
+    L"Windows 8.1",
     L"图标顺序:",
     L"在任务栏上拖动图标以更改其顺序。顺序仅保存在 Win7Taskbar 中：不会修改 "
     L"Windows 任务栏。",
@@ -1174,7 +1174,7 @@ constexpr ExtraStrings kExtraAr = {
     L"شريط المهام",
     L"السمة:",
     L"Windows 7",
-    L"Windows 8.1 (غير متاح)",
+    L"Windows 8.1",
     L"ترتيب الأيقونات:",
     L"اسحب الأيقونات على شريط المهام لتغيير ترتيبها. يُحفظ الترتيب في "
     L"Win7Taskbar فقط: لا يتم تعديل شريط مهام Windows.",
