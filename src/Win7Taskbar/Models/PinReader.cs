@@ -47,29 +47,32 @@ namespace Win7Taskbar.Models
         ///
         /// Se il .lnk generato nella cartella dei pin punta direttamente
         /// all'EXE e quindi non contiene l'icona personalizzata dell'utente,
-        /// viene cercato un collegamento Desktop che punti allo stesso target.
-        /// Questo permette, ad esempio, di usare l'icona personalizzata di
-        /// "Roblox.lnk" invece di quella incorporata nell'eseguibile Roblox.
-        /// Il pin mantiene comunque la precedenza quando dichiara gia' una
-        /// propria icona personalizzata.
+        /// viene cercata una scorciatoia dell'utente che punti allo stesso
+        /// target e porti un'icona personalizzata esplicita (Desktop, menu
+        /// Start, Quick Launch: vedi CustomIconIndex). Questo permette, ad
+        /// esempio, di usare l'icona personalizzata di "Discord.lnk" invece
+        /// di quella incorporata nell'eseguibile. Il pin mantiene comunque la
+        /// precedenza quando dichiara gia' una propria icona personalizzata.
         /// </summary>
         internal static BitmapSource? ReadIcon(string lnk, string target)
         {
             try
             {
                 // First preserve an explicit custom icon already stored in the
-                // real taskbar pin. Only when it is absent/default do we look
-                // for a matching user shortcut on the Desktop.
+                // real taskbar pin (v1.21.8: including the ones whose path is
+                // quoted or relative, resolved by the native core). Only when
+                // it is absent/default do we look for a matching user shortcut
+                // that carries a custom icon.
                 if (HasExplicitCustomIcon(lnk, target) &&
                     TryReadNativeIcon(lnk, target, out BitmapSource? explicitIcon))
                 {
                     return explicitIcon;
                 }
 
-                if (TryFindDesktopShortcut(target, out string desktopLnk) &&
-                    TryReadNativeIcon(desktopLnk, target, out BitmapSource? desktopIcon))
+                if (TryFindCustomIconShortcut(target, out string customLnk) &&
+                    TryReadNativeIcon(customLnk, target, out BitmapSource? customIcon))
                 {
-                    return desktopIcon;
+                    return customIcon;
                 }
 
                 return TryReadNativeIcon(lnk, target, out BitmapSource? pinIcon)
@@ -113,6 +116,196 @@ namespace Win7Taskbar.Models
                 {
                     Interop.NativeMethods.DestroyIcon(hicon);
                 }
+            }
+        }
+
+        /* v1.21.8: shortcuts the user may have customised. The shell keeps
+         * its shortcuts in well-known folders; these are the documented ones,
+         * and the only ones looked at. Nothing outside them is ever read.
+         *
+         * The map is built once and then reused: looking for an icon must not
+         * turn into a filesystem walk on every taskbar refresh. It is dropped
+         * when the pin set changes (InvalidateShortcutIconIndex), which is
+         * also the moment a user could have created or edited a shortcut. */
+        private static readonly object IconIndexLock = new();
+        private static Dictionary<string, string>? _customIconByTarget;
+
+        /// <summary>
+        /// Forgets the shortcut/icon map. Called when the pinned set changes:
+        /// the next icon lookup rebuilds it.
+        /// </summary>
+        public static void InvalidateShortcutIconIndex()
+        {
+            lock (IconIndexLock)
+            {
+                _customIconByTarget = null;
+            }
+        }
+
+        /// <summary>
+        /// Folders that may hold a user shortcut with a custom icon, in the
+        /// order they are preferred. Every folder is resolved through the
+        /// shell's own known-folder API, so redirected profiles and different
+        /// system languages work without hardcoding a path.
+        /// </summary>
+        private static List<string> ShortcutFolders()
+        {
+            var folders = new List<string>();
+            void Add(Environment.SpecialFolder folder)
+            {
+                try
+                {
+                    string path = Environment.GetFolderPath(folder);
+                    if (!string.IsNullOrWhiteSpace(path) &&
+                        !folders.Exists(f => string.Equals(f, path,
+                            StringComparison.OrdinalIgnoreCase)))
+                    {
+                        folders.Add(path);
+                    }
+                }
+                catch
+                {
+                    // A missing known folder never stops the icon lookup.
+                }
+            }
+
+            Add(Environment.SpecialFolder.DesktopDirectory);
+            Add(Environment.SpecialFolder.CommonDesktopDirectory);
+            Add(Environment.SpecialFolder.Programs);
+            Add(Environment.SpecialFolder.CommonPrograms);
+
+            try
+            {
+                string appData = Environment.GetFolderPath(
+                    Environment.SpecialFolder.ApplicationData);
+                if (!string.IsNullOrWhiteSpace(appData))
+                {
+                    string quickLaunch = Path.Combine(appData, "Microsoft",
+                        "Internet Explorer", "Quick Launch");
+                    if (Directory.Exists(quickLaunch))
+                    {
+                        folders.Add(quickLaunch);
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return folders;
+        }
+
+        /// <summary>
+        /// Walks a folder without following it forever: bounded depth, bounded
+        /// number of files and every unreadable folder simply skipped. The
+        /// Start Menu tree is the only deeply nested one and no shortcut of
+        /// interest sits below the first few levels.
+        /// </summary>
+        private static void EnumerateLinks(string root, int maxDepth,
+                                           int maxFiles, List<string> found)
+        {
+            if (maxDepth < 0 || found.Count >= maxFiles)
+            {
+                return;
+            }
+
+            IEnumerable<string> files;
+            try
+            {
+                files = Directory.EnumerateFiles(root, "*.lnk",
+                    SearchOption.TopDirectoryOnly);
+            }
+            catch
+            {
+                return;
+            }
+
+            foreach (string file in files)
+            {
+                if (found.Count >= maxFiles)
+                {
+                    return;
+                }
+                found.Add(file);
+            }
+
+            IEnumerable<string> dirs;
+            try
+            {
+                dirs = Directory.EnumerateDirectories(root);
+            }
+            catch
+            {
+                return;
+            }
+
+            foreach (string dir in dirs)
+            {
+                EnumerateLinks(dir, maxDepth - 1, maxFiles, found);
+            }
+        }
+
+        /// <summary>
+        /// Target path (normalised, case-insensitive) to shortcut that carries
+        /// a custom icon. Built once per pin refresh; a shortcut without a
+        /// custom icon is not part of the map, so a lookup can only ever
+        /// return a real user choice.
+        /// </summary>
+        private static Dictionary<string, string> CustomIconIndex()
+        {
+            lock (IconIndexLock)
+            {
+                if (_customIconByTarget != null)
+                {
+                    return _customIconByTarget;
+                }
+
+                var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var links = new List<string>();
+                foreach (string folder in ShortcutFolders())
+                {
+                    EnumerateLinks(folder, 4, 4000, links);
+                }
+
+                foreach (string candidate in links)
+                {
+                    try
+                    {
+                        if (!TryGetShortcutTarget(candidate, out string target) ||
+                            string.IsNullOrWhiteSpace(target) ||
+                            !HasExplicitCustomIcon(candidate, target))
+                        {
+                            continue;
+                        }
+
+                        string key = NormalizeKey(target);
+                        if (key.Length != 0 && !map.ContainsKey(key))
+                        {
+                            map[key] = candidate;
+                        }
+                    }
+                    catch
+                    {
+                        // One unreadable shortcut never stops the others.
+                    }
+                }
+
+                _customIconByTarget = map;
+                return map;
+            }
+        }
+
+        private static string NormalizeKey(string path)
+        {
+            try
+            {
+                return Path.GetFullPath(
+                        Environment.ExpandEnvironmentVariables(path ?? string.Empty))
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch
+            {
+                return (path ?? string.Empty).Trim();
             }
         }
 
@@ -182,11 +375,17 @@ namespace Win7Taskbar.Models
         }
 
         /// <summary>
-        /// Finds a Desktop .lnk whose target is the same executable and whose
-        /// icon is explicitly customized. Only the user's Desktop is searched;
-        /// there is no recursive filesystem scan.
+        /// Finds a shortcut of the user whose target is the same executable
+        /// and whose icon is explicitly customised, so that a custom icon is
+        /// honoured instead of the executable's own icon.
+        ///
+        /// v1.21.8: the folders searched are all the documented shell shortcut
+        /// locations - the two Desktops, the two Start Menu program trees and
+        /// Quick Launch - and the result is cached (see CustomIconIndex). Only
+        /// .lnk files inside those folders are read, at most a few thousand,
+        /// never deeper than a few levels: no unrestricted filesystem scan.
         /// </summary>
-        private static bool TryFindDesktopShortcut(string target, out string lnk)
+        private static bool TryFindCustomIconShortcut(string target, out string lnk)
         {
             lnk = string.Empty;
             if (string.IsNullOrWhiteSpace(target))
@@ -194,59 +393,23 @@ namespace Win7Taskbar.Models
                 return false;
             }
 
-            var folders = new List<string>
-            {
-                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
-            };
-
             try
             {
-                string commonDesktop = Environment.GetFolderPath(
-                    Environment.SpecialFolder.CommonDesktopDirectory);
-                if (!string.IsNullOrWhiteSpace(commonDesktop) &&
-                    !folders.Exists(f => string.Equals(f, commonDesktop,
-                        StringComparison.OrdinalIgnoreCase)))
+                Dictionary<string, string> map = CustomIconIndex();
+                if (map.TryGetValue(NormalizeKey(target), out string? found) &&
+                    !string.IsNullOrEmpty(found))
                 {
-                    folders.Add(commonDesktop);
+                    lnk = found;
+                    return true;
                 }
             }
             catch
             {
-                // Some restricted Windows environments do not expose the
-                // common desktop folder. The user Desktop remains sufficient.
+                // An unreadable index only means "no custom icon found": the
+                // caller keeps the icons it already knows.
             }
 
-            foreach (string folder in folders)
-            {
-                if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
-                {
-                    continue;
-                }
-
-                IEnumerable<string> links;
-                try
-                {
-                    links = Directory.EnumerateFiles(folder, "*.lnk", SearchOption.TopDirectoryOnly);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                foreach (string candidate in links)
-                {
-                    if (!TryGetShortcutTarget(candidate, out string candidateTarget) ||
-                        !PathsEqual(candidateTarget, target) ||
-                        !HasExplicitCustomIcon(candidate, target))
-                    {
-                        continue;
-                    }
-
-                    lnk = candidate;
-                    return true;
-                }
-            }
-
+            lnk = string.Empty;
             return false;
         }
 

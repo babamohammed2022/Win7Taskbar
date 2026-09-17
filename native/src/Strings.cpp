@@ -917,8 +917,8 @@ constexpr ExtraStrings kExtraIt = {
     L"Colore di sistema",
     L"Colore personalizzato",
     L"Scegli colore...",
-    L"Il colore si applica solo al flyout ricreato dal programma. Non modifica "
-    L"il colore, il tema o la personalizzazione di Windows.",
+    L"Il flyout Windows 8 (ricreato) non è incluso in questa versione: il "
+    L"colore viene salvato ma non applicato. Windows non viene modificato.",
     L"Modalità privacy:",
     L"Normale (nomi reali)",
     L"Privacy (nomi generici)",
@@ -940,8 +940,8 @@ constexpr ExtraStrings kExtraEn = {
     L"System color",
     L"Custom color",
     L"Choose color...",
-    L"The color applies only to the flyout recreated by the program. It does "
-    L"not change the color, theme or personalization of Windows.",
+    L"The recreated Windows 8 flyout is not included in this version yet: "
+    L"the color is saved but not applied. Windows is not modified.",
     L"Privacy mode:",
     L"Normal (real names)",
     L"Privacy (generic names)",
@@ -962,8 +962,8 @@ constexpr ExtraStrings kExtraEs = {
     L"Color del sistema",
     L"Color personalizado",
     L"Elegir color...",
-    L"El color se aplica solo al flyout recreado por el programa. No modifica "
-    L"el color, el tema ni la personalización de Windows.",
+    L"El flyout de Windows 8 (recreado) aún no está incluido: el color se "
+    L"guarda pero no se aplica. Windows no se modifica.",
     L"Modo de privacidad:",
     L"Normal (nombres reales)",
     L"Privacidad (nombres genéricos)",
@@ -985,9 +985,8 @@ constexpr ExtraStrings kExtraFr = {
     L"Couleur du système",
     L"Couleur personnalisée",
     L"Choisir une couleur...",
-    L"La couleur s'applique uniquement au flyout recréé par le programme. "
-    L"Elle ne modifie ni la couleur, ni le thème, ni la personnalisation de "
-    L"Windows.",
+    L"Le flyout Windows 8 (recréé) n'est pas encore inclus : la couleur est "
+    L"enregistrée mais pas appliquée. Windows n'est pas modifié.",
     L"Mode confidentialité :",
     L"Normal (noms réels)",
     L"Confidentialité (noms génériques)",
@@ -1009,8 +1008,8 @@ constexpr ExtraStrings kExtraDe = {
     L"Systemfarbe",
     L"Benutzerdefinierte Farbe",
     L"Farbe wählen...",
-    L"Die Farbe gilt nur für das vom Programm nachgebildete Flyout. Sie "
-    L"ändert weder Farbe, Design noch Anpassung von Windows.",
+    L"Das nachgebaute Windows 8-Flyout fehlt noch: die Farbe wird "
+    L"gespeichert, aber nicht angewendet. Windows wird nicht verändert.",
     L"Datenschutzmodus:",
     L"Normal (echte Namen)",
     L"Datenschutz (generische Namen)",
@@ -1032,8 +1031,8 @@ constexpr ExtraStrings kExtraPt = {
     L"Cor do sistema",
     L"Cor personalizada",
     L"Escolher cor...",
-    L"A cor se aplica apenas ao flyout recriado pelo programa. Não altera a "
-    L"cor, o tema nem a personalização do Windows.",
+    L"O flyout do Windows 8 (recriado) ainda não está incluído: a cor é "
+    L"guardada mas não aplicada. O Windows não é alterado.",
     L"Modo de privacidade:",
     L"Normal (nomes reais)",
     L"Privacidade (nomes genéricos)",
@@ -1055,8 +1054,8 @@ constexpr ExtraStrings kExtraPl = {
     L"Kolor systemowy",
     L"Kolor niestandardowy",
     L"Wybierz kolor...",
-    L"Kolor dotyczy tylko okna odtworzonego przez program. Nie zmienia "
-    L"koloru, motywu ani personalizacji Windows.",
+    L"Odtworzony flyout Windows 8 nie jest jeszcze dołączony: kolor jest "
+    L"zapisywany, ale nie stosowany. Windows nie jest zmieniany.",
     L"Tryb prywatności:",
     L"Normalny (prawdziwe nazwy)",
     L"Prywatność (nazwy ogólne)",
@@ -1078,8 +1077,8 @@ constexpr ExtraStrings kExtraRu = {
     L"Системный цвет",
     L"Пользовательский цвет",
     L"Выбрать цвет...",
-    L"Цвет применяется только к всплывающей панели, воссозданной "
-    L"программой. Он не меняет цвет, тему и персонализацию Windows.",
+    L"Воссозданный flyout Windows 8 пока не включён: цвет сохраняется, но не "
+    L"применяется. Windows не изменяется.",
     L"Режим конфиденциальности:",
     L"Обычный (реальные имена)",
     L"Конфиденциальность (общие имена)",
@@ -1101,8 +1100,7 @@ constexpr ExtraStrings kExtraJa = {
     L"システムの色",
     L"カスタム色",
     L"色を選択...",
-    L"この色はプログラムが再現するフライアウトにのみ適用されます。Windows "
-    L"の色、テーマ、個人設定は変更しません。",
+    L"再現版 Windows 8 フライアウトは未収録です。色は保存されますが適用されません。Windows は変更されません。",
     L"プライバシーモード:",
     L"通常（実際の名前）",
     L"プライバシー（一般的な名前）",
@@ -1123,7 +1121,7 @@ constexpr ExtraStrings kExtraZh = {
     L"系统颜色",
     L"自定义颜色",
     L"选择颜色...",
-    L"该颜色仅应用于程序重建的浮出控件。不会更改 Windows 的颜色、主题或个性化设置。",
+    L"重建的 Windows 8 弹出面板尚未包含：颜色会被保存但不会应用。不会修改 Windows。",
     L"隐私模式:",
     L"普通（真实名称）",
     L"隐私（通用名称）",
@@ -1143,8 +1141,8 @@ constexpr ExtraStrings kExtraAr = {
     L"لون النظام",
     L"لون مخصص",
     L"اختيار لون...",
-    L"ينطبق اللون فقط على القائمة المنبثقة التي يعيد البرنامج إنشاءها. لا "
-    L"يغيّر لون Windows أو سمته أو تخصيصه.",
+    L"لوحة Windows 8 (المُعاد إنشاؤها) غير مضمّنة بعد: يُحفظ اللون دون "
+    L"تطبيقه. لا يتغيّر Windows.",
     L"وضع الخصوصية:",
     L"عادي (أسماء حقيقية)",
     L"الخصوصية (أسماء عامة)",

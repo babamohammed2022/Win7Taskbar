@@ -32,12 +32,23 @@ namespace Win7Taskbar.Controls
         private static readonly TimeSpan VerificationDelay = TimeSpan.FromMilliseconds(350);
         private const uint GA_ROOT = 2;
 
-        public double DpiScale = 1.0;
 
         private readonly DispatcherTimer _toolTipTimer;
         private readonly DispatcherTimer _verificationTimer;
         private EventHandler? _renderingHandler;
         private IntPtr _thumbHandle;
+
+        /* v1.21.8: ultimo rettangolo consegnato a DWM, per non ripetere la
+         * stessa chiamata a ogni fotogramma. */
+        private bool _hasDwmUpdate;
+        private NativeMethods.RECT _lastDestination;
+        private NativeMethods.RECT _lastSource;
+
+        /* v1.21.8: Refresh() non tocca piu' Width/Height, quindi agganciare
+         * il ricalcolo al layout e' sicuro (nessuna ricorsione) e serve: ogni
+         * spostamento o ridimensionamento del popup cambia il rettangolo di
+         * destinazione. L'aggancio avviene una volta sola per istanza. */
+        private bool _layoutRefreshHooked;
 
         public TaskThumbnail()
         {
@@ -106,33 +117,64 @@ namespace Win7Taskbar.Controls
             set => SetValue(ApplicationNameProperty, value);
         }
 
-        private NativeMethods.RECT Rect
+        /// <summary>
+        /// v1.21.8: destination rectangle of the live thumbnail, in the CLIENT
+        /// coordinates of the window that hosts this control.
+        ///
+        /// DWM_THUMBNAIL_PROPERTIES.rcDestination is documented as "the area in
+        /// the destination window where the thumbnail will be rendered", i.e.
+        /// client coordinates, and DWM stretches rcSource into it. Two details
+        /// therefore matter and both are handled here:
+        ///
+        ///   * the rectangle must come from the CURRENT layout and the CURRENT
+        ///     DPI of the monitor the popup is on. The old code multiplied a
+        ///     scale sampled once at Loaded time, so a popup that opened or
+        ///     moved on a monitor with different scaling drew the live surface
+        ///     somewhere else at the wrong size;
+        ///   * each edge is rounded on its own, exactly like the frame's own
+        ///     layout rounding, so the aperture of the frame and the DWM
+        ///     rectangle stay the same rectangle even at 125%/150%.
+        ///
+        /// No value is guessed: when the layout is not ready yet the caller
+        /// skips the update instead of painting the thumbnail at a wrong place.
+        /// </summary>
+        private bool TryGetDestinationRect(out NativeMethods.RECT rect)
         {
-            get
+            rect = new NativeMethods.RECT();
+            try
             {
-                try
+                // Destination coordinates belong to the shared popup HWND,
+                // not to each ContentPresenter (which starts at 0,0).
+                if (Handle == IntPtr.Zero ||
+                    PresentationSource.FromVisual(this) is not HwndSource source ||
+                    source.RootVisual is not Visual root ||
+                    ActualWidth < 1 || ActualHeight < 1)
                 {
-                    // Destination coordinates belong to the shared popup HWND,
-                    // not to each ContentPresenter (which starts at 0,0).
-                    if (PresentationSource.FromVisual(this) is not HwndSource source ||
-                        source.RootVisual is not Visual root)
-                    {
-                        return new NativeMethods.RECT();
-                    }
+                    return false;
+                }
 
-                    Point origin = TransformToAncestor(root).Transform(new Point(0, 0));
-                    return new NativeMethods.RECT
-                    {
-                        Left = (int)Math.Round(origin.X * DpiScale),
-                        Top = (int)Math.Round(origin.Y * DpiScale),
-                        Right = (int)Math.Round((origin.X + ActualWidth) * DpiScale),
-                        Bottom = (int)Math.Round((origin.Y + ActualHeight) * DpiScale)
-                    };
-                }
-                catch
+                DpiScale dpi = VisualTreeHelper.GetDpi(this);
+                if (dpi.DpiScaleX <= 0 || dpi.DpiScaleY <= 0)
                 {
-                    return new NativeMethods.RECT();
+                    return false;
                 }
+
+                Point topLeft = TransformToAncestor(root).Transform(new Point(0, 0));
+                Point bottomRight = TransformToAncestor(root)
+                    .Transform(new Point(ActualWidth, ActualHeight));
+
+                rect = new NativeMethods.RECT
+                {
+                    Left = (int)Math.Round(topLeft.X * dpi.DpiScaleX),
+                    Top = (int)Math.Round(topLeft.Y * dpi.DpiScaleY),
+                    Right = (int)Math.Round(bottomRight.X * dpi.DpiScaleX),
+                    Bottom = (int)Math.Round(bottomRight.Y * dpi.DpiScaleY)
+                };
+                return rect.Right > rect.Left && rect.Bottom > rect.Top;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -177,6 +219,17 @@ namespace Win7Taskbar.Controls
                     return;
                 }
 
+                /* v1.21.8: la destinazione si legge PRIMA della sorgente: il
+                 * ritaglio della sorgente deve avere il rapporto d'aspetto
+                 * della destinazione, altrimenti DWM stira l'immagine e il
+                 * contenuto non combacia con l'apertura della cornice. Se il
+                 * layout non e' pronto si esce senza disegnare nulla: il
+                 * prossimo giro (SizeChanged/LayoutUpdated) sistema tutto. */ 
+                if (!TryGetDestinationRect(out NativeMethods.RECT destination))
+                {
+                    return;
+                }
+
                 var clientOnly = new NativeMethods.DWM_THUMBNAIL_PROPERTIES
                 {
                     dwFlags = NativeMethods.DWM_TNP_SOURCECLIENTAREAONLY,
@@ -186,7 +239,7 @@ namespace Win7Taskbar.Controls
                         _thumbHandle, ref clientOnly) < 0 ||
                     NativeMethods.DwmQueryThumbnailSourceSize(
                         _thumbHandle, out NativeMethods.SIZE size) < 0 ||
-                    size.cx <= 0 || size.cy <= 0 || DpiScale <= 0)
+                    size.cx <= 0 || size.cy <= 0)
                 {
                     // v3.9: fallimento DWM = finestra sorgente non esiste piu'
                     // Evita riquadro vuoto persistente: mostra fallback identita'
@@ -205,16 +258,20 @@ namespace Win7Taskbar.Controls
                 ApplyExtremeAspectCrop(ref sourceRect);
 
                 // v3.9: fix letterboxing - la preview riempie sempre l'apertura
-                // fissa 202x109. Invece di ridimensionare il riquadro esterno in
-                // base all'aspect ratio, si adatta la sorgente con crop centrale
-                // per coprire (cover) l'apertura, preservando l'aspect senza
-                // bande nere. Mantiene ApplyExtremeAspectCrop e adatta il floor
-                // minimo al comportamento "sempre pieno".
+                // della cornice. v1.21.8: il rapporto d'aspetto non e' piu' la
+                // costante 202/109 ma quello del rettangolo di destinazione
+                // appena calcolato: e' esattamente il rapporto con cui DWM
+                // stira la sorgente, quindi cosi' l'immagine riempie l'apertura
+                // senza deformazioni e senza sbordare sui bordi.
                 int srcW = sourceRect.Right - sourceRect.Left;
                 int srcH = sourceRect.Bottom - sourceRect.Top;
                 if (srcW > 0 && srcH > 0)
                 {
-                    double apertureAspect = RetroWidth / RetroHeight;
+                    int dstW = destination.Right - destination.Left;
+                    int dstH = destination.Bottom - destination.Top;
+                    double apertureAspect = dstH > 0
+                        ? (double)dstW / dstH
+                        : RetroWidth / RetroHeight;
                     double srcAspect = (double)srcW / srcH;
                     if (srcAspect > apertureAspect)
                     {
@@ -236,23 +293,26 @@ namespace Win7Taskbar.Controls
                     }
                 }
 
-                // Il controllo riempie sempre l'area "*" del template (Stretch),
-                // dimensione guidata dal layout (202x109 fissi). Non si imposta
-                // piu' Width/Height variabili calcolati qui per evitare
-                // letterboxing esterno; la superficie DWM riempie sempre
-                // l'apertura fissa.
-                Width = RetroWidth;
-                Height = RetroHeight;
+                /* v1.21.8: niente piu' Width/Height impostati a ogni giro.
+                 * Il controllo e' gia' 202x109 dal template e la cornice lo
+                 * stira sull'apertura: riscrivere la dimensione da qui faceva
+                 * ripartire il layout a ogni fotogramma (e con esso il
+                 * rettangolo di destinazione appena letto), che e' una delle
+                 * cause della superficie DWM fuori posto. */
 
-                NativeMethods.RECT destination = Rect;
-                // Se ActualWidth/Height non ancora misurati, usa apertura fissa
-                if (destination.Right - destination.Left < 1 ||
-                    destination.Bottom - destination.Top < 1)
+                /* Nessuna chiamata quando nulla e' cambiato: il thumbnail e'
+                 * vivo di suo, qui si aggiorna solo il ritaglio. */
+                if (_hasDwmUpdate &&
+                    destination.Left == _lastDestination.Left &&
+                    destination.Top == _lastDestination.Top &&
+                    destination.Right == _lastDestination.Right &&
+                    destination.Bottom == _lastDestination.Bottom &&
+                    sourceRect.Left == _lastSource.Left &&
+                    sourceRect.Top == _lastSource.Top &&
+                    sourceRect.Right == _lastSource.Right &&
+                    sourceRect.Bottom == _lastSource.Bottom)
                 {
-                    destination.Right = destination.Left +
-                        Math.Max(1, (int)Math.Round(RetroWidth * DpiScale));
-                    destination.Bottom = destination.Top +
-                        Math.Max(1, (int)Math.Round(RetroHeight * DpiScale));
+                    return;
                 }
 
                 var props = new NativeMethods.DWM_THUMBNAIL_PROPERTIES
@@ -271,7 +331,12 @@ namespace Win7Taskbar.Controls
                     // finestra chiusa: evita riquadro vuoto persistente
                     StopDwmThumbnail();
                     ShowIdentityFallback();
+                    return;
                 }
+
+                _hasDwmUpdate = true;
+                _lastDestination = destination;
+                _lastSource = sourceRect;
             }
             catch (Exception ex)
             {
@@ -286,8 +351,15 @@ namespace Win7Taskbar.Controls
         {
             try
             {
-                DpiScale = PresentationSource.FromVisual(this)?
-                    .CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                /* v1.21.8: il fattore di scala non si memorizza piu': si
+                 * legge a ogni aggiornamento con VisualTreeHelper.GetDpi
+                 * (segue il monitor su cui si apre il popup). */
+                if (!_layoutRefreshHooked)
+                {
+                    _layoutRefreshHooked = true;
+                    SizeChanged += OnLayoutRefresh;
+                    LayoutUpdated += OnLayoutRefresh;
+                }
 
                 bool registered = NativeMethods.IsCompositionEnabled() &&
                     SourceWindowHandle != IntPtr.Zero && Handle != IntPtr.Zero &&
@@ -438,7 +510,7 @@ namespace Win7Taskbar.Controls
 
         private void FitFallbackToAperture(int pixelWidth, int pixelHeight)
         {
-            if (pixelWidth <= 0 || pixelHeight <= 0 || DpiScale <= 0)
+            if (pixelWidth <= 0 || pixelHeight <= 0)
             {
                 return;
             }
@@ -640,9 +712,20 @@ namespace Win7Taskbar.Controls
             return converted;
         }
 
+        private void OnLayoutRefresh(object? sender, EventArgs e)
+        {
+            Refresh();
+        }
+
         private void StopDwmThumbnail()
         {
             _verificationTimer.Stop();
+            if (_layoutRefreshHooked)
+            {
+                _layoutRefreshHooked = false;
+                SizeChanged -= OnLayoutRefresh;
+                LayoutUpdated -= OnLayoutRefresh;
+            }
             if (_renderingHandler != null)
             {
                 CompositionTarget.Rendering -= _renderingHandler;
@@ -653,6 +736,7 @@ namespace Win7Taskbar.Controls
                 _ = NativeMethods.DwmUnregisterThumbnail(_thumbHandle);
                 _thumbHandle = IntPtr.Zero;
             }
+            _hasDwmUpdate = false;
         }
 
         private void UserControl_Unloaded(object sender, RoutedEventArgs e)

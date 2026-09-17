@@ -168,6 +168,10 @@ namespace Win7Taskbar.Models
                 case CoreEvent.PinnedChanged:
                     // v2.25: cartella pin cambiata (watcher nativo).
                     _pinsCache = null;
+                    /* v1.21.8: la mappa collegamento -> icona personalizzata
+                     * si ricostruisce qui: e' il momento in cui l'utente puo'
+                     * aver creato o modificato una scorciatoia. */
+                    PinReader.InvalidateShortcutIconIndex();
                     RefreshWindows();
                     break;
 
@@ -547,6 +551,7 @@ namespace Win7Taskbar.Models
         {
             _bridge.PinnedRefresh();
             _pinsCache = null;
+            PinReader.InvalidateShortcutIconIndex();
             RefreshWindows();
         }
 

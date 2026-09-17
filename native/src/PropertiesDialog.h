@@ -76,6 +76,14 @@ private:
      * Windows accent is followed without reopening the Properties. */
     void RefreshExtraSwatchColor();
 
+    /* v1.21.8: places OK / Cancel / Apply in the lower-right corner of the
+     * dialog, in measured pixels (see the definition for the reasoning) and
+     * keeps the window inside the work area of its monitor. Both are called
+     * once, at the end of WM_INITDIALOG, when fonts, texts and tab pages are
+     * already in place. */
+    void LayoutCommandButtons(HWND hwnd);
+    void FitDialogToWorkArea(HWND hwnd);
+
     HWND m_hWnd = nullptr;
     HWND m_owner = nullptr;
     int32_t m_lang = 0;

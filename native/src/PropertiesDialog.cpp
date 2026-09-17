@@ -346,6 +346,144 @@ PropertiesDialog::~PropertiesDialog() {
     }
 }
 
+/* v1.21.8: command-button row.
+ *
+ * The rectangle of a control in a dialog template is in DLU, and DLU are a
+ * function of the dialog font: the same 330 x 326 is a different number of
+ * pixels on every machine, font size and DPI. The rule for the row itself
+ * does not change with any of that, and Microsoft states it in "Dialog
+ * Boxes: Design Guidelines": the command buttons go in the lower-right
+ * corner, horizontally, with OK as the left-most one. So the row is placed
+ * here against measured pixels:
+ *
+ *   - the right edge is the right edge of the tab control, which is the
+ *     visual reference of every page (GetWindowRect + MapWindowPoints);
+ *   - the vertical position follows the tab and stays inside the client
+ *     area, with a few pixels of air above and below;
+ *   - the widths are the real ones of the three buttons, so a longer label
+ *     ("Uebernehmen", "Aplicar") simply moves the row left instead of
+ *     running past the border.
+ *
+ * Nothing here guesses a size: if a measurement fails the function returns
+ * and the template coordinates stay, which are already right at 96 DPI. */
+void PropertiesDialog::LayoutCommandButtons(HWND hwnd) {
+    HWND hOk = GetDlgItem(hwnd, IDOK);
+    HWND hCancel = GetDlgItem(hwnd, IDCANCEL);
+    HWND hApply = GetDlgItem(hwnd, IDC_BTN_APPLY);
+    HWND hTab = GetDlgItem(hwnd, IDC_TAB_MAIN);
+    RECT client{};
+    if (hwnd == nullptr || hOk == nullptr || hCancel == nullptr ||
+        hApply == nullptr || hTab == nullptr ||
+        !GetClientRect(hwnd, &client)) {
+        return;
+    }
+
+    /* 6 DLU between the buttons and 6 DLU of margin, the same numbers the
+     * template uses: at the standard font this reproduces the template
+     * position exactly (y = 326 - 6 - 14 = 306) and at any other font or DPI
+     * it keeps the same proportion. MapDialogRect is the documented
+     * DLU-to-pixel conversion for the dialog being created. */
+    RECT gap{ 0, 0, 6, 6 };
+    if (!MapDialogRect(hwnd, &gap)) {
+        return;
+    }
+    const int gapX = gap.right;
+    const int margin = gap.bottom;
+
+    POINT tabEdges[2] = { { 0, 0 }, { 0, 0 } };
+    RECT tabRect{};
+    if (!GetWindowRect(hTab, &tabRect)) {
+        return;
+    }
+    tabEdges[0] = { tabRect.left, tabRect.top };
+    tabEdges[1] = { tabRect.right, tabRect.bottom };
+    MapWindowPoints(nullptr, hwnd, tabEdges, 2);
+
+    RECT r{};
+    if (!GetWindowRect(hOk, &r)) return;
+    const int okWidth = r.right - r.left;
+    const int rowHeight = r.bottom - r.top;
+    if (!GetWindowRect(hCancel, &r)) return;
+    const int cancelWidth = r.right - r.left;
+    if (!GetWindowRect(hApply, &r)) return;
+    const int applyWidth = r.right - r.left;
+    if (rowHeight <= 0) {
+        return;
+    }
+
+    const int rowWidth = okWidth + cancelWidth + applyWidth + 2 * gapX;
+    int x = tabEdges[1].x - rowWidth;
+    if (x < margin) {
+        /* Client narrower than the row: the row comes in from the left
+         * border instead of leaving the window. */
+        x = margin;
+    }
+
+    /* Lower-right corner: the row keeps the same margin from the bottom of
+     * the client area as it does from its right edge, and can never climb
+     * over the bottom border of the tab control. */
+    int y = client.bottom - margin - rowHeight;
+    if (y < tabEdges[1].y + 2) {
+        y = tabEdges[1].y + 2;
+    }
+    if (y < 0) {
+        y = 0;
+    }
+
+    SetWindowPos(hOk, nullptr, x, y, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(hCancel, nullptr, x + okWidth + gapX, y, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(hApply, nullptr, x + okWidth + gapX + cancelWidth + gapX, y,
+                 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+/* v1.21.8: the row above cannot be visible if the dialog itself is taller or
+ * wider than the screen. The dialog is created with DS_CENTER and a size in
+ * DLU, so on a small screen - or with a large system font, which scales every
+ * DLU - the window can be centred partly outside the work area and take the
+ * command buttons with it. Here the created window is moved (and, only if it
+ * is larger than the work area, shortened) so that its lower-right corner,
+ * where the buttons live, is always reachable. GetMonitorInfo returns the
+ * work area - the monitor minus the taskbar - which is what the documentation
+ * recommends over the full screen rectangle. */
+void PropertiesDialog::FitDialogToWorkArea(HWND hwnd) {
+    RECT win{};
+    if (hwnd == nullptr || !GetWindowRect(hwnd, &win)) {
+        return;
+    }
+    HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (monitor == nullptr || !GetMonitorInfoW(monitor, &mi)) {
+        return;
+    }
+    const RECT& work = mi.rcWork;
+    const int workWidth = work.right - work.left;
+    const int workHeight = work.bottom - work.top;
+    if (workWidth <= 0 || workHeight <= 0) {
+        return;
+    }
+
+    const int width = win.right - win.left;
+    const int height = win.bottom - win.top;
+    const int newWidth = (width > workWidth) ? workWidth : width;
+    const int newHeight = (height > workHeight) ? workHeight : height;
+
+    int x = win.left;
+    int y = win.top;
+    if (x + newWidth > work.right) x = work.right - newWidth;
+    if (y + newHeight > work.bottom) y = work.bottom - newHeight;
+    if (x < work.left) x = work.left;
+    if (y < work.top) y = work.top;
+
+    if (newWidth != width || newHeight != height ||
+        x != win.left || y != win.top) {
+        SetWindowPos(hwnd, nullptr, x, y, newWidth, newHeight,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
 /* v1.21.7: recomputes the colour SHOWN by the swatch of the extra settings
  * tab. In "system colour" mode the value is asked to the system
  * (DwmGetColorizationColor, with a registry fallback): no stored copy, so
@@ -611,11 +749,21 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
 
         // ---- pulsanti standard 50x14, come la mod ----
         /* v3.5: the row moves 14 DLU down with the window.
-         * v1.21.7: with the wider window the three buttons stay centred
-         * (162 DLU of row: 84 + 162 + 84 = 330). */
-        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 84, 306, 50, 14, IDOK, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 140, 306, 50, 14, IDCANCEL, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 196, 306, 50, 14, IDC_BTN_APPLY, L"Button", L"");
+         * v1.21.8: the three command buttons sit in the LOWER-RIGHT corner,
+         * aligned with the right edge of the tab control, in the order
+         * OK, Cancel, Apply. This is what Microsoft's "Dialog Boxes: Design
+         * Guidelines" prescribes - "Position these command buttons
+         * horizontally in the lower-right corner. If you use the OK button,
+         * make it the left-most button" - and it is what every Windows
+         * property sheet does. The previous centred row (84/140/196) was the
+         * v1.21.7 mistake: 6 + 318 = 324 DLU is the tab's right edge, so the
+         * row ends where every page underneath it ends. LayoutCommandButtons
+         * repeats the placement in measured pixels once the dialog exists,
+         * so a larger system font or an unexpected client size cannot push
+         * the buttons out of the window. */
+        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 162, 306, 50, 14, IDOK, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 218, 306, 50, 14, IDCANCEL, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 274, 306, 50, 14, IDC_BTN_APPLY, L"Button", L"");
 
         pDlg->cdit = controlCount;
         m_hWnd = CreateDialogIndirectParamW(GetModuleHandleW(nullptr),
@@ -966,6 +1114,12 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
 
         // pagina iniziale: la 1, con le altre due nascoste
         ShowTabPage(hwnd, 0);
+
+        /* v1.21.8: text, fonts and tab pages are final here, so the command
+         * buttons can be measured and put in the corner, and the window can
+         * be pulled back inside the work area if it does not fit. */
+        FitDialogToWorkArea(hwnd);
+        LayoutCommandButtons(hwnd);
 
         return TRUE;
     }

@@ -33,6 +33,7 @@
     static_cast<WICBitmapInterpolationMode>(4)
 #endif
 
+#include <strsafe.h>   /* v1.21.8: StringCchCopyW nel resolver dei percorsi */
 #include <propsys.h>
 #include <shobjidl.h>
 #include <shellapi.h>
@@ -474,6 +475,64 @@ HICON GetLnkPackagedIcon(const wchar_t* lnk, int size) {
     return nullptr;
 }
 
+/* v1.21.8: resolves a path STORED INSIDE A SHORTCUT (icon location) the way
+ * the shell does, before handing it to ExtractIconExW.
+ *
+ * IShellLink::GetIconLocation returns the string the shortcut holds, and that
+ * string is not necessarily an absolute, unquoted path:
+ *
+ *   - it can be quoted ("C:\icons\my icon.ico",0) - the shortcut property
+ *     sheet accepts it and Explorer resolves it;
+ *   - it can be relative ("Discord.ico"), which the shell resolves against the
+ *     folder of the shortcut itself;
+ *   - it can contain environment variables (%ProgramFiles%\...).
+ *
+ * ExtractIconExW resolves none of the three, so a custom icon stored in one of
+ * these forms used to fail and the caller fell back to the icon of the target
+ * executable - i.e. the user's custom icon was replaced by the default one.
+ * Same rule as the target normalisation above; nothing is invented: a path
+ * that cannot be resolved returns false and the caller keeps its fallbacks. */
+bool ResolveStoredShortcutPath(const wchar_t* lnk, const wchar_t* stored,
+                               wchar_t* out, size_t cch) {
+    if (stored == nullptr || stored[0] == 0 || out == nullptr || cch == 0) {
+        return false;
+    }
+
+    wchar_t expanded[kResolveMaxPath]{};
+    if (ExpandEnvironmentStringsW(stored, expanded, kResolveMaxPath) == 0) {
+        StringCchCopyW(expanded, ARRAYSIZE(expanded), stored);
+    }
+    PathUnquoteSpacesW(expanded);
+    if (expanded[0] == 0) {
+        return false;
+    }
+
+    wchar_t full[kResolveMaxPath]{};
+    if (PathIsRelativeW(expanded)) {
+        /* Documented shell behaviour: a relative icon location is relative
+         * to the folder that contains the shortcut. */
+        if (lnk == nullptr || lnk[0] == 0) {
+            return false;
+        }
+        wchar_t folder[kResolveMaxPath]{};
+        StringCchCopyW(folder, ARRAYSIZE(folder), lnk);
+        PathRemoveFileSpecW(folder);
+        if (folder[0] == 0 ||
+            PathCombineW(full, folder, expanded) == nullptr) {
+            return false;
+        }
+    } else {
+        StringCchCopyW(full, ARRAYSIZE(full), expanded);
+    }
+
+    wchar_t canonical[kResolveMaxPath]{};
+    if (GetFullPathNameW(full, ARRAYSIZE(canonical), canonical, nullptr) == 0 ||
+        canonical[0] == 0) {
+        StringCchCopyW(canonical, ARRAYSIZE(canonical), full);
+    }
+    return SUCCEEDED(StringCchCopyW(out, cch, canonical));
+}
+
 HICON ResolveAppIcon(const wchar_t* lnk, const wchar_t* target, bool large) {
     /* 1.0.0-alpha: 'small' NON e' un nome sicuro per una variabile locale.
      * Il Windows SDK (rpcndr.h) definisce, quando si compila con MSVC,
@@ -514,21 +573,44 @@ HICON ResolveAppIcon(const wchar_t* lnk, const wchar_t* target, bool large) {
                         int index = 0;
                         if (SUCCEEDED(link->GetIconLocation(iconPath,
                                 MAX_PATH, &index)) && iconPath[0] != 0) {
-                            wchar_t exp[MAX_PATH]{};
-                            ExpandEnvironmentStringsW(iconPath, exp, MAX_PATH);
-                            HICON bigIcon = nullptr, smallIcon = nullptr;
-                            if (ExtractIconExW(exp, index, &bigIcon, &smallIcon,
-                                               1) > 0) {
-                                HICON pick = large ? bigIcon : smallIcon;
-                                HICON other = large ? smallIcon : bigIcon;
-                                if (pick) {
-                                    if (other) DestroyIcon(other);
-                                    pf->Release();
-                                    link->Release();
-                                    return pick;
+                            /* v1.21.8: quoted or relative icon locations are
+                             * resolved before extraction, so a custom icon is
+                             * not lost (see ResolveStoredShortcutPath). */
+                            wchar_t iconResolved[kResolveMaxPath]{};
+                            if (ResolveStoredShortcutPath(lnk, iconPath,
+                                    iconResolved, kResolveMaxPath)) {
+                                HICON bigIcon = nullptr, smallIcon = nullptr;
+                                if (ExtractIconExW(iconResolved, index, &bigIcon,
+                                        &smallIcon, 1) > 0) {
+                                    HICON pick = large ? bigIcon : smallIcon;
+                                    HICON other = large ? smallIcon : bigIcon;
+                                    if (pick) {
+                                        if (other) DestroyIcon(other);
+                                        pf->Release();
+                                        link->Release();
+                                        return pick;
+                                    }
+                                    if (bigIcon) DestroyIcon(bigIcon);
+                                    if (smallIcon) DestroyIcon(smallIcon);
                                 }
-                                if (bigIcon) DestroyIcon(bigIcon);
-                                if (smallIcon) DestroyIcon(smallIcon);
+
+                                /* Second chance, still on the file named by
+                                 * the shortcut and never on the .lnk (which
+                                 * would carry the link overlay): the shell can
+                                 * draw an icon for files ExtractIconEx does
+                                 * not read. Only reached when the extraction
+                                 * above failed, so a good icon is never
+                                 * replaced by a generic one. */
+                                SHFILEINFOW sfiIcon{};
+                                W7T_SEH_TRY {
+                                    if (SHGetFileInfoW(iconResolved, 0, &sfiIcon,
+                                            sizeof(sfiIcon), f) &&
+                                        sfiIcon.hIcon != nullptr) {
+                                        pf->Release();
+                                        link->Release();
+                                        return sfiIcon.hIcon;
+                                    }
+                                } W7T_SEH_CATCH {} W7T_SEH_END
                             }
                         }
                     }
