@@ -219,6 +219,14 @@ struct ExtraStrings {
     const wchar_t* themeWin81;
     const wchar_t* lblIconOrder;
     const wchar_t* txtIconOrderHint;
+    /* v1.21.28: posizione della taskbar (etichetta + quattro opzioni).
+     * IN CODA alla struttura: le tabelle per lingua aggiungono queste cinque
+     * voci senza far slittare i valori posizionali esistenti. */
+    const wchar_t* lblPosition;
+    const wchar_t* posBottom;
+    const wchar_t* posTop;
+    const wchar_t* posLeft;
+    const wchar_t* posRight;
 };
 
 const ExtraStrings& ExtraStringsFor(Lang lang);

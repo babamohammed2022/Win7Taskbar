@@ -125,6 +125,8 @@ enum CtrlId {
     IDC_COLOR_SWATCH, IDC_BTN_PICK_COLOR, IDC_TXT_COLOR_HINT,
     IDC_LBL_EX_PRIVACY, IDC_CMB_EX_PRIVACY, IDC_TXT_PRIVACY_HINT,
     IDC_GRP_EX_TASKBAR, IDC_LBL_EX_THEME, IDC_CMB_EX_THEME,
+    /* v1.21.28: posizione della taskbar + Task Manager spostati qui. */
+    IDC_LBL_EX_POSITION, IDC_CMB_EX_POSITION,
     IDC_LBL_EX_ICON_ORDER, IDC_TXT_ORDER_HINT,
     IDC_BTN_APPLY = 3000,
 };
@@ -222,11 +224,8 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_GRP_CLOCK, p1); vis(IDC_CHK_SECONDS, p1);
     vis(IDC_LBL_CLOCK, p1); vis(IDC_CMB_CLOCK, p1);
     vis(IDC_GRP_SEARCH, p1); vis(IDC_CHK_SEARCH, p1);
-    /* Windows 11 starts at build 22000 (21H2). Windows 10 has only the
-     * ordinary taskmgr command, so this selector must not exist there. */
-    const bool showTaskManagerChoice = p1 && IsWindows11OrBetter();
-    vis(IDC_LBL_TASKMGR, showTaskManagerChoice);
-    vis(IDC_CMB_TASKMGR, showTaskManagerChoice);
+    /* v1.21.28: la tendina Task Manager vive ora nella scheda extra (p4);
+     * resta solo su Windows 11 (su 10 c'e' solo il task manager classico). */
     vis(IDC_GRP_NETFLY, p1); vis(IDC_TXT_NETFLY, p1); vis(IDC_CMB_NETFLY, p1);
     vis(IDC_LBL_VOLUME, p1); vis(IDC_CMB_VOLUME, p1);
     vis(IDC_LBL_BATT, p1); vis(IDC_CMB_BATTERY, p1);
@@ -252,6 +251,11 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_TXT_PRIVACY_HINT, p4);
     vis(IDC_GRP_EX_TASKBAR, p4); vis(IDC_LBL_EX_THEME, p4);
     vis(IDC_CMB_EX_THEME, p4);
+    /* v1.21.28: posizione della barra sempre visibile; Task Manager solo 11. */
+    vis(IDC_LBL_EX_POSITION, p4); vis(IDC_CMB_EX_POSITION, p4);
+    const bool showTaskManagerChoice = p4 && IsWindows11OrBetter();
+    vis(IDC_LBL_TASKMGR, showTaskManagerChoice);
+    vis(IDC_CMB_TASKMGR, showTaskManagerChoice);
     vis(IDC_LBL_EX_ICON_ORDER, p4); vis(IDC_TXT_ORDER_HINT, p4);
 }
 
@@ -512,7 +516,8 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                             int32_t toolbarLinks, int32_t inputLanguageMode,
                             int32_t taskManagerMode,
                             int32_t flyoutColorMode, int32_t flyoutColorRgb,
-                            int32_t connectionPrivacyMode, int32_t themeSelection) {
+                            int32_t connectionPrivacyMode, int32_t themeSelection,
+                            int32_t taskbarPosition) {
     try {
         if (m_hWnd && IsWindow(m_hWnd)) {
             return;
@@ -552,6 +557,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * stays Windows 7, and the stored value is brought back to 0 when the
          * user opens and confirms the Properties. */
         m_themeSelection = (themeSelection == 1 && ThemeIsAvailable(1)) ? 1 : 0;
+        /* v1.21.28: edge fuori elenco -> Bottom, il lato sempre supportato. */
+        m_taskbarPosition =
+            (taskbarPosition >= 0 && taskbarPosition <= 3) ? taskbarPosition : 0;
         RefreshExtraSwatchColor();
 
         /* v2.47: oltre alle schede e ai controlli standard serve la classe
@@ -646,8 +654,8 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * voce del menu contestuale; ShowTabPage la nasconde su Windows 10. */
         addCtrl(BS_GROUPBOX, 0, 12, 142, GROUP_WIDTH, 50, IDC_GRP_SEARCH, L"Button", L"");
         addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 0, 18, 150, PAGE_TEXT_WIDTH, 18, IDC_CHK_SEARCH, L"Button", L"");
-        addCtrl(SS_LEFT, 0, 18, 175, 68, 10, IDC_LBL_TASKMGR, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 88, 172, 202, 80, IDC_CMB_TASKMGR, L"ComboBox", L"");
+        /* v1.21.28: la tendina Task Manager e' stata spostata nella scheda
+         * "Impostazioni extra" (vedi pagina 4): qui non viene piu' creata. */
 
         /* GRUPPO 4 - LINGUA (al posto della sezione Aero Peek della foto).
          * v3.5: due righe - la lingua del programma (come prima) e lo
@@ -741,12 +749,20 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 134, PAGE_TEXT_WIDTH, 24,
                 IDC_TXT_PRIVACY_HINT, L"Static", L"");
 
-        addCtrl(BS_GROUPBOX, 0, 12, 176, GROUP_WIDTH, 94, IDC_GRP_EX_TASKBAR, L"Button", L"");
+        /* v1.21.28: il gruppo "Barra" ospita anche la posizione della taskbar
+         * e la tendina Task Manager, spostate qui dalla prima scheda. */
+        addCtrl(BS_GROUPBOX, 0, 12, 176, GROUP_WIDTH, 102, IDC_GRP_EX_TASKBAR, L"Button", L"");
         addCtrl(SS_LEFT, 0, 18, 188, 60, 10, IDC_LBL_EX_THEME, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 84, 186, 218, 80,
                 IDC_CMB_EX_THEME, L"ComboBox", L"");
-        addCtrl(SS_LEFT, 0, 18, 206, 200, 10, IDC_LBL_EX_ICON_ORDER, L"Static", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 220, PAGE_TEXT_WIDTH, 42,
+        addCtrl(SS_LEFT, 0, 18, 204, 90, 10, IDC_LBL_EX_POSITION, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 112, 202, 190, 80,
+                IDC_CMB_EX_POSITION, L"ComboBox", L"");
+        addCtrl(SS_LEFT, 0, 18, 220, 90, 10, IDC_LBL_TASKMGR, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 112, 218, 190, 80,
+                IDC_CMB_TASKMGR, L"ComboBox", L"");
+        addCtrl(SS_LEFT, 0, 18, 236, 200, 10, IDC_LBL_EX_ICON_ORDER, L"Static", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 248, PAGE_TEXT_WIDTH, 26,
                 IDC_TXT_ORDER_HINT, L"Static", L"");
 
         // ---- pulsanti standard 50x14, come la mod ----
@@ -860,6 +876,12 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
         const int32_t themeSel = static_cast<int32_t>(
             SendDlgItemMessageW(m_hWnd, IDC_CMB_EX_THEME, CB_GETCURSEL, 0, 0));
         msg.themeSelection = ThemeIsAvailable(themeSel) ? themeSel : 0;
+    }
+    /* v1.21.28: posizione della taskbar (0..3); CB_ERR o fuori elenco -> 0. */
+    {
+        const int32_t posSel = static_cast<int32_t>(
+            SendDlgItemMessageW(m_hWnd, IDC_CMB_EX_POSITION, CB_GETCURSEL, 0, 0));
+        msg.taskbarPosition = (posSel >= 0 && posSel <= 3) ? posSel : 0;
     }
     msg.openSearch = openSearch ? 1 : 0;
     msg.closeApp = closeApp ? 1 : 0;
@@ -1009,6 +1031,8 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SetDlgItemTextW(hwnd, IDC_TXT_PRIVACY_HINT, X.txtPrivacyHint);
         SetDlgItemTextW(hwnd, IDC_LBL_EX_THEME, X.lblTheme);
         SetDlgItemTextW(hwnd, IDC_GRP_EX_TASKBAR, X.grpTaskbar);
+        /* v1.21.28: posizione della barra + (Task Manager usa lblTaskManager). */
+        SetDlgItemTextW(hwnd, IDC_LBL_EX_POSITION, X.lblPosition);
         SetDlgItemTextW(hwnd, IDC_LBL_EX_ICON_ORDER, X.lblIconOrder);
         SetDlgItemTextW(hwnd, IDC_TXT_ORDER_HINT, X.txtIconOrderHint);
 
@@ -1042,6 +1066,20 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             ComboBox_AddString(hTh, X.themeWin81);      /* 1, non disponibile */
             ComboBox_SetCurSel(hTh, ThemeIsAvailable(self->m_themeSelection)
                                         ? self->m_themeSelection : 0);
+        }
+
+        /* v1.21.28: posizione della taskbar. L'indice della tendina e' il
+         * valore persistito (0 Bottom, 1 Top, 2 Left, 3 Right), lo stesso che
+         * il pacchetto WM_COPYDATA riporta al taskbar. */
+        {
+            HWND hPos = GetDlgItem(hwnd, IDC_CMB_EX_POSITION);
+            ComboBox_AddString(hPos, X.posBottom);   /* 0 */
+            ComboBox_AddString(hPos, X.posTop);      /* 1 */
+            ComboBox_AddString(hPos, X.posLeft);     /* 2 */
+            ComboBox_AddString(hPos, X.posRight);    /* 3 */
+            ComboBox_SetCurSel(hPos, (self->m_taskbarPosition >= 0 &&
+                                      self->m_taskbarPosition <= 3)
+                                         ? self->m_taskbarPosition : 0);
         }
 
         /* v2.59: IL SELETTORE SCORRE L'ELENCO UNICO DELLE LINGUE

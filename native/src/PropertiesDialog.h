@@ -44,6 +44,10 @@ struct PropsApplyMsg {
     int32_t flyoutColorRgb;        // 0x00RRGGBB of the custom colour
     int32_t connectionPrivacyMode; // 0 = normal, 1 = privacy
     int32_t themeSelection;        // 0 = Windows 7, 1 = Windows 8.1
+    /* v1.21.28 - taskbar edge. 0 = Bottom, 1 = Top, 2 = Left, 3 = Right.
+     * APPENDED AT THE END like the other fields (the receiver reads only what
+     * the packet really carries, see cbData). */
+    int32_t taskbarPosition;
 };
 constexpr DWORD kPropsCopyDataId = 'W7PA';
 
@@ -58,7 +62,8 @@ public:
               int32_t toolbarLinks, int32_t inputLanguageMode,
               int32_t taskManagerMode,
               int32_t flyoutColorMode, int32_t flyoutColorRgb,
-              int32_t connectionPrivacyMode, int32_t themeSelection);
+              int32_t connectionPrivacyMode, int32_t themeSelection,
+              int32_t taskbarPosition);
 
     /* v2.47: il font del dialogo e' un oggetto GDI: si crea una volta per
      * apertura e si distrugge alla chiusura, nel distruttore della classe
@@ -104,6 +109,7 @@ private:
     int32_t m_flyoutColorRgb = 0x0078D7;   /* chosen custom colour */
     int32_t m_connectionPrivacyMode = 0;
     int32_t m_themeSelection = 0;      /* Windows 7 (8.1 not available) */
+    int32_t m_taskbarPosition = 0;     /* v1.21.28: 0 Bottom..3 Right */
     /* Colour shown by the swatch next to the two entries: with the "system
      * colour" mode it is read from the system (see
      * RefreshExtraSwatchColor). */

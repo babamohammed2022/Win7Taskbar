@@ -480,7 +480,9 @@ namespace Win7Taskbar.Interop
             int inputLanguageMode, int taskManagerMode,
             // v1.21.7: extra settings section.
             int flyoutColorMode, int flyoutColorRgb,
-            int connectionPrivacyMode, int themeSelection);
+            int connectionPrivacyMode, int themeSelection,
+            // v1.21.28: taskbar position (0 Bottom,1 Top,2 Left,3 Right).
+            int taskbarPosition);
 
         /// <summary>
         /// v1.21.7: publishes the extra settings. flyoutColorMode 0 = system

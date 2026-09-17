@@ -7301,7 +7301,9 @@ namespace Win7Taskbar
                     st.FlyoutColorMode,
                     st.FlyoutCustomColorRgb,
                     st.ConnectionFlyoutPrivacyMode,
-                    st.ThemeSelection);
+                    st.ThemeSelection,
+                    /* v1.21.28: posizione della taskbar (0..3). */
+                    st.TaskbarPosition);
             }
             catch (Exception ex)
             {
