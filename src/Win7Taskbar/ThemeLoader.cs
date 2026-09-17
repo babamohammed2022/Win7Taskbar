@@ -196,6 +196,10 @@ namespace Win7Taskbar
                 ("TaskButtonFrameHover", "Win81TaskButtonFrameHover"),
                 ("TaskButtonFrameActive", "Win81TaskButtonFrameActive"),
                 ("TaskButtonFrameNotification", "Win81TaskButtonFrameNotification"),
+                ("SuperbarButtonOuterCornerRadius", "SuperbarButtonOuterCornerRadius"),
+                ("SuperbarButtonInnerCornerRadius", "SuperbarButtonInnerCornerRadius"),
+                ("SuperbarHoverTileCornerRadius", "SuperbarHoverTileCornerRadius"),
+                ("SuperbarGlowCornerRadius", "SuperbarGlowCornerRadius"),
             };
 
             var applied = new List<string>();

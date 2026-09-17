@@ -323,6 +323,13 @@
     <CornerRadius x:Key="TaskListScrollLeftCornerRadius">0,0,0,0</CornerRadius>
     <CornerRadius x:Key="TaskListScrollRightCornerRadius">0,0,0,0</CornerRadius>
 
+    <!-- v1.21.22b - skin 8.1: tessere di hover, sfondo premuto e alone del
+         pulsante sono rettangolari, come il resto del chrome 8.1. -->
+    <CornerRadius x:Key="SuperbarButtonOuterCornerRadius">0</CornerRadius>
+    <CornerRadius x:Key="SuperbarButtonInnerCornerRadius">0</CornerRadius>
+    <CornerRadius x:Key="SuperbarHoverTileCornerRadius">0</CornerRadius>
+    <CornerRadius x:Key="SuperbarGlowCornerRadius">0</CornerRadius>
+
     <SolidColorBrush x:Key="TaskListScrollButtonOuterBorder" Color="#99000000" />
     <SolidColorBrush x:Key="TaskListScrollButtonBorder" Color="#998c9ccc" />
     <SolidColorBrush x:Key="TaskListScrollButtonInnerBorderHover" Color="#ccd1def7" />
