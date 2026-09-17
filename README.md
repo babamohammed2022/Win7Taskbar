@@ -15,10 +15,13 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 
 **Current state: `Alpha`**
 
-## Screenshot
+## Screenshot (Windows 7 skin)
 
 <img width="1366" height="61" alt="image" src="https://github.com/user-attachments/assets/fcc86ac5-1ff2-418f-a7df-aca0039b1108" />
 
+## Screenshot (Windows 8.1 skin)
+
+<img width="1366" height="51" alt="image" src="https://github.com/user-attachments/assets/470fc73f-0ab4-4601-8c92-94ff5f5d23c6" />
 
 ## Requirements
 
