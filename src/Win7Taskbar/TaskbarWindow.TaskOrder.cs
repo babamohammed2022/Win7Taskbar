@@ -78,7 +78,8 @@ namespace Win7Taskbar
         /// no popup may appear over the bar, and the release must not activate
         /// the application.
         /// </summary>
-        internal bool IsTaskOrderDragActive() => _orderDragging;
+        internal bool IsTaskOrderDragActive() =>
+            _orderDragging || _reorderDragging != null;
 
         /* Insertion caret: the same blue as the tray icon drag, so the two
          * gestures look alike. */
@@ -141,11 +142,17 @@ namespace Win7Taskbar
         }
 
         /// <summary>
-        /// v1.21.7: single switch of the reorder gesture. Always on today: the
-        /// bar is ours and the gesture has no effect outside the program. It
-        /// stays a property so it can be turned off without touching code.
+        /// v1.21.21: OFF. The reorder gesture of the bar is now the RetroBar one
+        /// (TaskbarWindow.xaml.cs: DragDrop on the button, insertion mark,
+        /// drop), which is the single armed gesture; this tray-style one stays
+        /// compiled - with its ghost icon, its caret and its hit test - but no
+        /// longer captures the press. Its persistence part is still the one in
+        /// use: the RetroBar drop saves through ApplyUserTaskbarOrder.
+        ///
+        /// v1.21.7: it was the switch of the reorder gesture; kept as a
+        /// property so it can be turned back on without touching code.
         /// </summary>
-        private static bool TaskOrderDragEnabled => true;
+        private static bool TaskOrderDragEnabled => false;
 
         // ---------------------------------------------------------------
         //  Dragging

@@ -34,9 +34,14 @@
          luminance-times-alpha mask from the same unchanged PNG. -->
     <x:Static x:Key="DwmPreviewBorderMaskImage" Member="bundle:GraphicalResourceBundle.dwmborder" />
 
-    <!-- TASKBAR BACKGROUND PNG - texture riusata identica dal bundle Win7;
-         la differenza Win8.1 e' solo nell'opacita'/colore applicati sopra
-         (vedi TaskbarBackground piu' sotto), non nella texture in se'. -->
+    <!-- TASKBAR BACKGROUND - v1.21.21: la barra di Windows 8.1 NON ha la
+         texture di vetro Aero (niente riflessi diagonali, niente gradiente a
+         piu' fermate): e' una trasparenza GENERICA, piatta e uniforme, che
+         lascia passare il desktop sempre allo stesso modo. La PNG della
+         texture resta nel bundle per il tema Windows 7; qui le due chiavi
+         usate dal template ("Win7_TaskbarTextureBrush" e la variante verticale)
+         sono ridichiarate come tinta piatta, cosi' il template non cambia di
+         una riga. -->
     <x:Static x:Key="TaskbarBackgroundImage" Member="bundle:GraphicalResourceBundle.taskbarbackground" />
     <ImageBrush x:Key="TaskbarTextureBrush"
                 ImageSource="{DynamicResource TaskbarBackgroundImage}"
@@ -55,24 +60,8 @@
     <x:Static x:Key="Win7_ShowDesktopImage" Member="bundle:GraphicalResourceBundle.win7showdesktop" />
     <x:Static x:Key="Win7_ShowDesktopImageScaled" Member="bundle:GraphicalResourceBundle.win7showdesktop" />
     <x:Static x:Key="Win7_TaskbarTextureImage" Member="bundle:GraphicalResourceBundle.win7taskbar" />
-    <ImageBrush x:Key="Win7_TaskbarTextureBrush"
-                ImageSource="{StaticResource Win7_TaskbarTextureImage}"
-                TileMode="Tile"
-                Viewport="0,0,600,40"
-                ViewportUnits="Absolute"
-                Stretch="Fill"
-                Opacity="1" />
-    <ImageBrush x:Key="Win7_Win7_TaskbarTextureBrushVertical"
-                ImageSource="{StaticResource Win7_TaskbarTextureImage}"
-                TileMode="Tile"
-                Viewport="0,0,40,600"
-                ViewportUnits="Absolute"
-                Stretch="Fill"
-                Opacity="1">
-        <ImageBrush.Transform>
-            <RotateTransform Angle="90" />
-        </ImageBrush.Transform>
-    </ImageBrush>
+    <SolidColorBrush x:Key="Win7_TaskbarTextureBrush" Color="#59000000" />
+    <SolidColorBrush x:Key="Win7_Win7_TaskbarTextureBrushVertical" Color="#59000000" />
 
 
 
@@ -1081,21 +1070,24 @@
 
     <ToolTip x:Key="StartButtonTip" Content="{DynamicResource start_button_tip_vista}" />
 
-    <!-- Windows 8.1 Start flag: la cella dello sprite (54x54) viene disegnata
-         1:1 in una casella 54x54, con lo stesso Margin -6 dell'orb di
-         Windows 7, cosi' la bandierina conserva i pixel nativi invece di
-         essere rimpicciolita. La cella e' piu' alta della barra da 40px: la
-         parte visibile e' quella che serve alle tre righe (idle: bandierina
-         30x28 centrata; hover/pressed: piastrella a tutta larghezza, a filo
-         barra). Stesso meccanismo a 3 righe sprite (normal/hover/pressed) con
-         cross-fade su hover; la riga pressed appare subito al click e resta
-         finche' il menu Start e' aperto (IsChecked).
-         v1.21.20: lo stato idle (OrbNormal) viene SPENTO mentre hover o pressed
-         sono attivi. Le righe hover/pressed hanno la bandierina RITAGLIATA
-         (trasparente): finche' la bandierina bianca dello stato idle restava
-         sotto, il ritaglio si vedeva bianco; spegnendola passa il colore della
-         barra. Setter statici, non animazioni, per lo stesso motivo spiegato
-         per IsChecked piu' sotto. -->
+    <!-- Windows 8.1 Start flag (v1.21.21). La cella dello sprite e' 54x54 e
+         viene disegnata 1:1; la casella e' 53 DIP, circa il 2% in meno (misura
+         che corrisponde alla bandierina di Windows 8.1, piu' piccola di quella
+         di Windows 7), con 1 DIP di spostamento a sinistra (l'1,5% circa) e lo
+         stesso Margin verticale -6 dell'orb di Windows 7. La cella e' piu' alta
+         della barra da 40px: la parte visibile e' quella che serve alle tre
+         righe (idle: bandierina 30x28 centrata; hover/pressed: piastrella a
+         tutta larghezza, a filo barra).
+         Le due righe hover/pressed hanno i quattro riquadri della bandierina
+         RITAGLIATI (trasparenti): lo strato "OrbCutOutFill" li riempie con il
+         colore di accento di Windows, quindi dentro la piastrella si vede la
+         tinta del sistema - non il bianco della bandierina a riposo, e non un
+         buco che lascia sparire la barra. Riferimento: il pulsante Start di
+         Open-Shell, che si disegna da solo la piastrella e la bandierina
+         ritagliata invece di sovrapporre due stati dello stesso sprite.
+         Il riempimento compare con un setter statico (nessuna animazione),
+         quindi il passaggio idle -> hover/pressed e' netto, come su Windows
+         8.1: nessun fade dello stato precedente e nessun istante senza tema. -->
     <Style TargetType="ToggleButton"
            x:Key="StartButton">
         <Setter Property="OverridesDefaultStyle"
@@ -1103,11 +1095,11 @@
         <Setter Property="Foreground"
                 Value="{DynamicResource ItemButtonForeground}" />
         <Setter Property="Margin"
-                Value="0,-6,0,-6" />
+                Value="-1,-6,0,-6" />
         <Setter Property="Width"
-                Value="54" />
+                Value="53" />
         <Setter Property="Height"
-                Value="54" />
+                Value="53" />
         <Setter Property="HorizontalAlignment"
                 Value="Left" />
         <Setter Property="VerticalAlignment"
@@ -1126,6 +1118,17 @@
                                             Viewbox="0,0,1,0.3333" />
                             </Border.Background>
                         </Border>
+                        <!-- v1.21.21: riempie i ritagli trasparenti delle righe
+                             hover/pressed con il colore di accento di Windows
+                             (la stessa tinta letta dal vivo per le anteprime,
+                             aggiornata dal programma quando il colore dietro
+                             cambia). Sta SOPRA la bandierina a riposo e SOTTO
+                             la piastrella, quindi si vede solo attraverso il
+                             ritaglio. Nessuna animazione: compare netto. -->
+                        <Border x:Name="OrbCutOutFill"
+                                Opacity="0"
+                                FlowDirection="LeftToRight"
+                                Background="{DynamicResource DwmPreviewAccentBrush}" />
                         <Border x:Name="OrbHover"
                                 Opacity="0"
                                 FlowDirection="LeftToRight">
@@ -1147,41 +1150,26 @@
                         <ContentPresenter Visibility="Collapsed" />
                     </Grid>
                     <ControlTemplate.Triggers>
-                        <!-- hover: soft glow fade; no fixed From, so an early
-                             leave simply continues the fade instead of snapping -->
+                        <!-- HOVER (v1.21.21): niente cross-fade. Il pulsante
+                             Start di Windows 8.1 non sfuma: mostra lo stato
+                             hover e basta, e il pulsante di Open-Shell fa la
+                             stessa cosa (disegna UNA sola immagine di stato:
+                             premuto -> pressed, altrimenti hot o normal, mai
+                             due sovrapposte). Due setter statici, quindi il
+                             cambio e' immediato e nessun valore animato puo'
+                             restare appeso (era la causa del "per un attimo si
+                             perde il tema"). All'uscita dal trigger WPF
+                             riporta i due strati al valore scritto
+                             nell'elemento, cioe' 0: nessuna animazione da
+                             fermare, nessun ritardo. -->
                         <Trigger Property="IsMouseOver"
                                  Value="True">
-                            <!-- v1.21.20: la bandierina dello stato idle non
-                                 deve vedersi nel ritaglio della piastrella
-                                 hover: quello che passa e' il colore della
-                                 barra. Setter statico (non un'animazione) come
-                                 quello di IsChecked qui sotto: un valore
-                                 animato ha priorita' superiore ai setter dei
-                                 trigger e riporterebbe su il bianco. -->
-                            <Setter TargetName="OrbNormal"
+                            <Setter TargetName="OrbCutOutFill"
                                     Property="Opacity"
-                                    Value="0" />
-                            <Trigger.EnterActions>
-                                <BeginStoryboard x:Name="OrbHoverIn">
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="OrbHover"
-                                                         Storyboard.TargetProperty="Opacity"
-                                                         To="1"
-                                                         Duration="0:0:0.18"
-                                                         FillBehavior="HoldEnd" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </Trigger.EnterActions>
-                            <Trigger.ExitActions>
-                                <BeginStoryboard x:Name="OrbHoverOut">
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="OrbHover"
-                                                         Storyboard.TargetProperty="Opacity"
-                                                         To="0"
-                                                         Duration="0:0:0.35" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </Trigger.ExitActions>
+                                    Value="1" />
+                            <Setter TargetName="OrbHover"
+                                    Property="Opacity"
+                                    Value="1" />
                         </Trigger>
                         <!-- pressed while clicked -->
                         <Trigger Property="IsPressed"
@@ -1189,40 +1177,27 @@
                             <Setter TargetName="OrbPressed"
                                     Property="Opacity"
                                     Value="1" />
-                            <!-- v1.21.20: stesso discorso dell'hover: premuto =
-                                 piastrella con la bandierina ritagliata, quindi
-                                 niente bianco sotto. -->
-                            <Setter TargetName="OrbNormal"
+                            <!-- v1.21.21: come l'hover: anche da premuto il
+                                 ritaglio e' riempito dall'accento. -->
+                            <Setter TargetName="OrbCutOutFill"
                                     Property="Opacity"
-                                    Value="0" />
+                                    Value="1" />
                         </Trigger>
-                        <!-- START MENU OPEN: the orb stays in the pressed state until closed.
-                             The hover animation (FillBehavior=HoldEnd) is an "animated" value
-                             driven by a Clock: it can remain active/held and, over time
-                             (after a few seconds, layout changes, other triggers), its
-                             Clock can be invalidated or reset, making the normal state
-                             "reappear" even while IsChecked is still true. So instead of
-                             using another animation here (same problem, just deferred), we
-                             first explicitly stop the hover storyboard with StopStoryboard,
-                             then apply static Setters, which stay reliably valid for the
-                             whole duration of the trigger, with no expiry. -->
-                        <!-- v2.1: piu' StopStoryboard dell'hover qui. Fermare lo
-                             storyboard dell'hover quando IsChecked diventa True era
-                             cio' che faceva lampeggiare l'orb su IDLE prima di
-                             mostrare PRESSED: StopStoryboard rimuove SUBITO il valore
-                             animato hold (OrbHover->0), e OrbNormal (primo livello,
-                             opacita' base 1) riappare per il frame che separa la
-                             rimozione dall'applicazione dei Setter, producendo la
-                             sequenza IDLE->HOVER->IDLE->PRESSED.
-                             Lasciando vivere lo storyboard dell'hover:
-                             - OrbPressed e' DICHIARATO DOPO OrbHover nel Grid, quindi
-                               a opacita' 1 lo copre comunque: il pressed si vede;
-                             - alla chiusura del menu (IsChecked->False), se il
-                               puntatore e' ancora sull'orb il valore hold dell'hover
-                               e' ancora li' -> HOVER senza flash; se il puntatore e'
-                               uscito, IsMouseOver=False ha gia' eseguito OrbHoverOut
-                               -> IDLE. In entrambi i casi lo stato segue il
-                               puntatore reale, come su Windows 7. -->
+                        <!-- MENU START APERTO: il pulsante resta nello stato
+                             premuto finche' il menu e' aperto.
+                             Lo stato e' fatto di SETTER STATICI, non di
+                             animazioni: un valore animato e' guidato da un
+                             Clock che puo' restare "appeso" e, dopo qualche
+                             secondo o un cambio di layout, essere invalidato -
+                             facendo riapparire lo stato normale mentre IsChecked
+                             e' ancora vero. Da v1.21.21 anche l'hover e' fatto di
+                             setter statici, quindi non c'e' piu' nessuno
+                             storyboard da fermare e nessun valore animato in
+                             volo: la sequenza idle -> hover -> premuto segue il
+                             puntatore senza lampi. OrbPressed e' dichiarato DOPO
+                             OrbHover nel Grid, quindi a opacita' 1 copre
+                             comunque l'hover; allo stesso modo OrbCutOutFill
+                             resta acceso in tutti e tre gli stati attivi. -->
                         <Trigger Property="IsChecked"
                                  Value="True">
                             <Setter TargetName="OrbPressed"
@@ -1234,6 +1209,9 @@
                             <Setter TargetName="OrbHover"
                                     Property="Opacity"
                                     Value="0" />
+                            <Setter TargetName="OrbCutOutFill"
+                                    Property="Opacity"
+                                    Value="1" />
                         </Trigger>
                         <!-- scaled DPI: point all three layers at the hi-res sprite -->
                         <MultiDataTrigger>

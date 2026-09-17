@@ -1234,6 +1234,19 @@ namespace Win7Taskbar
                     Point pos = e.GetPosition(TaskList);
                     _viewModel.MoveTaskGroup(
                         group, TaskGroupInsertionIndexAt(pos));
+
+                    /* v1.21.21: il gesto e' quello di RetroBar, ma l'ordine
+                     * non resta solo in sessione: la lista risultante viene
+                     * salvata nella configurazione del programma con lo stesso
+                     * metodo usato dall'altro sistema (ApplyUserTaskbarOrder,
+                     * che scrive in settings.json e non tocca nulla di
+                     * Windows). Se il salvataggio non riesce, l'ordine resta
+                     * comunque applicato sullo schermo. */
+                    bool saved = _viewModel.ApplyUserTaskbarOrder(
+                        _viewModel.Groups.ToList());
+                    _bridge.Log(saved
+                        ? "ordine icone: spostamento salvato (gesto RetroBar)"
+                        : "ordine icone: spostamento applicato ma non salvato");
                 }
             }
             catch (Exception ex)
@@ -2647,23 +2660,16 @@ namespace Win7Taskbar
                 sender is FrameworkElement { DataContext: TaskGroup group } &&
                 group.IsActive;
 
-            // v1.21.15: possibile inizio dello spostamento del bottone
-            // (riordino stile RetroBar). Diventa drag vero solo oltre la
-            // soglia del sistema: un click normale non vede differenze.
-            //
-            // v1.21.16: the two drag systems of this branch are both compiled
-            // and both stay intact. ARMED IS THE PERSISTENT ONE (extra
-            // settings -> icon order, TaskbarWindow.TaskOrder.cs): its order
-            // is written to settings.json and rebuilt after a restart, which
-            // is what the brief asks for. The session order below, merged
-            // from the other pull request, is left complete but not armed:
-            // two gestures capturing the same press would fight over the
-            // mouse and produce two indicators and two independent moves for
-            // one drop. Set this constant to true to run the RetroBar-style
-            // session order instead (the persistent one then simply never
-            // starts, because it steps back as soon as the pointer is owned
-            // by another gesture).
-            const bool UseRetroBarSessionReorder = false;
+            // v1.21.21: spostamento del bottone con il meccanismo di RetroBar
+            // (DragDrop OLE sul bottone + indicatore di inserimento + drop),
+            // che e' l'unico gesto armato. Il riordino "persistente" scritto
+            // in TaskbarWindow.TaskOrder.cs (cattura del mouse, icona fantasma,
+            // caret in una finestra separata) resta compilato ma NON armato:
+            // era quello che sul campo si comportava in modo incoerente, e due
+            // gesti che catturano la stessa pressione si contendono il mouse.
+            // L'ordine ottenuto con il trascinamento viene comunque SALVATO:
+            // vedi HandleTaskGroupReorderDrop -> ApplyUserTaskbarOrder.
+            const bool UseRetroBarSessionReorder = true;
             if (UseRetroBarSessionReorder &&
                 sender is FrameworkElement pressedButton)
             {
@@ -4300,8 +4306,30 @@ namespace Win7Taskbar
                 /* risorsa non disponibile: si usa il ripiego inglese */
             }
 
+            /* v1.21.21: il ripiego e' inglese, quindi una chiave assente dal
+             * dizionario della lingua attiva si vede come "menu in inglese
+             * mentre il resto e' tradotto" - e finora non lasciava traccia.
+             * Una riga per chiave nel log (non una per apertura di menu): se
+             * succede di nuovo, il log dice QUALE chiave e' caduta sul
+             * ripiego. */
+            if (_missingLanguageKeys.Add(key))
+            {
+                try
+                {
+                    _bridge.Log($"lingua: chiave '{key}' assente dal dizionario, uso il ripiego inglese");
+                }
+                catch
+                {
+                    /* diagnostica: mai critica */
+                }
+            }
+
             return fallback;
         }
+
+        /// <summary>Chiavi di menu gia' segnalate come assenti dal dizionario
+        /// della lingua attiva (una riga di log ciascuna, vedi <see cref="L"/>).</summary>
+        private readonly HashSet<string> _missingLanguageKeys = new();
 
         private static MenuItem CreateMenuItem(string header, Action action, bool enabled = true)
         {

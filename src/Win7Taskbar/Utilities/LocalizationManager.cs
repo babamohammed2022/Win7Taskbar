@@ -39,6 +39,26 @@ namespace Win7Taskbar.Utilities
                 if (string.IsNullOrEmpty(langCode)) langCode = Settings.DefaultLanguageCode;
                 langCode = NormalizeLanguageCode(langCode);
 
+                /* v1.21.21: il dizionario nuovo si carica PRIMA di togliere il
+                 * vecchio. Togliendolo per primo c'era un istante (e, se il
+                 * caricamento falliva, un tempo indefinito) in cui l'app aveva
+                 * SOLO il ripiego inglese scritto nel codice: i menu
+                 * contestuali che leggono le risorse in quell'istante
+                 * restavano in inglese mentre il resto era gia' nella lingua
+                 * nuova. Cosi' invece, se il caricamento non riesce, la lingua
+                 * precedente resta al suo posto. */
+                ResourceDictionary langDict;
+                try
+                {
+                    langDict = LoadLanguageDictionary(langCode);
+                }
+                catch (Exception exLoad)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"LocalizationManager: language {langCode} not loaded, keeping the current one: {exLoad.Message}");
+                    return;
+                }
+
                 // Remove previous language dictionary if present
                 var toRemove = new System.Collections.Generic.List<ResourceDictionary>();
                 foreach (var dict in Application.Current.Resources.MergedDictionaries)
@@ -51,8 +71,6 @@ namespace Win7Taskbar.Utilities
                 foreach (var d in toRemove)
                     Application.Current.Resources.MergedDictionaries.Remove(d);
 
-                // Load new dictionary
-                ResourceDictionary langDict = LoadLanguageDictionary(langCode);
                 // Mark it
                 langDict[LanguageDictKey] = true;
                 Application.Current.Resources.MergedDictionaries.Add(langDict);
