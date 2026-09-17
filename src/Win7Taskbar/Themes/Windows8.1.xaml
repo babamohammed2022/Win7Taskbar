@@ -1081,12 +1081,21 @@
 
     <ToolTip x:Key="StartButtonTip" Content="{DynamicResource start_button_tip_vista}" />
 
-    <!-- Windows 8.1 Start flag: flush 40x40 nella barra da 44px (nessun
-         overhang, a differenza dell'orb Aero di Win7). Stesso identico
-         meccanismo a 3 righe sprite (normal/hover/pressed) con cross-fade
-         su hover; la riga pressed appare subito al click e resta finche'
-         il menu Start e' aperto (IsChecked). Nessuna modifica ai trigger:
-         cambia solo l'asset e l'ingombro del pulsante. -->
+    <!-- Windows 8.1 Start flag: la cella dello sprite (54x54) viene disegnata
+         1:1 in una casella 54x54, con lo stesso Margin -6 dell'orb di
+         Windows 7, cosi' la bandierina conserva i pixel nativi invece di
+         essere rimpicciolita. La cella e' piu' alta della barra da 40px: la
+         parte visibile e' quella che serve alle tre righe (idle: bandierina
+         30x28 centrata; hover/pressed: piastrella a tutta larghezza, a filo
+         barra). Stesso meccanismo a 3 righe sprite (normal/hover/pressed) con
+         cross-fade su hover; la riga pressed appare subito al click e resta
+         finche' il menu Start e' aperto (IsChecked).
+         v1.21.20: lo stato idle (OrbNormal) viene SPENTO mentre hover o pressed
+         sono attivi. Le righe hover/pressed hanno la bandierina RITAGLIATA
+         (trasparente): finche' la bandierina bianca dello stato idle restava
+         sotto, il ritaglio si vedeva bianco; spegnendola passa il colore della
+         barra. Setter statici, non animazioni, per lo stesso motivo spiegato
+         per IsChecked piu' sotto. -->
     <Style TargetType="ToggleButton"
            x:Key="StartButton">
         <Setter Property="OverridesDefaultStyle"
@@ -1094,11 +1103,11 @@
         <Setter Property="Foreground"
                 Value="{DynamicResource ItemButtonForeground}" />
         <Setter Property="Margin"
-                Value="0,0,0,0" />
+                Value="0,-6,0,-6" />
         <Setter Property="Width"
-                Value="40" />
+                Value="54" />
         <Setter Property="Height"
-                Value="40" />
+                Value="54" />
         <Setter Property="HorizontalAlignment"
                 Value="Left" />
         <Setter Property="VerticalAlignment"
@@ -1142,6 +1151,16 @@
                              leave simply continues the fade instead of snapping -->
                         <Trigger Property="IsMouseOver"
                                  Value="True">
+                            <!-- v1.21.20: la bandierina dello stato idle non
+                                 deve vedersi nel ritaglio della piastrella
+                                 hover: quello che passa e' il colore della
+                                 barra. Setter statico (non un'animazione) come
+                                 quello di IsChecked qui sotto: un valore
+                                 animato ha priorita' superiore ai setter dei
+                                 trigger e riporterebbe su il bianco. -->
+                            <Setter TargetName="OrbNormal"
+                                    Property="Opacity"
+                                    Value="0" />
                             <Trigger.EnterActions>
                                 <BeginStoryboard x:Name="OrbHoverIn">
                                     <Storyboard>
@@ -1170,6 +1189,12 @@
                             <Setter TargetName="OrbPressed"
                                     Property="Opacity"
                                     Value="1" />
+                            <!-- v1.21.20: stesso discorso dell'hover: premuto =
+                                 piastrella con la bandierina ritagliata, quindi
+                                 niente bianco sotto. -->
+                            <Setter TargetName="OrbNormal"
+                                    Property="Opacity"
+                                    Value="0" />
                         </Trigger>
                         <!-- START MENU OPEN: the orb stays in the pressed state until closed.
                              The hover animation (FillBehavior=HoldEnd) is an "animated" value

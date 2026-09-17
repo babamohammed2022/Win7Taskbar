@@ -2864,9 +2864,17 @@ namespace Win7Taskbar
         /// DIPs with the same factor the popup is scaled by.</summary>
         private const int PreviewGapPx = 4;
 
+        /// <summary>v1.21.20: di quanto vengono ingrandite le anteprime su un
+        /// monitor con scaling sopra il 100%. La geometria resta quella da
+        /// 100% (stessa cornice, stesso ritaglio, stesse misure): su un DPI
+        /// alto il riquadro viene solo DISEGNATO un 10% piu' grande. A 100% il
+        /// fattore non si applica e le anteprime restano 1:1.</summary>
+        private const double PreviewHighDpiEnlargement = 1.10;
+
         /* v1.21.18: fattore di normalizzazione applicato al contenuto del
-         * popup anteprime (1 / scala DPI del monitor). 1 = nessuna
-         * normalizzazione: a 100% il contenuto e' gia' quello disegnato. */
+         * popup anteprime (1 / scala DPI del monitor, v1.21.20: moltiplicato
+         * per l'ingrandimento da DPI alto). 1 = nessuna normalizzazione: a
+         * 100% il contenuto e' gia' quello disegnato. */
         private double _previewDpiNormalisation = 1.0;
         private double _previewNormalisedDpiScale = 0.0;
 
@@ -3498,6 +3506,11 @@ namespace Win7Taskbar
         /// At 100% this is a no-op (no transform). Every failure leaves the
         /// normal, monitor-scaled layout in place: the preview keeps working,
         /// it just keeps the old rounding.
+        ///
+        /// v1.21.20: on a display scaled above 100% the normalised surface is
+        /// drawn 10% larger (PreviewHighDpiEnlargement). The geometry is still
+        /// the 100%-pixel one; only its size on screen changes, so every
+        /// measurement taken from the screen follows automatically.
         /// </summary>
         private void ApplyPreviewPopupDpiNormalisation(bool force)
         {
@@ -3545,7 +3558,15 @@ namespace Win7Taskbar
                     return;
                 }
 
-                double inverse = 1.0 / scale;
+                /* v1.21.20: sopra il 100% il contenuto normalizzato viene
+                 * ingrandito del 10% (un pixel della geometria da 100% vale
+                 * 1,1 pixel sullo schermo). La logica resta identica - stesse
+                 * cornici, stesso ritaglio, stesse misure - e chi misura lo
+                 * schermo (PointToScreen) segue da solo la nuova dimensione. */
+                double enlargement = scale > 1.001
+                    ? PreviewHighDpiEnlargement
+                    : 1.0;
+                double inverse = enlargement / scale;
                 TaskPreviewPopupRoot.LayoutTransform =
                     new ScaleTransform(inverse, inverse);
                 _previewDpiNormalisation = inverse;
@@ -3580,10 +3601,13 @@ namespace Win7Taskbar
                     return;
                 }
 
+                double enlargement = _previewNormalisedDpiScale > 1.001
+                    ? PreviewHighDpiEnlargement
+                    : 1.0;
                 _bridge.Log(
                     $"preview popup: monitor DPI {(_previewNormalisedDpiScale * 100):0}%, " +
-                    $"geometry normalised by {_previewDpiNormalisation:0.###} " +
-                    "(previews keep their 100% pixel size)");
+                    $"geometry normalised by {_previewDpiNormalisation:0.###}, " +
+                    $"previews drawn {enlargement:0.###}x the 100% pixel size");
             }
             catch
             {
