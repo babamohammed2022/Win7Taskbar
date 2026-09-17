@@ -1533,14 +1533,15 @@
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 IsHitTestVisible="False">
-                            <!-- Exactly 2% narrower/shorter than the original
-                                 tray-hover tile (98%), still centred on exactly
-                                 the same icon geometry; do not compound this
-                                 scale on later visual adjustments. -->
-                                   <!-- v1.21.24: 98% (2% in meno) x 0,975 (2,5% in meno chiesto
-                                        nella prova) = 95,55% della tessera originale: 30 x 40 ->
-                                        28,665 x 38,22, sempre centrata sulla stessa icona
-                                        (meta' della misura come offset, come prima). -->
+                            <!-- Exactly 2% narrower/shorter than the original tray-hover tile (98%),
+                                 times the 2,5% asked for in the v1.21.24 test round (0,975) = 95,55%:
+                                 30 x 40 -> 28,665 x 38,22, still centred on exactly the same icon
+                                 geometry (half the size as the offset, as before). Do not compound this
+                                 scale on later visual adjustments.
+                                 v1.21.24 replaced the <Image> tag with this comment and lost
+                                 x:Name="HoverTileImg" (startup crash in Setter.EndInit);
+                                 tools/verify-theme-xaml.py now fails the build if that happens again. -->
+                            <Image x:Name="HoverTileImg"
                                    Width="28.665"
                                    Height="38.22"
                                    Canvas.Left="-14.3325"
