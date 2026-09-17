@@ -432,10 +432,17 @@ namespace Win7Taskbar.Controls
 
         private bool DwmDestinationLooksComposed()
         {
-            NativeMethods.RECT destination = Rect;
+            /* v1.21.8: same measured rectangle DWM was given (see
+             * TryGetDestinationRect); when the layout is not ready yet there
+             * is nothing to probe. */
+            if (!TryGetDestinationRect(out NativeMethods.RECT destination))
+            {
+                return false;
+            }
+
             int width = destination.Right - destination.Left;
             int height = destination.Bottom - destination.Top;
-            if (Handle == IntPtr.Zero || width < 32 || height < 32)
+            if (width < 32 || height < 32)
             {
                 return false;
             }
