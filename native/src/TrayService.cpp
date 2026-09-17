@@ -23,6 +23,8 @@
 /* v2.62: i riquadri di Windows 7 per le icone di sistema ricreate. */
 #include "BatteryFlyout.h"
 #include "Win7NetworkFlyout.h"
+#include "Win8NetworkFlyout.h"   /* v3.8: variante Windows 8 del flyout rete */
+#include "NetLogicBridge.h"      /* v3.8: esclusione reciproca coi riquadri  */
 
 #include "TrayOverflowWindow.h"   /* v3.1: refresh conservativo del pannello */
 #include "../include/RaiiWrappers.h"
@@ -3431,6 +3433,14 @@ void TrayService::SetWin7NetworkFlyout(bool ready) {
     m_win7NetworkFlyoutReady = ready;
 }
 
+void TrayService::SetWin8NetworkFlyout(bool ready) {
+    /* v3.8: il frontend avvisa che la variante Windows 8 del riquadro di
+     * rete e' pronta (modulo della logica inizializzato + tendina su
+     * "Windows 8 (ricreato)"). Vale lo stesso patto della versione Win7:
+     * senza l'avviso il core non chiama quel modulo. */
+    m_win8NetworkFlyoutReady = ready;
+}
+
 /* v1.7.6: the single gate where a saved icon choice takes effect.
  * barVisible/presentSomewhere are BORN here and READ everywhere (the
  * toolbar model, the overflow panel, the managed view, the balloons):
@@ -4419,11 +4429,32 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
             case SystemIconKind::Network:
                 /* "Windows 7": il riquadro di rete ricreato, ma solo quando il
                  * frontend lo ha preparato (NetFlyoutInit); la preparazione
-                 * (g_ctx, hook) la fa il frontend una volta sola. */
-                if (route == w7t::FlyoutRoute::Classic && m_win7NetworkFlyoutReady) {
-                    w7tnet::W7TNetFlyout_SetAnchorRect(&anchor);
-                    w7tnet::W7TNetFlyout_Toggle();
-                    return W7T_OK;
+                 * (g_ctx, hook) la fa il frontend una volta sola.
+                 * v3.8: stessa cosa per la variante Windows 8 (scelta
+                 * "Windows 8 (ricreato)"): il rilancio verso il riquadro
+                 * della shell se non pronta e' lo stesso percorso gia'
+                 * usato quando il modulo Windows 7 non e' pronto. */
+                if (route == w7t::FlyoutRoute::Classic) {
+                    if (w7t::PreferredStyle(FlyoutKind::Network) == w7t::FlyoutStyle::Win8) {
+                        if (m_win8NetworkFlyoutReady) {
+                            /* La scelta e' una sola: se il riquadro Windows
+                             * 7 era visibile per strada secondaria (hotkey
+                             * della mod) si chiude prima di aprire questo. */
+                            w7tnet::W8NetLogic_HideWin7FlyoutIfOpen();
+                            w7t::Win8NetworkFlyout::Instance().SetAnchorRect(anchor);
+                            w7t::Win8NetworkFlyout::Instance().Toggle();
+                            return W7T_OK;
+                        }
+                        LogTagged(L"GATE",
+                            L"rete: variante Windows 8 non pronta, ripiego sul riquadro della shell");
+                    } else if (m_win7NetworkFlyoutReady) {
+                        /* Vale anche all'inverso: il riquadro Windows 8, se
+                         * aperto, cede il posto a quello Windows 7. */
+                        w7t::Win8NetworkFlyout::Instance().Hide();
+                        w7tnet::W7TNetFlyout_SetAnchorRect(&anchor);
+                        w7tnet::W7TNetFlyout_Toggle();
+                        return W7T_OK;
+                    }
                 }
                 return FlyoutLauncher::InvokeFlyoutAt(FlyoutKind::Network,
                                                       FlyoutAction::Show, anchor);

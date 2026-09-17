@@ -6,6 +6,10 @@
 #include "SehGuard.h"
 #include "Strings.h"
 #include "Common.h"
+/* v1.21.7: single source of the system accent colour for the extra settings
+ * tab (the same function the recreated Windows 8-style flyout will use when
+ * it arrives: here it is needed by the colour swatch). */
+#include "ExtraSettings.h"
 /* v2.48: il pulsante "Personalizza..." dell'area di notifica usa LO STESSO
  * comando del menu di overflow della barra (W7T_OpenNotificationIconsSettings,
  * definito nel core nativo): nessuna pagina sostitutiva, nessun percorso
@@ -15,6 +19,11 @@
 #include <windowsx.h>
 #include <shellapi.h>
 #include <uxtheme.h>
+/* v1.21.7: ChooseColorW for the colour picker of the extra settings tab.
+ * The include must be explicit: WIN32_LEAN_AND_MEAN (CMake) keeps commdlg.h
+ * out of windows.h, and without it the colour chooser does not exist at
+ * compile time. Link: comdlg32 (see CMakeLists.txt). */
+#include <commdlg.h>
 #include <cstring>
 #include <string>   /* v2.58: std::wstring per il testo unico di "Informazioni" */
 
@@ -58,9 +67,23 @@ ScopeExit<F> MakeScopeExit(F f) { return ScopeExit<F>(f); }
 /* Dimensioni in unita' DLU basate sulla mod di riferimento.
  * La larghezza include 16 DLU aggiuntive per non troncare l'etichetta
  * italiana "Gestione attività"; l'altezza ospita la scheda Barre degli
- * strumenti e la seconda riga del gruppo lingua. */
-constexpr short MAIN_WIDTH  = 278;
+ * strumenti e la seconda riga del gruppo lingua.
+ *
+ * v1.21.7: the width grows from 278 to 330 DLU for the fourth tab, extra
+ * settings. The reason is technical: SysTabControl32 moves the labels that
+ * do not fit onto a second row, and that row would be drawn ON TOP of the
+ * first group of the page (page controls are not children of the tab: they
+ * have fixed coordinates in the dialog and the first row starts at 30 DLU).
+ * With four labels on the same row the problem does not exist: 18 DLU of
+ * extra margin per side are enough, and the groups of the existing pages
+ * grow horizontally without moving a single control by one unit. */
+constexpr short MAIN_WIDTH  = 330;
 constexpr short MAIN_HEIGHT = 326;
+
+/* Usable width of the tab and of the page groups. */
+constexpr short TAB_WIDTH      = 318;
+constexpr short GROUP_WIDTH    = 300;
+constexpr short PAGE_TEXT_WIDTH = 288;
 
 /* v2.50: le tendine di volume e batteria non si chiamano piu' "mixer
  * classico"/"flyout batteria": dicono a quale VERSIONE del sistema
@@ -94,7 +117,15 @@ enum CtrlId {
     IDC_GRP_AERO, IDC_TXT_AERO, IDC_CHK_AERO,
     IDC_LINK_HELP,
     IDC_TXT_TB_INFO, IDC_CHK_TB_DESKTOP, IDC_CHK_TB_ADDRESS, IDC_CHK_TB_LINKS,
-    IDC_LST_TOOLBARS,   /* v2.50: elenco con caselle come nella mod */
+    IDC_LST_TOOLBARS,   /* v2.50: checked list as in the mod */
+    /* v1.21.7: fourth tab, extra settings. */
+    IDC_TXT_EXTRA_TITLE,
+    IDC_GRP_EX_FLYOUT, IDC_LBL_EX_COLOR,
+    IDC_RADIO_COLOR_SYS, IDC_RADIO_COLOR_CUSTOM,
+    IDC_COLOR_SWATCH, IDC_BTN_PICK_COLOR, IDC_TXT_COLOR_HINT,
+    IDC_LBL_EX_PRIVACY, IDC_CMB_EX_PRIVACY, IDC_TXT_PRIVACY_HINT,
+    IDC_GRP_EX_TASKBAR, IDC_LBL_EX_THEME, IDC_CMB_EX_THEME,
+    IDC_LBL_EX_ICON_ORDER, IDC_TXT_ORDER_HINT,
     IDC_BTN_APPLY = 3000,
 };
 
@@ -179,6 +210,7 @@ void ShowTabPage(HWND hwnd, int page) {
     const bool p1 = (page == 0);
     const bool p2 = (page == 1);
     const bool p3 = (page == 2);
+    const bool p4 = (page == 3);   /* v1.21.7: extra settings */
 
     auto vis = [&](int idc, bool v) {
         if (HWND h = GetDlgItem(hwnd, idc)) {
@@ -209,6 +241,94 @@ void ShowTabPage(HWND hwnd, int page) {
 
     /* Pagina 3: le nostre barre degli strumenti. */
     vis(IDC_TXT_TB_INFO, p3); vis(IDC_LST_TOOLBARS, p3);
+
+    /* Page 4: secondary settings (flyout, skin, icon order). */
+    vis(IDC_TXT_EXTRA_TITLE, p4);
+    vis(IDC_GRP_EX_FLYOUT, p4); vis(IDC_LBL_EX_COLOR, p4);
+    vis(IDC_RADIO_COLOR_SYS, p4); vis(IDC_RADIO_COLOR_CUSTOM, p4);
+    vis(IDC_COLOR_SWATCH, p4); vis(IDC_BTN_PICK_COLOR, p4);
+    vis(IDC_TXT_COLOR_HINT, p4);
+    vis(IDC_LBL_EX_PRIVACY, p4); vis(IDC_CMB_EX_PRIVACY, p4);
+    vis(IDC_TXT_PRIVACY_HINT, p4);
+    vis(IDC_GRP_EX_TASKBAR, p4); vis(IDC_LBL_EX_THEME, p4);
+    vis(IDC_CMB_EX_THEME, p4);
+    vis(IDC_LBL_EX_ICON_ORDER, p4); vis(IDC_TXT_ORDER_HINT, p4);
+}
+
+/* v1.21.7 - Skins available in THIS version of the program.
+ *
+ * The index is the one stored in the configuration: 0 = Windows 7,
+ * 1 = Windows 8.1. Both are implemented now: the Windows 8.1 theme file
+ * (Themes/Windows8.1.xaml) ships with the program and its Start button uses
+ * the two sprites embedded in GraphicalResourceBundle
+ * (startwin81flag / startwin81flagscaled). Windows 7 stays the default and
+ * the fallback for anything unknown.
+ *
+ * A single function for the judgement, so the dropdown and SendApply cannot
+ * diverge. */
+constexpr bool ThemeIsAvailable(int32_t themeId) { return themeId == 0 || themeId == 1; }
+
+/* v1.21.7 - Colour picker of the extra settings tab.
+ *
+ * It uses the Windows colour chooser (ChooseColorW): it is the same classic
+ * look as the rest of the dialog - no home-made control and no invented
+ * palette - and every fix Microsoft makes to that dialog arrives here for
+ * free.
+ *
+ * Colours come in and go out as 0x00RRGGBB (the form stored in the
+ * configuration); COLORREF is 0x00BBGGRR instead, so the conversion happens
+ * in one place only, here. */
+bool PickCustomColor(HWND owner, uint32_t rgb, uint32_t* outRgb) {
+    if (outRgb == nullptr) {
+        return false;
+    }
+
+    static COLORREF customColors[16] = {};
+    CHOOSECOLORW cc{};
+    cc.lStructSize = sizeof(cc);
+    cc.hwndOwner = owner;
+    cc.rgbResult = RGB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+    cc.lpCustColors = customColors;
+    cc.Flags = CC_FULLOPEN | CC_RGBINIT | CC_ANYCOLOR;
+
+    if (!ChooseColorW(&cc)) {
+        return false;
+    }
+
+    *outRgb = (static_cast<uint32_t>(GetRValue(cc.rgbResult)) << 16)
+            | (static_cast<uint32_t>(GetGValue(cc.rgbResult)) << 8)
+            |  static_cast<uint32_t>(GetBValue(cc.rgbResult));
+    return true;
+}
+
+/* Paints the colour swatch (owner-draw control). The rectangle is filled
+ * with the current colour and framed like the other controls: in this
+ * classic look it is the only way to show what "system colour" means. */
+void DrawColorSwatch(const DRAWITEMSTRUCT& dis, uint32_t rgb) {
+    HBRUSH fill = CreateSolidBrush(RGB((rgb >> 16) & 0xFF,
+                                       (rgb >> 8) & 0xFF,
+                                        rgb & 0xFF));
+    if (fill != nullptr) {
+        FillRect(dis.hDC, &dis.rcItem, fill);
+        DeleteObject(fill);
+    }
+
+    /* Frame: two one-pixel rectangles, like the swatches of the classic
+     * dialogs (shadow bottom right, highlight top left). */
+    HBRUSH shadow = CreateSolidBrush(GetSysColor(COLOR_3DSHADOW));
+    HBRUSH light  = CreateSolidBrush(GetSysColor(COLOR_3DHILIGHT));
+    if (shadow != nullptr) {
+        FrameRect(dis.hDC, &dis.rcItem, shadow);
+    }
+    if (light != nullptr) {
+        RECT inner = dis.rcItem;
+        InflateRect(&inner, -1, -1);
+        if (inner.right > inner.left && inner.bottom > inner.top) {
+            FrameRect(dis.hDC, &inner, light);
+        }
+    }
+    if (shadow != nullptr) DeleteObject(shadow);
+    if (light  != nullptr) DeleteObject(light);
 }
 
 BOOL CALLBACK ThemeChildProc(HWND h, LPARAM) {
@@ -226,13 +346,173 @@ PropertiesDialog::~PropertiesDialog() {
     }
 }
 
+/* v1.21.8: command-button row.
+ *
+ * The rectangle of a control in a dialog template is in DLU, and DLU are a
+ * function of the dialog font: the same 330 x 326 is a different number of
+ * pixels on every machine, font size and DPI. The rule for the row itself
+ * does not change with any of that, and Microsoft states it in "Dialog
+ * Boxes: Design Guidelines": the command buttons go in the lower-right
+ * corner, horizontally, with OK as the left-most one. So the row is placed
+ * here against measured pixels:
+ *
+ *   - the right edge is the right edge of the tab control, which is the
+ *     visual reference of every page (GetWindowRect + MapWindowPoints);
+ *   - the vertical position follows the tab and stays inside the client
+ *     area, with a few pixels of air above and below;
+ *   - the widths are the real ones of the three buttons, so a longer label
+ *     ("Uebernehmen", "Aplicar") simply moves the row left instead of
+ *     running past the border.
+ *
+ * Nothing here guesses a size: if a measurement fails the function returns
+ * and the template coordinates stay, which are already right at 96 DPI. */
+void PropertiesDialog::LayoutCommandButtons(HWND hwnd) {
+    HWND hOk = GetDlgItem(hwnd, IDOK);
+    HWND hCancel = GetDlgItem(hwnd, IDCANCEL);
+    HWND hApply = GetDlgItem(hwnd, IDC_BTN_APPLY);
+    HWND hTab = GetDlgItem(hwnd, IDC_TAB_MAIN);
+    RECT client{};
+    if (hwnd == nullptr || hOk == nullptr || hCancel == nullptr ||
+        hApply == nullptr || hTab == nullptr ||
+        !GetClientRect(hwnd, &client)) {
+        return;
+    }
+
+    /* 6 DLU between the buttons and 6 DLU of margin, the same numbers the
+     * template uses: at the standard font this reproduces the template
+     * position exactly (y = 326 - 6 - 14 = 306) and at any other font or DPI
+     * it keeps the same proportion. MapDialogRect is the documented
+     * DLU-to-pixel conversion for the dialog being created. */
+    RECT gap{ 0, 0, 6, 6 };
+    if (!MapDialogRect(hwnd, &gap)) {
+        return;
+    }
+    const int gapX = gap.right;
+    const int margin = gap.bottom;
+
+    POINT tabEdges[2] = { { 0, 0 }, { 0, 0 } };
+    RECT tabRect{};
+    if (!GetWindowRect(hTab, &tabRect)) {
+        return;
+    }
+    tabEdges[0] = { tabRect.left, tabRect.top };
+    tabEdges[1] = { tabRect.right, tabRect.bottom };
+    MapWindowPoints(nullptr, hwnd, tabEdges, 2);
+
+    RECT r{};
+    if (!GetWindowRect(hOk, &r)) return;
+    const int okWidth = r.right - r.left;
+    const int rowHeight = r.bottom - r.top;
+    if (!GetWindowRect(hCancel, &r)) return;
+    const int cancelWidth = r.right - r.left;
+    if (!GetWindowRect(hApply, &r)) return;
+    const int applyWidth = r.right - r.left;
+    if (rowHeight <= 0) {
+        return;
+    }
+
+    const int rowWidth = okWidth + cancelWidth + applyWidth + 2 * gapX;
+    int x = tabEdges[1].x - rowWidth;
+    if (x < margin) {
+        /* Client narrower than the row: the row comes in from the left
+         * border instead of leaving the window. */
+        x = margin;
+    }
+
+    /* Lower-right corner: the row keeps the same margin from the bottom of
+     * the client area as it does from its right edge, and can never climb
+     * over the bottom border of the tab control. */
+    int y = client.bottom - margin - rowHeight;
+    if (y < tabEdges[1].y + 2) {
+        y = tabEdges[1].y + 2;
+    }
+    if (y < 0) {
+        y = 0;
+    }
+
+    SetWindowPos(hOk, nullptr, x, y, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(hCancel, nullptr, x + okWidth + gapX, y, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(hApply, nullptr, x + okWidth + gapX + cancelWidth + gapX, y,
+                 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+/* v1.21.8: the row above cannot be visible if the dialog itself is taller or
+ * wider than the screen. The dialog is created with DS_CENTER and a size in
+ * DLU, so on a small screen - or with a large system font, which scales every
+ * DLU - the window can be centred partly outside the work area and take the
+ * command buttons with it. Here the created window is moved (and, only if it
+ * is larger than the work area, shortened) so that its lower-right corner,
+ * where the buttons live, is always reachable. GetMonitorInfo returns the
+ * work area - the monitor minus the taskbar - which is what the documentation
+ * recommends over the full screen rectangle. */
+void PropertiesDialog::FitDialogToWorkArea(HWND hwnd) {
+    RECT win{};
+    if (hwnd == nullptr || !GetWindowRect(hwnd, &win)) {
+        return;
+    }
+    HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (monitor == nullptr || !GetMonitorInfoW(monitor, &mi)) {
+        return;
+    }
+    const RECT& work = mi.rcWork;
+    const int workWidth = work.right - work.left;
+    const int workHeight = work.bottom - work.top;
+    if (workWidth <= 0 || workHeight <= 0) {
+        return;
+    }
+
+    const int width = win.right - win.left;
+    const int height = win.bottom - win.top;
+    const int newWidth = (width > workWidth) ? workWidth : width;
+    const int newHeight = (height > workHeight) ? workHeight : height;
+
+    int x = win.left;
+    int y = win.top;
+    if (x + newWidth > work.right) x = work.right - newWidth;
+    if (y + newHeight > work.bottom) y = work.bottom - newHeight;
+    if (x < work.left) x = work.left;
+    if (y < work.top) y = work.top;
+
+    if (newWidth != width || newHeight != height ||
+        x != win.left || y != win.top) {
+        SetWindowPos(hwnd, nullptr, x, y, newWidth, newHeight,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+/* v1.21.7: recomputes the colour SHOWN by the swatch of the extra settings
+ * tab. In "system colour" mode the value is asked to the system
+ * (DwmGetColorizationColor, with a registry fallback): no stored copy, so
+ * the swatch follows the Windows personalization changes. In custom mode it
+ * shows the colour chosen by the user. */
+void PropertiesDialog::RefreshExtraSwatchColor() {
+    if (m_flyoutColorMode == 1) {
+        m_extraSwatchRgb = static_cast<uint32_t>(m_flyoutColorRgb) & 0x00FFFFFFu;
+        return;
+    }
+
+    uint32_t accent = 0;
+    if (w7t::extras::QuerySystemAccentColor(&accent)) {
+        m_extraSwatchRgb = accent;
+    } else {
+        /* The system does not provide it: the last good value is kept. */
+        m_extraSwatchRgb = w7t::extras::ResolveFlyoutColor();
+    }
+}
+
 void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                             int32_t nativeFlyout, int32_t enableSearch,
                             int32_t netFlyout, int32_t classicVolume,
                             int32_t batteryFlyout, int32_t aeroPeek,
                             int32_t toolbarDesktop, int32_t toolbarAddress,
                             int32_t toolbarLinks, int32_t inputLanguageMode,
-                            int32_t taskManagerMode) {
+                            int32_t taskManagerMode,
+                            int32_t flyoutColorMode, int32_t flyoutColorRgb,
+                            int32_t connectionPrivacyMode, int32_t themeSelection) {
     try {
         if (m_hWnd && IsWindow(m_hWnd)) {
             return;
@@ -243,7 +523,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         m_seconds = seconds;
         m_nativeFlyout = nativeFlyout;
         m_enableSearch = enableSearch;
-        m_netFlyout = (netFlyout == 1) ? 1 : 0;
+        /* v3.8: 0 = Windows 7 (ricreato), 1 = Windows 10/11 (sistema),
+         * 2 = Windows 8 (ricreato). Valori fuori elenco -> Windows 7. */
+        m_netFlyout = (netFlyout >= 0 && netFlyout <= 2) ? netFlyout : 0;
         m_classicVolume = classicVolume ? 1 : 0;
         m_batteryFlyout = batteryFlyout ? 1 : 0;
         m_aeroPeek = aeroPeek ? 1 : 0;
@@ -258,6 +540,19 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                             taskManagerMode >= 0 && taskManagerMode <= 2
             ? taskManagerMode : 0;
         m_tbLinks = toolbarLinks ? 1 : 0;
+
+        /* v1.21.7 - extra settings. Values outside the list fall back to the
+         * safe defaults (system colour, no privacy, Windows 7 skin), never to
+         * an invented state. */
+        m_flyoutColorMode = (flyoutColorMode == 1) ? 1 : 0;
+        m_flyoutColorRgb = static_cast<int32_t>(
+            static_cast<uint32_t>(flyoutColorRgb) & 0x00FFFFFFu);
+        m_connectionPrivacyMode = (connectionPrivacyMode == 1) ? 1 : 0;
+        /* Windows 8.1 is not available in this version: the only usable skin
+         * stays Windows 7, and the stored value is brought back to 0 when the
+         * user opens and confirms the Properties. */
+        m_themeSelection = (themeSelection == 1 && ThemeIsAvailable(1)) ? 1 : 0;
+        RefreshExtraSwatchColor();
 
         /* v2.47: oltre alle schede e ai controlli standard serve la classe
          * del controllo collegamento (SysLink) usato in fondo alla prima
@@ -310,7 +605,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
             controlCount++;
         };
 
-        addCtrl(TCS_TABS | WS_TABSTOP, 0, 6, 6, 266, 292, IDC_TAB_MAIN,
+        addCtrl(TCS_TABS | WS_TABSTOP, 0, 6, 6, TAB_WIDTH, 292, IDC_TAB_MAIN,
                 L"SysTabControl32", L"");
         /* ============================================================
          * PAGINA 1 - "Barra delle applicazioni"
@@ -327,19 +622,19 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * tendina (orologio, rete, volume, batteria). Passo fra le righe 16
          * DLU (tendina alta 14 + 2 di aria), etichette a 18, tendine a 72
          * larghe 172: la stessa griglia del resto del dialogo. */
-        addCtrl(BS_GROUPBOX, 0, 12, 30, 254, 74, IDC_GRP_NETFLY, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 30, GROUP_WIDTH, 74, IDC_GRP_NETFLY, L"Button", L"");
         addCtrl(SS_LEFT, 0, 18, 40, 50, 10, IDC_LBL_CLOCK, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 38, 172, 80, IDC_CMB_CLOCK, L"ComboBox", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 38, 218, 80, IDC_CMB_CLOCK, L"ComboBox", L"");
         addCtrl(SS_LEFT, 0, 18, 56, 50, 10, IDC_TXT_NETFLY, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 54, 172, 80, IDC_CMB_NETFLY, L"ComboBox", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 54, 218, 80, IDC_CMB_NETFLY, L"ComboBox", L"");
         addCtrl(SS_LEFT, 0, 18, 72, 50, 10, IDC_LBL_VOLUME, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 70, 172, 80, IDC_CMB_VOLUME, L"ComboBox", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 70, 218, 80, IDC_CMB_VOLUME, L"ComboBox", L"");
         addCtrl(SS_LEFT, 0, 18, 88, 50, 10, IDC_LBL_BATT, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 86, 172, 80, IDC_CMB_BATTERY, L"ComboBox", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 86, 218, 80, IDC_CMB_BATTERY, L"ComboBox", L"");
 
         /* GRUPPO 2 - OROLOGIO: una sola casella, gruppo alto 30. */
-        addCtrl(BS_GROUPBOX, 0, 12, 108, 254, 30, IDC_GRP_CLOCK, L"Button", L"");
-        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 118, 242, 10, IDC_CHK_SECONDS, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 108, GROUP_WIDTH, 30, IDC_GRP_CLOCK, L"Button", L"");
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 118, PAGE_TEXT_WIDTH, 10, IDC_CHK_SECONDS, L"Button", L"");
 
         /* GRUPPO 3 - RICERCA APPLICAZIONI. La casella e' su DUE righe
          * (BS_MULTILINE, alto 20): la sua etichetta e' lunga e in tedesco,
@@ -349,24 +644,24 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         /* Il pulsante "Apri ricerca" resta assente. Su Windows 11 21H2+
          * la seconda riga sceglie quale Task Manager viene aperto dalla
          * voce del menu contestuale; ShowTabPage la nasconde su Windows 10. */
-        addCtrl(BS_GROUPBOX, 0, 12, 142, 254, 50, IDC_GRP_SEARCH, L"Button", L"");
-        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 0, 18, 150, 242, 18, IDC_CHK_SEARCH, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 142, GROUP_WIDTH, 50, IDC_GRP_SEARCH, L"Button", L"");
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 0, 18, 150, PAGE_TEXT_WIDTH, 18, IDC_CHK_SEARCH, L"Button", L"");
         addCtrl(SS_LEFT, 0, 18, 175, 68, 10, IDC_LBL_TASKMGR, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 88, 172, 172, 80, IDC_CMB_TASKMGR, L"ComboBox", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 88, 172, 202, 80, IDC_CMB_TASKMGR, L"ComboBox", L"");
 
         /* GRUPPO 4 - LINGUA (al posto della sezione Aero Peek della foto).
          * v3.5: due righe - la lingua del programma (come prima) e lo
          * stile dell'indicatore della lingua di input (0 nascosta,
          * 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11). */
-        addCtrl(BS_GROUPBOX, 0, 12, 196, 254, 44, IDC_GRP_LANG, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 196, GROUP_WIDTH, 44, IDC_GRP_LANG, L"Button", L"");
         addCtrl(SS_LEFT, 0, 18, 206, 50, 10, IDC_LBL_LANG, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 204, 130, 80, IDC_CMB_LANG, L"ComboBox", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 204, 218, 80, IDC_CMB_LANG, L"ComboBox", L"");
         addCtrl(SS_LEFT, 0, 18, 222, 50, 10, IDC_LBL_LANGBAR, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 220, 130, 80, IDC_CMB_LANGBAR, L"ComboBox", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 220, 218, 80, IDC_CMB_LANGBAR, L"ComboBox", L"");
 
         /* GRUPPO 5 - AREA DI NOTIFICA: testo su due righe (20) + pulsante. */
-        addCtrl(BS_GROUPBOX, 0, 12, 244, 254, 52, IDC_GRP_NOTIF, L"Button", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 254, 242, 20, IDC_TXT_NOTIF, L"Static", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 244, GROUP_WIDTH, 52, IDC_GRP_NOTIF, L"Button", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 254, PAGE_TEXT_WIDTH, 20, IDC_TXT_NOTIF, L"Static", L"");
         addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 18, 276, 76, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
 
         /* ============================================================
@@ -389,9 +684,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * Coordinates are plain dialog units from the template - nothing on
          * this page is measured or computed at run time any more. The page
          * still ends at ~282 units, like the other two. */
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 250, 196, IDC_TXT_ABOUT, L"Static", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 296, 196, IDC_TXT_ABOUT, L"Static", L"");
         /* v3.5: il gruppo di uscita segue il fondo pagina (+14 DLU). */
-        addCtrl(BS_GROUPBOX, 0, 14, 238, 250, 40, IDC_GRP_EXIT, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 14, 238, 296, 40, IDC_GRP_EXIT, L"Button", L"");
         addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 20, 254, 110, 14, IDC_BTN_EXIT, L"Button", L"");
 
         /* ============================================================
@@ -406,15 +701,71 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * (SysListView32 in stile report, senza intestazione), largo 246 e
          * alto 160. Le tre caselle separate di prima erano troppo distanti
          * fra loro: qui le righe hanno il passo compatto della mod. */
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 250, 26, IDC_TXT_TB_INFO, L"Static", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 296, 26, IDC_TXT_TB_INFO, L"Static", L"");
         addCtrl(LVS_REPORT | LVS_NOCOLUMNHEADER | LVS_SINGLESEL | WS_BORDER | WS_TABSTOP,
-                0, 16, 52, 246, 160, IDC_LST_TOOLBARS, L"SysListView32", L"");
+                0, 16, 52, 292, 160, IDC_LST_TOOLBARS, L"SysListView32", L"");
+
+        /* ============================================================
+         * PAGE 4 - extra settings
+         *
+         * Secondary settings, in two groups as in the requested structure:
+         *
+         *   Flyout  - colour of the recreated flyout (system or custom, with
+         *             swatch + colour chooser) and privacy mode of the
+         *             connection flyout;
+         *   Taskbar - skin choice (Windows 7, with Windows 8.1 listed as not
+         *             available) and a reminder about the icon order, which
+         *             is changed by dragging the icons on the bar (not from
+         *             here: here it is only explained).
+         *
+         * The colour swatch is an owner-draw control (WM_DRAWITEM, see
+         * DlgProc): filling it with the real colour is the only way, in this
+         * classic look, to show the user what "system colour" means.
+         * ============================================================ */
+        addCtrl(SS_LEFT, 0, 14, 20, PAGE_TEXT_WIDTH, 10, IDC_TXT_EXTRA_TITLE, L"Static", L"");
+
+        addCtrl(BS_GROUPBOX, 0, 12, 34, GROUP_WIDTH, 134, IDC_GRP_EX_FLYOUT, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 46, 200, 10, IDC_LBL_EX_COLOR, L"Static", L"");
+        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP | WS_GROUP, 0, 18, 58, 200, 10,
+                IDC_RADIO_COLOR_SYS, L"Button", L"");
+        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP, 0, 18, 72, 130, 10,
+                IDC_RADIO_COLOR_CUSTOM, L"Button", L"");
+        addCtrl(SS_OWNERDRAW, 0, 172, 70, 26, 13, IDC_COLOR_SWATCH, L"Static", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 202, 69, 96, 14,
+                IDC_BTN_PICK_COLOR, L"Button", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 90, PAGE_TEXT_WIDTH, 22,
+                IDC_TXT_COLOR_HINT, L"Static", L"");
+        addCtrl(SS_LEFT, 0, 18, 118, 90, 10, IDC_LBL_EX_PRIVACY, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 112, 116, 178, 80,
+                IDC_CMB_EX_PRIVACY, L"ComboBox", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 134, PAGE_TEXT_WIDTH, 24,
+                IDC_TXT_PRIVACY_HINT, L"Static", L"");
+
+        addCtrl(BS_GROUPBOX, 0, 12, 176, GROUP_WIDTH, 94, IDC_GRP_EX_TASKBAR, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 188, 60, 10, IDC_LBL_EX_THEME, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 84, 186, 218, 80,
+                IDC_CMB_EX_THEME, L"ComboBox", L"");
+        addCtrl(SS_LEFT, 0, 18, 206, 200, 10, IDC_LBL_EX_ICON_ORDER, L"Static", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 220, PAGE_TEXT_WIDTH, 42,
+                IDC_TXT_ORDER_HINT, L"Static", L"");
 
         // ---- pulsanti standard 50x14, come la mod ----
-        /* v3.5: la riga scende di 14 DLU con la finestra. */
-        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 104, 306, 50, 14, IDOK, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 160, 306, 50, 14, IDCANCEL, L"Button", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 216, 306, 50, 14, IDC_BTN_APPLY, L"Button", L"");
+        /* v3.5: the row moves 14 DLU down with the window.
+         * v1.21.8: the three command buttons sit in the LOWER-RIGHT corner,
+         * aligned with the right edge of the tab control, in the order
+         * OK, Cancel, Apply. This is what Microsoft's "Dialog Boxes: Design
+         * Guidelines" prescribes - "Position these command buttons
+         * horizontally in the lower-right corner. If you use the OK button,
+         * make it the left-most button" - and it is what every Windows
+         * property sheet does. The previous centred row (84/140/196) was the
+         * v1.21.7 mistake: 6 + 318 = 324 DLU is the tab's right edge, so the
+         * row ends where every page underneath it ends. LayoutCommandButtons
+         * repeats the placement in measured pixels once the dialog exists,
+         * so a larger system font or an unexpected client size cannot push
+         * the buttons out of the window. */
+        addCtrl(BS_DEFPUSHBUTTON | WS_TABSTOP, 0, 162, 306, 50, 14, IDOK, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 218, 306, 50, 14, IDCANCEL, L"Button", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 274, 306, 50, 14, IDC_BTN_APPLY, L"Button", L"");
 
         pDlg->cdit = controlCount;
         m_hWnd = CreateDialogIndirectParamW(GetModuleHandleW(nullptr),
@@ -456,9 +807,14 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
     msg.nativeFlyout =
         (SendDlgItemMessageW(m_hWnd, IDC_CMB_CLOCK, CB_GETCURSEL, 0, 0) == 1)
             ? 1 : 0;
-    msg.netFlyoutMode =
-        (SendDlgItemMessageW(m_hWnd, IDC_CMB_NETFLY, CB_GETCURSEL, 0, 0) == 1)
-            ? 1 : 0;
+    /* v3.8: la tendina ora ha tre voci e l'INDICE e' il modo (0/1/2):
+     * il pacchetto lo porta cosi' com'e', limitato per difesa. */
+    {
+        const LRESULT netSel =
+            SendDlgItemMessageW(m_hWnd, IDC_CMB_NETFLY, CB_GETCURSEL, 0, 0);
+        msg.netFlyoutMode = (netSel >= 0 && netSel <= 2)
+            ? static_cast<int32_t>(netSel) : 0;
+    }
     /* La finestra non ha piu' il controllo Aero Peek: il campo resta nel
      * pacchetto (compatibilita' con i campi aggiunti in coda) e rimanda
      * indietro il valore ricevuto all'apertura, senza toccarlo. */
@@ -483,6 +839,27 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
             SendDlgItemMessageW(m_hWnd, IDC_CMB_LANGBAR, CB_GETCURSEL, 0, 0));
         msg.inputLanguageMode =
             (langBarSel >= 0 && langBarSel <= 2) ? langBarSel : 1;
+    }
+    /* v1.21.7 - extra settings tab.
+     *
+     * The custom colour is the one chosen with the button (m_flyoutColorRgb is
+     * updated there); the swatch is not read, because in "system colour" mode
+     * it holds the system accent and not a choice of the user. The skin is
+     * read back from the dropdown and passed through ThemeIsAvailable(): the
+     * only value that can come out of here today is 0. */
+    msg.flyoutColorMode =
+        (SendDlgItemMessageW(m_hWnd, IDC_RADIO_COLOR_CUSTOM, BM_GETCHECK, 0, 0)
+            & BST_CHECKED) ? 1 : 0;
+    msg.flyoutColorRgb = m_flyoutColorRgb & 0x00FFFFFF;
+    {
+        const int32_t privacySel = static_cast<int32_t>(
+            SendDlgItemMessageW(m_hWnd, IDC_CMB_EX_PRIVACY, CB_GETCURSEL, 0, 0));
+        msg.connectionPrivacyMode = (privacySel == 1) ? 1 : 0;
+    }
+    {
+        const int32_t themeSel = static_cast<int32_t>(
+            SendDlgItemMessageW(m_hWnd, IDC_CMB_EX_THEME, CB_GETCURSEL, 0, 0));
+        msg.themeSelection = ThemeIsAvailable(themeSel) ? themeSel : 0;
     }
     msg.openSearch = openSearch ? 1 : 0;
     msg.closeApp = closeApp ? 1 : 0;
@@ -521,6 +898,8 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
 
         /* v2.59: accesso unico alla tabella delle stringhe. */
         const PropStrings& S = PropStringsFor(LangFromIndex(self->m_lang));
+        /* v1.21.7: string tables for the new tab too. */
+        const ExtraStrings& X = ExtraStringsFor(LangFromIndex(self->m_lang));
 
         {
             /* RAII: l'HDC si rilascia uscendo dal blocco, anche se una delle
@@ -572,8 +951,8 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         EnableThemeDialogTexture(hwnd, ETDT_ENABLETAB);
         EnumChildWindows(hwnd, ThemeChildProc, 0);
 
-        /* Tre schede: barra delle applicazioni | informazioni | barre degli
-         * strumenti (la terza e' nostra, con le nostre barre). */
+        /* Four tabs: taskbar | information | toolbars (the third one is ours,
+         * with our own bars) | extra settings (added in v1.21.7). */
         HWND hTab = GetDlgItem(hwnd, IDC_TAB_MAIN);
         TCITEMW ti{ TCIF_TEXT, 0, 0, nullptr, 0 };
         ti.pszText = const_cast<wchar_t*>(S.tab1);
@@ -582,6 +961,9 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         TabCtrl_InsertItem(hTab, 1, &ti);
         ti.pszText = const_cast<wchar_t*>(S.tab3);
         TabCtrl_InsertItem(hTab, 2, &ti);
+        /* v1.21.7: fourth tab, extra settings. */
+        ti.pszText = const_cast<wchar_t*>(X.tabExtra);
+        TabCtrl_InsertItem(hTab, 3, &ti);
         TabCtrl_SetCurSel(hTab, 0);
 
         SetDlgItemTextW(hwnd, IDC_GRP_CLOCK, S.grpClock);
@@ -615,6 +997,53 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SetDlgItemTextW(hwnd, IDCANCEL, S.cancel);
         SetDlgItemTextW(hwnd, IDC_BTN_APPLY, S.apply);
 
+        /* ---- PAGE 4: extra settings (v1.21.7) ---- */
+        SetDlgItemTextW(hwnd, IDC_TXT_EXTRA_TITLE, X.tabExtra);
+        SetDlgItemTextW(hwnd, IDC_GRP_EX_FLYOUT, X.grpFlyout);
+        SetDlgItemTextW(hwnd, IDC_LBL_EX_COLOR, X.lblFlyoutColor);
+        SetDlgItemTextW(hwnd, IDC_RADIO_COLOR_SYS, X.optColorSystem);
+        SetDlgItemTextW(hwnd, IDC_RADIO_COLOR_CUSTOM, X.optColorCustom);
+        SetDlgItemTextW(hwnd, IDC_BTN_PICK_COLOR, X.btnPickColor);
+        SetDlgItemTextW(hwnd, IDC_TXT_COLOR_HINT, X.txtFlyoutColorHint);
+        SetDlgItemTextW(hwnd, IDC_LBL_EX_PRIVACY, X.lblPrivacy);
+        SetDlgItemTextW(hwnd, IDC_TXT_PRIVACY_HINT, X.txtPrivacyHint);
+        SetDlgItemTextW(hwnd, IDC_LBL_EX_THEME, X.lblTheme);
+        SetDlgItemTextW(hwnd, IDC_GRP_EX_TASKBAR, X.grpTaskbar);
+        SetDlgItemTextW(hwnd, IDC_LBL_EX_ICON_ORDER, X.lblIconOrder);
+        SetDlgItemTextW(hwnd, IDC_TXT_ORDER_HINT, X.txtIconOrderHint);
+
+        /* The two colour entries: 0 = system (default), 1 = chosen. WS_GROUP
+         * on the first one keeps the two radio buttons independent of the
+         * other dialog boxes: they are a group of their own. */
+        SendDlgItemMessageW(hwnd, IDC_RADIO_COLOR_SYS, BM_SETCHECK,
+                            self->m_flyoutColorMode == 0 ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendDlgItemMessageW(hwnd, IDC_RADIO_COLOR_CUSTOM, BM_SETCHECK,
+                            self->m_flyoutColorMode == 1 ? BST_CHECKED : BST_UNCHECKED, 0);
+        /* The picker button is enabled only with "custom colour": with the
+         * system colour there is nothing to choose. */
+        EnableWindow(GetDlgItem(hwnd, IDC_BTN_PICK_COLOR),
+                     self->m_flyoutColorMode == 1);
+
+        /* Privacy mode of the recreated connection flyout. */
+        {
+            HWND hPv = GetDlgItem(hwnd, IDC_CMB_EX_PRIVACY);
+            ComboBox_AddString(hPv, X.optPrivacyNormal);    /* 0 */
+            ComboBox_AddString(hPv, X.optPrivacyPrivate);   /* 1 */
+            ComboBox_SetCurSel(hPv, self->m_connectionPrivacyMode == 1 ? 1 : 0);
+        }
+
+        /* Skin: Windows 7 (available) and Windows 8.1 (not implemented yet).
+         * The missing skin stays spelled out, so the user knows the value
+         * exists but cannot be used: choosing it cannot lead to an invented
+         * theme, the selection falls back to Windows 7 (see WM_COMMAND). */
+        {
+            HWND hTh = GetDlgItem(hwnd, IDC_CMB_EX_THEME);
+            ComboBox_AddString(hTh, X.themeWin7);       /* 0 */
+            ComboBox_AddString(hTh, X.themeWin81);      /* 1, non disponibile */
+            ComboBox_SetCurSel(hTh, ThemeIsAvailable(self->m_themeSelection)
+                                        ? self->m_themeSelection : 0);
+        }
+
         /* v2.59: IL SELETTORE SCORRE L'ELENCO UNICO DELLE LINGUE
          * (w7t::Languages(), Strings.cpp). Nessuna voce scritta a mano qui:
          * aggiungere una lingua in un posto solo la fa comparire anche in
@@ -642,9 +1071,12 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         ComboBox_SetCurSel(hCC, self->m_nativeFlyout ? 1 : 0);
 
         HWND hCN = GetDlgItem(hwnd, IDC_CMB_NETFLY);
-        ComboBox_AddString(hCN, S.netWin7);        /* 0 = ricreato */
+        ComboBox_AddString(hCN, S.netWin7);        /* 0 = ricreato (Windows 7) */
         ComboBox_AddString(hCN, S.netModern);      /* 1 = sistema */
-        ComboBox_SetCurSel(hCN, self->m_netFlyout ? 1 : 0);
+        /* v3.8: terza voce: la variante Windows 8 ricreata (implementazione
+         * Administratox), indicizzata 2 anche nel pacchetto WM_COPYDATA. */
+        ComboBox_AddString(hCN, S.netWin8);        /* 2 = ricreato (Windows 8) */
+        ComboBox_SetCurSel(hCN, self->m_netFlyout);
 
         HWND hCV = GetDlgItem(hwnd, IDC_CMB_VOLUME);
         ComboBox_AddString(hCV, kFlyoutWin7);      /* 0 = flyout stile Windows 7 */
@@ -693,8 +1125,39 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         // pagina iniziale: la 1, con le altre due nascoste
         ShowTabPage(hwnd, 0);
 
+        /* v1.21.8: text, fonts and tab pages are final here, so the command
+         * buttons can be measured and put in the corner, and the window can
+         * be pulled back inside the work area if it does not fit. */
+        self->FitDialogToWorkArea(hwnd);
+        self->LayoutCommandButtons(hwnd);
+
         return TRUE;
     }
+    /* v1.21.7: the colour swatch is owner-draw (SS_OWNERDRAW). */
+    case WM_DRAWITEM: {
+        const DRAWITEMSTRUCT* dis = reinterpret_cast<const DRAWITEMSTRUCT*>(lp);
+        if (self != nullptr && dis != nullptr &&
+            dis->CtlID == IDC_COLOR_SWATCH) {
+            DrawColorSwatch(*dis, self->m_extraSwatchRgb);
+            return TRUE;
+        }
+        return FALSE;
+    }
+    /* System accent colour changed by the Windows personalization or by the
+     * theme sync: the swatch is read from the system again, so "system
+     * colour" always stays the real one. */
+    case WM_DWMCOLORIZATIONCOLORCHANGED:
+        if (self != nullptr && self->m_flyoutColorMode == 0) {
+            self->RefreshExtraSwatchColor();
+            InvalidateRect(GetDlgItem(hwnd, IDC_COLOR_SWATCH), nullptr, TRUE);
+        }
+        return TRUE;
+    case WM_SETTINGCHANGE:
+        if (self != nullptr && self->m_flyoutColorMode == 0) {
+            self->RefreshExtraSwatchColor();
+            InvalidateRect(GetDlgItem(hwnd, IDC_COLOR_SWATCH), nullptr, TRUE);
+        }
+        return FALSE;
     case WM_GETMINMAXINFO: {
         // non ridimensionabile: min=max=attuale, come la mod
         MINMAXINFO* mmi = (MINMAXINFO*)lp;
@@ -710,8 +1173,58 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         if ((act == BN_CLICKED || act == CBN_SELCHANGE) &&
             id != IDOK && id != IDCANCEL && id != IDC_BTN_APPLY &&
             id != IDC_BTN_EXIT &&
-            id != IDC_BTN_CUSTOMIZE) {
+            id != IDC_BTN_CUSTOMIZE &&
+            /* v1.21.7: the colour button turns "Apply" on only when the user
+             * really confirms a choice. v1.21.19: the skin dropdown is a real
+             * choice too (both skins are implemented), so it uses the generic
+             * rule and enables "Apply" like any other setting. */
+            id != IDC_BTN_PICK_COLOR) {
             EnableWindow(GetDlgItem(hwnd, IDC_BTN_APPLY), TRUE);
+        }
+        /* ---- v1.21.7: extra settings tab ---- */
+        if (id == IDC_RADIO_COLOR_SYS || id == IDC_RADIO_COLOR_CUSTOM) {
+            self->m_flyoutColorMode = (id == IDC_RADIO_COLOR_CUSTOM) ? 1 : 0;
+            /* "Choose color..." is only needed for the custom colour. */
+            EnableWindow(GetDlgItem(hwnd, IDC_BTN_PICK_COLOR),
+                         self->m_flyoutColorMode == 1);
+            self->RefreshExtraSwatchColor();
+            InvalidateRect(GetDlgItem(hwnd, IDC_COLOR_SWATCH), nullptr, TRUE);
+            return TRUE;
+        }
+        if (id == IDC_BTN_PICK_COLOR) {
+            uint32_t chosen = 0;
+            if (PickCustomColor(hwnd, static_cast<uint32_t>(self->m_flyoutColorRgb),
+                                &chosen)) {
+                self->m_flyoutColorRgb = static_cast<int32_t>(chosen);
+                EnableWindow(GetDlgItem(hwnd, IDC_BTN_APPLY), TRUE);
+                /* Choosing a colour means wanting to use it: the radio
+                 * switches by itself to "custom colour", as one expects from
+                 * a colour chooser. */
+                self->m_flyoutColorMode = 1;
+                SendDlgItemMessageW(hwnd, IDC_RADIO_COLOR_SYS, BM_SETCHECK,
+                                    BST_UNCHECKED, 0);
+                SendDlgItemMessageW(hwnd, IDC_RADIO_COLOR_CUSTOM, BM_SETCHECK,
+                                    BST_CHECKED, 0);
+                EnableWindow(GetDlgItem(hwnd, IDC_BTN_PICK_COLOR), TRUE);
+                self->RefreshExtraSwatchColor();
+                InvalidateRect(GetDlgItem(hwnd, IDC_COLOR_SWATCH), nullptr, TRUE);
+            }
+            return TRUE;
+        }
+        if (id == IDC_CMB_EX_THEME && act == CBN_SELCHANGE) {
+            const int sel = static_cast<int>(
+                SendDlgItemMessageW(hwnd, IDC_CMB_EX_THEME, CB_GETCURSEL, 0, 0));
+            /* v1.21.19: the skin is a real choice now. The selected index is
+             * stored as it is (SendApply reads it back through
+             * ThemeIsAvailable(), which rejects anything unknown), so the
+             * dropdown no longer snaps back to Windows 7. */
+            if (ThemeIsAvailable(sel)) {
+                self->m_themeSelection = sel;
+            } else {
+                ComboBox_SetCurSel(GetDlgItem(hwnd, IDC_CMB_EX_THEME), 0);
+                self->m_themeSelection = 0;
+            }
+            return TRUE;
         }
         if (id == IDOK) {
             self->SendApply(false, false);
@@ -744,7 +1257,8 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         if (hdr->idFrom == IDC_TAB_MAIN && hdr->code == TCN_SELCHANGE) {
             int sel = (int)SendDlgItemMessageW(hwnd, IDC_TAB_MAIN,
                                                TCM_GETCURSEL, 0, 0);
-            ShowTabPage(hwnd, (sel >= 0 && sel <= 2) ? sel : 0);
+            /* v1.21.7: four tabs (0..3). */
+            ShowTabPage(hwnd, (sel >= 0 && sel <= 3) ? sel : 0);
         }
         return TRUE;
     }

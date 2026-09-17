@@ -1,13 +1,15 @@
 // Win7Taskbar - shim di compatibilita' per l'API Windhawk
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 //
-// Il file Win7NetworkFlyout.cpp e' un porting fedele della mod Windhawk
-// "Windows 7 Network Flyout Recreation" v5.0.0 (autore babamohammed,
-// licenza MIT come da policy del repository ramensoftware/windhawk-mods:
-// le mod senza licenza esplicita sono pubblicate sotto MIT).
+// I file Win7NetworkFlyout.cpp e Win8NetworkFlyout.cpp sono i porting
+// fedeli delle mod Windhawk "Windows 7 Network Flyout Recreation" v5.0.0
+// (autore babamohammed) e "Windows 8x Network Flyout Recreation" v1.0.0
+// (autore AdmXP8/Administratox), entrambe MIT secondo la policy del
+// repository ramensoftware/windhawk-mods (le mod senza licenza esplicita
+// sono pubblicate sotto MIT).
 // Questo shim sostituisce le sole funzioni dell'API di caricamento di
-// Windhawk (logging, impostazioni, hooking) senza toccare la logica del
-// flyout. Gli hook di funzione non sono necessari nel porting (la parte
+// Windhawk (logging, impostazioni, hooking) senza toccare la logica dei
+// flyout. Gli hook di funzione non sono necessari nei porting (la parte
 // Pannello di controllo e' esclusa e l'intercettazione del click avviene
 // nel tray di Win7Taskbar), quindi SetFunctionHook ritorna sempre false.
 
@@ -40,6 +42,26 @@ inline const wchar_t* DefaultStringSetting(const wchar_t* name) {
     return L"auto";   /* language */
 }
 
+/* v1.21.7 - Flyout settings chosen by the user in the Properties window,
+ * extra settings tab.
+ *
+ * In the Windhawk mod every value came from Wh_GetIntSetting, that is from
+ * the Windhawk panel. In Win7Taskbar the only configuration system is the
+ * settings.json of the managed layer: what lives here is just the copy the
+ * core receives from W7T_SetExtraSettings and that the flyout reads as
+ * before.
+ *
+ * Privacy is the only mod setting the program exposes today: the default
+ * stays 0 (real network names), as in the mod with no configuration. */
+inline int& PrivacyModeValue() {
+    static int value = 0;
+    return value;
+}
+
+inline void SetPrivacyMode(int on) {
+    PrivacyModeValue() = on ? 1 : 0;
+}
+
 } // namespace w7tshim
 
 inline void Wh_Log(const wchar_t* fmt, ...) {
@@ -54,6 +76,11 @@ inline void Wh_Log(const wchar_t* fmt, ...) {
 }
 
 inline int Wh_GetIntSetting(const wchar_t* name) {
+    /* v1.21.7: the user's settings take precedence over the mod defaults
+     * (see w7tshim::PrivacyModeValue). */
+    if (name != nullptr && _wcsicmp(name, L"privacyMode") == 0) {
+        return w7tshim::PrivacyModeValue();
+    }
     return w7tshim::DefaultIntSetting(name);
 }
 

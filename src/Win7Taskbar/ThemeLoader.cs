@@ -139,16 +139,196 @@ namespace Win7Taskbar
                 // senza eredita' lo stile resta valido (template proprio)
             }
 
+            // v1.21.22 - con la skin Windows 8.1 la barra e le anteprime sono
+            // squadrate: le chiavi della variante 8.1 dichiarate nel tema
+            // prendono il posto di quelle di Overrides.xaml. Con la skin
+            // Windows 7 questa chiamata non avviene e nulla cambia.
+            if (IsWindows81Selected())
+            {
+                ShadowWindows81Keys(root);
+            }
+
             return root;
         }
 
         /// <summary>
-        /// Percorso di Themes/Windows7.xaml accanto all'eseguibile.
-        /// Il tema resta un file su disco (Content, non BAML); le immagini WPF
-        /// arrivano da GraphicalResourceBundle, le otto slice native da Resources/.
+        /// v1.21.22 - true quando la skin scelta in Proprieta' e' la 8.1, con
+        /// la stessa prudenza del resto del caricamento: una configurazione non
+        /// leggibile lascia il valore di ripiego, cioe' la skin Windows 7.
         /// </summary>
-        public static string ThemeFilePath => Path.Combine(
-            AppDomain.CurrentDomain.BaseDirectory, "Themes", "Windows7.xaml");
+        private static bool IsWindows81Selected()
+        {
+            try
+            {
+                return RetroBar.Utilities.TaskbarThemeIds.Normalize(
+                           RetroBar.Utilities.Settings.Instance.ThemeSelection)
+                       == RetroBar.Utilities.TaskbarThemeIds.Windows81;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// v1.21.22 - cornici e pulsanti a spigoli vivi della skin Windows 8.1.
+        ///
+        /// Il tema 8.1 dichiara le proprie varianti (chiavi "Win81..."), ma il
+        /// dizionario Overrides.xaml e' mergiato DOPO il tema e, come documenta
+        /// Microsoft ("Merged resource dictionaries"), fra due dizionari
+        /// mergiati vince quello aggiunto per ultimo: le chiavi del tema non
+        /// verrebbero mai raggiunte. Qui la variante 8.1 viene copiata nel
+        /// dizionario PRINCIPALE, che ha la precedenza su tutti i mergiati (la
+        /// precedenza e' documentata e vale sia per StaticResource sia per
+        /// DynamicResource).
+        ///
+        /// Solo skin 8.1: con Windows 7 la funzione non viene chiamata e ogni
+        /// chiave resta esattamente quella di Themes/Overrides.xaml. Best
+        /// effort: una variante mancante lascia in piedi la versione Windows 7,
+        /// e la diagnostica non puo' far fallire l'avvio.
+        /// </summary>
+        private static void ShadowWindows81Keys(ResourceDictionary root)
+        {
+            var pairs = new (string Target, string Source)[]
+            {
+                ("TaskPreviewFrameVista", "Win81TaskPreviewFrameVista"),
+                ("TaskPreviewCloseButton", "Win81TaskPreviewCloseButton"),
+                ("TaskButtonFrameHover", "Win81TaskButtonFrameHover"),
+                ("TaskButtonFrameActive", "Win81TaskButtonFrameActive"),
+                ("TaskButtonFrameNotification", "Win81TaskButtonFrameNotification"),
+                ("SuperbarButtonOuterCornerRadius", "SuperbarButtonOuterCornerRadius"),
+                ("SuperbarButtonInnerCornerRadius", "SuperbarButtonInnerCornerRadius"),
+                ("SuperbarHoverTileCornerRadius", "SuperbarHoverTileCornerRadius"),
+                ("SuperbarGlowCornerRadius", "SuperbarGlowCornerRadius"),
+            };
+
+            var applied = new List<string>();
+            var missing = new List<string>();
+
+            foreach ((string target, string source) in pairs)
+            {
+                try
+                {
+                    object? variant = root[source];
+                    if (variant == null)
+                    {
+                        missing.Add(source);
+                        continue;
+                    }
+
+                    root[target] = variant;
+                    applied.Add(target);
+                }
+                catch
+                {
+                    missing.Add(source);
+                }
+            }
+
+            try
+            {
+                DiagnosticLogger.Write("THEME",
+                    "skin 8.1: chrome a spigoli vivi applicato a " +
+                    string.Join(", ", applied) +
+                    (missing.Count > 0
+                        ? "; varianti mancanti, resta la versione Windows 7: " +
+                          string.Join(", ", missing)
+                        : ""));
+            }
+            catch
+            {
+                /* la diagnostica non e' mai un requisito */
+            }
+        }
+
+        /// <summary>
+        /// v1.21.19 - applica subito la skin appena scelta nelle Impostazioni
+        /// extra, senza aspettare il riavvio del programma.
+        ///
+        /// Build() costruisce un dizionario nuovo di zecca esattamente come
+        /// all'avvio (tema + Overrides + le stesse riparazioni degli stili), e
+        /// Application.Resources e' esattamente la proprieta' che App.xaml.cs
+        /// riempie all'avvio: sostituirla a runtime e' la stessa cosa che
+        /// partire con l'altra skin. Tutti gli elementi del tema sono
+        /// riferimenti DynamicResource (lo stile TaskbarWindow, StartButton,
+        /// SuperbarButton, ...), quindi WPF li ri-risolve e la barra si veste
+        /// con il tema nuovo senza riavvio.
+        ///
+        /// Se la costruzione o la sostituzione falliscono, il tema precedente
+        /// resta in piedi - l'assegnazione avviene solo dopo un Build()
+        /// riuscito - e il chiamante scrive nel log che serve un riavvio.
+        /// </summary>
+        public static string ReapplyNow()
+        {
+            try
+            {
+                var application = System.Windows.Application.Current;
+                if (application == null)
+                {
+                    return "riavvio richiesto (nessuna Application attiva)";
+                }
+
+                ResourceDictionary theme = Build();
+                application.Resources = theme;
+                return "tema applicato subito";
+            }
+            catch (Exception exception)
+            {
+                return "riavvio richiesto (" + exception.GetType().Name + ": " +
+                       exception.Message + ")";
+            }
+        }
+
+        /// <summary>
+        /// v1.21.7 - theme file for the selected skin ("Tema" in the extra
+        /// settings).
+        ///
+        /// The map exists because the skin is an ordinary configuration entry:
+        /// here it is known which file it corresponds to, so adding the
+        /// Windows 8.1 skin in the future means putting its name here and
+        /// declaring it available in TaskbarThemeIds - without touching the
+        /// settings system or the rest of the loading. Today the only usable
+        /// id is Windows 7, so this method always returns "Windows7.xaml": no
+        /// fake skin and no missing file looked up at runtime.
+        /// </summary>
+        public static string ThemeFileNameFor(int themeId) => themeId switch
+        {
+            RetroBar.Utilities.TaskbarThemeIds.Windows81 => "Windows8.1.xaml",
+            _ => "Windows7.xaml",
+        };
+
+        /// <summary>
+        /// Path of the selected theme next to the executable.
+        /// The theme stays a file on disk (Content, not BAML); the WPF images
+        /// come from GraphicalResourceBundle and the eight native slices from
+        /// Resources/.
+        /// </summary>
+        public static string ThemeFilePathFor(int themeId) => Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "Themes", ThemeFileNameFor(themeId));
+
+        /// <summary>
+        /// Path of the theme in use (the skin chosen in Properties).
+        ///
+        /// Theme loading is critical for startup: if the configuration were
+        /// unreadable the code stays on the default skin - the one that really
+        /// exists - instead of failing the startup because of one
+        /// configuration entry.
+        /// </summary>
+        public static string ThemeFilePath
+        {
+            get
+            {
+                try
+                {
+                    return ThemeFilePathFor(
+                        RetroBar.Utilities.Settings.Instance.ThemeSelection);
+                }
+                catch (Exception)
+                {
+                    return ThemeFilePathFor(RetroBar.Utilities.TaskbarThemeIds.Windows7);
+                }
+            }
+        }
 
         /// <summary>
         /// Verifica che accanto all'eseguibile ci siano Themes\ e Resources\.

@@ -321,7 +321,11 @@ bool g_flyoutPrefsPublished = false;
 wchar_t g_lastGateLine[256] = {};
 
 const wchar_t* StyleName(FlyoutStyle style) {
-    return style == FlyoutStyle::Modern ? L"Windows10/11" : L"Windows7";
+    switch (style) {
+        case FlyoutStyle::Modern: return L"Windows10/11";
+        case FlyoutStyle::Win8:   return L"Windows8";      /* v3.8 */
+        default:                  return L"Windows7";
+    }
 }
 
 const wchar_t* KindName(FlyoutKind kind) {

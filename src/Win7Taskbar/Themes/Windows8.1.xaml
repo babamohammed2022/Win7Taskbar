@@ -34,9 +34,14 @@
          luminance-times-alpha mask from the same unchanged PNG. -->
     <x:Static x:Key="DwmPreviewBorderMaskImage" Member="bundle:GraphicalResourceBundle.dwmborder" />
 
-    <!-- TASKBAR BACKGROUND PNG - texture riusata identica dal bundle Win7;
-         la differenza Win8.1 e' solo nell'opacita'/colore applicati sopra
-         (vedi TaskbarBackground piu' sotto), non nella texture in se'. -->
+    <!-- TASKBAR BACKGROUND - v1.21.21: la barra di Windows 8.1 NON ha la
+         texture di vetro Aero (niente riflessi diagonali, niente gradiente a
+         piu' fermate): e' una trasparenza GENERICA, piatta e uniforme, che
+         lascia passare il desktop sempre allo stesso modo. La PNG della
+         texture resta nel bundle per il tema Windows 7; qui le due chiavi
+         usate dal template ("Win7_TaskbarTextureBrush" e la variante verticale)
+         sono ridichiarate come tinta piatta, cosi' il template non cambia di
+         una riga. -->
     <x:Static x:Key="TaskbarBackgroundImage" Member="bundle:GraphicalResourceBundle.taskbarbackground" />
     <ImageBrush x:Key="TaskbarTextureBrush"
                 ImageSource="{DynamicResource TaskbarBackgroundImage}"
@@ -55,24 +60,8 @@
     <x:Static x:Key="Win7_ShowDesktopImage" Member="bundle:GraphicalResourceBundle.win7showdesktop" />
     <x:Static x:Key="Win7_ShowDesktopImageScaled" Member="bundle:GraphicalResourceBundle.win7showdesktop" />
     <x:Static x:Key="Win7_TaskbarTextureImage" Member="bundle:GraphicalResourceBundle.win7taskbar" />
-    <ImageBrush x:Key="Win7_TaskbarTextureBrush"
-                ImageSource="{StaticResource Win7_TaskbarTextureImage}"
-                TileMode="Tile"
-                Viewport="0,0,600,40"
-                ViewportUnits="Absolute"
-                Stretch="Fill"
-                Opacity="1" />
-    <ImageBrush x:Key="Win7_Win7_TaskbarTextureBrushVertical"
-                ImageSource="{StaticResource Win7_TaskbarTextureImage}"
-                TileMode="Tile"
-                Viewport="0,0,40,600"
-                ViewportUnits="Absolute"
-                Stretch="Fill"
-                Opacity="1">
-        <ImageBrush.Transform>
-            <RotateTransform Angle="90" />
-        </ImageBrush.Transform>
-    </ImageBrush>
+    <SolidColorBrush x:Key="Win7_TaskbarTextureBrush" Color="#59000000" />
+    <SolidColorBrush x:Key="Win7_Win7_TaskbarTextureBrushVertical" Color="#59000000" />
 
 
 
@@ -135,6 +124,15 @@
     <!-- Win7 TRAY/CLOCK real hover (PNG from the Windhawk Win7 skin in
          ../Resources): NOT rectangles — just the two vertical "whiskers" of
          light on the sides | icon | with a glow at the bottom. Rest: INVISIBLE. -->
+    <!-- v1.21.23 - skin 8.1: l'hover torna quello Windows 7.
+         Le due tessere rettangolari piatte della 1.21.22 toglievano il
+         passaggio del mouse alle icone della barra e dell'area di notifica
+         (l'effetto che la v2.53 aveva gia' corretto nel tema Windows 7): qui
+         tornano gli asset del bundle, cioe' i due "baffi" verticali di luce ai
+         lati dell'icona con il bagliore in basso. Sono ImageSource (non
+         pennelli) perche' la stessa chiave serve sia il Background/ImageBrush
+         dei pulsanti della barra sia Image.Source delle icone dell'area di
+         notifica, quindi una sola chiave copre entrambi. -->
     <x:Static x:Key="TrayTileHoverImage" Member="bundle:GraphicalResourceBundle.win7_tray_tilehover" />
     <x:Static x:Key="TrayTilePressedImage" Member="bundle:GraphicalResourceBundle.win7_tray_tilepressed" />
     <!-- v1.7.3: the soft-edged vertical strip for the window-count
@@ -308,10 +306,18 @@
                       Offset="1.0" />
     </LinearGradientBrush>
 
-    <CornerRadius x:Key="TaskListScrollUpCornerRadius">2,2,0,0</CornerRadius>
-    <CornerRadius x:Key="TaskListScrollDownCornerRadius">0,0,2,2</CornerRadius>
-    <CornerRadius x:Key="TaskListScrollLeftCornerRadius">2,0,0,2</CornerRadius>
-    <CornerRadius x:Key="TaskListScrollRightCornerRadius">0,2,2,0</CornerRadius>
+    <!-- v1.21.22 - skin 8.1: frecce di scorrimento squadrate. -->
+    <CornerRadius x:Key="TaskListScrollUpCornerRadius">0,0,0,0</CornerRadius>
+    <CornerRadius x:Key="TaskListScrollDownCornerRadius">0,0,0,0</CornerRadius>
+    <CornerRadius x:Key="TaskListScrollLeftCornerRadius">0,0,0,0</CornerRadius>
+    <CornerRadius x:Key="TaskListScrollRightCornerRadius">0,0,0,0</CornerRadius>
+
+    <!-- v1.21.22b - skin 8.1: tessere di hover, sfondo premuto e alone del
+         pulsante sono rettangolari, come il resto del chrome 8.1. -->
+    <CornerRadius x:Key="SuperbarButtonOuterCornerRadius">0</CornerRadius>
+    <CornerRadius x:Key="SuperbarButtonInnerCornerRadius">0</CornerRadius>
+    <CornerRadius x:Key="SuperbarHoverTileCornerRadius">0</CornerRadius>
+    <CornerRadius x:Key="SuperbarGlowCornerRadius">0</CornerRadius>
 
     <SolidColorBrush x:Key="TaskListScrollButtonOuterBorder" Color="#99000000" />
     <SolidColorBrush x:Key="TaskListScrollButtonBorder" Color="#998c9ccc" />
@@ -626,20 +632,20 @@
                             Name="ButtonBorder">
                         <Border BorderThickness="2"
                                 BorderBrush="{DynamicResource TaskButtonOuterBorder}"
-                                CornerRadius="4"
+                                CornerRadius="0"
                                 x:Name="ButtonOuterBorder">
                             <Border BorderThickness="2"
                                     BorderBrush="{DynamicResource TaskButtonInnerBorder}"
                                     Background="{DynamicResource TaskButtonBackground}"
-                                    CornerRadius="3"
+                                    CornerRadius="0"
                                     x:Name="ButtonInnerBorder">
                                 <Border BorderThickness="0,1,1,0"
                                         BorderBrush="{DynamicResource TaskButtonInnerTopRightBorder}"
-                                        CornerRadius="2"
+                                        CornerRadius="0"
                                         x:Name="ButtonInnerTopRightBorder">
                                     <Border BorderThickness="1,0,0,1"
                                             BorderBrush="{DynamicResource TaskButtonInnerBottomLeftBorder}"
-                                            CornerRadius="2"
+                                            CornerRadius="0"
                                             x:Name="ButtonInnerBottomLeftBorder">
                                         <ContentPresenter Margin="6,0"
                                                           VerticalAlignment="Center"
@@ -739,20 +745,20 @@
                             <Border BorderThickness="1,1,1,0"
                                     BorderBrush="{DynamicResource TaskButtonOuterBorderActive}"
                                     Background="{DynamicResource TaskButtonBottomBackgroundActive}"
-                                    CornerRadius="3,3,0,0"
+                                    CornerRadius="0,0,0,0"
                                     x:Name="ButtonOuterBorder">
                                 <Border BorderThickness="1,1,1,0"
                                         BorderBrush="{DynamicResource TaskButtonInnerBorderActive}"
                                         Background="{DynamicResource TaskButtonBackgroundActive}"
-                                        CornerRadius="3,3,0,0"
+                                        CornerRadius="0,0,0,0"
                                         x:Name="ButtonInnerBorder">
                                     <Border BorderThickness="0,1,1,0"
                                             BorderBrush="{DynamicResource TaskButtonInnerTopRightBorderActive}"
-                                            CornerRadius="0,3,0,0"
+                                            CornerRadius="0,0,0,0"
                                             x:Name="ButtonInnerTopRightBorder">
                                         <Border BorderThickness="1,0,0,0"
                                                 BorderBrush="{DynamicResource TaskButtonInnerBottomLeftBorderActive}"
-                                                CornerRadius="3,3,0,0"
+                                                CornerRadius="0,0,0,0"
                                                 x:Name="ButtonInnerBottomLeftBorder">
                                             <ContentPresenter Margin="6,0,6,1"
                                                               VerticalAlignment="Center"
@@ -824,24 +830,24 @@
                         <Border BorderThickness="1"
                                 BorderBrush="{DynamicResource TaskButtonOuterBorderFlashing}"
                                 Background="{DynamicResource TaskButtonBottomBackgroundFlashing}"
-                                CornerRadius="3"
+                                CornerRadius="0"
                                 x:Name="ButtonOuterBorder">
                             <Border BorderThickness="1"
                                     BorderBrush="{DynamicResource TaskButtonInnerBorderFlashing}"
                                     Background="{DynamicResource TaskButtonBackgroundFlashing}"
-                                    CornerRadius="2"
+                                    CornerRadius="0"
                                     x:Name="ButtonInnerBorder">
                                 <Border BorderThickness="0,1,1,0"
                                         BorderBrush="{DynamicResource TaskButtonInnerTopRightBorderFlashing}"
-                                        CornerRadius="2"
+                                        CornerRadius="0"
                                         x:Name="ButtonInnerTopRightBorder">
                                     <Border BorderThickness="1,0,0,1"
                                             BorderBrush="{DynamicResource TaskButtonInnerBottomLeftBorderFlashing}"
-                                            CornerRadius="2"
+                                            CornerRadius="0"
                                             x:Name="ButtonInnerBottomLeftBorder">
                                         <Grid>
                                             <Border Background="{DynamicResource TaskButtonFlashPulseOverlay}"
-                                                    CornerRadius="2"
+                                                    CornerRadius="0"
                                                     Opacity="0.2"
                                                     IsHitTestVisible="False"
                                                     x:Name="FlashPulse" />
@@ -1081,12 +1087,24 @@
 
     <ToolTip x:Key="StartButtonTip" Content="{DynamicResource start_button_tip_vista}" />
 
-    <!-- Windows 8.1 Start flag: flush 40x40 nella barra da 44px (nessun
-         overhang, a differenza dell'orb Aero di Win7). Stesso identico
-         meccanismo a 3 righe sprite (normal/hover/pressed) con cross-fade
-         su hover; la riga pressed appare subito al click e resta finche'
-         il menu Start e' aperto (IsChecked). Nessuna modifica ai trigger:
-         cambia solo l'asset e l'ingombro del pulsante. -->
+    <!-- Windows 8.1 Start flag (v1.21.21). La cella dello sprite e' 54x54 e
+         viene disegnata 1:1; la casella e' 53 DIP, circa il 2% in meno (misura
+         che corrisponde alla bandierina di Windows 8.1, piu' piccola di quella
+         di Windows 7), con 1 DIP di spostamento a sinistra (l'1,5% circa) e lo
+         stesso Margin verticale -6 dell'orb di Windows 7. La cella e' piu' alta
+         della barra da 40px: la parte visibile e' quella che serve alle tre
+         righe (idle: bandierina 30x28 centrata; hover/pressed: piastrella a
+         tutta larghezza, a filo barra).
+         Le due righe hover/pressed hanno i quattro riquadri della bandierina
+         RITAGLIATI (trasparenti): lo strato "OrbCutOutFill" li riempie con il
+         colore di accento di Windows, quindi dentro la piastrella si vede la
+         tinta del sistema - non il bianco della bandierina a riposo, e non un
+         buco che lascia sparire la barra. Riferimento: il pulsante Start di
+         Open-Shell, che si disegna da solo la piastrella e la bandierina
+         ritagliata invece di sovrapporre due stati dello stesso sprite.
+         Il riempimento compare con un setter statico (nessuna animazione),
+         quindi il passaggio idle -> hover/pressed e' netto, come su Windows
+         8.1: nessun fade dello stato precedente e nessun istante senza tema. -->
     <Style TargetType="ToggleButton"
            x:Key="StartButton">
         <Setter Property="OverridesDefaultStyle"
@@ -1094,11 +1112,11 @@
         <Setter Property="Foreground"
                 Value="{DynamicResource ItemButtonForeground}" />
         <Setter Property="Margin"
-                Value="0,0,0,0" />
+                Value="-1,-6,0,-6" />
         <Setter Property="Width"
-                Value="40" />
+                Value="53" />
         <Setter Property="Height"
-                Value="40" />
+                Value="53" />
         <Setter Property="HorizontalAlignment"
                 Value="Left" />
         <Setter Property="VerticalAlignment"
@@ -1117,6 +1135,17 @@
                                             Viewbox="0,0,1,0.3333" />
                             </Border.Background>
                         </Border>
+                        <!-- v1.21.21: riempie i ritagli trasparenti delle righe
+                             hover/pressed con il colore di accento di Windows
+                             (la stessa tinta letta dal vivo per le anteprime,
+                             aggiornata dal programma quando il colore dietro
+                             cambia). Sta SOPRA la bandierina a riposo e SOTTO
+                             la piastrella, quindi si vede solo attraverso il
+                             ritaglio. Nessuna animazione: compare netto. -->
+                        <Border x:Name="OrbCutOutFill"
+                                Opacity="0"
+                                FlowDirection="LeftToRight"
+                                Background="{DynamicResource DwmPreviewAccentBrush}" />
                         <Border x:Name="OrbHover"
                                 Opacity="0"
                                 FlowDirection="LeftToRight">
@@ -1138,31 +1167,26 @@
                         <ContentPresenter Visibility="Collapsed" />
                     </Grid>
                     <ControlTemplate.Triggers>
-                        <!-- hover: soft glow fade; no fixed From, so an early
-                             leave simply continues the fade instead of snapping -->
+                        <!-- HOVER (v1.21.21): niente cross-fade. Il pulsante
+                             Start di Windows 8.1 non sfuma: mostra lo stato
+                             hover e basta, e il pulsante di Open-Shell fa la
+                             stessa cosa (disegna UNA sola immagine di stato:
+                             premuto -> pressed, altrimenti hot o normal, mai
+                             due sovrapposte). Due setter statici, quindi il
+                             cambio e' immediato e nessun valore animato puo'
+                             restare appeso (era la causa del "per un attimo si
+                             perde il tema"). All'uscita dal trigger WPF
+                             riporta i due strati al valore scritto
+                             nell'elemento, cioe' 0: nessuna animazione da
+                             fermare, nessun ritardo. -->
                         <Trigger Property="IsMouseOver"
                                  Value="True">
-                            <Trigger.EnterActions>
-                                <BeginStoryboard x:Name="OrbHoverIn">
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="OrbHover"
-                                                         Storyboard.TargetProperty="Opacity"
-                                                         To="1"
-                                                         Duration="0:0:0.18"
-                                                         FillBehavior="HoldEnd" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </Trigger.EnterActions>
-                            <Trigger.ExitActions>
-                                <BeginStoryboard x:Name="OrbHoverOut">
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="OrbHover"
-                                                         Storyboard.TargetProperty="Opacity"
-                                                         To="0"
-                                                         Duration="0:0:0.35" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </Trigger.ExitActions>
+                            <Setter TargetName="OrbCutOutFill"
+                                    Property="Opacity"
+                                    Value="1" />
+                            <Setter TargetName="OrbHover"
+                                    Property="Opacity"
+                                    Value="1" />
                         </Trigger>
                         <!-- pressed while clicked -->
                         <Trigger Property="IsPressed"
@@ -1170,34 +1194,27 @@
                             <Setter TargetName="OrbPressed"
                                     Property="Opacity"
                                     Value="1" />
+                            <!-- v1.21.21: come l'hover: anche da premuto il
+                                 ritaglio e' riempito dall'accento. -->
+                            <Setter TargetName="OrbCutOutFill"
+                                    Property="Opacity"
+                                    Value="1" />
                         </Trigger>
-                        <!-- START MENU OPEN: the orb stays in the pressed state until closed.
-                             The hover animation (FillBehavior=HoldEnd) is an "animated" value
-                             driven by a Clock: it can remain active/held and, over time
-                             (after a few seconds, layout changes, other triggers), its
-                             Clock can be invalidated or reset, making the normal state
-                             "reappear" even while IsChecked is still true. So instead of
-                             using another animation here (same problem, just deferred), we
-                             first explicitly stop the hover storyboard with StopStoryboard,
-                             then apply static Setters, which stay reliably valid for the
-                             whole duration of the trigger, with no expiry. -->
-                        <!-- v2.1: piu' StopStoryboard dell'hover qui. Fermare lo
-                             storyboard dell'hover quando IsChecked diventa True era
-                             cio' che faceva lampeggiare l'orb su IDLE prima di
-                             mostrare PRESSED: StopStoryboard rimuove SUBITO il valore
-                             animato hold (OrbHover->0), e OrbNormal (primo livello,
-                             opacita' base 1) riappare per il frame che separa la
-                             rimozione dall'applicazione dei Setter, producendo la
-                             sequenza IDLE->HOVER->IDLE->PRESSED.
-                             Lasciando vivere lo storyboard dell'hover:
-                             - OrbPressed e' DICHIARATO DOPO OrbHover nel Grid, quindi
-                               a opacita' 1 lo copre comunque: il pressed si vede;
-                             - alla chiusura del menu (IsChecked->False), se il
-                               puntatore e' ancora sull'orb il valore hold dell'hover
-                               e' ancora li' -> HOVER senza flash; se il puntatore e'
-                               uscito, IsMouseOver=False ha gia' eseguito OrbHoverOut
-                               -> IDLE. In entrambi i casi lo stato segue il
-                               puntatore reale, come su Windows 7. -->
+                        <!-- MENU START APERTO: il pulsante resta nello stato
+                             premuto finche' il menu e' aperto.
+                             Lo stato e' fatto di SETTER STATICI, non di
+                             animazioni: un valore animato e' guidato da un
+                             Clock che puo' restare "appeso" e, dopo qualche
+                             secondo o un cambio di layout, essere invalidato -
+                             facendo riapparire lo stato normale mentre IsChecked
+                             e' ancora vero. Da v1.21.21 anche l'hover e' fatto di
+                             setter statici, quindi non c'e' piu' nessuno
+                             storyboard da fermare e nessun valore animato in
+                             volo: la sequenza idle -> hover -> premuto segue il
+                             puntatore senza lampi. OrbPressed e' dichiarato DOPO
+                             OrbHover nel Grid, quindi a opacita' 1 copre
+                             comunque l'hover; allo stesso modo OrbCutOutFill
+                             resta acceso in tutti e tre gli stati attivi. -->
                         <Trigger Property="IsChecked"
                                  Value="True">
                             <Setter TargetName="OrbPressed"
@@ -1209,6 +1226,9 @@
                             <Setter TargetName="OrbHover"
                                     Property="Opacity"
                                     Value="0" />
+                            <Setter TargetName="OrbCutOutFill"
+                                    Property="Opacity"
+                                    Value="1" />
                         </Trigger>
                         <!-- scaled DPI: point all three layers at the hi-res sprite -->
                         <MultiDataTrigger>
@@ -1513,15 +1533,19 @@
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 IsHitTestVisible="False">
-                            <!-- Exactly 2% narrower/shorter than the original
-                                 tray-hover tile (98%), still centred on exactly
-                                 the same icon geometry; do not compound this
-                                 scale on later visual adjustments. -->
+                            <!-- Exactly 2% narrower/shorter than the original tray-hover tile (98%),
+                                 times the 2,5% asked for in the v1.21.24 test round (0,975) = 95,55%:
+                                 30 x 40 -> 28,665 x 38,22, still centred on exactly the same icon
+                                 geometry (half the size as the offset, as before). Do not compound this
+                                 scale on later visual adjustments.
+                                 v1.21.24 replaced the <Image> tag with this comment and lost
+                                 x:Name="HoverTileImg" (startup crash in Setter.EndInit);
+                                 tools/verify-theme-xaml.py now fails the build if that happens again. -->
                             <Image x:Name="HoverTileImg"
-                                   Width="29.4"
-                                   Height="39.2"
-                                   Canvas.Left="-14.7"
-                                   Canvas.Top="-19.6"
+                                   Width="28.665"
+                                   Height="38.22"
+                                   Canvas.Left="-14.3325"
+                                   Canvas.Top="-19.11"
                                    Stretch="Fill"
                                    SnapsToDevicePixels="True"
                                    Source="{DynamicResource TrayTileHoverImage}"
@@ -2019,7 +2043,8 @@
                         <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
                                      Value="Vertical">
                             <Setter TargetName="HoverCanvas" Property="Margin" Value="0,13,0,0" />
-                            <Setter TargetName="HoverTileImg" Property="Height" Value="27" />
+                            <!-- v1.21.24: stesso 2,5% sulla barra verticale (27 -> 26,325). -->
+                            <Setter TargetName="HoverTileImg" Property="Height" Value="26.325" />
                         </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -2265,12 +2290,12 @@
                     <Border Background="Transparent">
                         <Border BorderThickness="1"
                                 BorderBrush="Transparent"
-                                CornerRadius="9"
+                                CornerRadius="0"
                                 HorizontalAlignment="Center"
                                 x:Name="ButtonOuterBorder">
                             <Border BorderThickness="1"
                                     BorderBrush="Transparent"
-                                    CornerRadius="9"
+                                    CornerRadius="0"
                                     Background="{TemplateBinding Background}"
                                     HorizontalAlignment="Center"
                                     Padding="{DynamicResource TrayToggleArrowPadding}"
@@ -2772,6 +2797,270 @@
     <Style x:Key="TaskListWrapPanel" TargetType="WrapPanel">
         <Setter Property="Margin" Value="0,0,0,0" />
         <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <!-- ==================================================================
+         v1.21.22 - SKIN WINDOWS 8.1: SPIGOLI VIVI.
+
+         Windows 8.1 e' l'interfaccia piatta e squadrata che ha sostituito il
+         vetro Aero: niente angoli tondi, niente riflessi. Qui vivono le
+         varianti a spigoli vivi delle parti che la skin Windows 7 disegna
+         tonde. Stanno nel file della skin 8.1 e NON nel tema Windows 7, che
+         resta intoccato: e' ThemeLoader a scegliere queste chiavi quando la
+         skin attiva e' la 8.1 (il dizionario principale vince sui dizionari
+         mergiati, l'ordine documentato da Microsoft).
+
+           Win81TaskButtonFrameHover / Active / Notification
+                 cornici piatte dei pulsanti della striscia (sostituiscono le
+                 tre cornici a tre pezzi con gli angoli tondi del tema Win7);
+           Win81TaskPreviewFrameVista
+                 cornice dell'anteprima viva, rettangolare (la versione Win7
+                 e' il vetro Aero con gli angoli tondi);
+           Win81TaskPreviewCloseButton
+                 la X dell'anteprima, 17x17, quella fornita dall'utente:
+                 incorporata in base64 in Utilities/PreviewAssets.cs
+                 (Win81PreviewClose) e rimossa dal repository.
+         ================================================================== -->
+
+    <SolidColorBrush x:Key="Win81TaskButtonFrameFill" Color="#33FFFFFF" />
+    <SolidColorBrush x:Key="Win81TaskButtonFrameFillActive" Color="#59FFFFFF" />
+
+    <ControlTemplate x:Key="Win81TaskButtonFrameHover" TargetType="ContentControl">
+        <Border Background="{DynamicResource Win81TaskButtonFrameFill}" />
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="Win81TaskButtonFrameActive" TargetType="ContentControl">
+        <Border Background="{DynamicResource Win81TaskButtonFrameFillActive}" />
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="Win81TaskButtonFrameNotification" TargetType="ContentControl">
+        <Border Background="{DynamicResource TaskButtonBackgroundFlashing}" />
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="Win81TaskPreviewFrameVista" TargetType="ContentControl">
+        <!-- v1.21.26 - cornice dell'anteprima 8.1: UN SOLO COLORE.
+
+             La cornice Windows 7 e' fatta di otto fette dell'asset "dwmborder"
+             (236x166) piu' una velatura in scala di grigio al 18% sopra il
+             colore d'accento: e' quella velatura a dare il chiaroscuro
+             fotografico del vetro Aero. Applicata alla variante 8.1 creava due
+             colori sulla stessa cornice, perche' i pixel del bordo esterno
+             dell'asset sono RGB fotografici scuri (24-50) ad alpha pieno mentre
+             il corpo della banda e' grigio medio (66-76) ad alpha 207: il bordo
+             risultava grigio-verde (66,121,165) e il corpo azzurro (102,149,186).
+
+             Qui la velatura non c'e': l'asset resta come MASCHERA, quindi la
+             trasparenza e' identica a prima (corpo 207/255, bordo luminoso ad
+             alpha pieno) ma ogni pixel e' il colore d'accento. Bande e angoli
+             hanno percio' esattamente lo stesso colore, e il bordo esterno si
+             distingue solo per l'opacita' (piu' pieno), che e' quello che fa il
+             vetro vero.
+
+             Gli angoli non usano le fette d'angolo dell'asset (contengono
+             l'arco del vetro) ma una striscia presa al centro della banda
+             corrispondente, piu' una striscia di 3 px delle colonne esterne
+             che porta il bordo luminoso dentro l'angolo: nessun arco, spigolo
+             pieno a 90 gradi.
+
+             Il rettangolo nativo a 9 fette (NativeAeroFrameRect) qui non
+             esiste di proposito: quello ha gli angoli tondi, e senza quella
+             parte TaskbarWindow lascia in piedi proprio questa cornice. -->
+        <Grid SnapsToDevicePixels="True">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="38" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="19" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="17" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="17" />
+            </Grid.ColumnDefinitions>
+
+            <Grid x:Name="AccentSliceLayer"
+                  Grid.Row="0" Grid.RowSpan="3"
+                  Grid.Column="0" Grid.ColumnSpan="3">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="38" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="19" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="17" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="17" />
+                </Grid.ColumnDefinitions>
+
+                <Rectangle Grid.Row="0" Grid.Column="0"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="100,0,17,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <!-- v1.21.24 - bordo luminoso dello spigolo: la striscia
+                     verticale della banda (3 px) prosegue dentro l'angolo,
+                     cosi' il perimetro e' continuo e lo spigolo pieno. -->
+                <Rectangle Grid.Row="0" Grid.Column="0"
+                           Width="3" HorizontalAlignment="Left"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="0,0,3,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="0" Grid.Column="1"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="17,0,202,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="0" Grid.Column="2"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="119,0,17,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="0" Grid.Column="2"
+                           Width="3" HorizontalAlignment="Right"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="233,0,3,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="1" Grid.Column="0"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="0,38,17,109"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="1" Grid.Column="2"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="219,38,17,109"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="2" Grid.Column="0"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="100,147,17,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="2" Grid.Column="0"
+                           Width="3" HorizontalAlignment="Left"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="0,147,3,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="2" Grid.Column="1"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="17,147,202,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="2" Grid.Column="2"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="119,147,17,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="2" Grid.Column="2"
+                           Width="3" HorizontalAlignment="Right"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="233,147,3,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+            </Grid>
+
+
+            <ContentPresenter Grid.Row="1" Grid.Column="1"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch" />
+        </Grid>
+    </ControlTemplate>
+
+    <Style x:Key="Win81TaskPreviewCloseButton" TargetType="Button">
+        <!-- 20x20 di bersaglio, arte 17x17 centrata a 1:1. -->
+        <Setter Property="Width" Value="20" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                           <!-- v1.21.24 - arte 17x17 disegnata all'8% in meno (15,64 DIP);
+                                bersaglio di clic invariato a 20x20. Stretch=Uniform perche'
+                                ora c'e' una scala (prima era 1:1) e HighQuality perche' con
+                                NearestNeighbor una scala frazionaria salterebbe righe. -->
+                    <Image x:Name="CloseGlyph"
+                           Source="{x:Static bundle:PreviewAssets.Win81PreviewClose}"
+                           Width="15.64" Height="15.64" Stretch="Uniform"
+                           SnapsToDevicePixels="True"
+                           RenderOptions.BitmapScalingMode="HighQuality" />
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="CloseGlyph"
+                                    Property="Opacity" Value="0.85" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="CloseGlyph"
+                                    Property="Opacity" Value="0.7" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
 </ResourceDictionary>

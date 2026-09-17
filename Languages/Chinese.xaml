@@ -51,4 +51,6 @@
     <s:String x:Key="lang_address_tip">地址：输入路径或 URL 并按 Enter</s:String>
     <s:String x:Key="lang_tray_pin_tip">在通知区域和溢出区域之间移动 (固定/取消固定)</s:String>
     <s:String x:Key="lang_close_tip">关闭</s:String>
+    <!-- v1.21.7: the only managed string of the extra settings section -->
+    <s:String x:Key="lang_icon_order_drag_hint">松开以更改顺序</s:String>
 </ResourceDictionary>

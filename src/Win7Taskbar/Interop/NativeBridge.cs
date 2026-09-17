@@ -530,11 +530,33 @@ namespace Win7Taskbar.Interop
         public void PropertiesShow(IntPtr owner, int lang, int seconds, int nativeFlyout,
             int enableSearch, int netFlyout, int classicVolume, int batteryFlyout,
             int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
-            int inputLanguageMode, int taskManagerMode)
+            int inputLanguageMode, int taskManagerMode,
+            int flyoutColorMode, int flyoutColorRgb,
+            int connectionPrivacyMode, int themeSelection)
             => NativeMethods.W7T_PropertiesShow((ulong)owner, lang, seconds, nativeFlyout,
                 enableSearch, netFlyout, classicVolume, batteryFlyout,
                 aeroPeek, toolbarDesktop, toolbarAddress, toolbarLinks,
-                inputLanguageMode, taskManagerMode);
+                inputLanguageMode, taskManagerMode,
+                flyoutColorMode, flyoutColorRgb,
+                connectionPrivacyMode, themeSelection);
+
+        /// <summary>
+        /// v1.21.7: settings of the extra section published to the core (a
+        /// single call). The configuration stays in the managed layer: what
+        /// crosses this boundary is only what has to be applied.
+        /// </summary>
+        public void SetExtraSettings(int flyoutColorMode, int flyoutColorRgb,
+                                     int connectionPrivacyMode)
+            => NativeMethods.W7T_SetExtraSettings(flyoutColorMode, flyoutColorRgb,
+                connectionPrivacyMode);
+
+        /// <summary>
+        /// v1.21.7: the colour the recreated Windows 8-style flyout would use
+        /// right now (system accent or chosen colour). The core resolves it by
+        /// asking the system every time.
+        /// </summary>
+        public bool GetExtraFlyoutColor(out uint rgb)
+            => NativeMethods.W7T_GetExtraFlyoutColor(out rgb) == 1;
 
         /// <summary>v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).</summary>
         public bool NetFlyoutInit() => NativeMethods.W7T_NetFlyoutInit() == 1;
@@ -546,11 +568,14 @@ namespace Win7Taskbar.Interop
             => NativeMethods.W7T_SetWin7NetworkFlyout(ready ? 1 : 0);
 
         /// <summary>v2.63: pubblica le preferenze dei quattro riquadri al
-        /// core, che da solo decide quale percorso usare per ognuno.</summary>
-        public void SetFlyoutPreferences(bool clockWin7, bool networkWin7,
+        /// core, che da solo decide quale percorso usare per ognuno.
+        /// v3.8: per la rete esiste una terza scelta: networkStyle 1 =
+        /// "Windows 7 (ricreato)", 0 = "Windows 10/11" (sistema), 2 =
+        /// "Windows 8 (ricreato)". Gli altri riquadri restano binari.</summary>
+        public void SetFlyoutPreferences(bool clockWin7, int networkStyle,
                                          bool volumeWin7, bool batteryWin7)
             => NativeMethods.W7T_SetFlyoutPreferences(clockWin7 ? 1 : 0,
-                networkWin7 ? 1 : 0, volumeWin7 ? 1 : 0, batteryWin7 ? 1 : 0);
+                networkStyle, volumeWin7 ? 1 : 0, batteryWin7 ? 1 : 0);
 
         /// <summary>v2.63: vero se questa build ha i riquadri moderni della
         /// shell (Windows 11 con l'infrastruttura immersiva presente).</summary>
@@ -574,6 +599,31 @@ namespace Win7Taskbar.Interop
     /// dell'app (indice 0=it..9=zh).</summary>
     public void NetFlyoutSetLanguage(int appLanguageIndex)
         => NativeMethods.W7T_NetFlyoutSetLanguage(appLanguageIndex);
+
+    /// <summary>v3.8: flyout di rete variante Windows 8 (implementazione:
+    /// Administratox). Inizializza la stessa logica di rete del modulo
+    /// Windows 7 e prepara il riquadro grafico; il core deve saperlo con
+    /// SetWin8NetworkFlyout.</summary>
+    public bool Net8FlyoutInit() => NativeMethods.W7T_Net8FlyoutInit() == 1;
+    public void Net8FlyoutUninit() => NativeMethods.W7T_Net8FlyoutUninit();
+    /// <summary>v3.8: chiude il riquadro Windows 8 (es. la modalita' di rete
+    /// e' appena cambiata a un'altra voce: non deve restare visibile).</summary>
+    public void Net8FlyoutHide() => NativeMethods.W7T_Net8FlyoutHide();
+    public void Net8FlyoutSetLanguage(int appLanguageIndex)
+        => NativeMethods.W7T_Net8FlyoutSetLanguage(appLanguageIndex);
+
+    /// <summary>v3.8: dichiara al core se la variante Windows 8 del riquadro
+    /// di rete e' pronta all'uso (vedi Net8FlyoutInit).</summary>
+    public void SetWin8NetworkFlyout(bool ready)
+        => NativeMethods.W7T_SetWin8NetworkFlyout(ready ? 1 : 0);
+
+    /// <summary>v3.8: apre/chiude il riquadro di rete in stile Windows 8
+    /// ancorato al monitor del rettangolo icona (pixel fisici).</summary>
+    public void Net8FlyoutToggleAt(int left, int top, int right, int bottom)
+    {
+        var rc = new NativeMethods.RECT { Left = left, Top = top, Right = right, Bottom = bottom };
+        NativeMethods.W7T_Net8FlyoutToggleAt(ref rc);
+    }
 
         // ---------------------------------------------------------------
         //  v2.38: modulo proprietario icone tray, mixer volume classico,

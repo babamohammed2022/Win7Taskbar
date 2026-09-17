@@ -1,4 +1,36 @@
-// TODO: Future Windows 8 Network Flyout implementation, inspired by the existing Windows 7 Network Flyout and focused on recreating the original Windows 8 interface, visual style, layout, network list, connection states, and interaction model as accurately as possible, with implementation credit to AdmnistratoX.
+// Win7Taskbar - Windows 8 Network Flyout (porting integrato)
+// Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
+//
+// Questo file e' il porting completo della mod Windhawk
+// "Windows 8x Network Flyout Recreation" v1.0.0 di AdmXP8 (Administratox),
+// github.com/AdmXP8, pubblicata nel repository ramensoftware/windhawk-mods
+// e rilasciata sotto licenza MIT (le mod senza licenza esplicita sono MIT
+// per policy del repository). Licenza: MIT - Copyright (c) AdmXP8.
+//
+// Come da brief: il porting e' COMPLETO. Uniche differenze rispetto alla mod
+// originale:
+// - rimossa SOLO la parte che interagisce con il Pannello di controllo
+//   (namespace Win7NetworkCenterLinks: ricostruzione della pagina "Centro
+//   connessioni di rete e condivisione" di control.exe; fuori dallo scopo
+//   del flyout e dal sistema di avvio usato da questo progetto);
+// - le funzioni di caricamento/hooking specifiche di Windhawk (logging,
+//   impostazioni, subclass e hook remoti) sono servite dallo shim
+//   WinhawkShim.h, come gia' fatto per il porting del flyout Windows 7;
+//   il valore "language" letto da LoadSettings proviene da w8compat;
+// - il processo ospite non si chiama retrobar.exe: IsRetroBarProcess()
+//   riconosce anche Win7Taskbar.exe (port embedded);
+// - l'intercettazione del click sull'icona di rete resta quella di
+//   Win7Taskbar (TrayService): l'app fornisce il rettangolo ancora con
+//   SetRetroBarNetworkAnchor(), esattamente come la mod faceva su RetroBar.
+//   Il percorso-hook SendNotifyMessageW resta nel codice ma, non essendo
+//   installabile dallo shim, rimane quiescente;
+// - la lingua dell'interfaccia arriva dall'app Win7Taskbar
+//   (w8compat::g_langCode, alimentata da W8NetSetLanguage al SettingsChanged).
+//
+// Il resto - riquadro laterale tipo Charms con animazione vsync, lista reti
+// con segnale in tempo reale, connessione/disconnessione con password,
+// Ethernet, categorie Home/Public/Work, privacy mode, tooltip, menu
+// contestuale, tema scuro, 11 lingue - e' IDENTICO alla mod originale.
 // ==WindhawkMod==
 // @id             win8-network-flyout-recreation
 // @name           Windows 8x Network Flyout Recreation
@@ -134,9 +166,12 @@ babamohammed2022 - Author of the Windows 7 Network flyout Recreation
 #include <strsafe.h>
 #include <shellapi.h>
 #include <commctrl.h>
-#include <windhawk_api.h>
+#include "WinhawkShim.h"
+#include "Common.h"      /* LogTagged */
+#include "SehGuard.h"   /* Guards W7T_SEH_* */
+#include "ExtraSettings.h"  /* v1.21.16: colore del flyout e modalita privacy */
 #include <netlistmgr.h>
-#include <windhawk_utils.h>
+#include <winternl.h>
 #include <process.h>
 #include <math.h>
 #include <string>
@@ -157,6 +192,8 @@ babamohammed2022 - Author of the Windows 7 Network flyout Recreation
 // the (now unmapped or relocated) old mod image. Using the mod's own,
 // per-load HINSTANCE makes a leftover registration harmless, since the next
 // load gets a different hInstance and therefore a distinct class.
+namespace w8tnet {
+
 extern "C" IMAGE_DOS_HEADER __ImageBase;
 #define HINST_THISCOMPONENT ((HINSTANCE)&__ImageBase)
 
@@ -330,6 +367,18 @@ static COLORREF CharmsParseHexColor(const wchar_t* text, COLORREF fallback) {
     return RGB((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
 }
 
+/* v1.21.16: the colour and the privacy mode of this pane are chosen in the
+ * program that hosts it (Properties -> "Impostazioni extra"), because the
+ * Windhawk settings file has no user interface in this build. Declared here
+ * because LoadSettings() applies them; defined next to CharmsPaneBg(), where
+ * the colour family of the pane is decided. */
+static void CharmsApplyExtraSettings();
+
+/* v1.21.17: defined further down together with the locale packs; declared here
+ * because LoadSettings() re-resolves the locale at the end, so the program's
+ * language choice survives every settings reload. */
+void DetermineLocale();
+
 void LoadSettings() {
     int raw_intercept  = Wh_GetIntSetting(L"interceptNativeFlyout");
     int raw_privacy    = Wh_GetIntSetting(L"privacyMode");
@@ -373,9 +422,21 @@ void LoadSettings() {
     g_Settings.charmsBackgroundMode     = raw_bgMode;
     g_Settings.charmsCustomColor        = raw_customColor;
 
+    /* v1.21.16: the program's own choice wins over the mod's colour option
+     * (still parsed above, still in the code). Nothing in Windows is touched:
+     * this only decides how OUR pane paints itself. */
+    CharmsApplyExtraSettings();
+
     if (g_Settings.refreshInterval > 0 && g_Settings.refreshInterval < 1000) {
         g_Settings.refreshInterval = 1000;
     }
+
+    /* v1.21.17: the locale is re-resolved here too. LoadSettings() runs again
+     * every time the pane is shown and after every settings change, and the
+     * "language" option it reads is the one of the original mod: without this
+     * call a pane that had already been told to speak the program's language
+     * would fall back to the system language on the next opening. */
+    DetermineLocale();
 }
 
 // ----------------------------------------------------------------------------
@@ -2727,6 +2788,21 @@ static int GetNetworkCountSafe() {
     return count;
 }
 
+/* v1.21.18: index of the network the machine is actually connected to, or -1.
+ * Both panes used to look at networks[0] only, but the list is ordered by
+ * signal quality, not by connection state: a connected network that is weaker
+ * than a neighbour sits further down, and the pane then reported "no
+ * connection" and drew no name while the machine was online. The row is
+ * searched here once, by every caller. */
+static int FindConnectedNetworkRow(const NetworkStateSnapshot& state) {
+    for (int i = 0; i < state.networkCount; ++i) {
+        if (state.networks[i].connState == CONN_STATE_CONNECTED) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 static BOOL GetSelectedRowConnState(ConnectionState* outState) {
     BOOL valid = FALSE;
     EnterCriticalSection(&g_Ctx.csLock);
@@ -2767,7 +2843,47 @@ static GdipGraphicsClearFunc pGdipGraphicsClear = NULL;
 static GdipCreateHBITMAPFromBitmapFunc pGdipCreateHBITMAPFromBitmap = NULL;
 static GdipDisposeImageFunc pGdipDisposeImage = NULL;
 static GdipCreateBitmapFromStreamFunc pGdipCreateBitmapFromStream = NULL;
+
+/* v1.21.22 - RAII del Graphics GDI+.
+ *
+ * Ogni sito che crea un Graphics con GdipGetImageGraphicsContext deve
+ * rilasciarlo: se una qualunque strada esce prima (o se una conversione
+ * solleva un'eccezione C++), il Graphics restava vivo finche' il processo non
+ * terminava. Il distruttore lo rilascia esattamente una volta, sulla strada
+ * normale e su quella d'errore. */
+struct GdipGraphicsHolder {
+    void* gfx = NULL;
+
+    GdipGraphicsHolder() = default;
+    GdipGraphicsHolder(const GdipGraphicsHolder&) = delete;
+    GdipGraphicsHolder& operator=(const GdipGraphicsHolder&) = delete;
+
+    ~GdipGraphicsHolder() {
+        if (gfx != NULL && pGdipDeleteGraphics != NULL) {
+            pGdipDeleteGraphics(gfx);
+            gfx = NULL;
+        }
+    }
+};
 static GdipCreateHICONFromBitmapFunc pGdipCreateHICONFromBitmap = NULL;
+
+/* v1.21.24 - GDI+ anche per i RIEMPIMENTI del riquadro di connessione.
+ *
+ * Finora GDI+ serviva solo alle immagini (bitmap, ridimensionamenti, icone).
+ * Queste quattro voci permettono di stendere un velo BIANCO TRASLUCIDO su
+ * quello che c'e' gia' sulla superficie, invece di calcolare a mano una tinta
+ * opaca sul colore del pannello. Si caricano come le altre e restano
+ * OPZIONALI: non entrano nel controllo che disabilita GDI+ perche' il velo ha
+ * comunque la sua ricaduta opaca (CharmsFillHover). */
+typedef int (WINAPI *GdipCreateFromHDCFunc)(HDC, void**);
+typedef int (WINAPI *GdipCreateSolidFillFunc)(unsigned int, void**);
+typedef int (WINAPI *GdipFillRectangleFunc)(void*, void*, int, int, int, int);
+typedef int (WINAPI *GdipDeleteBrushFunc)(void*);
+
+static GdipCreateFromHDCFunc pGdipCreateFromHDC = NULL;
+static GdipCreateSolidFillFunc pGdipCreateSolidFill = NULL;
+static GdipFillRectangleFunc pGdipFillRectangle = NULL;
+static GdipDeleteBrushFunc pGdipDeleteBrush = NULL;
 
 static BOOL g_inPasswordPrompt = FALSE;
 LRESULT CALLBACK ToolbarWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, DWORD_PTR uIdSubclass);
@@ -2821,9 +2937,19 @@ typedef enum {
     STR_PWD_EMPTY,
     STR_TRAY_TROUBLESHOOT,
     STR_TRAY_NETWORK_SETTINGS,
-    // New strings for HomeGroup fallback
-    STR_ADVANCED_SHARING_TITLE,
-    STR_ADVANCED_SHARING_DESC,
+
+    // Windows 8 Charms "Networks" pane (v1.21.18): the pane used to draw
+    // hardcoded English literals; these are the strings it now takes from
+    // the same pack as every other surface of the flyout. Appended at the
+    // end on purpose, so every existing id keeps its value.
+    STR_CHARMS_TITLE_NETWORKS,
+    STR_CHARMS_CONNECTIONS,
+    STR_CHARMS_WIFI,
+    STR_CHARMS_AIRPLANE,
+    STR_CHARMS_ON,
+    STR_CHARMS_OFF,
+    STR_CHARMS_VIEW_SETTINGS,
+    STR_CHARMS_ENTER_KEY,
     STR_COUNT
 } LocaleStringId;
 
@@ -2879,6 +3005,14 @@ static const LocalePack g_Locales[] = {
         L"Please enter a network security key.",
         L"Troubleshoot problems",
         L"Open Network and Sharing Center",
+        L"Networks",
+        L"Connections",
+        L"Wi-Fi",
+        L"Airplane mode",
+        L"On",
+        L"Off",
+        L"View Connection Settings",
+        L"Enter the network security key",
     }},
     { 0x0410, {
         L"Attualmente connesso a:",
@@ -2926,6 +3060,14 @@ static const LocalePack g_Locales[] = {
         L"Inserire una chiave di sicurezza di rete.",
         L"Risoluzione problemi",
         L"Apri Centro connessioni di rete e condivisione",
+        L"Reti",
+        L"Connessioni",
+        L"Wi-Fi",
+        L"Modalit\u00E0 aereo",
+        L"Attivata",
+        L"Disattivata",
+        L"Visualizza impostazioni connessione",
+        L"Immettere la chiave di sicurezza di rete",
     }},
     { 0x040A, {
         L"Conectado actualmente a:",
@@ -2973,6 +3115,14 @@ static const LocalePack g_Locales[] = {
         L"Escriba una clave de seguridad de red.",
         L"Solucionar problemas",
         L"Abrir el Centro de redes y recursos compartidos",
+        L"Redes",
+        L"Conexiones",
+        L"Wi-Fi",
+        L"Modo avi\u00F3n",
+        L"Activado",
+        L"Desactivado",
+        L"Ver configuraci\u00F3n de conexi\u00F3n",
+        L"Escriba la clave de seguridad de red",
     }},
     { 0x040C, {
         L"Connect\u00E9 actuellement \u00E0 :",
@@ -3020,6 +3170,14 @@ static const LocalePack g_Locales[] = {
         L"Veuillez entrer une cl\u00E9 de s\u00E9curit\u00E9 r\u00E9seau.",
         L"R\u00E9soudre les probl\u00E8mes",
         L"Ouvrir le Centre R\u00E9seau et partage",
+        L"R\u00E9seaux",
+        L"Connexions",
+        L"Wi-Fi",
+        L"Mode avion",
+        L"Activ\u00E9",
+        L"D\u00E9sactiv\u00E9",
+        L"Afficher les param\u00E8tres de connexion",
+        L"Entrez la cl\u00E9 de s\u00E9curit\u00E9 r\u00E9seau",
     }},
     { 0x0419, {
         L"\u0422\u0435\u043A\u0443\u0449\u0435\u0435 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435:",
@@ -3067,6 +3225,14 @@ static const LocalePack g_Locales[] = {
         L"\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043A\u043B\u044E\u0447 \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E\u0441\u0442\u0438.",
         L"\u0423\u0441\u0442\u0440\u0430\u043D\u0435\u043D\u0438\u0435 \u043D\u0435\u043F\u043E\u043B\u0430\u0434\u043E\u043A",
         L"\u0426\u0435\u043D\u0442\u0440 \u0441\u0435\u0442\u0435\u0439 \u0438 \u043E\u0431\u0449\u0435\u0433\u043E \u0434\u043E\u0441\u0442\u0443\u043F\u0430",
+        L"\u0421\u0435\u0442\u0438",
+        L"\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F",
+        L"Wi-Fi",
+        L"\u0420\u0435\u0436\u0438\u043C \u043F\u043E\u043B\u0435\u0442\u0430",
+        L"\u0412\u043A\u043B.",
+        L"\u0412\u044B\u043A\u043B.",
+        L"\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u043E\u0432 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F",
+        L"\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043A\u043B\u044E\u0447 \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E\u0441\u0442\u0438 \u0441\u0435\u0442\u0438",
     }},
     { 0x0407, {
         L"Verbunden mit:",
@@ -3114,6 +3280,14 @@ static const LocalePack g_Locales[] = {
         L"Bitte Sicherheitsschl\u00FCssel eingeben.",
         L"Problembehandlung",
         L"Netzwerkcenter \u00F6ffnen",
+        L"Netzwerke",
+        L"Verbindungen",
+        L"WLAN",
+        L"Flugzeugmodus",
+        L"Ein",
+        L"Aus",
+        L"Verbindungseinstellungen anzeigen",
+        L"Geben Sie den Netzwerksicherheitsschl\u00FCssel ein",
     }},
     { 0x0816, {
         L"Ligado a:",
@@ -3161,6 +3335,14 @@ static const LocalePack g_Locales[] = {
         L"Insira a chave de seguran\u00E7a.",
         L"Resolver problemas",
         L"Abrir Centro de Rede",
+        L"Redes",
+        L"Conex\u00F5es",
+        L"Wi-Fi",
+        L"Modo avi\u00E3o",
+        L"Ativado",
+        L"Desativado",
+        L"Ver configura\u00E7\u00F5es de conex\u00E3o",
+        L"Digite a chave de seguran\u00E7a de rede",
     }},
     { 0x0415, {
         L"Obecnie połączono z:",
@@ -3208,6 +3390,14 @@ static const LocalePack g_Locales[] = {
         L"Wprowadź klucz zabezpieczeń sieci.",
         L"Rozwiązywanie problemów",
         L"Otwórz Centrum sieci i udostępniania",
+        L"Sieci",
+        L"Po\u0142\u0105czenia",
+        L"Wi-Fi",
+        L"Tryb samolotowy",
+        L"W\u0142\u0105czone",
+        L"Wy\u0142\u0105czone",
+        L"Wy\u015Bwietl ustawienia po\u0142\u0105czenia",
+        L"Wprowad\u017A klucz bezpiecze\u0144stwa sieci",
     }},
     { 0x0413, {
         L"Momenteel verbonden met:",
@@ -3255,6 +3445,14 @@ static const LocalePack g_Locales[] = {
         L"Voer een netwerkbeveiligingssleutel in.",
         L"Problemen oplossen",
         L"Netwerkcentrum openen",
+        L"Netwerken",
+        L"Verbindingen",
+        L"Wi-Fi",
+        L"Vliegtuigmodus",
+        L"Aan",
+        L"Uit",
+        L"Verbindingsinstellingen weergeven",
+        L"Voer de netwerkbeveiligingssleutel in",
     }},
     { 0x0418, {
         L"Conectat în prezent la:",
@@ -3302,6 +3500,14 @@ static const LocalePack g_Locales[] = {
         L"Introduceți o cheie de securitate a rețelei.",
         L"Remediere probleme",
         L"Deschide Centrul de rețea și partajare",
+        L"Re\u021Bele",
+        L"Conexiuni",
+        L"Wi-Fi",
+        L"Mod avion",
+        L"Activat",
+        L"Dezactivat",
+        L"Afi\u0219a\u021Bi set\u0103rile de conexiune",
+        L"Introduce\u021Bi cheia de securitate a re\u021Belei",
     }},
     { 0x041F, {
         L"Şu anda bağlı:",
@@ -3349,6 +3555,14 @@ static const LocalePack g_Locales[] = {
         L"Lütfen bir ağ güvenlik anahtarı girin.",
         L"Sorunları gider",
         L"Ağ ve Paylaşım Merkezini Aç",
+        L"A\u011Flar",
+        L"Ba\u011Flant\u0131lar",
+        L"Wi-Fi",
+        L"U\u00E7ak modu",
+        L"A\u00E7\u0131k",
+        L"Kapal\u0131",
+        L"Ba\u011Flant\u0131 ayarlar\u0131n\u0131 g\u00F6r\u00FCnt\u00FCle",
+        L"A\u011F g\u00FCvenlik anahtar\u0131n\u0131 girin",
     }},
 };
 
@@ -3367,7 +3581,41 @@ static const LocalePack* FindLocalePack(LANGID langId) {
     return &g_Locales[0];
 }
 
+/* v1.21.17: index of the PROGRAM's language list (0 = Italian, 1 = English,
+ * 2 = Spanish, 3 = French, 4 = German, 5 = Portuguese, 6 = Polish, 7 = Russian,
+ * 8 = Japanese, 9 = Chinese, 10 = Arabic), filled by W8NetSetLanguage with the
+ * same call every other surface of the taskbar receives. -1 = the program has
+ * not spoken yet: the mod's own "language" option decides, exactly as before
+ * this change. */
+static int g_AppLanguageIndex = -1;
+
 void DetermineLocale() {
+    /* v1.21.17: the pane must speak the language of the rest of the taskbar.
+     * Before this change the Windows 8 pane ALWAYS used the system language,
+     * so an Italian installation showed an English pane. The index is translated
+     * with the same table W7TNetFlyout_SetLanguage uses for the Windows 7 pane:
+     * it/en/es/fr/de/pt/pl/ru have a pack of their own, ja/zh/ar fall back to
+     * English exactly as they do there. */
+    if (g_AppLanguageIndex >= 0) {
+        LANGID wanted = 0;
+        switch (g_AppLanguageIndex) {
+            case 0: wanted = 0x0410; break;   /* it */
+            case 1: wanted = 0x0409; break;   /* en */
+            case 2: wanted = 0x040A; break;   /* es */
+            case 3: wanted = 0x040C; break;   /* fr */
+            case 4: wanted = 0x0407; break;   /* de */
+            case 5: wanted = 0x0816; break;   /* pt */
+            case 6: wanted = 0x0415; break;   /* pl */
+            case 7: wanted = 0x0419; break;   /* ru */
+            case 8: case 9: case 10:         /* ja, zh, ar -> English pack */
+                wanted = 0x0409; break;
+            default: break;
+        }
+        if (wanted != 0) {
+            g_CurrentLocalePack = FindLocalePack(wanted);
+            return;
+        }
+    }
     switch (g_Settings.language) {
         case 1: g_CurrentLocalePack = FindLocalePack(0x0409); break;
         case 2: g_CurrentLocalePack = FindLocalePack(0x0410); break;
@@ -3544,16 +3792,16 @@ static HICON CreateIconFromBase64PNG(const WCHAR* base64Str, int targetWidth = 0
             if (pGdipCreateBitmapFromScan0(targetWidth, targetHeight, 0, 0x00E200B, NULL,
                                             &dstBitmap) == 0 &&
                 dstBitmap) {
-                void* graphics = NULL;
-                if (pGdipGetImageGraphicsContext(dstBitmap, &graphics) == 0 && graphics) {
+                // v1.21.22: il Graphics lo rilascia il RAII, non questo ramo.
+                GdipGraphicsHolder graphics;
+                if (pGdipGetImageGraphicsContext(dstBitmap, &graphics.gfx) == 0 && graphics.gfx) {
                     // 7 is GDI+'s HighQualityBicubic mode; 3 matches the
                     // pixel-offset mode used by DrawIconBicubic below.
-                    pGdipSetInterpolationMode(graphics, 7);
-                    pGdipSetPixelOffsetMode(graphics, 3);
-                    pGdipGraphicsClear(graphics, 0);
-                    scaled = pGdipDrawImageRectI(graphics, srcBitmap, 0, 0,
+                    pGdipSetInterpolationMode(graphics.gfx, 7);
+                    pGdipSetPixelOffsetMode(graphics.gfx, 3);
+                    pGdipGraphicsClear(graphics.gfx, 0);
+                    scaled = pGdipDrawImageRectI(graphics.gfx, srcBitmap, 0, 0,
                                                   targetWidth, targetHeight) == 0;
-                    pGdipDeleteGraphics(graphics);
                 }
                 if (scaled)
                     pGdipCreateHICONFromBitmap(dstBitmap, &hIcon);
@@ -4502,6 +4750,13 @@ static BOOL InitGdiPlusRendering() {
     pGdipDisposeImage = (GdipDisposeImageFunc)GetProcAddress(g_hGdiPlus, "GdipDisposeImage");
     pGdipCreateBitmapFromStream = (GdipCreateBitmapFromStreamFunc)GetProcAddress(g_hGdiPlus, "GdipCreateBitmapFromStream");
     pGdipCreateHICONFromBitmap = (GdipCreateHICONFromBitmapFunc)GetProcAddress(g_hGdiPlus, "GdipCreateHICONFromBitmap");
+    /* v1.21.24: veli traslucidi. Se mancano, i riempimenti restano opachi. */
+    pGdipCreateFromHDC   = (GdipCreateFromHDCFunc)GetProcAddress(g_hGdiPlus, "GdipCreateFromHDC");
+    pGdipCreateSolidFill = (GdipCreateSolidFillFunc)GetProcAddress(g_hGdiPlus, "GdipCreateSolidFill");
+    pGdipFillRectangle   = (GdipFillRectangleFunc)GetProcAddress(g_hGdiPlus, "GdipFillRectangle");
+    pGdipDeleteBrush     = (GdipDeleteBrushFunc)GetProcAddress(g_hGdiPlus, "GdipDeleteBrush");
+    if (!pGdipCreateFromHDC || !pGdipCreateSolidFill || !pGdipFillRectangle || !pGdipDeleteBrush)
+        Wh_Log(L"GDI+: riempimenti traslucidi non disponibili, i veli restano opachi");
     if (!pGdipCreateBitmapFromHICON || !pGdipSetInterpolationMode || !pGdipDrawImageRectI ||
         !pGdipDeleteGraphics || !pGdipCreateBitmapFromScan0 || !pGdipGetImageGraphicsContext ||
         !pGdipSetPixelOffsetMode || !pGdipGraphicsClear || !pGdipCreateHBITMAPFromBitmap ||
@@ -4892,6 +5147,18 @@ static void CharmsApplyFrame(HWND hwnd, int x) {
     }
 }
 
+/* v1.21.15: la taskbar di Win7Taskbar e essa stessa topmost e si rialza
+ * periodicamente, quindi il riquadro - pur essendo WS_EX_TOPMOST - le
+ * restava DIETRO mentre scivolava (caso segnalato). Rialzo neutro in testa
+ * al gruppo dei topmost (niente spostamenti, ridimensionamenti o attivazione),
+ * richiamato a ogni frame dell animazione e una volta a scivolo finito. */
+static void CharmsRaiseOverTaskbar(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) return;
+    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+                 SWP_NOSENDCHANGING | SWP_NOREDRAW);
+}
+
 static void CharmsAnimStop(HWND hwnd, BOOL hideWindow) {
     if (g_CharmsAnimTimer && hwnd && IsWindow(hwnd))
         KillTimer(hwnd, CHARMS_ANIM_TIMER_ID);
@@ -4950,6 +5217,9 @@ static void CharmsAnimTick(HWND hwnd) {
     if (paneDone) x = g_CharmsAnimToX;
     if (x != g_CharmsAnimCurX)
         CharmsApplyFrame(hwnd, x);
+    /* v1.21.15: durante l animazione il riquadro resta SOPRA la taskbar
+     * (rialzo una volta per frame, costo nullo dal vsync) */
+    CharmsRaiseOverTaskbar(hwnd);
 
     BOOL easeOut = TRUE;
     BOOL contentDone = TRUE;
@@ -4964,6 +5234,7 @@ static void CharmsAnimTick(HWND hwnd) {
     if (paneDone && contentDone && titleDone) {
         BOOL hide = (g_CharmsAnimState == CHARMS_ANIM_OUT);
         CharmsAnimStop(hwnd, hide);
+        if (!hide) CharmsRaiseOverTaskbar(hwnd);
     }
 }
 
@@ -5009,6 +5280,7 @@ static void CharmsAnimStart(HWND hwnd, BOOL slidingIn) {
         if (slidingIn) {
             CharmsApplyFrame(hwnd, destX);
             ShowWindow(hwnd, SW_SHOW);
+            CharmsRaiseOverTaskbar(hwnd);
         }
         return;
     }
@@ -5079,8 +5351,10 @@ static void CharmsAnimStart(HWND hwnd, BOOL slidingIn) {
     // Park at the start frame before the window becomes visible so the
     // first painted pixels are already off-screen / clipped.
     CharmsApplyFrame(hwnd, startX);
-    if (slidingIn && !visible)
+    if (slidingIn && !visible) {
         ShowWindow(hwnd, SW_SHOW);
+        CharmsRaiseOverTaskbar(hwnd);
+    }
 
     if (g_CharmsAnimTimer) {
         KillTimer(hwnd, CHARMS_ANIM_TIMER_ID);
@@ -5295,12 +5569,262 @@ void PositionWindowNearTray(HWND hwnd) {
 static GUID g_WlanInterfaceGuids[16];
 static int  g_WlanInterfaceCount = 0;
 
+/* ---------------------------------------------------------------------- */
+/*  v1.21.17 - GUARDED WLAN CALLS, SCAN TRIGGER AND DIAGNOSTICS           */
+/* ---------------------------------------------------------------------- */
+/*  The WLAN API talks to the driver and to the radio layer: a fault there is
+ *  an access violation, not a return code, and it would take the taskbar
+ *  process down with it. Every WLAN call of the refresh path - interface
+ *  enumeration, available networks, profile list, scan, handle open,
+ *  notification registration - gets the same two protections used for the
+ *  shell launches, each in its own function: <Api>Inner() carries the SEH
+ *  guard, Safe<Api>() the C++ catch around it.
+ *
+ *  TriggerWlanScanIfNeeded is the piece the Windows 8 pane was missing (the
+ *  recreated Windows 7 flyout has had it since v3.5): on a machine whose radio
+ *  has not scanned yet - right after logon, or after the adapter has been
+ *  re-enabled - WlanGetAvailableNetworkList answers with an EMPTY list, and the
+ *  pane looked like it had no connections at all. When the pane opens with an
+ *  empty list a scan is ordered and the data is read again a few seconds
+ *  later. */
+
+static DWORD WlanEnumInterfacesInner(HANDLE hClient, PWLAN_INTERFACE_INFO_LIST* outList) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanEnumInterfaces(hClient, NULL, outList);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanEnumInterfaces(HANDLE hClient, PWLAN_INTERFACE_INFO_LIST* outList) {
+    try {
+        return WlanEnumInterfacesInner(hClient, outList);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+static DWORD WlanGetAvailableNetworkListInner(HANDLE hClient,
+                                              const GUID* pInterfaceGuid,
+                                              DWORD dwFlags,
+                                              PWLAN_AVAILABLE_NETWORK_LIST* outList) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanGetAvailableNetworkList(hClient, pInterfaceGuid, dwFlags, NULL, outList);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanGetAvailableNetworkList(HANDLE hClient,
+                                             const GUID* pInterfaceGuid,
+                                             DWORD dwFlags,
+                                             PWLAN_AVAILABLE_NETWORK_LIST* outList) {
+    try {
+        return WlanGetAvailableNetworkListInner(hClient, pInterfaceGuid, dwFlags, outList);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+/* v1.21.18: the CURRENT connection of an interface. Unlike the available
+ * network list this answer never depends on the radio having scanned, so it
+ * is what makes a connected machine show its connection even when the list
+ * comes back empty. WlanQueryInterface is not one of the calls the first
+ * batch already guarded, hence its own pair. */
+static DWORD WlanQueryCurrentConnectionInner(HANDLE hClient, const GUID* pInterfaceGuid,
+                                             PVOID* outData, DWORD* outSize) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanQueryInterface(hClient, pInterfaceGuid,
+                                    wlan_intf_opcode_current_connection,
+                                    NULL, outSize, outData, NULL);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanQueryCurrentConnection(HANDLE hClient, const GUID* pInterfaceGuid,
+                                            PVOID* outData, DWORD* outSize) {
+    try {
+        return WlanQueryCurrentConnectionInner(hClient, pInterfaceGuid, outData, outSize);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+static DWORD WlanScanInner(HANDLE hClient, const GUID* pInterfaceGuid) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanScan(hClient, pInterfaceGuid, NULL, NULL, NULL);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanScan(HANDLE hClient, const GUID* pInterfaceGuid) {
+    try {
+        return WlanScanInner(hClient, pInterfaceGuid);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+static DWORD WlanOpenHandleInner(DWORD dwClientVersion, DWORD* pdwNegotiatedVersion, HANDLE* phClientHandle) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanOpenHandle(dwClientVersion, NULL, pdwNegotiatedVersion, phClientHandle);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanOpenHandle(DWORD dwClientVersion, DWORD* pdwNegotiatedVersion, HANDLE* phClientHandle) {
+    try {
+        return WlanOpenHandleInner(dwClientVersion, pdwNegotiatedVersion, phClientHandle);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+/* Set when the pane opens and cleared by the first refresh that follows: the
+ * "is the list empty?" check must run AFTER that refresh (the count read while
+ * the pane is opening is still the previous one, because the refresh is
+ * posted), and exactly once per opening. */
+static BOOL g_ScanCheckPending = FALSE;
+
+static DWORD WlanGetProfileListInner(HANDLE hClient, const GUID* pInterfaceGuid, PWLAN_PROFILE_INFO_LIST* outList) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanGetProfileList(hClient, pInterfaceGuid, NULL, outList);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanGetProfileList(HANDLE hClient, const GUID* pInterfaceGuid, PWLAN_PROFILE_INFO_LIST* outList) {
+    try {
+        return WlanGetProfileListInner(hClient, pInterfaceGuid, outList);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+static DWORD WlanRegisterNotificationInner(HANDLE hClient,
+                                          DWORD dwSource,
+                                          BOOL bIgnoreDuplicates,
+                                          WLAN_NOTIFICATION_CALLBACK callback,
+                                          PVOID pCallbackContext) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanRegisterNotification(hClient, dwSource, bIgnoreDuplicates,
+                                          callback, pCallbackContext, NULL, NULL);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanRegisterNotification(HANDLE hClient,
+                                          DWORD dwSource,
+                                          BOOL bIgnoreDuplicates,
+                                          WLAN_NOTIFICATION_CALLBACK callback,
+                                          PVOID pCallbackContext) {
+    try {
+        return WlanRegisterNotificationInner(hClient, dwSource, bIgnoreDuplicates,
+                                             callback, pCallbackContext);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+/* One scan per opening, and never more often than one every 5 s: WlanScan
+ * costs the radio. Same rule as the recreated Windows 7 flyout. */
+void TriggerWlanScanIfNeeded(void) {
+    static DWORD lastScanRequest = 0;
+    const DWORD now = GetTickCount();
+    if (lastScanRequest != 0 && now - lastScanRequest < 5000) {
+        return;
+    }
+    lastScanRequest = now;
+    HANDLE hClient = g_Ctx.hWlanClient;
+    if (!hClient) {
+        w7t::LogTagged(L"NET8", L"WLAN scan not requested: no WLAN client");
+        return;
+    }
+    PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
+    if (SafeWlanEnumInterfaces(hClient, &pIfList) != ERROR_SUCCESS || !pIfList) {
+        w7t::LogTagged(L"NET8", L"WLAN scan: WlanEnumInterfaces failed");
+        return;
+    }
+    for (DWORD i = 0; i < pIfList->dwNumberOfItems; i++) {
+        const DWORD scanResult =
+            SafeWlanScan(hClient, &pIfList->InterfaceInfo[i].InterfaceGuid);
+        w7t::LogTagged(L"NET8", L"WLAN scan requested on interface %lu: %lu",
+                       (unsigned long)i, (unsigned long)scanResult);
+    }
+    WlanFreeMemory(pIfList);
+}
+
+/* v1.21.19: name of the network Windows itself says the machine is on.
+ *
+ * Defined after SafeSysFreeString() (which owns the dynamic SysFreeString
+ * pointer); declared here because RefreshWifiData(), below, is the only
+ * caller. Copied from the recreated Windows 7 flyout, where the same helper
+ * is what keeps the list non-empty on a PC whose WLAN API answers
+ * ERROR_ACCESS_DENIED. */
+static BOOL QueryNlmConnectedNetwork(WCHAR* outName, size_t nameCount,
+                                     BOOL* outHasInternet);
+
 void RefreshWifiData(HANDLE hClient) {
-    if (!hClient) return;
+    if (!hClient) {
+        w7t::LogTagged(L"NET8", L"network list not refreshed: no WLAN client");
+        return;
+    }
     static DWORD lastValidRefresh = 0;
     DWORD now = GetTickCount();
     PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
-    if (WlanEnumInterfaces(hClient, NULL, &pIfList) != ERROR_SUCCESS) return;
+    const DWORD enumResult = SafeWlanEnumInterfaces(hClient, &pIfList);
+    if (enumResult != ERROR_SUCCESS) {
+        w7t::LogTagged(L"NET8", L"WlanEnumInterfaces failed (%lu)",
+                       (unsigned long)enumResult);
+        return;
+    }
     
     int localWlanIfCount = 0;
     GUID localWlanIfGuids[16];
@@ -5321,10 +5845,22 @@ void RefreshWifiData(HANDLE hClient) {
         WLAN_INTERFACE_INFO IfInfo = pIfList->InterfaceInfo[i];
         PWLAN_AVAILABLE_NETWORK_LIST pBssList  = NULL;
         PWLAN_PROFILE_INFO_LIST      pProfList = NULL;
-        WlanGetProfileList(hClient, &IfInfo.InterfaceGuid, NULL, &pProfList);
-        if (WlanGetAvailableNetworkList(hClient, &IfInfo.InterfaceGuid,
-                WLAN_AVAILABLE_NETWORK_INCLUDE_ALL_MANUAL_HIDDEN_PROFILES,
-                NULL, &pBssList) == ERROR_SUCCESS) {
+        const DWORD profileListResult =
+            SafeWlanGetProfileList(hClient, &IfInfo.InterfaceGuid, &pProfList);
+        if (profileListResult != ERROR_SUCCESS) {
+            w7t::LogTagged(L"NET8", L"WlanGetProfileList failed (%lu): saved networks unknown",
+                           (unsigned long)profileListResult);
+        }
+        const DWORD scanListResult = SafeWlanGetAvailableNetworkList(
+            hClient, &IfInfo.InterfaceGuid,
+            WLAN_AVAILABLE_NETWORK_INCLUDE_ALL_MANUAL_HIDDEN_PROFILES,
+            &pBssList);
+        if (scanListResult != ERROR_SUCCESS) {
+            w7t::LogTagged(L"NET8",
+                           L"WlanGetAvailableNetworkList failed (%lu): no network from this interface",
+                           (unsigned long)scanListResult);
+        }
+        if (scanListResult == ERROR_SUCCESS) {
             for (DWORD j = 0; j < pBssList->dwNumberOfItems && tempCount < 50; j++) {
                 WLAN_AVAILABLE_NETWORK network = pBssList->Network[j];
                 size_t len = (size_t)network.dot11Ssid.uSSIDLength;
@@ -5428,6 +5964,119 @@ void RefreshWifiData(HANDLE hClient) {
         }
         if (pProfList) WlanFreeMemory(pProfList);
     }
+    /* v1.21.18: empty list, but is the machine really offline? The available
+     * network list is empty until the radio has scanned (right after logon, or
+     * after an adapter has been re-enabled), and it stays empty on an
+     * interface that is connected to a network whose beacons are not in the
+     * scan cache. The driver knows the connection without any scan, so the
+     * connected row is taken from there: the pane then shows the connection
+     * the user is actually on instead of a blank section. */
+    if (tempCount == 0 && pIfList) {
+        for (DWORD i = 0; i < pIfList->dwNumberOfItems && tempCount < 50; i++) {
+            PVOID connData = NULL;
+            DWORD connSize = 0;
+            const DWORD connResult = SafeWlanQueryCurrentConnection(
+                hClient, &pIfList->InterfaceInfo[i].InterfaceGuid,
+                &connData, &connSize);
+            if (connResult != ERROR_SUCCESS || !connData ||
+                connSize < sizeof(WLAN_CONNECTION_ATTRIBUTES)) {
+                if (connData) WlanFreeMemory(connData);
+                /* v1.21.19: the reason used to be swallowed here, which is why
+                 * an empty list on a connected PC could not be explained from
+                 * the log. ERROR_ACCESS_DENIED (5) is the usual answer on
+                 * Windows 11 without the location permission. */
+                w7t::LogTagged(L"NET8",
+                               L"empty list: WlanQueryInterface(current connection) failed (%lu) on interface %lu",
+                               (unsigned long)connResult, (unsigned long)i);
+                continue;
+            }
+            WLAN_CONNECTION_ATTRIBUTES attr;
+            CopyMemory(&attr, connData, sizeof(attr));
+            WlanFreeMemory(connData);
+            if (attr.isState != wlan_interface_state_connected)
+                continue;
+
+            WifiNetworkItem& item = tempList[tempCount];
+            ZeroMemory(&item, sizeof(item));
+            const size_t ssidLen = (size_t)attr.wlanAssociationAttributes.dot11Ssid.uSSIDLength;
+            if (ssidLen > 0) {
+                BYTE cleanSsid[33] = {0};
+                size_t cleanLen = (ssidLen < 32u) ? ssidLen : 32u;
+                for (size_t k = 0; k < cleanLen; k++) {
+                    cleanSsid[k] = (attr.wlanAssociationAttributes.dot11Ssid.ucSSID[k] == 0)
+                                   ? (BYTE)' '
+                                   : attr.wlanAssociationAttributes.dot11Ssid.ucSSID[k];
+                }
+                cleanSsid[cleanLen] = 0;
+                int converted = MultiByteToWideChar(CP_UTF8, 0, (LPCSTR)cleanSsid,
+                                                    (int)cleanLen, item.ssid, 32);
+                if (converted <= 0) {
+                    for (size_t k = 0; k < cleanLen; k++)
+                        item.ssid[k] = (WCHAR)cleanSsid[k];
+                    converted = (int)cleanLen;
+                }
+                item.ssid[converted] = L'\0';
+            } else if (attr.strProfileName[0] != L'\0') {
+                /* A hidden network still has a profile name. */
+                StringCchCopyW(item.ssid, 33, attr.strProfileName);
+            } else {
+                StringCchCopyW(item.ssid, 33, L"Hidden Network");
+            }
+            item.isSecured = attr.wlanSecurityAttributes.bSecurityEnabled;
+            item.signalQuality = attr.wlanAssociationAttributes.wlanSignalQuality;
+            item.interfaceGuid = pIfList->InterfaceInfo[i].InterfaceGuid;
+            item.dot11BssType = attr.wlanAssociationAttributes.dot11BssType;
+            item.hasProfile = TRUE;      /* it is connected: the profile exists */
+            item.hasInternetAccess = FALSE;
+            item.connState = CONN_STATE_CONNECTED;
+            item.operationStartTime = 0;
+            item.authAlgorithm = attr.wlanSecurityAttributes.dot11AuthAlgorithm;
+            item.cipherAlgorithm = attr.wlanSecurityAttributes.dot11CipherAlgorithm;
+            item.displaySuffix = 0;
+            item.hasBssid = FALSE;
+            ZeroMemory(item.bssid, sizeof(item.bssid));
+            tempCount++;
+            break;                        /* one connected row is what the pane shows */
+        }
+        if (tempCount > 0) {
+            w7t::LogTagged(L"NET8",
+                           L"available-network list was empty: connected network read from the driver");
+        }
+        if (tempCount == 0) {
+            /* v1.21.19 - the driver refused too (log above: usually
+             * ERROR_ACCESS_DENIED on Windows 11). Windows itself still knows
+             * which network the machine is on: the same last-resort stage the
+             * recreated Windows 7 flyout has, ported here because without it
+             * the pane stayed empty on a PC connected over Wi-Fi. */
+            WCHAR nlmName[64] = {0};
+            BOOL nlmHasInternet = FALSE;
+            if (QueryNlmConnectedNetwork(nlmName, ARRAYSIZE(nlmName), &nlmHasInternet)) {
+                WifiNetworkItem& item = tempList[tempCount];
+                ZeroMemory(&item, sizeof(item));
+                StringCchCopyW(item.ssid, ARRAYSIZE(item.ssid),
+                               (nlmName[0] != L'\0') ? nlmName : L"Network");
+                item.isSecured = FALSE;
+                item.signalQuality = 100;
+                item.dot11BssType = dot11_BSS_type_infrastructure;
+                /* It is the connection in use, so a profile exists for it:
+                 * the pane draws it as the connected row and can offer
+                 * Disconnect, exactly like the Windows 7 flyout does. */
+                item.hasProfile = TRUE;
+                item.hasInternetAccess = nlmHasInternet;
+                item.connState = CONN_STATE_CONNECTED;
+                item.displaySuffix = 0;
+                item.hasBssid = FALSE;
+                ZeroMemory(item.bssid, sizeof(item.bssid));
+                tempCount++;
+                w7t::LogTagged(L"NET8",
+                               L"empty list and silent radio: added the Windows network '%s' (connected)",
+                               item.ssid);
+            } else {
+                w7t::LogTagged(L"NET8",
+                               L"empty list: no WLAN interface connected and NLM says disconnected");
+            }
+        }
+    }
     WlanFreeMemory(pIfList);
     {
         bool seenConnectedForInterface[64] = {false};
@@ -5530,6 +6179,10 @@ void RefreshWifiData(HANDLE hClient) {
     LeaveCriticalSection(&g_Ctx.csLock);
     Wh_Log(L"Refresh complete: %d network(s) found, connected: %s, g_PendingConnectIndex=%d",
            loggedNetworkCount, loggedConnected ? L"yes" : L"no", loggedPendingIndex);
+    /* v1.21.17: the count also goes to the core log, which is the file the user
+     * can send back when a list stays empty. */
+    w7t::LogTagged(L"NET8", L"network list refreshed: %d network(s), connected: %s",
+                   loggedNetworkCount, loggedConnected ? L"yes" : L"no");
 }
 
 // -------------------------------------------------------
@@ -5550,6 +6203,73 @@ static void SafeSysFreeString(BSTR bstr) {
     if (pSysFreeString) {
         pSysFreeString(bstr);
     }
+}
+
+/* v1.21.19 - LAST RESORT for the network list, copied from the recreated
+ * Windows 7 flyout.
+ *
+ * On Windows 11 24H2 both WlanGetAvailableNetworkList and
+ * WlanQueryInterface(wlan_intf_opcode_current_connection) can answer
+ * ERROR_ACCESS_DENIED (5) - the log of a real machine shows exactly that -
+ * even though the PC is connected over Wi-Fi. The Windows 7 flyout keeps its
+ * list non-empty through the Network List Manager; the Windows 8 pane did not
+ * have that stage, so it showed an empty list on a connected PC.
+ *
+ * Returns TRUE when Windows reports a connection; the name (may be empty,
+ * the caller substitutes a neutral one) and the internet flag come back
+ * through the out parameters. A local NLM instance is used on purpose: it
+ * belongs to the calling thread and cannot race with g_pNLM, which the
+ * Ethernet detection releases on its own thread. */
+static BOOL QueryNlmConnectedNetwork(WCHAR* outName, size_t nameCount,
+                                     BOOL* outHasInternet) {
+    if (outName == NULL || nameCount == 0) {
+        return FALSE;
+    }
+    outName[0] = L'\0';
+    if (outHasInternet) *outHasInternet = FALSE;
+
+    INetworkListManager* pNLM = NULL;
+    const HRESULT createResult = CoCreateInstance(
+        CLSID_NetworkListManager, NULL, CLSCTX_INPROC_SERVER,
+        IID_INetworkListManager, (void**)&pNLM);
+    if (FAILED(createResult) || !pNLM) {
+        w7t::LogTagged(L"NET8",
+                       L"empty list: Network List Manager not available (0x%08X)",
+                       (unsigned)createResult);
+        return FALSE;
+    }
+
+    BOOL connected = FALSE;
+    NLM_CONNECTIVITY connectivity = NLM_CONNECTIVITY_DISCONNECTED;
+    if (SUCCEEDED(pNLM->GetConnectivity(&connectivity))) {
+        connected = (connectivity != NLM_CONNECTIVITY_DISCONNECTED) ? TRUE : FALSE;
+        if (outHasInternet) {
+            *outHasInternet =
+                ((connectivity & NLM_CONNECTIVITY_IPV4_INTERNET) != 0 ||
+                 (connectivity & NLM_CONNECTIVITY_IPV6_INTERNET) != 0) ? TRUE : FALSE;
+        }
+    }
+
+    if (connected) {
+        IEnumNetworks* pEnum = NULL;
+        if (SUCCEEDED(pNLM->GetNetworks(NLM_ENUM_NETWORK_CONNECTED, &pEnum)) && pEnum) {
+            INetwork* pNet = NULL;
+            ULONG fetched = 0;
+            while (pEnum->Next(1, &pNet, &fetched) == S_OK && pNet) {
+                BSTR bstrName = NULL;
+                if (SUCCEEDED(pNet->GetName(&bstrName)) && bstrName && bstrName[0] != L'\0') {
+                    StringCchCopyW(outName, nameCount, bstrName);
+                }
+                if (bstrName) SafeSysFreeString(bstrName);
+                pNet->Release();
+                if (outName[0] != L'\0') break;
+            }
+            pEnum->Release();
+        }
+    }
+
+    pNLM->Release();
+    return connected;
 }
 
 static BOOL ContainsKeywordCI(LPCWSTR str, LPCWSTR keyword) {
@@ -6258,7 +6978,7 @@ BOOL PromptNetworkPassword(HWND hParent, WCHAR* passwordBuffer, DWORD bufferSize
     WNDCLASSW wc = {0};
     wc.lpfnWndProc   = Win7PasswordWndProc;
     wc.hInstance     = hInst;
-    wc.lpszClassName = L"Win7NetPwdClass";
+    wc.lpszClassName = L"Win8NetPwdClass";
     wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE+1);
     // First RegisterClassW of a load is required to succeed (a leftover class
@@ -6846,6 +7566,42 @@ void DisconnectFromNetwork(int index) {
     }
 }
 
+/* v1.21.18: the connect / disconnect paths talk to the WLAN driver - profile
+ * XML built and written, then a connection attempt, all of it on the flyout
+ * thread. They get the same two shields as the shell launches, in the
+ * established shape: SEH inside, C++ catch outside, one pair per action. */
+static void SafeConnectToNetwork(int index, const WCHAR* inlinePassword = NULL) {
+    try {
+        W7T_SEH_TRY
+        {
+            ConnectToNetwork(index, inlinePassword);
+        }
+        W7T_SEH_CATCH
+        {
+            w7t::LogTagged(L"NET8", L"connect faulted: ignored (index %d)", index);
+        }
+        W7T_SEH_END
+    } catch (...) {
+        w7t::LogTagged(L"NET8", L"connect raised a C++ exception: ignored (index %d)", index);
+    }
+}
+
+static void SafeDisconnectFromNetwork(int index) {
+    try {
+        W7T_SEH_TRY
+        {
+            DisconnectFromNetwork(index);
+        }
+        W7T_SEH_CATCH
+        {
+            w7t::LogTagged(L"NET8", L"disconnect faulted: ignored (index %d)", index);
+        }
+        W7T_SEH_END
+    } catch (...) {
+        w7t::LogTagged(L"NET8", L"disconnect raised a C++ exception: ignored (index %d)", index);
+    }
+}
+
 void CheckConnectionTimeouts() {
     if (!g_Ctx.hWlanClient) return;
 
@@ -7003,8 +7759,18 @@ void WINAPI WlanNotificationCallback(PWLAN_NOTIFICATION_DATA data, PVOID context
 static void DrawIconBicubic(HDC hdc, int x, int y, int w, int h, HICON hIcon, void** ppCached) {
     if (!hIcon) return;
     if (!g_hGdiPlus || !pGdipCreateBitmapFromHICON || !pGdipSetInterpolationMode) {
-        DrawIconEx(hdc, x, y, hIcon, w, h, 0, NULL, DI_NORMAL);
-        return;
+        /* v1.21.17 - GDI+ WHERE IT IS NEEDED. The artwork of this pane is
+         * designed to be resampled with GDI+ high quality bicubic: on the plain
+         * GDI path (DrawIconEx) it comes out visibly coarser. InitGdiPlusRendering()
+         * runs at module start, but if a paint gets here before that - or in a
+         * host where the first load failed - the library is loaded NOW instead of
+         * silently dropping to the coarse path. The GDI call stays as the last
+         * resort: if gdiplus.dll cannot be loaded, the icon is still drawn. */
+        InitGdiPlusRendering();
+        if (!g_hGdiPlus || !pGdipCreateBitmapFromHICON || !pGdipSetInterpolationMode) {
+            DrawIconEx(hdc, x, y, hIcon, w, h, 0, NULL, DI_NORMAL);
+            return;
+        }
     }
     void* srcBitmap = ppCached ? *ppCached : NULL;
     if (!srcBitmap && ppCached) {
@@ -7021,13 +7787,14 @@ static void DrawIconBicubic(HDC hdc, int x, int y, int w, int h, HICON hIcon, vo
         DrawIconEx(hdc, x, y, hIcon, w, h, 0, NULL, DI_NORMAL);
         return;
     }
-    void* gfx = NULL;
-    if (pGdipGetImageGraphicsContext(dstBitmap, &gfx) == 0 && gfx) {
-        pGdipSetInterpolationMode(gfx, 7); 
-        pGdipSetPixelOffsetMode(gfx, 3);   
-        pGdipGraphicsClear(gfx, 0);
-        pGdipDrawImageRectI(gfx, srcBitmap, 0, 0, w, h);
-        pGdipDeleteGraphics(gfx);
+    // v1.21.22: RAII - il Graphics viene rilasciato anche se il disegno
+    // sotto solleva un'eccezione C++.
+    GdipGraphicsHolder gfxHolder;
+    if (pGdipGetImageGraphicsContext(dstBitmap, &gfxHolder.gfx) == 0 && gfxHolder.gfx) {
+        pGdipSetInterpolationMode(gfxHolder.gfx, 7);
+        pGdipSetPixelOffsetMode(gfxHolder.gfx, 3);
+        pGdipGraphicsClear(gfxHolder.gfx, 0);
+        pGdipDrawImageRectI(gfxHolder.gfx, srcBitmap, 0, 0, w, h);
         HBITMAP hBmp = NULL;
         if (pGdipCreateHBITMAPFromBitmap(dstBitmap, &hBmp, 0) == 0 && hBmp) {
             HDC hdcMem = CreateCompatibleDC(hdc);
@@ -7400,7 +8167,7 @@ static BOOL QueryToolbarNetworkIconRect(HWND hToolbar, RECT* outRect) {
 // and the RetroBar instance simply asks (see RetroBarTray::QueryExplorerForNetworkIcon).
 // wParam selects the field, the answer is the LRESULT (0 = unknown / no
 // network icon in this explorer.exe).
-static const PCWSTR kTrayInfoClassName = L"Win7NetFlyout_TrayInfoWnd";
+static const PCWSTR kTrayInfoClassName = L"Win8NetFlyout_TrayInfoWnd";
 static UINT g_uQueryNetworkIconMsg = 0;
 static HWND g_hTrayInfoWnd = NULL;           // hotkey thread of the Explorer host
 static bool g_trayInfoClassRegistered = false;
@@ -7808,6 +8575,27 @@ void UpdateLayoutGeometry(int scrollbarOffset) {
     }
 }
 
+/* Porting: le lambda con convenzione WINAPI non sono digerite da MSVC
+ * (x64 espande la convenzione come __cdecl in posizione di lambda, errore
+ * sintattico): i callback diventano funzioni statiche che ricevono il
+ * puntatore via LPARAM, identico contratto di EnumThreadWindows. */
+struct W8EnumWindowsData {
+    HWND hwnd;
+};
+
+static BOOL CALLBACK W8CollectVisibleWindowProc(HWND h, LPARAM lp) {
+    W8EnumWindowsData* data = reinterpret_cast<W8EnumWindowsData*>(lp);
+    if (!IsWindowVisible(h))
+        return TRUE;
+    data->hwnd = h;
+    return FALSE;
+}
+
+static BOOL CALLBACK W8PostCloseToWindowProc(HWND h, LPARAM) {
+    PostMessageW(h, WM_CLOSE, 0, 0);
+    return TRUE;
+}
+
 static BOOL BringProfileDialogToForeground() {
     if (!g_hProfileDialogThread)
         return FALSE;
@@ -7820,14 +8608,9 @@ static BOOL BringProfileDialogToForeground() {
         HWND hwnd;
     } data = {};
 
-    EnumThreadWindows(tid, [](HWND h, LPARAM lp) WINAPI -> BOOL {
-        EnumData* data = reinterpret_cast<EnumData*>(lp);
-        if (!IsWindowVisible(h))
-            return TRUE;
-
-        data->hwnd = h;
-        return FALSE;
-    }, reinterpret_cast<LPARAM>(&data));
+    W8EnumWindowsData wdata = {};
+    EnumThreadWindows(tid, W8CollectVisibleWindowProc, reinterpret_cast<LPARAM>(&wdata));
+    data.hwnd = wdata.hwnd;
 
     if (!data.hwnd)
         return FALSE;
@@ -7938,6 +8721,147 @@ static DWORD WINAPI WlanProfileDialogThreadProc(LPVOID lpParam) {
 // the flyout's UI thread is not blocked by a modal native dialog. Cleanup code
 // must account for that thread, but removing this path entirely would trade a
 // lifecycle concern for a user-visible behavior regression.
+/* ---------------------------------------------------------------------- */
+/*  v1.21.17 - LAUNCHES FROM THE FLYOUT MUST NOT TAKE THE TASKBAR DOWN    */
+/* ---------------------------------------------------------------------- */
+/*  "Open Network and Sharing Center" and the Status / Properties verbs of a
+ *  row are handed to the shell, which below the surface loads COM, verb
+ *  handlers and Control Panel pages: every one of those steps can fail in ways
+ *  a C++ exception does not catch (an access violation inside a third-party
+ *  module, for instance), and the process hosting this pane is the taskbar
+ *  itself.
+ *
+ *  The two protections the recreated Windows 7 flyout has used since v2.63 are
+ *  applied here too, each in its own function and never mixed in the same body
+ *  (MSVC rule: a C++ try and an SEH __try cannot share one function):
+ *    - ShellExecuteInner / ShellExecuteExInner: SEH guard on the shell API;
+ *    - SafeShellExecuteOpen / SafeShellExecuteEx: C++ try/catch around it.
+ *  Every failure is written to the core log, so "the panel does not open" can
+ *  be told apart from "the shell refused it", and the taskbar stays alive. */
+static BOOL ShellExecuteInner(HWND hwnd, const WCHAR* file, const WCHAR* params) {
+    BOOL ok = FALSE;
+    W7T_SEH_TRY
+    {
+        const HINSTANCE result =
+            ShellExecuteW(hwnd, L"open", file, params, NULL, SW_SHOWNORMAL);
+        ok = reinterpret_cast<INT_PTR>(result) > 32 ? TRUE : FALSE;
+    }
+    W7T_SEH_CATCH
+    {
+        ok = FALSE;
+    }
+    W7T_SEH_END
+    return ok;
+}
+
+static BOOL SafeShellExecuteOpen(HWND hwnd, const WCHAR* file, const WCHAR* params) {
+    BOOL ok = FALSE;
+    try {
+        ok = ShellExecuteInner(hwnd, file, params);
+    } catch (...) {
+        ok = FALSE;
+    }
+    if (!ok) {
+        w7t::LogTagged(L"NET8", L"launch failed: %s %s",
+                       file != NULL ? file : L"?",
+                       params != NULL ? params : L"");
+    }
+    return ok;
+}
+
+/* v1.21.18: the Control Panel is started directly instead of through the
+ * shell. ShellExecuteW makes the SHELL load its in-process extensions into
+ * OUR process - context-menu handlers, namespace extensions and every other
+ * in-proc COM object registered for the object being opened - and anything
+ * that faults inside one of those takes the taskbar down with it. That is the
+ * reported crash: "the program closes when the network settings are opened
+ * from the recreated Windows 8 pane". CreateProcessW starts the very same
+ * executable without hosting anybody else's code here. The shell stays as the
+ * fallback, so the link keeps working if the direct start is refused. */
+static BOOL StartControlPanelPage(const WCHAR* pageName) {
+    if (pageName == nullptr || pageName[0] == L'\0')
+        return FALSE;
+
+    BOOL started = FALSE;
+    W7T_SEH_TRY
+    {
+        WCHAR systemDir[MAX_PATH] = {};
+        const UINT dirLength = GetSystemDirectoryW(systemDir, ARRAYSIZE(systemDir));
+        if (dirLength > 0 && dirLength < ARRAYSIZE(systemDir)) {
+            /* CreateProcessW may write to the command line buffer: keep a
+             * local, writable copy, never a string literal. */
+            WCHAR commandLine[MAX_PATH * 2] = {};
+            if (SUCCEEDED(StringCchPrintfW(commandLine, ARRAYSIZE(commandLine),
+                                           L"\"%s\\control.exe\" /name %s",
+                                           systemDir, pageName))) {
+                STARTUPINFOW si = {};
+                si.cb = sizeof(si);
+                PROCESS_INFORMATION pi = {};
+                if (CreateProcessW(nullptr, commandLine, nullptr, nullptr, FALSE,
+                                   0, nullptr, nullptr, &si, &pi)) {
+                    started = TRUE;
+                    if (pi.hThread) CloseHandle(pi.hThread);
+                    if (pi.hProcess) CloseHandle(pi.hProcess);
+                }
+            }
+        }
+    }
+    W7T_SEH_CATCH
+    {
+        started = FALSE;
+    }
+    W7T_SEH_END
+    return started;
+}
+
+static BOOL SafeOpenControlPanelPage(const WCHAR* pageName) {
+    BOOL ok = FALSE;
+    try {
+        ok = StartControlPanelPage(pageName);
+    } catch (...) {
+        ok = FALSE;
+    }
+    if (!ok && pageName != nullptr) {
+        w7t::LogTagged(L"NET8",
+                       L"control.exe /name %s was not started directly: trying the shell",
+                       pageName);
+        WCHAR params[MAX_PATH] = {};
+        if (SUCCEEDED(StringCchPrintfW(params, ARRAYSIZE(params), L"/name %s",
+                                       pageName))) {
+            ok = SafeShellExecuteOpen(NULL, L"control.exe", params);
+        }
+    }
+    if (ok) {
+        w7t::LogTagged(L"NET8", L"control.exe /name %s: opened",
+                       pageName != nullptr ? pageName : L"?");
+    }
+    return ok;
+}
+
+static BOOL ShellExecuteExInner(SHELLEXECUTEINFOW* sei) {
+    BOOL ok = FALSE;
+    W7T_SEH_TRY
+    {
+        ok = ShellExecuteExW(sei);
+    }
+    W7T_SEH_CATCH
+    {
+        ok = FALSE;
+    }
+    W7T_SEH_END
+    return ok;
+}
+
+static BOOL SafeShellExecuteEx(SHELLEXECUTEINFOW* sei) {
+    BOOL ok = FALSE;
+    try {
+        ok = ShellExecuteExInner(sei);
+    } catch (...) {
+        ok = FALSE;
+    }
+    return ok;
+}
+
 void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
     WifiNetworkItem menuItem = {};
     EnterCriticalSection(&g_Ctx.csLock);
@@ -7954,6 +8878,13 @@ void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
 
     HMENU hMenu = CreatePopupMenu();
     if (!hMenu) return;
+    /* v1.21.22 - RAII sul menu: qualunque uscita da questa funzione, comprese
+     * le uscite anticipate e un'eccezione C++, lo distrugge. Prima la
+     * DestroyMenu andava ricordata su ogni strada. */
+    struct MenuGuard {
+        HMENU menu;
+        ~MenuGuard() { if (menu != NULL) DestroyMenu(menu); }
+    } menuGuard{ hMenu };
     if (menuItem.connState == CONN_STATE_CONNECTED) {
         AppendMenuW(hMenu, MF_STRING, IDM_DISCONNECT, LOC(STR_CTX_DISCONNECT));
         AppendMenuW(hMenu, MF_STRING, IDM_STATUS,     LOC(STR_CTX_STATUS));
@@ -7968,7 +8899,19 @@ void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
     if (g_Settings.theme == 1) {
         DarkContextMenu::Apply(TRUE);
     }
-    int cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN|TPM_RIGHTBUTTON|TPM_RETURNCMD, pt.x, pt.y, 0, hwnd, NULL);
+    /* v1.21.22: TrackPopupMenu e' codice shell che chiama dentro Explorer:
+     * la guardia SEH lo isola come il resto del flyout. cmdRaw e' volatile
+     * perche' viene scritto dentro il blocco setjmp e letto dopo. */
+    volatile int cmdRaw = 0;
+    W7T_SEH_TRY {
+        cmdRaw = TrackPopupMenu(hMenu, TPM_LEFTALIGN|TPM_RIGHTBUTTON|TPM_RETURNCMD, pt.x, pt.y, 0, hwnd, NULL);
+    }
+    W7T_SEH_CATCH {
+        cmdRaw = 0;
+        w7t::LogTagged(L"NET8", L"TrackPopupMenu ha sollevato un'eccezione: menu contestuale saltato");
+    }
+    W7T_SEH_END
+    const int cmd = cmdRaw;
     if (g_Settings.theme == 1) {
         DarkContextMenu::Restore();
     }
@@ -7988,16 +8931,16 @@ void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
         }
         LeaveCriticalSection(&g_Ctx.csLock);
         if (targetIndex < 0) {
-            DestroyMenu(hMenu);
+            /* v1.21.22: il menu lo distrugge il RAII (menuGuard) all'uscita. */
             return;
         }
 
         switch (cmd) {
         case IDM_CONNECT:
-            ConnectToNetwork(targetIndex);
+            SafeConnectToNetwork(targetIndex);
             break;
         case IDM_DISCONNECT:
-            DisconnectFromNetwork(targetIndex);
+            SafeDisconnectFromNetwork(targetIndex);
             break;
         case IDM_STATUS:
 case IDM_PROPERTIES:
@@ -8093,11 +9036,11 @@ case IDM_PROPERTIES:
                 sei.lpVerb =
                     (cmd == IDM_STATUS) ? L"status" : L"properties";
 
-                launched = ShellExecuteExW(&sei);
+                launched = SafeShellExecuteEx(&sei);
 
                 if (!launched) {
                     sei.lpVerb = L"properties";
-                    launched = ShellExecuteExW(&sei);
+                    launched = SafeShellExecuteEx(&sei);
                 }
 
                 CoTaskMemFree(pidl);
@@ -8106,13 +9049,7 @@ case IDM_PROPERTIES:
     }
 
     if (!launched) {
-        ShellExecuteW(
-            hwnd,
-            L"open",
-            L"shell:::{7007ACC7-3202-11D1-AAD2-00805FC1270E}",
-            NULL,
-            NULL,
-            SW_SHOWNORMAL);
+        SafeShellExecuteOpen(hwnd, L"shell:::{7007ACC7-3202-11D1-AAD2-00805FC1270E}", NULL);
     }
 
     HideFlyoutVisual(hwnd);
@@ -8120,7 +9057,7 @@ case IDM_PROPERTIES:
 break;
         }
     }
-    DestroyMenu(hMenu);
+    /* v1.21.22: il menu lo distrugge il RAII (menuGuard) a fine funzione. */
 }
 
 static RECT GetFooterRect() {
@@ -8195,6 +9132,10 @@ static BOOL g_CharmsAirplaneOn         = FALSE;
 static BOOL g_CharmsWifiRadioOn        = TRUE;
 static RECT g_rcCharmsAutoConnect      = {0,0,0,0};
 static BOOL g_CharmsAutoConnect        = TRUE;
+
+/* v1.21.24 - il mouse e' sopra la riga "Connetti automaticamente": fino alla
+ * 1.21.23 quella riga non dava alcun riscontro al passaggio del mouse. */
+static BOOL g_CharmsAutoConnectHover    = FALSE;
 static BOOL g_CharmsExpandedConnected  = FALSE;  // expanded row is the active connection
 static HWND g_hWndCharmsPwEdit         = NULL;
 static HWND g_hWndCharmsConnectBtn     = NULL;
@@ -8307,6 +9248,41 @@ static void CharmsAccentColorInvalidate(void) {
     g_CharmsAccentCached = FALSE;
 }
 
+/* v1.21.16: maps the choices made in Properties -> "Impostazioni extra" onto
+ * this pane.
+ *
+ *   "Colore del flyout" -> "Colore di sistema" asks the Windows accent colour
+ *   live (mode 1 below: CharmsQueryAccentColor, DwmGetColorizationColor, and
+ *   no copy of the colour is ever stored in the configuration, so a
+ *   personalization change is followed); "Colore personalizzato" paints
+ *   exactly the colour the user picked (mode 2).
+ *
+ *   "Modalita privacy" -> the pane hides the real network names, exactly like
+ *   the recreated Windows 7 connection flyout does. Only what WE draw
+ *   changes: no connection, no Windows setting is touched.
+ *
+ * The purple default of the original mod simply stops being reachable: in
+ * this program the colour of the recreated Windows 8 flyout is a user
+ * setting, with "system colour" as its default. */
+static void CharmsApplyExtraSettings() {
+    if (w7t::extras::FlyoutColorMode() == 1) {
+        uint32_t rgb = w7t::extras::FlyoutCustomColor() & 0x00FFFFFFu;
+        g_Settings.charmsBackgroundMode = 2;   /* custom colour */
+        g_Settings.charmsCustomColor = RGB((rgb >> 16) & 0xFF,
+                                           (rgb >> 8) & 0xFF,
+                                           rgb & 0xFF);
+    } else {
+        g_Settings.charmsBackgroundMode = 1;   /* Windows accent, live */
+    }
+
+    g_Settings.privacyMode =
+        (w7t::extras::ConnectionPrivacyMode() == 1) ? TRUE : FALSE;
+
+    /* The cached accent belongs to the previous colour: drop it so the next
+     * paint resolves the current one. */
+    CharmsAccentColorInvalidate();
+}
+
 // GDI has no alpha for solid fills, so a "slightly transparent white" is
 // pre-blended against whatever the pane colour currently is. Keeping this a
 // computation on CHARMS_BG_COLOR (instead of a hardcoded RGB) means the
@@ -8319,6 +9295,78 @@ static COLORREF CharmsBlendWhite(COLORREF bg, int whitePercent) {
     g += ((255 - g) * whitePercent) / 100;
     b += ((255 - b) * whitePercent) / 100;
     return RGB(r, g, b);
+}
+
+/* v1.21.24 - velo bianco traslucido disegnato con GDI+.
+ *
+ * Riempie rc con un bianco all'alpha indicato (0-255): il velo si SOMMA a
+ * quello che c'e' sotto invece di sostituirlo, quindi resta corretto anche se
+ * sotto c'e' qualcosa di diverso dalla tinta piana del pannello.
+ *
+ * Tre accorgimenti, in quest'ordine:
+ *  - GDI+ e' opzionale: se le funzioni non sono state caricate si esce subito;
+ *  - il velo e' verificato leggendo il pixel prima e dopo: se la superficie
+ *    non ha accettato la fusione (nessun cambiamento), si ricade sul
+ *    riempimento opaco di sempre;
+ *  - tutto dentro un try/catch C++ - questa funzione viene chiamata anche
+ *    fuori dalle guardie SEH del disegno.
+ *
+ * Restituisce true quando il velo e' stato disegnato (anche con la ricaduta).
+ */
+static bool CharmsFillWhiteAlpha(HDC hdc, const RECT* rc, int alpha) {
+    if (!hdc || !rc) return false;
+    if (rc->right <= rc->left || rc->bottom <= rc->top) return true;
+    if (alpha <= 0) return true;
+    if (alpha > 255) alpha = 255;
+    if (!pGdipCreateFromHDC || !pGdipCreateSolidFill || !pGdipFillRectangle || !pGdipDeleteBrush)
+        return false;
+
+    const int probeX = rc->left + (rc->right - rc->left) / 2;
+    const int probeY = rc->top  + (rc->bottom - rc->top) / 2;
+    COLORREF before = GetPixel(hdc, probeX, probeY);
+
+    try {
+        /* RAII: il Graphics e il pennello escono da qui in ogni caso. */
+        GdipGraphicsHolder gfx;
+        if (pGdipCreateFromHDC(hdc, &gfx.gfx) != 0 || !gfx.gfx) return false;
+
+        struct BrushGuard {
+            void* brush = NULL;
+            ~BrushGuard() { if (brush != NULL) pGdipDeleteBrush(brush); }
+        } brushGuard;
+
+        const unsigned int argb = ((unsigned int)alpha << 24) | 0x00FFFFFFu;
+        if (pGdipCreateSolidFill(argb, &brushGuard.brush) != 0 || !brushGuard.brush)
+            return false;
+
+        if (pGdipFillRectangle(gfx.gfx, brushGuard.brush, rc->left, rc->top,
+                               rc->right - rc->left, rc->bottom - rc->top) != 0)
+            return false;
+    } catch (...) {
+        return false;
+    }
+
+    COLORREF after = GetPixel(hdc, probeX, probeY);
+    if (after == CLR_INVALID || after == before) return false;
+    return true;
+}
+
+/* Velo di hover/selezione con la stessa percentuale di bianco usata dal resto
+ * del pannello (CharmsBlendWhite): prima si prova la fusione vera con GDI+,
+ * se non riesce si usa il riempimento opaco. */
+static void CharmsFillHover(HDC hdc, const RECT* rc, int whitePercent) {
+    if (!hdc || !rc) return;
+    if (whitePercent < 0)   whitePercent = 0;
+    if (whitePercent > 100) whitePercent = 100;
+
+    const int alpha = (whitePercent * 255 + 50) / 100;   /* 14% -> 36, 30% -> 77 */
+    if (CharmsFillWhiteAlpha(hdc, rc, alpha)) return;
+
+    HBRUSH hBr = CreateSolidBrush(CharmsBlendWhite(CharmsPaneBg(), whitePercent));
+    if (hBr) {
+        FillRect(hdc, rc, hBr);
+        DeleteObject(hBr);
+    }
 }
 
 static void DrawCharmsToggle(HDC hdc, int x, int y, BOOL on) {
@@ -8373,13 +9421,30 @@ static void DrawCharmsCheckbox(HDC hdc, int x, int y, BOOL checked) {
     }
 }
 
+/* v1.21.22 - CINQUE barre, non quattro.
+ *
+ * Windows misura la potenza del segnale Wi-Fi (e cellulare) su cinque
+ * livelli: cinque tacche sono quelle che disegnano la tray e il pannello
+ * reti di Windows 8/8.1 (la mappatura non e' pubblicata, ma il numero di
+ * barre si': vedi la risposta Microsoft "5 signal bars" in
+ * learn.microsoft.com/en-us/answers/questions/3917953). Con quattro barre
+ * l'icona del pannello non corrispondeva ne' all'icona di sistema
+ * (DrawNativeSignalIcon, che usa le icone 152+i a cinque livelli) ne' al
+ * valore letto da WLAN.
+ *
+ * Le misure sono rifatte per stare nella stessa fascia di 22 px che il
+ * pannello riserva all'icona: 5 barre da 3 px con 4 spazi da 2 px = 23 px,
+ * l'ultima tacca alta quanto la fascia (16 px come prima). */
+static int CharmsSignalIconWidth() {
+    return 5 * ScaleDpi(3) + 4 * ScaleDpi(2);
+}
+
 static void DrawCharmsSignalIcon(HDC hdc, int x, int y, ULONG signalQuality) {
-    // Four simple bars, like the Wi-Fi signal glyph in the screenshot.
-    int barW = ScaleDpi(4), gap = ScaleDpi(2), baseY = y + ScaleDpi(16);
-    int bars = (signalQuality >= 80) ? 4 : (signalQuality >= 55) ? 3 :
-               (signalQuality >= 30) ? 2 : 1;
-    for (int i = 0; i < 4; i++) {
-        int barH = ScaleDpi(4) + i * ScaleDpi(4);
+    int barW = ScaleDpi(3), gap = ScaleDpi(2), baseY = y + ScaleDpi(16);
+    int bars = (signalQuality >= 75) ? 5 : (signalQuality >= 55) ? 4 :
+               (signalQuality >= 35) ? 3 : (signalQuality >= 15) ? 2 : 1;
+    for (int i = 0; i < 5; i++) {
+        int barH = ScaleDpi(4) + i * ScaleDpi(3);
         BOOL lit = (i < bars);
         HBRUSH hBr = CreateSolidBrush(lit ? RGB(255,255,255) : RGB(110,165,225));
         RECT rc = { x + i * (barW + gap), baseY - barH, x + i * (barW + gap) + barW, baseY };
@@ -8440,14 +9505,15 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     int cxTitle = margin + oxTitle;
 
     SelectObject(hdc, hFontTitle);
-    TextOutW(hdc, cxTitle, curY, L"Networks", 8);
+    TextOutW(hdc, cxTitle, curY, LOC(STR_CHARMS_TITLE_NETWORKS),
+             lstrlenW(LOC(STR_CHARMS_TITLE_NETWORKS)));
     curY += ScaleDpi(56);
 
     // Link: the hover state is a full-width lighter band (like every other
     // hit target in the pane), not an underline. The rect is measured from
     // the actual text extent so the click area matches what's drawn.
     SelectObject(hdc, hFontBody);
-    const wchar_t* linkText = L"View Connection Settings";
+    const wchar_t* linkText = LOC(STR_CHARMS_VIEW_SETTINGS);
     SIZE linkSz; GetTextExtentPoint32W(hdc, linkText, lstrlenW(linkText), &linkSz);
     int linkPadY = ScaleDpi(8);
     if (g_IsHoveringLink) {
@@ -8462,11 +9528,16 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
 
     // Airplane mode section
     SelectObject(hdc, hFontSection);
-    TextOutW(hdc, cx, curY, L"Airplane mode", 13);
+    TextOutW(hdc, cx, curY, LOC(STR_CHARMS_AIRPLANE),
+             lstrlenW(LOC(STR_CHARMS_AIRPLANE)));
     curY += ScaleDpi(30);
     SelectObject(hdc, hFontBody);
-    TextOutW(hdc, cx, curY + ScaleDpi(3),
-             g_CharmsAirplaneOn ? L"On" : L"Off", g_CharmsAirplaneOn ? 2 : 3);
+    {
+        const WCHAR* airplaneState =
+            g_CharmsAirplaneOn ? LOC(STR_CHARMS_ON) : LOC(STR_CHARMS_OFF);
+        TextOutW(hdc, cx, curY + ScaleDpi(3), airplaneState,
+                 lstrlenW(airplaneState));
+    }
     {
         int tx = panelW - margin - ScaleDpi(44) + ox, ty = curY;
         DrawCharmsToggle(hdc, tx, ty, g_CharmsAirplaneOn);
@@ -8477,37 +9548,65 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     // Connections section
     NetworkStateSnapshot paintState;
     CaptureNetworkState(&paintState);
-    BOOL isWifiConnected = (paintState.networkCount > 0 &&
-                             paintState.networks[0].connState == CONN_STATE_CONNECTED);
+    /* v1.21.18: the row, not networks[0]: see FindConnectedNetworkRow(). */
+    const int connectedRow = FindConnectedNetworkRow(paintState);
+    BOOL isWifiConnected = (connectedRow >= 0);
     BOOL isAnyConnected = (paintState.ethernetConnected || isWifiConnected);
 
     SelectObject(hdc, hFontSection);
-    TextOutW(hdc, cx, curY, L"Connections", 11);
+    TextOutW(hdc, cx, curY, LOC(STR_CHARMS_CONNECTIONS),
+             lstrlenW(LOC(STR_CHARMS_CONNECTIONS)));
     curY += ScaleDpi(30);
 
     if (isAnyConnected) {
         WCHAR displayName[64] = {0};
         if (paintState.ethernetConnected) {
-            StringCchCopyW(displayName, ARRAYSIZE(displayName), paintState.ethernetNetworkName);
-            if (displayName[0] == L'\0')
-                StringCchCopyW(displayName, ARRAYSIZE(displayName), L"Ethernet");
-        } else {
-            FormatDisplaySSID(paintState.networks[0], 0, displayName, ARRAYSIZE(displayName));
+            /* v1.21.18: privacy mode covers the cable too. The Wi-Fi rows go
+             * through FormatDisplaySSID(), which masks them; the wired name
+             * used to be printed as it is, so one of the two connections
+             * ignored the setting the user had just turned on. Numbering and
+             * wording match the Windows 7-style header ("Rete 1"). */
+            if (g_Settings.privacyMode) {
+                StringCchPrintfW(displayName, ARRAYSIZE(displayName),
+                                 LOC(STR_NETWORK_PRIVACY_FMT), 1);
+            } else {
+                StringCchCopyW(displayName, ARRAYSIZE(displayName), paintState.ethernetNetworkName);
+                if (displayName[0] == L'\0')
+                    StringCchCopyW(displayName, ARRAYSIZE(displayName), L"Ethernet");
+            }
+        } else if (connectedRow >= 0) {
+            FormatDisplaySSID(paintState.networks[connectedRow], connectedRow,
+                              displayName, ARRAYSIZE(displayName));
         }
         SelectObject(hdc, hFontBodyBold);
         TextOutW(hdc, cx, curY, displayName, lstrlenW(displayName));
         SelectObject(hdc, hFontBody);
-        TextOutW(hdc, cx, curY + ScaleDpi(18), L"Connected", 9);
+        TextOutW(hdc, cx, curY + ScaleDpi(18), LOC(STR_CONNECTED_TEXT),
+                 lstrlenW(LOC(STR_CONNECTED_TEXT)));
+        curY += ScaleDpi(52);
+    } else {
+        /* v1.21.18: nothing to show is a state, not an empty area. Windows 8
+         * prints one of these two lines, and an empty section reads as a
+         * broken pane. */
+        const WCHAR* stateText = (paintState.networkCount > 0)
+            ? LOC(STR_CONNECTIONS_AVAILABLE)
+            : LOC(STR_NO_CONNECTIONS);
+        SelectObject(hdc, hFontBody);
+        TextOutW(hdc, cx, curY, stateText, lstrlenW(stateText));
         curY += ScaleDpi(52);
     }
 
     // Wi-Fi section
     SelectObject(hdc, hFontSection);
-    TextOutW(hdc, cx, curY, L"Wi-Fi", 5);
+    TextOutW(hdc, cx, curY, LOC(STR_CHARMS_WIFI),
+             lstrlenW(LOC(STR_CHARMS_WIFI)));
     curY += ScaleDpi(30);
     SelectObject(hdc, hFontBody);
-    TextOutW(hdc, cx, curY + ScaleDpi(3),
-             g_CharmsWifiRadioOn ? L"On" : L"Off", g_CharmsWifiRadioOn ? 2 : 3);
+    {
+        const WCHAR* wifiState =
+            g_CharmsWifiRadioOn ? LOC(STR_CHARMS_ON) : LOC(STR_CHARMS_OFF);
+        TextOutW(hdc, cx, curY + ScaleDpi(3), wifiState, lstrlenW(wifiState));
+    }
     {
         int tx = panelW - margin - ScaleDpi(44) + ox, ty = curY;
         DrawCharmsToggle(hdc, tx, ty, g_CharmsWifiRadioOn);
@@ -8551,22 +9650,28 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
         // instead of the old hardcoded blue.
         if (isExpanded || i == g_CharmsHoveredRow) {
             RECT rcHi = { ox, rowTop, panelW + ox, rowTop + blockH };
-            HBRUSH hBrHi = CreateSolidBrush(
-                CharmsBlendWhite(CharmsPaneBg(), isExpanded ? 22 : 14));
-            FillRect(hdc, &rcHi, hBrHi);
-            DeleteObject(hBrHi);
+            /* v1.21.24: velo vero con GDI+ (con ricaduta opaca) invece del
+             * riempimento calcolato sul colore del pannello. Il riquadro resta
+             * dentro il pannello (la fascia di sinistra e' trasparente per
+             * colore e non va mai riempita, nemmeno da GDI+). */
+            if (rcHi.right > panelW) rcHi.right = panelW;
+            if (rcHi.left  < 0)      rcHi.left  = 0;
+            CharmsFillHover(hdc, &rcHi, isExpanded ? 22 : 14);
         }
 
         // Name on the left, signal bars right-aligned at the pane margin.
         SelectObject(hdc, hFontBody);
         SetTextColor(hdc, RGB(255,255,255));
         TextOutW(hdc, cx, curY, displayName, lstrlenW(displayName));
-        int barsX = panelW - margin - ScaleDpi(22) + ox;
+        /* v1.21.22: la larghezza dell'icona la decide l'icona stessa (5 barre
+         * = 23 px a 100% DPI), cosi' resta incolonnata al margine del
+         * pannello anche se le misure cambiano. */
+        int barsX = panelW - margin - CharmsSignalIconWidth() + ox;
         DrawCharmsSignalIcon(hdc, barsX, curY, paintState.networks[i].signalQuality);
 
         // "Connected" sits just left of the signal bars, as in Windows 8.
         if (isConnected) {
-            const wchar_t* connText = L"Connected";
+            const wchar_t* connText = LOC(STR_CONNECTED_TEXT);
             SIZE connSz;
             GetTextExtentPoint32W(hdc, connText, lstrlenW(connText), &connSz);
             TextOutW(hdc, barsX - ScaleDpi(10) - connSz.cx, curY,
@@ -8585,7 +9690,7 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
                 // "Connect automatically" belongs to already-saved networks,
                 // and including it here is what made this panel so tall.
                 SelectObject(hdc, hFontBody);
-                const wchar_t* pwLabel = L"Enter the network security key";
+                const wchar_t* pwLabel = LOC(STR_CHARMS_ENTER_KEY);
                 TextOutW(hdc, cx, curY, pwLabel, lstrlenW(pwLabel));
                 curY += ScaleDpi(24);
 
@@ -8624,12 +9729,22 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
                 // "Connect automatically" - custom drawn rather than a child
                 // control, so it can sit on the color-keyed layered pane
                 // without a theme fighting the Metro look.
+                /* v1.21.24 - hover: la riga si accende come le altre righe del
+                 * pannello quando il mouse ci passa sopra (stato tenuto da
+                 * WM_MOUSEMOVE). Prima non c'era alcun riscontro. */
+                if (g_CharmsAutoConnectHover) {
+                    RECT rcChkHi = { cx - ScaleDpi(2), curY - ScaleDpi(2),
+                                     panelW - margin + ox, curY + ScaleDpi(20) };
+                    if (rcChkHi.right > panelW) rcChkHi.right = panelW;
+                    if (rcChkHi.left  < 0)      rcChkHi.left  = 0;
+                    CharmsFillHover(hdc, &rcChkHi, 14);
+                }
                 int chkX = cx + ScaleDpi(6);
                 int chkY = curY + ScaleDpi(2);
                 DrawCharmsCheckbox(hdc, chkX, chkY, g_CharmsAutoConnect);
                 SelectObject(hdc, hFontBody);
                 SetTextColor(hdc, RGB(255,255,255));
-                const wchar_t* chkText = L"Connect automatically";
+                const wchar_t* chkText = LOC(STR_CHK_CONNECT_AUTO);
                 SIZE chkSz;
                 GetTextExtentPoint32W(hdc, chkText, lstrlenW(chkText), &chkSz);
                 TextOutW(hdc, chkX + ScaleDpi(24), curY, chkText, lstrlenW(chkText));
@@ -8645,7 +9760,8 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
             int btnX = panelW - margin - btnW + ox;
             if (g_hWndCharmsConnectBtn) {
                 SetWindowTextW(g_hWndCharmsConnectBtn,
-                               isConnected ? L"Disconnect" : L"Connect");
+                               isConnected ? LOC(STR_BTN_DISCONNECT)
+                                           : LOC(STR_BTN_CONNECT));
                 MoveWindow(g_hWndCharmsConnectBtn, btnX, curY, btnW, btnH, TRUE);
                 ShowWindow(g_hWndCharmsConnectBtn, SW_SHOW);
             }
@@ -8673,7 +9789,28 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     SelectClipRgn(hdc, NULL);
 }
 
+/* v1.21.17: the window procedure is a dispatcher with a C++ try/catch around
+ * the real handler. This pane lives inside the taskbar process, so one thrown
+ * exception in one branch (a std::bad_alloc while building a tooltip, a
+ * std::wstring operation on a malformed SSID) used to close the whole bar.
+ * The two protections the project uses elsewhere are kept separate for the
+ * same MSVC reason as everywhere else: the SEH guards live in the Safe*()
+ * helpers called from inside, the C++ catch lives here. Anything caught is
+ * written to the core log with the message that caused it. */
+LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
 LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    try {
+        return FlyoutWndProcInner(hwnd, uMsg, wParam, lParam);
+    } catch (...) {
+        w7t::LogTagged(L"NET8",
+                       L"window message 0x%04X raised a C++ exception: ignored",
+                       (unsigned)uMsg);
+        return 0;
+    }
+}
+
+LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_NCHITTEST: {
         LRESULT r = DefWindowProc(hwnd, uMsg, wParam, lParam);
@@ -8781,6 +9918,17 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
             CheckConnectionTimeouts();
             UpdateLayoutGeometry();
             InvalidateRect(hwnd, NULL, FALSE);
+        } else if (wParam == 1003) {
+            /* v1.21.17: THE SHOT AFTER THE SCAN (from the recreated Windows 7
+             * flyout, v3.6). Opening with an empty list orders a WLAN scan: the
+             * results arrive a few seconds later, but nothing re-read the data
+             * when the periodic refresh timer was not running. One single shot
+             * after 4 s brings them into the list. */
+            KillTimer(hwnd, 1003);
+            RefreshNetworkData();
+            ClampScrollPos();
+            UpdateLayoutGeometry();
+            InvalidateRect(hwnd, NULL, TRUE);
         } else if (wParam == CHARMS_ANIM_TIMER_ID) {
             InterlockedExchange(&g_CharmsTickPosted, 0);
             CharmsAnimTick(hwnd);
@@ -8827,6 +9975,9 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
         if (!g_RefreshTimer && g_Settings.refreshInterval > 0) {
             g_RefreshTimer = SetTimer(hwnd, 1000, g_Settings.refreshInterval, NULL);
         }
+        /* v1.21.17: the "is the list empty?" check must run AFTER the refresh
+         * this message posts (here the count is still the previous one). */
+        g_ScanCheckPending = TRUE;
         PostMessageW(hwnd, WM_REFRESH_DATA, TRUE, 0);
         break;
     case WM_REFRESH_DATA: {
@@ -8837,6 +9988,55 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
             break;
         }
         RefreshNetworkData(/*forceDetection=*/(BOOL)wParam);
+        /* v1.21.17: diagnostics of the first refresh after opening and, when the
+         * list stayed empty, a scan order plus a guaranteed re-read after 4 s
+         * (timer 1003). This is the piece of the recreated Windows 7 flyout
+         * that makes the networks appear on a radio that had not scanned yet:
+         * without it the Windows 8 pane looked like it had no connections. */
+        if (g_ScanCheckPending) {
+            g_ScanCheckPending = FALSE;
+            int netCountNow = 0;
+            EnterCriticalSection(&g_Ctx.csLock);
+            netCountNow = g_NetworkCount;
+            LeaveCriticalSection(&g_Ctx.csLock);
+            BOOL ethernetNow = FALSE;
+            EnterCriticalSection(&g_Ctx.csLock);
+            ethernetNow = g_EthernetConnected;
+            LeaveCriticalSection(&g_Ctx.csLock);
+            w7t::LogTagged(L"NET8",
+                           L"pane opened: %d network(s) listed, WLAN %s, cable %s, "
+                           L"language index %d (pack 0x%04X)",
+                           netCountNow,
+                           g_Ctx.hWlanClient ? L"available" : L"unavailable",
+                           ethernetNow ? L"connected" : L"not connected",
+                           g_AppLanguageIndex,
+                           (unsigned)g_CurrentLocalePack->langId);
+            if (netCountNow == 0) {
+                /* An empty list has two possible causes: the radio has not
+                 * scanned yet, or there is no WLAN client at all (the service
+                 * was not ready when the module started - the log line above
+                 * says which). Ask for the client once more here, then order the
+                 * scan; the re-read at 4 s picks up whatever arrives. */
+                if (!g_Ctx.hWlanClient) {
+                    DWORD dwMaxClient = 2, dwCurVer = 0;
+                    const DWORD retryOpen =
+                        SafeWlanOpenHandle(dwMaxClient, &dwCurVer, &g_Ctx.hWlanClient);
+                    if (retryOpen == ERROR_SUCCESS) {
+                        SafeWlanRegisterNotification(g_Ctx.hWlanClient,
+                                                     WLAN_NOTIFICATION_SOURCE_ALL, TRUE,
+                                                     WlanNotificationCallback, &g_Ctx);
+                        w7t::LogTagged(L"NET8", L"WLAN client opened on the empty-list retry");
+                        PostMessageW(hwnd, WM_REFRESH_DATA, TRUE, 0);
+                    } else {
+                        g_Ctx.hWlanClient = NULL;
+                        w7t::LogTagged(L"NET8", L"WLAN client still unavailable on retry (%lu)",
+                                       (unsigned long)retryOpen);
+                    }
+                }
+                TriggerWlanScanIfNeeded();
+                SetTimer(hwnd, 1003, 4000, NULL);
+            }
+        }
         ClampScrollPos();
         UpdateLayoutGeometry();
         InvalidateRect(hwnd, NULL, FALSE);
@@ -8983,7 +10183,7 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
                 return 0;
             case VK_RETURN:
                 if (showWifiList && g_KeyboardSelectedIndex >= 0 && g_KeyboardSelectedIndex < keyNetworkCount)
-                    ConnectToNetwork(g_KeyboardSelectedIndex);
+                    SafeConnectToNetwork(g_KeyboardSelectedIndex);
                 return 0;
             case VK_LEFT:
                 HideFlyoutVisual(hwnd);
@@ -9057,6 +10257,10 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
         // in any drawing helper (std::bad_alloc etc.) must never unwind
         // through Explorer's message dispatch: log it, skip the frame, and
         // still pair BeginPaint with EndPaint below.
+        /* v1.21.19: tengono traccia della bitmap di memoria selezionata nella
+         * DC, cosi' anche il ramo di eccezione la deseleziona (vedi sotto). */
+        HDC     hdcPaintSelected  = NULL;
+        HBITMAP hOldBmpForPaint   = NULL;
         try {
         if (!g_hdcMemPaint || g_memPaintWidth != WINDOW_WIDTH || g_memPaintHeight != WINDOW_HEIGHT) {
             if (g_hdcMemPaint) { DeleteDC(g_hdcMemPaint); g_hdcMemPaint = NULL; }
@@ -9068,10 +10272,24 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
         }
         HDC     hdc     = g_hdcMemPaint;
         HBITMAP hOldBmp = (HBITMAP)SelectObject(hdc, g_hbmMemPaint);
+        hdcPaintSelected = hdc;
+        hOldBmpForPaint  = hOldBmp;
 
         if (g_UseCharmsTestStyle) {
-            DrawCharmsStyleFlyout(hwnd, hdc, WINDOW_WIDTH, WINDOW_HEIGHT);
-            BitBlt(hdcReal, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, hdc, 0, 0, SRCCOPY);
+            /* v1.21.22: il pannello Charms disegna molto - font GDI, testi,
+             * anteprime delle reti - e il try/catch che racchiude il frame
+             * copre le eccezioni C++ (std::bad_alloc e simili), non un access
+             * violation dentro il disegno. Quella la intercetta la guardia
+             * SEH: un frame venuto male resta un frame saltato, invece di
+             * far saltare il message pump di Explorer. */
+            W7T_SEH_TRY {
+                DrawCharmsStyleFlyout(hwnd, hdc, WINDOW_WIDTH, WINDOW_HEIGHT);
+                BitBlt(hdcReal, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, hdc, 0, 0, SRCCOPY);
+            }
+            W7T_SEH_CATCH {
+                Wh_Log(L"FlyoutWndProc: eccezione hardware durante il disegno del pannello Charms, frame saltato");
+            }
+            W7T_SEH_END
             SelectObject(hdc, hOldBmp);
             EndPaint(hwnd, &ps);
             break;
@@ -9115,8 +10333,12 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
         DeleteObject(hPenBevelDark);
         DeleteObject(hPenBevelLight);
 
-        BOOL isWifiConnected = (paintNetworkCount > 0 &&
-                                paintState.networks[0].connState == CONN_STATE_CONNECTED);
+        /* v1.21.18: the connected row is searched in the whole list, not
+         * assumed to be networks[0] (the list is ordered by signal): a
+         * connected network that is not the strongest made this header say
+         * "no connection" and hide the name. */
+        const int connectedRow = FindConnectedNetworkRow(paintState);
+        BOOL isWifiConnected = (connectedRow >= 0);
         BOOL isAnyConnected = (paintState.ethernetConnected || isWifiConnected);
         SetBkMode(hdc, TRANSPARENT);
         
@@ -9137,8 +10359,9 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
                         StringCchPrintfW(displayName, ARRAYSIZE(displayName), LOC(STR_NETWORK_PRIVACY_FMT), 2);
                     }
                 }
-            } else {
-                FormatDisplaySSID(paintState.networks[0], 0, displayName, ARRAYSIZE(displayName));
+            } else if (connectedRow >= 0) {
+                FormatDisplaySSID(paintState.networks[connectedRow], connectedRow,
+                                  displayName, ARRAYSIZE(displayName));
             }
             
             DrawTextWithWrap(hdc, displayName, ScaleDpi(56), ScaleDpi(36), WINDOW_WIDTH - ScaleDpi(70), ScaleDpi(18));
@@ -9468,6 +10691,18 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             // survives and the next frame repaints cleanly.
             Wh_Log(L"FlyoutWndProc: exception during WM_PAINT, frame skipped");
         }
+        /* v1.21.19: LA BITMAP DI MEMORIA VA SEMPRE DESELEZIONATA, anche quando
+         * il disegno e' finito in eccezione. Un'uscita anomala saltava il
+         * SelectObject di ripristino e lasciava la bitmap agganciata alla DC:
+         * DeleteObject (che non cancella un oggetto selezionato) falliva in
+         * silenzio, la DC restava con la bitmap di un frame precedente e ogni
+         * ridimensionamento ricreava la coppia lasciando dietro di se'
+         * l'oggetto vecchio. Sul percorso normale questa riga e' un secondo
+         * SelectObject dello stesso oggetto, cioe' un no-op. */
+        if (hdcPaintSelected != NULL && hOldBmpForPaint != NULL) {
+            SelectObject(hdcPaintSelected, hOldBmpForPaint);
+            hOldBmpForPaint = NULL;
+        }
         EndPaint(hwnd, &ps);
         break;
     }
@@ -9727,8 +10962,14 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
         POINT pt = {mx,my};
 
         if (g_UseCharmsTestStyle) {
+            /* v1.21.24: questa sorveglianza tocca lo stato del pannello e le
+             * finestre dei pulsanti (GetWindowRect su controlli figli): la
+             * stessa guardia SEH del disegno, cosi' un guasto qui resta un
+             * passaggio del mouse perso invece di un crash. */
+            W7T_SEH_TRY {
             BOOL wasLink = g_IsHoveringLink;
             int  wasRow  = g_CharmsHoveredRow;
+            BOOL wasChkHover = g_CharmsAutoConnectHover;
             g_IsHoveringLink = PtInRect(&g_rcCharmsLink, pt) != 0;
             BOOL overToggle = PtInRect(&g_rcCharmsAirplaneToggle, pt) ||
                               PtInRect(&g_rcCharmsWifiToggle, pt) ||
@@ -9738,6 +10979,8 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
                 if (PtInRect(&g_rcCharmsRows[i], pt)) { newRow = i; break; }
             }
             g_CharmsHoveredRow = newRow;
+            /* v1.21.24: hover della riga "Connetti automaticamente". */
+            g_CharmsAutoConnectHover = PtInRect(&g_rcCharmsAutoConnect, pt) != 0;
             POINT ptScreen = pt;
             ClientToScreen(hwnd, &ptScreen);
             auto hoverOf = [&](HWND h) -> BOOL {
@@ -9756,11 +10999,17 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             SetCursor(LoadCursor(NULL, (g_IsHoveringLink || overToggle || newRow != -1 ||
                                         g_CharmsConnectHover ||
                                         g_CharmsCancelHover) ? IDC_HAND : IDC_ARROW));
-            if (wasLink != g_IsHoveringLink || wasRow != g_CharmsHoveredRow) {
+            if (wasLink != g_IsHoveringLink || wasRow != g_CharmsHoveredRow ||
+                wasChkHover != g_CharmsAutoConnectHover) {
                 InvalidateRect(hwnd, NULL, FALSE);
                 TRACKMOUSEEVENT tme = {sizeof(TRACKMOUSEEVENT),TME_LEAVE,hwnd,0};
                 TrackMouseEvent(&tme);
             }
+            }
+            W7T_SEH_CATCH {
+                w7t::LogTagged(L"NET8", L"WM_MOUSEMOVE (pannello di connessione): eccezione ignorata");
+            }
+            W7T_SEH_END
             break;
         }
 
@@ -9808,6 +11057,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
         g_IsHoveringConnectButton = FALSE;
         g_HoveredRowIndex = -1;
         g_CharmsHoveredRow = -1;
+        g_CharmsAutoConnectHover = FALSE;   /* v1.21.24 */
         if (g_CharmsConnectHover) {
             g_CharmsConnectHover = FALSE;
             if (g_hWndCharmsConnectBtn && IsWindow(g_hWndCharmsConnectBtn))
@@ -9832,9 +11082,21 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
         POINT pt = {lx,ly};
 
         if (g_UseCharmsTestStyle) {
+            /* v1.21.24: il clic dentro il pannello tocca lo stato, lo shell e
+             * le finestre figlie: stessa guardia SEH della sorveglianza del
+             * mouse. Le `break` interne escono dal case come prima (il frame
+             * SEH lo stacca il pop RAII). */
+            W7T_SEH_TRY {
             if (PtInRect(&g_rcCharmsLink, pt)) {
-                ShellExecuteW(NULL,L"open",L"control.exe",L"/name Microsoft.NetworkAndSharingCenter",NULL,SW_SHOWNORMAL);
-                HideFlyoutVisual(hwnd);
+                /* v1.21.17: launch and slide-out both guarded: a failure here
+                 * must not take the taskbar down. */
+                try {
+                    SafeOpenControlPanelPage(L"Microsoft.NetworkAndSharingCenter");
+                    HideFlyoutVisual(hwnd);
+                } catch (...) {
+                    w7t::LogTagged(L"NET8",
+                                   L"Network and Sharing Center did not open (charms link)");
+                }
                 break;
             }
             if (PtInRect(&g_rcCharmsAirplaneToggle, pt)) {
@@ -9883,6 +11145,11 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
                 g_CharmsExpandedRow = -1;
                 InvalidateRect(hwnd, NULL, TRUE);
             }
+            }
+            W7T_SEH_CATCH {
+                w7t::LogTagged(L"NET8", L"WM_LBUTTONDOWN (pannello di connessione): eccezione ignorata");
+            }
+            W7T_SEH_END
             break;
         }
 
@@ -9893,15 +11160,18 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             Wh_Log(L"Manual refresh requested");
             if (g_Ctx.hWlanClient) {
                 PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
-                if (WlanEnumInterfaces(g_Ctx.hWlanClient, NULL, &pIfList) == ERROR_SUCCESS) {
+                if (SafeWlanEnumInterfaces(g_Ctx.hWlanClient, &pIfList) == ERROR_SUCCESS) {
                     for (DWORD i = 0; i < pIfList->dwNumberOfItems; i++) {
-                        DWORD scanResult = WlanScan(g_Ctx.hWlanClient, &pIfList->InterfaceInfo[i].InterfaceGuid, NULL, NULL, NULL);
-                        Wh_Log(L"WlanScan requested on interface %lu: %lu", i, scanResult);
+                        const DWORD scanResult =
+                            SafeWlanScan(g_Ctx.hWlanClient, &pIfList->InterfaceInfo[i].InterfaceGuid);
+                        w7t::LogTagged(L"NET8", L"manual refresh: scan on interface %lu: %lu",
+                                       (unsigned long)i, (unsigned long)scanResult);
                     }
                     WlanFreeMemory(pIfList);
                 }
             } else {
-                Wh_Log(L"Manual refresh skipped: WLAN client not available");
+                w7t::LogTagged(L"NET8",
+                               L"manual refresh without a WLAN client: no scan requested");
             }
             RefreshNetworkData();
             ClampScrollPos();
@@ -9926,15 +11196,23 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             break;
         }
         if (PtInRect(&rcF,pt)) {
-            ShellExecuteW(NULL,L"open",L"control.exe",L"/name Microsoft.NetworkAndSharingCenter",NULL,SW_SHOWNORMAL);
-            HideFlyoutVisual(hwnd);
+            /* v1.21.17: same shield as the recreated Windows 7 flyout. The
+             * launch used to be direct here: a fault inside the Control Panel
+             * (or in its COM handlers) closed the program. */
+            try {
+                SafeOpenControlPanelPage(L"Microsoft.NetworkAndSharingCenter");
+                HideFlyoutVisual(hwnd);
+            } catch (...) {
+                w7t::LogTagged(L"NET8",
+                               L"Network and Sharing Center did not open (footer link)");
+            }
             break;
         }
         if (showWifiList && g_bListExpanded && ly >= LIST_Y_START && ly < LIST_Y_END) {
             int ci = HitTestRows(lx,ly);
             if (ci != -1) {
                 if (g_SelectedRowIndex == ci) {
-                    ConnectToNetwork(ci);
+                    SafeConnectToNetwork(ci);
                 } else {
                     g_SelectedRowIndex = ci;
                     SetKeyboardFocus(g_SelectedRowIndex);
@@ -9979,7 +11257,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
         }
         if (wid == IDC_CHARMS_CONNECT_BUTTON && g_CharmsExpandedRow != -1) {
             if (g_CharmsExpandedConnected) {
-                DisconnectFromNetwork(g_CharmsExpandedRow);
+                SafeDisconnectFromNetwork(g_CharmsExpandedRow);
             } else {
                 // AskForPasswordAndConnect captures auto-connect from the
                 // Win7 checkbox control, so mirror the charms checkbox into
@@ -9989,7 +11267,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
                                  g_CharmsAutoConnect ? BST_CHECKED : BST_UNCHECKED, 0);
                 WCHAR pwBuf[65] = {0};
                 if (g_hWndCharmsPwEdit) GetWindowTextW(g_hWndCharmsPwEdit, pwBuf, ARRAYSIZE(pwBuf));
-                ConnectToNetwork(g_CharmsExpandedRow, pwBuf[0] ? pwBuf : NULL);
+                SafeConnectToNetwork(g_CharmsExpandedRow, pwBuf[0] ? pwBuf : NULL);
                 SecureZeroMemory(pwBuf, sizeof(pwBuf));
             }
             g_CharmsExpandedRow = -1;
@@ -9997,7 +11275,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             break;
         }
         if (wid == IDC_CONN_BUTTON && g_SelectedRowIndex != -1) {
-            ConnectToNetwork(g_SelectedRowIndex);
+            SafeConnectToNetwork(g_SelectedRowIndex);
             break;
         }
         break;
@@ -10005,16 +11283,22 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
     case WM_DWMCOLORIZATIONCOLORCHANGED:
         // The accent colorization color changed: drop the cached accent and
         // repaint an open Charms pane so it follows the new color.
+        // v1.21.16: also the message the program uses to tell the pane that
+        // the colour chosen in Properties changed, and both modes of the
+        // program (system colour / custom colour) can be behind it: an open
+        // pane repaints either way.
         CharmsAccentColorInvalidate();
-        if (g_Settings.charmsBackgroundMode == 1 && IsWindowVisible(hwnd))
+        if (IsWindowVisible(hwnd))
             InvalidateRect(hwnd, NULL, FALSE);
         break;
     case WM_SETTINGCHANGE:
         // The accent color may have just changed (personalization broadcasts
         // WM_SETTINGCHANGE): drop the cached accent and repaint so an open
         // Charms pane picks up the new color immediately.
+        // v1.21.16: same as above - the repaint no longer depends on which
+        // colour mode is active.
         CharmsAccentColorInvalidate();
-        if (g_Settings.charmsBackgroundMode == 1 && IsWindowVisible(hwnd))
+        if (IsWindowVisible(hwnd))
             InvalidateRect(hwnd, NULL, FALSE);
         // High Contrast toggled while the flyout is open (e.g. Left Alt +
         // Left Shift + Print Screen). Force-refresh the HC cache and
@@ -10606,7 +11890,10 @@ static bool IsExplorerProcess() {
 }
 
 static bool IsRetroBarProcess() {
-    return IsHostProcessNamed(L"retrobar.exe");
+    /* Porting: la mod e integrata in Win7Taskbar, che ospita il riquadro
+     * esattamente come farebbe RetroBar (barra WPF/ManagedShell). */
+    return IsHostProcessNamed(L"retrobar.exe") ||
+           IsHostProcessNamed(L"Win7Taskbar.exe");
 }
 
 // Shell replacements built on the ManagedShell library (e.g. RetroBar)
@@ -10772,7 +12059,7 @@ void ToggleFlyoutWindow() {
             WNDCLASSW wc = {0};
             wc.lpfnWndProc   = FlyoutWndProc;
             wc.hInstance     = hInst;
-            wc.lpszClassName = L"Win7NetworkFlyoutSafe";
+            wc.lpszClassName = L"Win8NetworkFlyoutSafe";
             wc.hCursor       = LoadCursor(NULL,IDC_ARROW);
             wc.hbrBackground = NULL;
             // First RegisterClassW of a load is required to succeed (a leftover
@@ -10816,13 +12103,20 @@ void ToggleFlyoutWindow() {
         } else {
             if (!g_Ctx.hWlanClient) {
                 DWORD dwMaxClient = 2, dwCurVer = 0;
-                if (WlanOpenHandle(dwMaxClient, NULL, &dwCurVer, &g_Ctx.hWlanClient) == ERROR_SUCCESS) {
-                    WlanRegisterNotification(g_Ctx.hWlanClient, WLAN_NOTIFICATION_SOURCE_ALL, TRUE,
-                                             WlanNotificationCallback, &g_Ctx, NULL, NULL);
+                const DWORD openResult =
+                    SafeWlanOpenHandle(dwMaxClient, &dwCurVer, &g_Ctx.hWlanClient);
+                if (openResult == ERROR_SUCCESS) {
+                    SafeWlanRegisterNotification(g_Ctx.hWlanClient,
+                                                 WLAN_NOTIFICATION_SOURCE_ALL, TRUE,
+                                                 WlanNotificationCallback, &g_Ctx);
                     Wh_Log(L"WLAN handle opened lazily on first flyout show");
                 } else {
                     g_Ctx.hWlanClient = NULL;
-                    Wh_Log(L"WLAN service still unavailable on flyout show");
+                    /* v1.21.17: this line explains a pane with no networks
+                     * (WLAN service off, no adapter, driver). */
+                    w7t::LogTagged(L"NET8",
+                                   L"WLAN service unavailable when the pane opened (%lu)",
+                                   (unsigned long)openResult);
                 }
             }
             DetermineLocale();
@@ -11135,10 +12429,8 @@ void SafeCleanup() {
         // while the thread can still be executing code in this mod image.
         while (WaitForSingleObject(g_hProfileDialogThread, 250) == WAIT_TIMEOUT) {
             if (tid) {
-                EnumThreadWindows(tid, [](HWND h, LPARAM) WINAPI -> BOOL {
-                    PostMessageW(h, WM_CLOSE, 0, 0);
-                    return TRUE;
-                }, 0);
+                /* Porting: vedi nota MSVC su W8CollectVisibleWindowProc. */
+                EnumThreadWindows(tid, W8PostCloseToWindowProc, 0);
             }
         }
         CloseHandle(g_hProfileDialogThread);
@@ -11170,2128 +12462,13 @@ void SafeCleanup() {
 }
 
 
-// ============================================================================
-// Integrated Windows 7 Network Center Links v3.2.0
-// Uses only existing Windows icon resources; no embedded or temporary DLLs.
-// ============================================================================
-namespace Win7NetworkCenterLinks {
+/* La parte Pannello di controllo della mod
+ * (namespace Win7NetworkCenterLinks: ricostruzione della pagina
+ * "Centro connessioni di rete e condivisione") e esclusa dal
+ * porting, come da brief Win7Taskbar. */
 
-// Use only the icon resources that are already present in Windows. This keeps
-// the mod fully source-auditable and avoids writing or loading executable code
-// from a user-writable directory.
-static constexpr int kConnectCustomIconId = 0x7FF1;
-static constexpr int kHomegroupCustomIconId = 0x7FF2;
-// Network-map row (This computer / network category / Internet). Reuses
-// icons already loaded elsewhere in the mod rather than new embedded assets:
-// kComputerIconId serves g_hIconNetworkMap (generic PC icon, netshell.dll
-// #120) for BOTH the computer and Internet nodes as a neutral placeholder -
-// there is no verified globe/Internet icon asset in this mod yet. Swap the
-// Internet node to a real globe icon once one is sourced and confirmed.
-// kNetMapCategoryIconId serves GetNetworkLocationIcon() (Home/Public/Work,
-// already used by the flyout header).
-static constexpr int kComputerIconId = 0x7FF3;
-static constexpr int kNetMapCategoryIconId = 0x7FF4;
-static constexpr int kGlobeIconId = 0x7FF5;
-static constexpr int kNoInternetXIconId = 0x7FF6;
-static constexpr int kOfflineNetworkIconId = 0x7FF8;
-static bool g_addConnect = true;
-static bool g_addHomegroup = true;
-static bool g_addNetworkMap = true;  // Visual Network Map rectangle (now functional)
-static bool g_hookInstalled = false;
-static bool g_iconHookInstalled = false;
 
-using LoadImageW_t = decltype(&LoadImageW);
-static LoadImageW_t LoadImageW_Orig = nullptr;
-
-// NetCenter renders its native active-network label with DrawTextW after the
-// XML has been parsed. Hook that final draw to apply the existing privacy mode
-// there too, without changing the actual Windows network profile name.
-using DrawTextW_t = decltype(&DrawTextW);
-static DrawTextW_t DrawTextW_Orig = nullptr;
-static bool g_textHookInstalled = false;
-
-// ---------------------------------------------------------------------------
-// Strings / XML
-// ---------------------------------------------------------------------------
-struct LangPack {
-    WORD lang;
-    const wchar_t *cTitle, *cDesc;      // Connect to a Network
-    const wchar_t *hTitle, *hDesc;      // HomeGroup (original)
-    const wchar_t *hFallbackTitle, *hFallbackDesc; // Advanced Sharing (fallback)
-    const wchar_t *mTitle, *mDesc;      // View Network Map
-    const wchar_t *fullMap;             // View full map
-    const wchar_t *networkFallback, *internetLabel;
-};
-static const LangPack kLang[] = {
-    {0x09, L"Connect to a Network",
-     L"Connect to an available wireless, VPN, or dial-up network.",
-     L"Choose Homegroup and Sharing Options",
-     L"View or change your homegroup settings and network sharing preferences.",
-     L"Advanced Sharing Settings",
-     L"Configure advanced network sharing settings.",
-     L"View Network Map",
-     L"See a map of your network and connected devices.",
-     L"View full map", L"Network", L"Internet"},
-    {0x10, L"Connessione a una rete",
-     L"Connettere o riconnettere una rete wireless, VPN o di accesso remoto disponibile.",
-     L"Selezione delle opzioni del gruppo home e della condivisione",
-     L"Accedere alle impostazioni del gruppo home e configurare le opzioni di condivisione della rete.",
-     L"Impostazioni di condivisione avanzate",
-     L"Configura le impostazioni avanzate di condivisione della rete.",
-     L"Visualizza mappa di rete",
-     L"Visualizza una mappa della rete e dei dispositivi connessi.",
-     L"Visualizza mappa completa", L"Rete", L"Internet"},
-    {0x0c, L"Se connecter \u00e0 un r\u00e9seau",
-     L"Connectez-vous aux r\u00e9seaux sans fil, VPN ou distants disponibles.",
-     L"Choisir les options de groupe r\u00e9sidentiel et de partage",
-     L"Affichez ou modifiez les param\u00e8tres de groupe r\u00e9sidentiel et de partage.",
-     L"Param\u00e8tres de partage avanc\u00e9s",
-     L"Configurez les param\u00e8tres de partage avanc\u00e9s du r\u00e9seau.",
-     L"Afficher la carte du r\u00e9seau",
-     L"Voir une carte de votre r\u00e9seau et des appareils connect\u00e9s.",
-     L"Afficher la carte compl\u00e8te", L"R\u00e9seau", L"Internet"},
-    {0x0a, L"Conectar a una red",
-     L"Con\u00e9ctese a redes inal\u00e1mbricas, VPN o de acceso telef\u00f3nico disponibles.",
-     L"Elegir opciones de grupo en el hogar y uso compartido",
-     L"Vea o cambie la configuraci\u00f3n del grupo en el hogar y uso compartido de red.",
-     L"Configuraci\u00f3n avanzada de uso compartido",
-     L"Configura las opciones avanzadas de uso compartido de red.",
-     L"Ver mapa de red",
-     L"Vea un mapa de su red y los dispositivos conectados.",
-     L"Ver mapa completo", L"Red", L"Internet"},
-    {0x19, L"\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435 \u043a \u0441\u0435\u0442\u0438",
-     L"\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435 \u043a \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u043c \u0431\u0435\u0441\u043f\u0440\u043e\u0432\u043e\u0434\u043d\u044b\u043c \u0441\u0435\u0442\u044f\u043c, VPN \u0438\u043b\u0438 \u0441\u0435\u0442\u044f\u043c \u0443\u0434\u0430\u043b\u0451\u043d\u043d\u043e\u0433\u043e \u0434\u043e\u0441\u0442\u0443\u043f\u0430.",
-     L"\u0412\u044b\u0431\u043e\u0440 \u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u043e\u0432 \u0434\u043e\u043c\u0430\u0448\u043d\u0435\u0439 \u0433\u0440\u0443\u043f\u043f\u044b \u0438 \u043e\u0431\u0449\u0435\u0433\u043e \u0434\u043e\u0441\u0442\u0443\u043f\u0430",
-     L"\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440 \u0438\u043b\u0438 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0435 \u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u043e\u0432 \u0434\u043e\u043c\u0430\u0448\u043d\u0435\u0439 \u0433\u0440\u0443\u043f\u043f\u044b \u0438 \u043e\u0431\u0449\u0435\u0433\u043e \u0434\u043e\u0441\u0442\u0443\u043f\u0430 \u043a \u0441\u0435\u0442\u0438.",
-     L"\u0420\u0430\u0441\u0448\u0438\u0440\u0435\u043d\u043d\u044b\u0435 \u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b \u043e\u0431\u0449\u0435\u0433\u043e \u0434\u043e\u0441\u0442\u0443\u043f\u0430",
-     L"\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043d\u043d\u044b\u0445 \u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u043e\u0432 \u043e\u0431\u0449\u0435\u0433\u043e \u0434\u043e\u0441\u0442\u0443\u043f\u0430.",
-     L"\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440 \u043a\u0430\u0440\u0442\u044b \u0441\u0435\u0442\u0438",
-     L"\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440 \u043a\u0430\u0440\u0442\u044b \u0441\u0435\u0442\u0438 \u0438 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0451\u043d\u043d\u044b\u0445 \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432.",
-     L"\u041f\u043e\u043a\u0430\u0437\u0430\u0442\u044c \u043f\u043e\u043b\u043d\u0443\u044e \u043a\u0430\u0440\u0442\u0443", L"\u0421\u0435\u0442\u044c", L"\u0418\u043d\u0442\u0435\u0440\u043d\u0435\u0442"},
-    {0x07, L"Mit einem Netzwerk verbinden",
-     L"Verbindung mit verf\u00fcgbaren Drahtlos-, VPN- oder DF\u00dc-Netzwerken herstellen.",
-     L"Heimnetzgruppen- und Freigabeoptionen ausw\u00e4hlen",
-     L"Einstellungen f\u00fcr Heimnetzgruppen und Netzwerkfreigaben anzeigen oder \u00e4ndern.",
-     L"Erweiterte Freigabeeinstellungen",
-     L"Konfiguriere erweiterte Netzwerkfreigabeeinstellungen.",
-     L"Netzwerkkarte anzeigen",
-     L"Zeigen Sie eine Karte Ihres Netzwerks und der verbundenen Ger\u00e4te an.",
-     L"Vollst\u00e4ndige Karte anzeigen", L"Netzwerk", L"Internet"},
-    {0x16, L"Ligar a uma rede",
-     L"Ligue-se a redes sem fios, VPN ou de acesso telef\u00f3nico dispon\u00edveis.",
-     L"Escolher op\u00e7\u00f5es de Grupo Dom\u00e9stico e partilha",
-     L"Veja ou altere as defini\u00e7\u00f5es do Grupo Dom\u00e9stico e da partilha de rede.",
-     L"Defini\u00e7\u00f5es avan\u00e7adas de partilha",
-     L"Configure defini\u00e7\u00f5es avan\u00e7adas de partilha de rede.",
-     L"Ver mapa de rede",
-     L"Veja um mapa da sua rede e dispositivos ligados.",
-     L"Ver mapa completo", L"Rede", L"Internet"},
-    {0x15, L"Połącz z siecią",
-     L"Połącz z dostępną siecią bezprzewodową, VPN lub modemową.",
-     L"Wybierz opcje grupy domowej i udostępniania",
-     L"Wyświetl lub zmień ustawienia grupy domowej i udostępniania sieci.",
-     L"Zaawansowane ustawienia udost\u0119pniania",
-     L"Skonfiguruj zaawansowane ustawienia udost\u0119pniania sieci.",
-     L"Wy\u015bwietl map\u0119 sieci",
-     L"Wy\u015bwietl map\u0119 sieci i pod\u0142\u0105czonych urz\u0105dze\u0144.",
-     L"Wy\u015bwietl pe\u0142n\u0105 map\u0119", L"Sie\u0107", L"Internet"},
-    {0x13, L"Verbinding maken met een netwerk",
-     L"Verbinding maken met een beschikbare draadloos-, VPN- of inbelnetwerk.",
-     L"Thuisgroep- en delingsopties kiezen",
-     L"Bekijk of wijzig uw thuisgroep- en netwerkinstellingen.",
-     L"Geavanceerde deelinstellingen",
-     L"Configureer geavanceerde netwerkdeelinstellingen.",
-     L"Netwerkkaart weergeven",
-     L"Bekijk een kaart van uw netwerk en verbonden apparaten.",
-     L"Volledige kaart weergeven", L"Netwerk", L"Internet"},
-    {0x18, L"Conectare la o rețea",
-     L"Conectați-vă la o rețea fără fir, VPN sau dial-up disponibilă.",
-     L"Alegeți opțiunile de grup de domiciliu și partajare",
-     L"Vizualizați sau modificați setările grupului de domiciliu și partajarea în rețea.",
-     L"Set\u0103ri avansate de partajare",
-     L"Configura\u021Bi set\u0103rile avansate de partajare \u00een re\u021Bea.",
-     L"Vizualizare hart\u0103 re\u021Bea",
-     L"Vizualiza\u021Bi o hart\u0103 a re\u021Belei \u0219i dispozitivelor conectate.",
-     L"Vizualizare hart\u0103 complet\u0103", L"Re\u021Bea", L"Internet"},
-    {0x1f, L"Bir A\u011fa Ba\u011flan",
-     L"Kullan\u0131labilir bir kablosuz, VPN veya \u00e7evirmeli a\u011fa ba\u011flan\u0131n.",
-     L"Ev Grubu ve Payla\u015f\u0131m Se\u00e7eneklerini Se\u00e7in",
-     L"Ev grubu ayarlar\u0131n\u0131z\u0131 ve a\u011f payla\u015f\u0131m tercihlerinizi g\u00f6r\u00fcnt\u00fcleyin veya de\u011fi\u015ftirin.",
-     L"Geli\u015fmi\u015f Payla\u015f\u0131m Ayarlar\u0131",
-     L"Geli\u015fmi\u015f a\u011f payla\u015f\u0131m ayarlar\u0131n\u0131 yap\u0131land\u0131r\u0131n.",
-     L"A\u011f Haritas\u0131n\u0131 G\u00f6r\u00fcnt\u00fcle",
-     L"A\u011f\u0131n\u0131z\u0131n ve ba\u011fl\u0131 ayg\u0131tlar\u0131n haritas\u0131n\u0131 g\u00f6r\u00fcn.",
-     L"Tam haritay\u0131 g\u00f6r\u00fcnt\u00fcle", L"A\u011f", L"\u0130nternet"},
-};
-
-static const LangPack* GetLang() {
-    WORD ui;
-    switch (g_Settings.language) {
-        case 1: ui = 0x09; break;  // English
-        case 2: ui = 0x10; break;  // Italian
-        case 3: ui = 0x0a; break;  // Spanish
-        case 4: ui = 0x0c; break;  // French
-        case 5: ui = 0x19; break;  // Russian
-        case 6: ui = 0x07; break;  // German
-        case 7: ui = 0x16; break;  // Portuguese
-        case 8: ui = 0x15; break;  // Polish
-        case 9: ui = 0x13; break;  // Dutch
-        case 10: ui = 0x18; break; // Romanian
-        case 11: ui = 0x1f; break; // Turkish
-        default: ui = PRIMARYLANGID(GetUserDefaultUILanguage()); break;
-    }
-    for (const auto& p : kLang)
-        if (p.lang == ui)
-            return &p;
-    return &kLang[0];
-}
-
-static std::wstring Esc(const wchar_t* s) {
-    std::wstring o;
-    for (; s && *s; ++s) {
-        switch (*s) {
-            case L'&': o += L"&amp;"; break;
-            case L'"': o += L"&quot;"; break;
-            case L'<': o += L"&lt;"; break;
-            case L'>': o += L"&gt;"; break;
-            default: o.push_back(*s); break;
-        }
-    }
-    return o;
-}
-
-static std::wstring LoadUifile(HMODULE m, PCWSTR n, PCWSTR t) {
-    HRSRC r = FindResourceW(m, n, t);
-    if (!r)
-        return {};
-    HGLOBAL g = LoadResource(m, r);
-    if (!g)
-        return {};
-    DWORD sz = SizeofResource(m, r);
-    const char* d = (const char*)LockResource(g);
-    if (!d || !sz)
-        return {};
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, d, (int)sz, nullptr, 0);
-    UINT cp = CP_UTF8;
-    if (wlen <= 0) {
-        wlen = MultiByteToWideChar(CP_ACP, 0, d, (int)sz, nullptr, 0);
-        cp = CP_ACP;
-    }
-    if (wlen <= 0)
-        return {};
-    std::wstring xml(wlen, 0);
-    MultiByteToWideChar(cp, 0, d, (int)sz, &xml[0], wlen);
-    while (!xml.empty() && (xml.back() == 0 || xml.back() == L'\n' || xml.back() == L'\r'))
-        xml.pop_back();
-    return xml;
-}
-
-static std::wstring IconAttr(int fallbackIconId) {
-    // Keep the stock icon IDs when the memory hook could not be installed.
-    // Otherwise use private IDs so the page's Configure/Troubleshoot icons
-    // (which may use 22/27 too) are never touched.
-    int iconId = fallbackIconId;
-    if (g_iconHookInstalled) {
-        if (fallbackIconId == 22)
-            iconId = kConnectCustomIconId;
-        else if (fallbackIconId == 27)
-            iconId = kHomegroupCustomIconId;
-        else if (fallbackIconId == 30)
-            iconId = kComputerIconId;  // Network Map -> PC icon
-    }
-    wchar_t b[96];
-    swprintf_s(b, L" content=\"icon(%d,24rp,24rp)\"", iconId);
-    return b;
-}
-
-static std::wstring Link(const wchar_t* title, const wchar_t* desc, const wchar_t* exe,
-                         const wchar_t* params, int fallbackIconId) {
-    return L"<NavigateButton layout=\"borderlayout()\" layoutpos=\"top\" "
-           L"padding=\"rect(0rp,10rp,0rp,10rp)\" "
-           L"shellexecute=\"" +
-           std::wstring(exe) + L"\" shellexecuteparams=\"" + params +
-           L"\">"
-           L"<button layoutpos=\"left\" cursor=\"hand\" active=\"mouse\" "
-           L"accessible=\"true\" accrole=\"graphic\"" +
-           IconAttr(fallbackIconId) +
-           L"/>"
-           L"<element layoutpos=\"top\" layout=\"borderlayout()\" "
-           L"padding=\"rect(10rp,0rp,0rp,0rp)\">"
-           L"<element layoutpos=\"top\" layout=\"flowlayout()\">"
-           L"<button sheet=\"cp_style\" class=\"cp_content_link\" content=\"" + Esc(title) +
-           L"\"/>"
-           L"</element>"
-           L"<element layoutpos=\"top\" layout=\"flowlayout()\">"
-           L"<element sheet=\"cp_style\" class=\"cp_content_text\" "
-           L"padding=\"rect(0rp,5rp,0rp,0rp)\" content=\"" +
-           Esc(desc) +
-           L"\"/>"
-           L"</element>"
-           L"</element>"
-           L"</NavigateButton>";
-}
-
-static bool FindOuterElement(const std::wstring& xml, size_t markerPos, size_t& outStart,
-                             size_t& outEnd) {
-    size_t start = xml.rfind(L"<element", markerPos);
-    if (start == std::wstring::npos)
-        return false;
-    int depth = 0;
-    size_t i = start;
-    size_t steps = 0;
-    while (i < xml.size() && ++steps < 200000) {
-        if (xml.compare(i, 8, L"<element") == 0) {
-            size_t gt = xml.find(L'>', i);
-            if (gt == std::wstring::npos)
-                return false;
-            if (gt > i && xml[gt - 1] == L'/') {
-                i = gt + 1;
-                continue;
-            }
-            ++depth;
-            i = gt + 1;
-            continue;
-        }
-        if (xml.compare(i, 10, L"</element>") == 0) {
-            --depth;
-            i += 10;
-            if (depth == 0) {
-                outStart = start;
-                outEnd = i;
-                return true;
-            }
-            continue;
-        }
-        ++i;
-    }
-    return false;
-}
-
-static std::wstring GetComputerNameStr() {
-    WCHAR computerName[MAX_COMPUTERNAME_LENGTH + 1] = {0};
-    DWORD size = MAX_COMPUTERNAME_LENGTH + 1;
-    if (GetComputerNameW(computerName, &size)) {
-        return std::wstring(computerName);
-    }
-    return L"PC";
-}
-
-static BOOL TryGetConnectedNlmNetworkInfo(std::wstring* outName, int* outCategory) {
-    if (outName) outName->clear();
-    if (outCategory) *outCategory = -1;
-
-    ComPtr<INetworkListManager> nlm;
-    if (FAILED(CoCreateInstance(CLSID_NetworkListManager, NULL, CLSCTX_INPROC_SERVER,
-                                IID_INetworkListManager, (void**)nlm.put())) || !nlm)
-        return FALSE;
-
-    ComPtr<IEnumNetworks> networks;
-    if (FAILED(nlm->GetNetworks(NLM_ENUM_NETWORK_CONNECTED, networks.put())) || !networks)
-        return FALSE;
-
-    BOOL foundActive = FALSE;
-    std::wstring activeName;
-    int activeCategory = -1;
-    std::wstring internetName;
-    int internetCategory = -1;
-
-    ULONG fetched = 0;
-    ComPtr<INetwork> network;
-    while (networks->Next(1, network.put(), &fetched) == S_OK && network) {
-        NLM_CONNECTIVITY connectivity = NLM_CONNECTIVITY_DISCONNECTED;
-        if (FAILED(network->GetConnectivity(&connectivity)) || !ConnectivityIsActive(connectivity)) {
-            network.reset();
-            continue;
-        }
-
-        int category = -1;
-        NLM_NETWORK_CATEGORY nlmCategory;
-        if (SUCCEEDED(network->GetCategory(&nlmCategory)) &&
-            IsValidNetworkCategoryValue((int)nlmCategory)) {
-            category = (int)nlmCategory;
-        }
-
-        std::wstring name;
-        BSTR bstrName = NULL;
-        if (SUCCEEDED(network->GetName(&bstrName)) && bstrName) {
-            name.assign(bstrName);
-            SafeSysFreeString(bstrName);
-        }
-
-        if (!foundActive) {
-            foundActive = TRUE;
-            activeName = name;
-            activeCategory = category;
-        }
-
-        if (connectivity & (NLM_CONNECTIVITY_IPV4_INTERNET | NLM_CONNECTIVITY_IPV6_INTERNET)) {
-            internetName = name;
-            internetCategory = category;
-            break;
-        }
-
-        network.reset();
-    }
-
-    if (!internetName.empty() || IsValidNetworkCategoryValue(internetCategory)) {
-        if (outName) *outName = internetName;
-        if (outCategory) *outCategory = internetCategory;
-        return TRUE;
-    }
-    if (foundActive) {
-        if (outName) *outName = activeName;
-        if (outCategory) *outCategory = activeCategory;
-        return TRUE;
-    }
-    return FALSE;
-}
-
-static void RefreshNetCenterCategoryFromNlmQuick() {
-    int category = -1;
-    if (TryGetConnectedNlmNetworkInfo(nullptr, &category) &&
-        IsValidNetworkCategoryValue(category)) {
-        PublishNetworkLocationCategory(category, FALSE);
-    }
-}
-
-// outHasNetwork (optional) receives TRUE when some network is actually
-// connected (NLM, shared Wi-Fi state or Ethernet) and FALSE when the returned
-// name is only the localized "Network" placeholder. The Network Map uses it
-// to break the PC -> network hop, like Windows 7 does when the PC is not
-// connected to any network.
-static std::wstring GetConnectedNetworkName(BOOL* outHasNetwork = nullptr) {
-    if (outHasNetwork) *outHasNetwork = TRUE;
-    // The custom Network Map lives in Control Panel and should mirror the
-    // native "View active networks" section. Prefer NLM's current connected
-    // network name over the shared WLAN scan cache, which can lag behind a
-    // Control Panel live refresh and leave the custom map showing the previous
-    // SSID while the native section below has already updated.
-    std::wstring nlmName;
-    BOOL nlmConnected = TryGetConnectedNlmNetworkInfo(&nlmName, nullptr);
-
-    if (g_Settings.privacyMode) {
-        WCHAR privateName[64] = {0};
-        StringCchPrintfW(privateName, ARRAYSIZE(privateName),
-                         LOC(STR_NETWORK_PRIVACY_FMT), 1);
-        if (outHasNetwork && !nlmConnected) {
-            EnterCriticalSection(&g_Ctx.csLock);
-            BOOL connected = g_EthernetConnected;
-            for (int i = 0; !connected && i < g_NetworkCount; i++)
-                if (g_NetworkList[i].connState == CONN_STATE_CONNECTED) connected = TRUE;
-            LeaveCriticalSection(&g_Ctx.csLock);
-            *outHasNetwork = connected;
-        }
-        return std::wstring(privateName);
-    }
-
-    if (nlmConnected && !nlmName.empty())
-        return nlmName;
-    
-    // Copy shared data under the critical section so reads are safe
-    // against RefreshWifiData() on the flyout thread.
-    EnterCriticalSection(&g_Ctx.csLock);
-    std::wstring wifiName;
-    for (int i = 0; i < g_NetworkCount; i++) {
-        if (g_NetworkList[i].connState == 2) { // Connected
-            wifiName = std::wstring(g_NetworkList[i].ssid);
-            break;
-        }
-    }
-    WCHAR ethernetName[64] = {0};
-    StringCchCopyW(ethernetName, ARRAYSIZE(ethernetName), g_EthernetNetworkName);
-    BOOL ethernetConnected = g_EthernetConnected;
-    LeaveCriticalSection(&g_Ctx.csLock);
-    
-    // Check WiFi first (already copied out)
-    if (!wifiName.empty())
-        return wifiName;
-    
-    // Check Ethernet
-    if (ethernetConnected && ethernetName[0] != L'\0')
-        return std::wstring(ethernetName);
-
-    // NLM may report a connected network that has no display name yet.
-    if (outHasNetwork) *outHasNetwork = (nlmConnected || ethernetConnected);
-    return GetLang()->networkFallback;
-}
-
-// Defined further down alongside the rest of the NetCenter live-refresh
-// state; forward-declared here since NetworkMapVisual() (used well before
-// that point in the file) needs to check it.
-extern thread_local bool g_ncForceFreshConnectivity;
-
-// ---------------------------------------------------------------------------
-// Conservative shell/CLSID validation
-// ---------------------------------------------------------------------------
-// A stale HKCR\\CLSID entry is not enough: modern Windows can retain the
-// registration after the underlying Control Panel applet or shell handler has
-// been removed.  Validate both the registry entry and the shell parsing name
-// before emitting a clickable link.  This follows the defensive approach used
-// by legacy Control Panel restoration mods: never expose a link that cannot be
-// resolved by the current system.
-static bool RegistryClsidExists(PCWSTR clsid) {
-    if (!clsid || !clsid[0])
-        return false;
-
-    WCHAR keyName[160] = {0};
-    if (FAILED(StringCchPrintfW(keyName, ARRAYSIZE(keyName),
-                                L"CLSID\\%s", clsid))) {
-        return false;
-    }
-
-    HKEY hKey = NULL;
-    LSTATUS status = RegOpenKeyExW(HKEY_CLASSES_ROOT, keyName, 0,
-                                   KEY_READ, &hKey);
-    if (status != ERROR_SUCCESS)
-        return false;
-
-    RegCloseKey(hKey);
-    return true;
-}
-
-static bool ShellClsidIsUsable(PCWSTR clsid) {
-    if (!RegistryClsidExists(clsid))
-        return false;
-
-    WCHAR parsingName[192] = {0};
-    if (FAILED(StringCchPrintfW(parsingName, ARRAYSIZE(parsingName),
-                                L"shell:::%s", clsid))) {
-        return false;
-    }
-
-    // SHParseDisplayName is stronger than a registry-only test: it verifies
-    // that the current shell can actually resolve the namespace object.
-    LPITEMIDLIST pidl = NULL;
-    HRESULT hr = SHParseDisplayName(parsingName, NULL, &pidl, 0, NULL);
-    if (pidl)
-        CoTaskMemFree(pidl);
-    return SUCCEEDED(hr);
-}
-
-static bool HomeGroupAppletIsUsable() {
-    static const WCHAR kHomeGroupClsid[] =
-        L"{67CA7650-96E6-4FDD-BB43-A8E774F73A57}";
-
-    // hgcpl.dll is the actual HomeGroup Control Panel applet.  Its CLSID can
-    // survive as a stale registration after HomeGroup was removed.
-    if (!ShellClsidIsUsable(kHomeGroupClsid))
-        return false;
-
-    WCHAR systemDir[MAX_PATH] = {0};
-    UINT systemDirLen = GetSystemDirectoryW(systemDir, ARRAYSIZE(systemDir));
-    if (systemDirLen == 0 || systemDirLen >= ARRAYSIZE(systemDir))
-        return false;
-
-    WCHAR homeGroupDll[MAX_PATH] = {0};
-    if (FAILED(StringCchPrintfW(homeGroupDll, ARRAYSIZE(homeGroupDll),
-                                L"%s\\hgcpl.dll", systemDir))) {
-        return false;
-    }
-
-    return GetFileAttributesW(homeGroupDll) != INVALID_FILE_ATTRIBUTES;
-}
-
-static PCWSTR GetNetworkMapShellParams() {
-    static const WCHAR kModernNetworkClsid[] =
-        L"{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}";
-    static const WCHAR kLegacyNetworkClsid[] =
-        L"{208D2C60-3AEA-1069-A2D7-08002B30309D}";
-
-    // Prefer the modern Network folder, but retain the Windows 7 alias as a
-    // real fallback for systems where only the legacy registration exists.
-    if (ShellClsidIsUsable(kModernNetworkClsid))
-        return L"/e,::{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}";
-    if (ShellClsidIsUsable(kLegacyNetworkClsid))
-        return L"/e,::{208D2C60-3AEA-1069-A2D7-08002B30309D}";
-
-    Wh_Log(L"[NetMap] No usable Network-folder CLSID was found; link omitted");
-    return nullptr;
-}
-
-static std::wstring NetworkMapVisual() {
-    // Labels are centred by the grid cell (contentalign="topcenter", as in the
-    // Windows 7 UIFILE), so privacy mode just uses a plain "PC" label.
-    std::wstring pcName = g_Settings.privacyMode ? L"PC" : GetComputerNameStr();
-    BOOL hasNetwork = TRUE;
-    std::wstring networkName = GetConnectedNetworkName(&hasNetwork);
-    std::wstring internetName = GetLang()->internetLabel;
-    
-    // Cache connectivity once for this entire NetworkMapVisual() build,
-    // used by both the route-line rendering and the globe-icon inline check.
-    // Saves two COM round-trips per XML generation.
-    static BOOL s_cachedConnected = FALSE;
-    static DWORD s_cacheTick = 0;
-    DWORD now = GetTickCount();
-    BOOL isOnline;
-    // g_ncForceFreshConnectivity is set by RefreshNetworkCenterXml() right
-    // after a ConnectivityChanged notification, so a live-refresh push always
-    // re-queries NLM instead of reusing a value that may predate the change
-    // by up to 500ms (see g_ncForceFreshConnectivity's declaration for why).
-    if (g_ncForceFreshConnectivity || now - s_cacheTick > 500) {
-        s_cachedConnected = IsInternetConnected();
-        s_cacheTick = now;
-    }
-    isOnline = s_cachedConnected;
-
-    // Windows 7's "View full map" link. The original Network Map feature
-    // was removed from modern Windows, therefore open the native Network
-    // shell folder. F02C1A0D is the Network-folder CLSID that remains usable
-    // on Windows 7, 10 and 11; 208D2C60 is the older Network Places alias
-    // and can fail on modern builds.
-    const wchar_t* fullMapText = GetLang()->fullMap;
-    std::wstring xml;
-
-    // Same structure as Windows 7's netcenter.dll "minimap" UIFILE: the link
-    // sits at the upper right of the map area, then the map itself.
-    // Do not emit a clickable link when neither Network CLSID resolves.
-    // That is preferable to showing a link which opens an Explorer error.
-    PCWSTR fullMapParams = GetNetworkMapShellParams();
-    if (fullMapParams) {
-        xml += L"<element layoutpos=\"top\" layout=\"borderlayout()\" ";
-        xml += L"padding=\"rect(0rp,0rp,10rp,0rp)\">";
-        xml += L"<NavigateButton layoutpos=\"right\" layout=\"flowlayout()\" ";
-        xml += L"shellexecute=\"%SystemRoot%\\explorer.exe\" ";
-        xml += L"shellexecuteparams=\"" + std::wstring(fullMapParams) + L"\">";
-        xml += L"<button sheet=\"cp_style\" class=\"cp_content_link\" cursor=\"hand\" ";
-        xml += L"active=\"mouse\" content=\"" + Esc(fullMapText) + L"\"/>";
-        xml += L"</NavigateButton>";
-        xml += L"</element>";
-    }
-
-    // --- MiniMap (Windows 7 netcenter.dll, resid "minimap") -------------------
-    // Windows 7 lays the map out as five equal cells (pc | pctonet | net |
-    // nettoinet | inet) between two 40rp gutters, with the labels in three
-    // equal cells underneath, inside a content pane of FIXED width. Those two
-    // grids only line up when the map is 480rp wide (label centres W/6 ==
-    // icon centres 32 + W/10  <=>  W == 480), which is what Windows 7 ends up
-    // with, so the same geometry is reproduced here with fixed cells -
-    // 40 | 80 | 80 | 80 | 80 | 80 | 40 and 160 | 160 | 160 - instead of
-    // proportional grids: the modern page's content pane is fluid, so
-    // proportional cells drifted the labels away from the icons in a wide
-    // window and squeezed the icons in a narrow one. Fixed cells keep every
-    // node, line and label where Windows 7 puts it at any window width (a
-    // pane narrower than the map clips it, as Windows 7's fixed pane would).
-    // Vertical metrics follow the UIFILE - 32rp node row, two 1rp lines at
-    // y=15/17, 16rp status glyph at y=9 - shifted by +2rp because the icons
-    // this page rasterises reliably are 36rp.
-    // Every icon is a <button layoutpos="left" content="icon(...)"> placed
-    // directly in a borderlayout, the one markup this page is known to
-    // rasterise (an explicit width/height on the button or a flowlayout
-    // wrapper made DirectUI drop the icon), so positioning is done with
-    // spacer elements only.
-    const wchar_t* kLineOn  = L"activecaption";   // Windows 7 class "connected"
-    const wchar_t* kLineOff = L"activeborder";    // Windows 7 class "disconnected"
-    const BOOL internetHop = hasNetwork && isOnline;
-    const wchar_t* pcNetLine   = hasNetwork  ? kLineOn : kLineOff;
-    const wchar_t* netInetLine = internetHop ? kLineOn : kLineOff;
-    static const wchar_t kNoInternetGlyph[] = L"content=\"icon(32758,16rp,16rp)\"";
-
-    auto Cell = [](const wchar_t* width, const std::wstring& inner) {
-        return L"<element layoutpos=\"left\" width=\"" + std::wstring(width) +
-               L"\" layout=\"borderlayout()\">" + inner + L"</element>";
-    };
-    auto Node = [&](const wchar_t* iconAttr) {
-        // 36rp icon centred in the 80rp cell.
-        std::wstring n;
-        n += L"<element layoutpos=\"left\" width=\"22rp\"/>";
-        n += L"<button layoutpos=\"left\" accessible=\"true\" accrole=\"graphic\" ";
-        n += std::wstring(iconAttr) + L"/>";
-        return Cell(L"80rp", n);
-    };
-    auto Lines = [&](const wchar_t* lineColor) {
-        std::wstring l;
-        l += L"<element layoutpos=\"top\" height=\"17rp\"/>";
-        l += L"<element layoutpos=\"top\" height=\"1rp\" background=\"" + std::wstring(lineColor) + L"\"/>";
-        l += L"<element layoutpos=\"top\" height=\"1rp\"/>";
-        l += L"<element layoutpos=\"top\" height=\"1rp\" background=\"" + std::wstring(lineColor) + L"\"/>";
-        return l;
-    };
-    auto Connector = [&](const wchar_t* lineColor, BOOL broken) -> std::wstring {
-        if (!broken)
-            return Cell(L"80rp", Lines(lineColor));
-        // 32rp segment | 16rp red X, centred in the cell | 32rp segment
-        std::wstring glyph;
-        glyph += L"<element layoutpos=\"top\" height=\"11rp\"/>";
-        glyph += L"<button layoutpos=\"top\" accessible=\"true\" accrole=\"graphic\" ";
-        glyph += std::wstring(kNoInternetGlyph) + L"/>";
-        return Cell(L"80rp", Cell(L"32rp", Lines(lineColor)) +
-                             Cell(L"16rp", glyph) +
-                             Cell(L"32rp", Lines(lineColor)));
-    };
-    auto Label = [&](const std::wstring& text) {
-        // Windows 7 "labelText" (CONTROLPANELSTYLE part 4), centred in a
-        // 160rp cell so it sits under its node's centre (80/240/400rp).
-        std::wstring l;
-        l += L"<element layoutpos=\"left\" width=\"160rp\" ";
-        l += L"font=\"gtf(CONTROLPANELSTYLE,4,0)\" ";
-        l += L"foreground=\"gtc(CONTROLPANELSTYLE,4,0,3803)\" ";
-        l += L"contentalign=\"topcenter|endellipsis\" accessible=\"true\" accrole=\"statictext\" ";
-        l += L"content=\"" + Esc(text.c_str()) + L"\"/>";
-        return l;
-    };
-
-    xml += L"<element layoutpos=\"top\" layout=\"borderlayout()\" ";
-    xml += L"padding=\"rect(0rp,10rp,0rp,15rp)\">";
-    // The map itself: fixed 480rp, left-aligned, like Windows 7's.
-    xml += L"<element layoutpos=\"left\" width=\"480rp\" layout=\"borderlayout()\">";
-
-    // Row 1: 40 | pc | pc-net | net | net-inet | inet | 40
-    xml += L"<element layoutpos=\"top\" height=\"36rp\" layout=\"borderlayout()\">";
-    xml += L"<element layoutpos=\"left\" width=\"40rp\"/>";
-    xml += Node(L"content=\"icon(32755,36rp,36rp)\"");
-    xml += Connector(pcNetLine, !hasNetwork);
-    // 32756 resolves at runtime to the Home/Public/Work icon of the current
-    // profile; 32760 is the distinct gray "offline" artwork (DirectUI caches
-    // resource 32756, so reusing it kept the coloured bench after a
-    // disconnect).
-    xml += Node(internetHop ? L"content=\"icon(32756,36rp,36rp)\""
-                            : L"content=\"icon(32760,36rp,36rp)\"");
-    xml += Connector(netInetLine, hasNetwork && !isOnline);
-    xml += Node(L"content=\"icon(32757,36rp,36rp)\"");
-    xml += L"</element>";
-
-    // Row 2: labels (UIFILE: three equal cells, 3rp below the icons).
-    xml += L"<element layoutpos=\"top\" layout=\"borderlayout()\" padding=\"rect(0rp,3rp,0rp,0rp)\">";
-    xml += Label(pcName);
-    xml += Label(networkName);
-    xml += Label(internetName);
-    xml += L"</element>";
-
-    xml += L"</element>";  // 480rp map
-    xml += L"</element>";  // band
-
-    return xml;
-}
-
-
-
-// Add the Windows 7-style Home/Public/Work icon to the left of the active
-// connection's name. 32756 is handled by LoadImageW_Hook and is resolved at
-// runtime to the current network-category icon, so it also follows changes
-// between Public, Private/Home and Domain/Work profiles.
-static std::wstring AddActiveNetworkLocationIcon(const std::wstring& in) {
-    static const wchar_t kMarker[] = L"<element id=\"atom(ActiveNetworksSection)\"";
-    size_t section = in.find(kMarker);
-    if (section == std::wstring::npos)
-        return in;
-
-    size_t tagEnd = in.find(L'>', section);
-    if (tagEnd == std::wstring::npos)
-        return in;
-
-    // Patch() runs once per DirectUI document, but retain this guard in case a
-    // future NetCenter resource reuses the same section markup more than once.
-    if (in.find(L"icon(32756,36rp,36rp)", section) != std::wstring::npos)
-        return in;
-
-    // Direct child of ActiveNetworksSection, laid out like the Windows 7
-    // "netprofile" row: a 48rp profile glyph (class "navbutton") in its own
-    // left column, with 10rp between the glyph and the text column. The
-    // vertical offset (33rp) skips the section's divider header so the icon
-    // aligns with the profile name below it; 23 + (-13) keeps the native text
-    // at its original 10rp indent while only the icon position changes.
-    // 36rp (not the original 48rp) matches the row height the modern page
-    // gives the profile block, so the icon never pushes the row taller.
-    const std::wstring iconXml =
-        L"<element layoutpos=\"left\" layout=\"borderlayout()\" "
-        L"padding=\"rect(23rp,33rp,-13rp,0rp)\">"
-        L"<button layoutpos=\"top\" accessible=\"true\" accrole=\"graphic\" "
-        L"contentalign=\"middlecenter\" background=\"argb(0,0,0,0)\" "
-        L"content=\"icon(32756,36rp,36rp)\"/>"
-        L"</element>";
-
-    std::wstring out = in;
-    out.insert(tagEnd + 1, iconXml);
-    return out;
-}
-
-// Defined below, next to PrimeNetworkCategoryForNetCenterHost().
-static void EnsureNetCenterNetworkDataFresh();
-
-static std::wstring Patch(const std::wstring& in) {
-    if (!g_addConnect && !g_addHomegroup && !g_addNetworkMap)
-        return in;
-
-    // The Network Map and the active-network icon render from the mod's
-    // SHARED network state (g_NetworkList / g_EthernetConnected /
-    // g_CurrentNetworkCategory). In explorer.exe that state is refreshed
-    // ONLY by the flyout side (flyout show / flyout timer / WLAN
-    // notifications to the flyout window), and the hotkey-thread startup
-    // prime even ran before the WLAN handle existed - so on Wi-Fi it stayed
-    // empty until the flyout was opened once. This page is also hosted in an
-    // explorer.exe frame when opened via Win+R or the native tray context
-    // menu (control.exe just delegates to the shell), so those entry points
-    // rendered from the empty state: gray offline bench + generic "Network"
-    // label, while IsInternetConnected() (its own local NLM query) still
-    // colored the globe. PrimeNetworkCategoryForNetCenterHost() deliberately
-    // skips explorer hosts, so it never covered this case - this refresh is
-    // the host-agnostic equivalent, safe on the Control Panel's DirectUI
-    // thread.
-    EnsureNetCenterNetworkDataFresh();
-
-    std::wstring xml = in;
-
-    // Add the profile-specific icon before the active connection name, matching
-    // the Windows 7 Network and Sharing Center layout.
-    if (g_addNetworkMap)
-        xml = AddActiveNetworkLocationIcon(xml);
-
-    // STEP 1: Insert Network Map visual rectangle (BEFORE modifying create/diagnose blocks)
-    if (g_addNetworkMap) {
-        size_t anchor = xml.find(L"<element id=\"atom(ActiveNetworksSection)\"");
-        if (anchor != std::wstring::npos) {
-            Wh_Log(L"[NetMap] Found anchor at pos=%zu, inserting Network Map", anchor);
-            std::wstring mapXml = NetworkMapVisual();
-            xml.insert(anchor, mapXml);
-            Wh_Log(L"[NetMap] Network Map inserted (%zu chars)", mapXml.length());
-        } else {
-            Wh_Log(L"[NetMap] Anchor not found, skipping Network Map");
-        }
-    }
-
-    // STEP 2: Manipulate create/diagnose blocks for Connect and Homegroup links
-    size_t createMark = xml.find(L"atom(createnewbtn)");
-    size_t diagMark = xml.find(L"atom(diagnosebtn)");
-    if (createMark == std::wstring::npos || diagMark == std::wstring::npos)
-        return xml;
-
-    size_t c0 = 0, c1 = 0, d0 = 0, d1 = 0;
-    if (!FindOuterElement(xml, createMark, c0, c1) ||
-        !FindOuterElement(xml, diagMark, d0, d1))
-        return xml;
-    if (c1 <= c0 || d1 <= d0 || !(c1 <= d0 || d1 <= c0))
-        return xml;
-
-    std::wstring createBlock = xml.substr(c0, c1 - c0);
-    std::wstring diagBlock   = xml.substr(d0, d1 - d0);
-
-    if (d0 > c0) {
-        xml.erase(d0, d1 - d0);
-        xml.erase(c0, c1 - c0);
-    } else {
-        xml.erase(c0, c1 - c0);
-        xml.erase(d0, d1 - d0);
-    }
-    size_t insertAt = (c0 < d0) ? c0 : d0;
-
-    const LangPack* L = GetLang();
-    std::wstring mid;
-    if (g_addConnect) {
-        static const WCHAR kNetworkConnectionsClsid[] =
-            L"{7007ACC7-3202-11D1-AAD2-00805FC1270E}";
-        if (ShellClsidIsUsable(kNetworkConnectionsClsid)) {
-            mid += Link(L->cTitle, L->cDesc, L"%SystemRoot%\\explorer.exe",
-                        L"shell:::{7007ACC7-3202-11D1-AAD2-00805FC1270E}", 22);
-        } else {
-            Wh_Log(L"[NetCenter] Network Connections CLSID is unavailable; link omitted");
-        }
-    }
-    if (g_addHomegroup) {
-        if (HomeGroupAppletIsUsable()) {
-            // This is the HomeGroup Settings Control Panel CLSID. Launch it
-            // through Explorer's shell namespace syntax; using control.exe
-            // here makes NavigateButton pass the canonical Control Panel path
-            // as a file name on some builds.
-            mid += Link(L->hTitle, L->hDesc,
-                        L"%SystemRoot%\\explorer.exe",
-                        L"shell:::{67CA7650-96E6-4FDD-BB43-A8E774F73A57}", 27);
-        } else {
-            // Only use the fallback when its own Network Center CLSID exists;
-            // otherwise omit the custom row instead of creating another dead
-            // link on a heavily stripped/restored Control Panel.
-            static const WCHAR kNetworkCenterClsid[] =
-                L"{8E908FC9-BECC-40f6-915B-F4CA0E70D03D}";
-            if (ShellClsidIsUsable(kNetworkCenterClsid)) {
-                mid += Link(L->hFallbackTitle, L->hFallbackDesc,
-                            L"%SystemRoot%\\system32\\control.exe",
-                            L"/name Microsoft.NetworkAndSharingCenter /page Advanced", 27);
-            } else {
-                Wh_Log(L"[NetCenter] HomeGroup and Network Center CLSIDs are unavailable; link omitted");
-            }
-        }
-    }
-    xml.insert(insertAt, createBlock + mid + diagBlock);
-    return xml;
-}
-
-// ---------------------------------------------------------------------------
-// DUI hooks
-// ---------------------------------------------------------------------------
-#ifdef _WIN64
-#define NCL_THISCALL __cdecl
-#else
-#define NCL_THISCALL __thiscall
-#endif
-
-using SetXML_t = HRESULT(NCL_THISCALL*)(void*, const WCHAR*, HINSTANCE, HINSTANCE);
-using SetXMLFromResource_t =
-    HRESULT(NCL_THISCALL*)(void*, PCWSTR, PCWSTR, HMODULE, HINSTANCE, HINSTANCE);
-
-static SetXML_t SetXML = nullptr;
-static SetXMLFromResource_t SetXMLFromResource_Orig = nullptr;
-static thread_local int g_inHook = 0;
-
-// ---------------------------------------------------------------------------
-// Live refresh of the Network and Sharing Center page.
-//
-// SetXMLFromResource_Hook only fires once, when DirectUI first loads the
-// UIFILE resource for the page (i.e. when the Control Panel window is
-// opened). Nothing was previously re-invoking SetXML() after that point, so
-// disconnecting/reconnecting Wi-Fi never updated the already-open page - it
-// only showed the fresh state the next time the page was reopened.
-//
-// Fix: remember the DUI target/module/instance from the last successful
-// SetXML() call and subscribe to INetworkListManager connectivity events.
-//
-// IConnectionPoint::Advise on an in-process sink does NOT marshal - netprofm
-// invokes ConnectivityChanged on its own notification/RPC thread, not on
-// whatever thread happened to call Advise. DirectUI has hard thread
-// affinity, so calling SetXML() directly from that handler could corrupt or
-// crash the page's actual UI thread. All refresh work is therefore
-// marshaled through a message-only window that the mod creates itself, on
-// the page's own thread, instead of ever touching g_ncTarget from the NLM
-// callback thread.
-//
-// That message-only window also replaces the previous approach of finding
-// and subclassing some existing DirectUIHWND: every ordinary Explorer folder
-// window has the exact same child chain (CabinetWClass -> ShellTabWindowClass
-// -> DUIViewWndClassName -> DirectUIHWND), and Explorer windows normally
-// share one thread, so a thread-wide EnumThreadWindows search would usually
-// land on an unrelated folder window - subclassing/timering a window that
-// has nothing to do with Network Center, and tearing down on that window's
-// WM_NCDESTROY instead of the page's, leaving g_ncTarget dangling into freed
-// memory. Owning a private window sidesteps that: it is created on the exact
-// thread that owns the page, so there is nothing to search for and nothing
-// foreign to subclass.
-struct NcThreadContext {
-    DWORD threadId;
-    HWND msgWindow;
-    HWND hostWindow;
-};
-static std::vector<NcThreadContext> g_ncRegistry;
-
-static thread_local void* g_ncTarget = nullptr;
-static thread_local HMODULE g_ncModule = nullptr;
-static thread_local HINSTANCE g_ncP4 = nullptr;
-static thread_local IConnectionPoint* g_ncCP = nullptr;
-static thread_local DWORD g_ncCookie = 0;
-static thread_local bool g_ncEventsAdvised = false;
-// Whether the current page instance is displaying XML that this mod patched.
-// Needed so runtime settings changes and teardown can push the original XML
-// back when Patch() becomes a no-op (e.g. the feature is turned off).
-static thread_local bool g_ncPagePatched = false;
-
-// The mod's own message-only window, created on the page's STA thread the
-// first time that thread parses the NetCenter UIFILE. Everything that needs
-// to run on the page's thread (the marshaled refresh, the delayed-refresh
-// timer, and teardown) is routed through it instead of through a foreign
-// DirectUIHWND.
-static thread_local HWND g_ncMsgWindow = nullptr;
-static bool g_ncMsgClassRegistered = false;
-static const PCWSTR kNcMsgClassName = L"Win7NetFlyout_NcMsgWnd";
-
-// Tracks whether PrimeNetworkCategoryForNetCenterHost() personally called
-// CoInitializeEx on this thread (S_OK or S_FALSE), as opposed to it already
-// having an apartment (RPC_E_CHANGED_MODE) or the prime never having run.
-// Only ever call CoUninitialize() when this is true, and only once, from the
-// same thread - paired in the message-only window's teardown branch
-// (NcMsgWndProc), which runs on this same STA thread whether the page is
-// closed normally or the mod is being unloaded.
-static thread_local bool g_ncComInitializedByUs = false;
-static thread_local HWND g_ncHostWindow = nullptr;
-static thread_local bool g_ncSkipRefreshOnThisPass = false;
-
-static void SyncNcRegistry() {
-    DWORD tid = GetCurrentThreadId();
-    EnterCriticalSection(&g_Ctx.csLock);
-    if (!g_ncMsgWindow && !g_ncHostWindow) {
-        for (auto it = g_ncRegistry.begin(); it != g_ncRegistry.end(); ++it) {
-            if (it->threadId == tid) {
-                g_ncRegistry.erase(it);
-                break;
-            }
-        }
-    } else {
-        bool found = false;
-        for (auto& item : g_ncRegistry) {
-            if (item.threadId == tid) {
-                item.msgWindow = g_ncMsgWindow;
-                item.hostWindow = g_ncHostWindow;
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            NcThreadContext item = { tid, g_ncMsgWindow, g_ncHostWindow };
-            g_ncRegistry.push_back(item);
-        }
-    }
-    LeaveCriticalSection(&g_Ctx.csLock);
-}
-
-// Private message posted from ConnectivityChanged (which may run on an
-// arbitrary NLM thread) to ask the message-only window - which lives on the
-// correct DirectUI thread - to perform the actual refresh.
-static UINT g_ncRefreshMsg = 0;
-// Private message used to ask the message-only window to tear itself down
-// from Wh_ModUninit, which can run on an arbitrary Windhawk thread.
-static UINT g_ncTeardownMsg = 0;
-
-// NLM sometimes fires ConnectivityChanged a moment before its own internal
-// connectivity property has actually settled, so a query made right inside
-// the event handler can still observe the pre-change state. Set for the
-// duration of a forced refresh so NetworkMapVisual()'s 500ms connectivity
-// cache is bypassed instead of possibly reusing a stale cached value.
-thread_local bool g_ncForceFreshConnectivity = false;
-
-// Timer id used to schedule a short-delay second refresh after
-// ConnectivityChanged, to catch the rare case where NLM's internal state was
-// still stale during the immediate refresh. Installed on g_ncMsgWindow.
-static const UINT_PTR kNcDelayedRefreshTimerId = 0x4E430001; // 'NC' + 0001
-static const UINT kNcDelayedRefreshDelayMs = 350;
-
-static void RefreshNetworkCenterXml(bool forceOriginal = false, bool pushUnchangedOriginal = false) {
-    if (!g_ncTarget || !g_ncModule || !SetXML || g_inHook)
-        return;
-
-    std::wstring xml = LoadUifile(g_ncModule, (PCWSTR)MAKEINTRESOURCE(110), L"UIFILE");
-    if (xml.empty())
-        return;
-
-    if (!forceOriginal && g_addNetworkMap)
-        RefreshNetCenterCategoryFromNlmQuick();
-
-    std::wstring nextXml = forceOriginal ? xml : Patch(xml);
-    bool nextIsPatched = !forceOriginal && nextXml != xml;
-
-    // If the page is already showing original XML and Patch() currently has
-    // nothing to add, there is normally nothing to push. Settings refreshes can
-    // still ask for an unchanged original push to force a redraw for features
-    // implemented outside Patch(), e.g. privacy-mode DrawText masking.
-    // If it *was* patched before, still call SetXML with the original XML to
-    // revert runtime settings and mod teardown in-place instead of requiring
-    // the page to be reopened.
-    if (!nextIsPatched && !g_ncPagePatched && !pushUnchangedOriginal)
-        return;
-
-    g_inHook++;
-    HRESULT hr = S_OK;
-    if (nextIsPatched && g_ncPagePatched) {
-        // DirectUI sometimes updates only parts of the already patched tree;
-        // the native section refreshes, but our injected Network Map can keep
-        // stale text/icons. Rebuild conservatively by first restoring the
-        // original UIFILE for this page instance, then applying the freshly
-        // generated patched XML.
-        hr = SetXML(g_ncTarget, xml.c_str(), g_ncModule, g_ncP4);
-    }
-    if (SUCCEEDED(hr))
-        hr = SetXML(g_ncTarget, nextXml.c_str(), g_ncModule, g_ncP4);
-    g_inHook--;
-    if (SUCCEEDED(hr)) {
-        g_ncPagePatched = nextIsPatched;
-        if (nextIsPatched)
-            Wh_Log(L"[NetMap] Live refresh pushed patched XML");
-        else
-            Wh_Log(L"[NetMap] Live refresh reverted to original XML");
-    } else {
-        Wh_Log(L"[NetMap] Live refresh SetXML failed (hr=0x%08X)", hr);
-    }
-}
-
-// Forces IsInternetConnected() to be re-queried (rather than served from
-// NetworkMapVisual()'s 500ms cache) for the duration of one refresh push.
-static void RefreshNetworkCenterXmlForced(bool forceOriginal = false, bool pushUnchangedOriginal = false) {
-    g_ncForceFreshConnectivity = true;
-    RefreshNetworkCenterXml(forceOriginal, pushUnchangedOriginal);
-    g_ncForceFreshConnectivity = false;
-}
-
-static void UnadviseConnectivityEvents() {
-    if (g_ncCP) {
-        if (g_ncEventsAdvised)
-            g_ncCP->Unadvise(g_ncCookie);
-        g_ncCP->Release();
-        g_ncCP = nullptr;
-    }
-    g_ncEventsAdvised = false;
-    g_ncCookie = 0;
-    g_ncTarget = nullptr;
-    g_ncModule = nullptr;
-    g_ncP4 = nullptr;
-    g_ncPagePatched = false;
-}
-
-// The real window that hosts the NetCenter page on this thread (DirectUIHWND).
-// Subclassed purely to learn when the page goes away (WM_NCDESTROY) - unlike
-// the previous approach this mod's comments warn against, it is never used
-// to marshal SetXML() calls (that's still g_ncMsgWindow's job) and is looked
-// up fresh each time a page is parsed.
-
-static LRESULT CALLBACK NcHostSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
-                                            DWORD_PTR uIdSubclass) {
-    if (uMsg == WM_NCDESTROY) {
-        // The subclass wrapper removes itself before dispatching WM_NCDESTROY.
-        if (g_ncHostWindow == hWnd) {
-            g_ncHostWindow = nullptr;
-            SyncNcRegistry();
-        }
-        // The page (and its DUIXmlParser) is going away right now, so drop
-        // the tracked instance before it can be freed out from under a
-        // later ConnectivityChanged-triggered refresh.
-        UnadviseConnectivityEvents();
-        // The message-only window is per page thread; retaining it after its
-        // page died leaves an unnecessary registry entry until mod unload.
-        if (g_ncMsgWindow && IsWindow(g_ncMsgWindow))
-            DestroyWindow(g_ncMsgWindow);
-    }
-    return DefSubclassProc(hWnd, uMsg, wParam, lParam);
-}
-
-struct FindChildClassData {
-    PCWSTR pszClassName;
-    HWND hWndFound;
-};
-
-static BOOL CALLBACK FindChildClassEnumProc(HWND hWnd, LPARAM lParam) {
-    FindChildClassData* pData = reinterpret_cast<FindChildClassData*>(lParam);
-    wchar_t szClass[256];
-    if (GetClassNameW(hWnd, szClass, 256) && wcscmp(szClass, pData->pszClassName) == 0) {
-        pData->hWndFound = hWnd;
-        return FALSE; // stop enumeration
-    }
-    return TRUE; // keep enumerating
-}
-
-struct FindNcHostData {
-    HWND hFrame;
-    HWND hDirectUI;
-};
-
-static BOOL CALLBACK FindNcHostEnumProc(HWND hWnd, LPARAM lParam) {
-    FindNcHostData* pData = reinterpret_cast<FindNcHostData*>(lParam);
-    if (!GetWindow(hWnd, GW_OWNER)) {
-        wchar_t szClass[256];
-        if (GetClassNameW(hWnd, szClass, 256)) {
-            if (wcscmp(szClass, L"CabinetWClass") == 0 ||
-                wcscmp(szClass, L"RegParent") == 0 ||
-                wcscmp(szClass, L"ExplorerFrame") == 0) {
-                
-                FindChildClassData childData = { L"DirectUIHWND", nullptr };
-                EnumChildWindows(hWnd, FindChildClassEnumProc, reinterpret_cast<LPARAM>(&childData));
-                if (childData.hWndFound) {
-                    pData->hFrame = hWnd;
-                    pData->hDirectUI = childData.hWndFound;
-                    return FALSE; // found, stop enumeration
-                }
-            }
-        }
-    }
-    return TRUE;
-}
-
-// Subclasses the current thread's active page window (DirectUIHWND) so its
-// destruction can be observed. Must be called on the STA thread that owns
-// the NetCenter page, right after a successful SetXML().
-static void EnsureNcHostSubclassed() {
-    FindNcHostData data = { nullptr, nullptr };
-    EnumThreadWindows(GetCurrentThreadId(), FindNcHostEnumProc,
-                       reinterpret_cast<LPARAM>(&data));
-    
-    HWND targetWnd = data.hDirectUI;
-    if (!targetWnd || targetWnd == g_ncHostWindow)
-        return;
-        
-    if (g_ncHostWindow) {
-        WindhawkUtils::RemoveWindowSubclassFromAnyThread(g_ncHostWindow, NcHostSubclassProc);
-        g_ncHostWindow = nullptr;
-        SyncNcRegistry();
-    }
-    
-    if (WindhawkUtils::SetWindowSubclassFromAnyThread(targetWnd, NcHostSubclassProc, 0)) {
-        g_ncHostWindow = targetWnd;
-        SyncNcRegistry();
-    }
-}
-
-static UINT GetNcRefreshMessage() {
-    if (!g_ncRefreshMsg)
-        g_ncRefreshMsg = RegisterWindowMessageW(L"Win7NetFlyout_NcRefresh");
-    return g_ncRefreshMsg;
-}
-
-static UINT GetNcTeardownMessage() {
-    if (!g_ncTeardownMsg)
-        g_ncTeardownMsg = RegisterWindowMessageW(L"Win7NetFlyout_NcTeardown");
-    return g_ncTeardownMsg;
-}
-
-static void RequestNetCenterRefreshFromSettings() {
-    std::vector<NcThreadContext> registryCopy;
-    EnterCriticalSection(&g_Ctx.csLock);
-    registryCopy = g_ncRegistry;
-    LeaveCriticalSection(&g_Ctx.csLock);
-
-    UINT refreshMsg = GetNcRefreshMessage();
-    for (const auto& item : registryCopy) {
-        if (item.msgWindow && IsWindow(item.msgWindow) && refreshMsg) {
-            // wParam=1 marks a settings-driven refresh. Unlike an NLM event or
-            // worker completion, this should be allowed to kick the async data
-            // refresh path from Patch() if the Network Map was just enabled.
-            PostMessageW(item.msgWindow, refreshMsg, 1, 0);
-        }
-    }
-}
-
-// WndProc for the mod's own message-only window. Runs entirely on the STA
-// thread that owns the NetCenter page, so it is always safe to touch
-// g_ncTarget / g_ncCP here.
-static LRESULT CALLBACK NcMsgWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    if (uMsg == g_ncRefreshMsg && g_ncRefreshMsg) {
-        // Posted from ConnectivityChanged/refresh workers or from runtime
-        // settings changes. We're on the right thread now, so it's safe to
-        // touch the DUI parser. Settings refreshes use wParam=1 and are
-        // allowed to let Patch() kick a fresh async data pass if needed;
-        // worker/event refreshes suppress that to avoid refresh loops.
-        if (g_ncTarget) {
-            bool settingsRefresh = (wParam == 1);
-            g_ncSkipRefreshOnThisPass = !settingsRefresh;
-            RefreshNetworkCenterXmlForced(/*forceOriginal=*/false,
-                                          /*pushUnchangedOriginal=*/settingsRefresh);
-            g_ncSkipRefreshOnThisPass = false;
-            if (!settingsRefresh) {
-                // NLM occasionally reports the change before its own
-                // connectivity state has fully settled, which the immediate
-                // refresh above can miss. Schedule one more forced refresh
-                // shortly after to catch that case.
-                SetTimer(hWnd, kNcDelayedRefreshTimerId, kNcDelayedRefreshDelayMs, nullptr);
-            }
-        }
-        return 0;
-    }
-    if (uMsg == WM_TIMER && wParam == kNcDelayedRefreshTimerId) {
-        KillTimer(hWnd, kNcDelayedRefreshTimerId);
-        if (g_ncTarget) {
-            g_ncSkipRefreshOnThisPass = true;
-            RefreshNetworkCenterXmlForced();
-            g_ncSkipRefreshOnThisPass = false;
-        }
-        return 0;
-    }
-    if (uMsg == g_ncTeardownMsg && g_ncTeardownMsg) {
-        Wh_Log(L"[NetMap] NetCenter live-refresh window tearing down");
-        KillTimer(hWnd, kNcDelayedRefreshTimerId);
-        // Revert the already-open page to the original Network Center XML
-        // before the WndProc goes away. This keeps disabling/updating the mod
-        // reversible without requiring the user to reopen Control Panel.
-        RefreshNetworkCenterXmlForced(/*forceOriginal=*/true);
-        UnadviseConnectivityEvents();
-        if (g_ncHostWindow && IsWindow(g_ncHostWindow)) {
-            WindhawkUtils::RemoveWindowSubclassFromAnyThread(g_ncHostWindow, NcHostSubclassProc);
-        }
-        g_ncHostWindow = nullptr;
-        if (g_ncMsgWindow == hWnd)
-            g_ncMsgWindow = nullptr;
-        SyncNcRegistry();
-        // Balances the CoInitializeEx() in PrimeNetworkCategoryForNetCenterHost():
-        // this message window always lives on the same STA thread that call
-        // ran on, so this is the one place that can safely pair it.
-        if (g_ncComInitializedByUs) {
-            CoUninitialize();
-            g_ncComInitializedByUs = false;
-        }
-        DestroyWindow(hWnd);
-        return 0;
-    }
-    if (uMsg == WM_NCDESTROY) {
-        // Reached if the window is destroyed some other way than the
-        // teardown message above (shouldn't normally happen, since only
-        // this code ever destroys it, but keep state consistent either way).
-        KillTimer(hWnd, kNcDelayedRefreshTimerId);
-        if (g_ncMsgWindow == hWnd)
-            g_ncMsgWindow = nullptr;
-        UnadviseConnectivityEvents();
-        if (g_ncHostWindow && IsWindow(g_ncHostWindow)) {
-            WindhawkUtils::RemoveWindowSubclassFromAnyThread(g_ncHostWindow, NcHostSubclassProc);
-        }
-        g_ncHostWindow = nullptr;
-        SyncNcRegistry();
-        if (g_ncComInitializedByUs) {
-            CoUninitialize();
-            g_ncComInitializedByUs = false;
-        }
-    }
-    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
-}
-
-// Creates (if needed) the mod's message-only window on the current thread.
-// Must be called from SetXMLFromResource_Hook, i.e. on the STA thread that
-// owns the NetCenter page - never from the NLM callback thread.
-static HWND EnsureNcMsgWindow() {
-    if (g_ncMsgWindow && IsWindow(g_ncMsgWindow))
-        return g_ncMsgWindow;
-    g_ncMsgWindow = nullptr; // stale handle from a destroyed window, if any
-    SyncNcRegistry();
-
-    // Own HINSTANCE (see HINST_THISCOMPONENT), so a leftover registration
-    // from a previous load/unload can never collide with this one.
-    HINSTANCE hInst = HINST_THISCOMPONENT;
-    // Each Explorer browser window (and each control.exe instance) runs the
-    // Network Center page on its own thread, so two pages can both reach
-    // here concurrently and race on g_ncMsgClassRegistered. Serialize under
-    // the same lock SyncNcRegistry() above already takes, so only one
-    // thread ever calls RegisterClassW and every other racing thread sees
-    // the flag already set instead of also seeing "not registered" and
-    // failing its own RegisterClassW call (which used to leave that page
-    // with no message window and therefore no live refresh).
-    EnterCriticalSection(&g_Ctx.csLock);
-    if (!g_ncMsgClassRegistered) {
-        WNDCLASSW wc = {0};
-        wc.lpfnWndProc   = NcMsgWndProc;
-        wc.hInstance     = hInst;
-        wc.lpszClassName = kNcMsgClassName;
-        if (RegisterClassW(&wc))
-            g_ncMsgClassRegistered = true;
-    }
-    bool classReady = g_ncMsgClassRegistered;
-    LeaveCriticalSection(&g_Ctx.csLock);
-    if (!classReady)
-        return nullptr;
-
-    GetNcRefreshMessage();
-    GetNcTeardownMessage();
-    g_ncMsgWindow = CreateWindowExW(0, kNcMsgClassName, L"", 0, 0, 0, 0, 0,
-                                     HWND_MESSAGE, NULL, hInst, NULL);
-    SyncNcRegistry();
-    return g_ncMsgWindow;
-}
-
-class NetworkEventsSink : public INetworkListManagerEvents {
-   public:
-    explicit NetworkEventsSink(HWND msgWindow) : m_refCount(1), m_msgWindow(msgWindow) {}
-    virtual ~NetworkEventsSink() {}
-
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override {
-        if (!ppv) return E_POINTER;
-        if (riid == IID_IUnknown || riid == IID_IDispatch ||
-            riid == IID_INetworkListManagerEvents) {
-            *ppv = static_cast<INetworkListManagerEvents*>(this);
-            AddRef();
-            return S_OK;
-        }
-        *ppv = nullptr;
-        return E_NOINTERFACE;
-    }
-    STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_refCount); }
-    STDMETHODIMP_(ULONG) Release() override {
-        ULONG r = InterlockedDecrement(&m_refCount);
-        if (r == 0) delete this;
-        return r;
-    }
-
-    // These four come from IDispatch. Left without 'override' since this
-    // toolchain's netlistmgr/oaidl headers don't always expose them with a
-    // signature clang recognizes as virtual on this interface; they're still
-    // correctly dispatched through the vtable at runtime.
-    STDMETHODIMP GetTypeInfoCount(UINT* pctinfo) { *pctinfo = 0; return S_OK; }
-    STDMETHODIMP GetTypeInfo(UINT, LCID, ITypeInfo**) { return E_NOTIMPL; }
-    STDMETHODIMP GetIDsOfNames(REFIID, LPOLESTR*, UINT, LCID, DISPID*) { return E_NOTIMPL; }
-    STDMETHODIMP Invoke(DISPID, REFIID, LCID, WORD, DISPPARAMS*, VARIANT*, EXCEPINFO*, UINT*) {
-        return E_NOTIMPL;
-    }
-
-    // Runs on NLM's own notification/RPC thread, not on the DirectUI page's
-    // thread - IConnectionPoint::Advise on an in-process sink does not
-    // marshal. Never touch g_ncTarget/SetXML from here: just hand off to the
-    // message-only window that lives on the correct thread.
-    STDMETHODIMP ConnectivityChanged(NLM_CONNECTIVITY) override {
-        // This sink is advised by its owning page thread. Refresh only that
-        // thread's message window; broadcasting makes N pages refresh N² times.
-        if (m_msgWindow && IsWindow(m_msgWindow) && g_ncRefreshMsg)
-            PostMessageW(m_msgWindow, g_ncRefreshMsg, 0, 0);
-        return S_OK;
-    }
-
-   private:
-    LONG m_refCount;
-    HWND m_msgWindow;
-};
-
-static void EnsureConnectivityEventsAdvised() {
-    if (g_ncEventsAdvised)
-        return;
-
-    ComPtr<INetworkListManager> nlm;
-    if (FAILED(CoCreateInstance(CLSID_NetworkListManager, NULL, CLSCTX_INPROC_SERVER,
-                                 IID_INetworkListManager, (void**)nlm.put())) || !nlm)
-        return;
-
-    ComPtr<IConnectionPointContainer> container;
-    if (FAILED(nlm->QueryInterface(IID_IConnectionPointContainer, (void**)container.put())) || !container)
-        return;
-
-    ComPtr<IConnectionPoint> connectionPoint;
-    if (FAILED(container->FindConnectionPoint(IID_INetworkListManagerEvents,
-                                               connectionPoint.put())) || !connectionPoint)
-        return;
-
-    // Advise retains the sink on success. The local reference is released on
-    // every path, including an Advise failure.
-    ComPtr<NetworkEventsSink> sink(new NetworkEventsSink(g_ncMsgWindow));
-    DWORD cookie = 0;
-    if (SUCCEEDED(connectionPoint->Advise(
-            static_cast<IUnknown*>(static_cast<INetworkListManagerEvents*>(sink.get())),
-            &cookie))) {
-        g_ncCP = connectionPoint.detach(); // ownership moves to UnadviseConnectivityEvents.
-        g_ncCookie = cookie;
-        g_ncEventsAdvised = true;
-        Wh_Log(L"[NetMap] Subscribed to live connectivity change events");
-    }
-}
-
-// Called from Wh_ModUninit. Marshals the subclass/timer cleanup and the COM
-// Unadvise/Release to the STA thread that owns g_ncCP and g_ncMsgWindow,
-// instead of touching that raw, unmarshalled pointer from whatever thread
-// Windhawk calls Wh_ModUninit on.
-static void TeardownNetCenterHost() {
-    std::vector<NcThreadContext> registryCopy;
-    EnterCriticalSection(&g_Ctx.csLock);
-    registryCopy = g_ncRegistry;
-    LeaveCriticalSection(&g_Ctx.csLock);
-
-    for (const auto& item : registryCopy) {
-        if (item.msgWindow && IsWindow(item.msgWindow)) {
-            // Do not fall through while a live message-only window still has a
-            // WndProc in this mod image. If the UI thread is merely busy it will
-            // eventually process the teardown; returning early would let
-            // Windhawk unmap the DLL and leave the next message/timer to jump
-            // into unmapped code.
-            DWORD_PTR dwResult = 0;
-            int attempt = 0;
-            while (IsWindow(item.msgWindow)) {
-                // SMTO_NORMAL (not SMTO_ABORTIFHUNG) so the 5s timeout is
-                // actually spent blocking. With SMTO_ABORTIFHUNG the call
-                // returns 0 immediately whenever the receiving thread is
-                // considered hung, turning this into a tight, full-CPU retry
-                // loop that never lets Wh_ModUninit return.
-                LRESULT sent = SendMessageTimeoutW(item.msgWindow, GetNcTeardownMessage(), 0, 0,
-                                                    SMTO_NORMAL, 5000, &dwResult);
-                if (sent != 0 || !IsWindow(item.msgWindow))
-                    break;
-                attempt++;
-                Wh_Log(L"[NetMap] NC teardown message timed out (attempt %d); retrying", attempt);
-            }
-        } else {
-            if (item.hostWindow && IsWindow(item.hostWindow)) {
-                WindhawkUtils::RemoveWindowSubclassFromAnyThread(item.hostWindow, NcHostSubclassProc);
-            }
-        }
-    }
-
-    EnterCriticalSection(&g_Ctx.csLock);
-    g_ncRegistry.clear();
-    LeaveCriticalSection(&g_Ctx.csLock);
-}
-
-
-static bool IsNetCenter(HMODULE h) {
-    if (!h)
-        return false;
-    // Fast path: compare directly against the cached module handle instead
-    // of touching the filesystem on every matching LoadImageW call. Only
-    // falls back to path parsing if the cache misses (e.g. netcenter.dll
-    // reloaded at a different base, or not yet resolved).
-    HMODULE hNetCenter = GetModuleHandleW(L"netcenter.dll");
-    if (hNetCenter && hNetCenter == h)
-        return true;
-    wchar_t path[MAX_PATH];
-    if (!GetModuleFileNameW(h, path, MAX_PATH))
-        return false;
-    return _wcsicmp(PathFindFileNameW(path), L"netcenter.dll") == 0;
-}
-
-// Replace every occurrence of the connected SSID/profile name, including
-// compound native labels such as "Wi-Fi (PosteMobile-12673059)". This is
-// deliberately a substring replacement: the Control Panel connection link
-// includes the name in parentheses, whereas the active-network heading draws
-// it as a standalone string.
-static bool MaskConnectedNetworkText(LPCWSTR text, int textLength,
-                                     std::wstring& masked) {
-    if (!g_Settings.privacyMode || !text)
-        return false;
-    int len = (textLength >= 0) ? textLength : lstrlenW(text);
-    if (len <= 0)
-        return false;
-
-    WCHAR privateName[64] = {0};
-    StringCchPrintfW(privateName, ARRAYSIZE(privateName),
-                     LOC(STR_NETWORK_PRIVACY_FMT), 1);
-    masked.assign(text, len);
-    bool changed = false;
-
-    auto ReplaceName = [&](const WCHAR* realName) {
-        if (!realName || !realName[0]) return;
-        const std::wstring needle(realName);
-        size_t pos = 0;
-        while ((pos = masked.find(needle, pos)) != std::wstring::npos) {
-            // Require a non-alphanumeric boundary (or start/end of string) on
-            // both sides, so a short/generic name like "Net" or "Home" only
-            // matches as a whole label/word - e.g. inside "Wi-Fi (MyNetwork)"
-            // or standing alone - rather than also rewriting an unrelated
-            // NetCenter string that merely contains it as a substring.
-            bool leftOk = (pos == 0) || !iswalnum(masked[pos - 1]);
-            size_t endPos = pos + needle.length();
-            bool rightOk = (endPos >= masked.size()) || !iswalnum(masked[endPos]);
-            if (!leftOk || !rightOk) {
-                pos += 1;
-                continue;
-            }
-            masked.replace(pos, needle.length(), privateName);
-            pos += lstrlenW(privateName);
-            changed = true;
-        }
-    };
-
-    // Copy connected network names under the critical section
-    EnterCriticalSection(&g_Ctx.csLock);
-    std::vector<std::wstring> connectedNames;
-    for (int i = 0; i < g_NetworkCount; ++i) {
-        if (g_NetworkList[i].connState == CONN_STATE_CONNECTED)
-            connectedNames.push_back(std::wstring(g_NetworkList[i].ssid));
-    }
-    BOOL ethernetConnected = g_EthernetConnected;
-    WCHAR ethernetName[64] = {0};
-    StringCchCopyW(ethernetName, ARRAYSIZE(ethernetName), g_EthernetNetworkName);
-    LeaveCriticalSection(&g_Ctx.csLock);
-
-    for (const auto& name : connectedNames)
-        ReplaceName(name.c_str());
-    if (ethernetConnected)
-        ReplaceName(ethernetName);
-    return changed;
-}
-
-static int WINAPI DrawTextW_Hook(HDC hdc, LPCWSTR text, int textLength,
-                                 LPRECT rect, UINT format) {
-    // Only mask text when called from netcenter.dll to avoid mangling
-    // unrelated strings process-wide (e.g. filenames containing the SSID).
-    void* ra = __builtin_return_address(0);
-    if (ra && !IsInNetCenter(ra))
-        return DrawTextW_Orig ? DrawTextW_Orig(hdc, text, textLength, rect, format) : 0;
-
-    std::wstring masked;
-    if (DrawTextW_Orig && MaskConnectedNetworkText(text, textLength, masked))
-        return DrawTextW_Orig(hdc, masked.c_str(), (int)masked.length(), rect, format);
-    return DrawTextW_Orig ? DrawTextW_Orig(hdc, text, textLength, rect, format) : 0;
-}
-
-// Installs the hook if it isn't already installed. Callable from either the
-// NetCenter page's UI thread (via SetXMLFromResource_Hook, the first time
-// netcenter.dll is actually observed) or the Windhawk settings-callback
-// thread (via SettingsChanged(), when privacy mode is toggled on at
-// runtime) - so the check-and-set on g_textHookInstalled is serialized under
-// g_Ctx.csLock. Without that, both callers could see it as false at the same
-// time and both call SetFunctionHook on DrawTextW, registering the hook
-// twice. applyNow lets the Wh_ModInit-time caller (HookAll(), below) skip
-// the explicit Wh_ApplyHookOperations() call, since Windhawk already applies
-// all hooks registered during Wh_ModInit on its own right after it returns;
-// calling it again there would just be redundant work on that path.
-static void EnsurePrivacyTextHookInstalled(bool applyNow = true) {
-    if (!g_Settings.privacyMode)
-        return;
-    EnterCriticalSection(&g_Ctx.csLock);
-    bool alreadyInstalled = g_textHookInstalled;
-    bool justInstalled = false;
-    if (!alreadyInstalled) {
-        justInstalled = WindhawkUtils::SetFunctionHook(
-            DrawTextW, DrawTextW_Hook, &DrawTextW_Orig);
-        if (justInstalled)
-            g_textHookInstalled = true;
-    }
-    LeaveCriticalSection(&g_Ctx.csLock);
-    if (alreadyInstalled || !justInstalled)
-        return;
-    if (applyNow)
-        Wh_ApplyHookOperations();
-}
-
-// DirectUI loads icon() graphics through LoadImageW. Only the two private
-// IDs emitted by IconAttr are replaced, leaving Configure a Network and
-// Troubleshoot (and every other stock page icon) untouched.
-// Forward-declared here; defined further down alongside the rest of the
-// non-explorer-host NetCenter state. Called both here and in
-// SetXMLFromResource_Hook since the category icon can in principle be
-// requested by DirectUI (e.g. on a DPI change) without a fresh SetXML pass.
-static void PrimeNetworkCategoryForNetCenterHost();
-
-static HANDLE WINAPI LoadImageW_Hook(HINSTANCE hInst, LPCWSTR name, UINT type,
-                                     int width, int height, UINT flags) {
-    if (type == IMAGE_ICON && hInst && name) {
-        // DirectUI normally passes MAKEINTRESOURCE, but accept the equivalent
-        // numeric string as well for builds that preserve the parsed token.
-        int resourceId = 0;
-        if (IS_INTRESOURCE(name))
-            resourceId = (int)(UINT_PTR)name;
-        else if (wcscmp(name, L"32753") == 0)
-            resourceId = kConnectCustomIconId;
-        else if (wcscmp(name, L"32754") == 0)
-            resourceId = kHomegroupCustomIconId;
-        else if (wcscmp(name, L"32755") == 0)
-            resourceId = kComputerIconId;
-        else if (wcscmp(name, L"32756") == 0)
-            resourceId = kNetMapCategoryIconId;
-        else if (wcscmp(name, L"32757") == 0)
-            resourceId = kGlobeIconId;
-        else if (wcscmp(name, L"32758") == 0)
-            resourceId = kNoInternetXIconId;
-        else if (wcscmp(name, L"32760") == 0)
-            resourceId = kOfflineNetworkIconId;
-
-        int sourceIconId = 0;
-        if (resourceId == kConnectCustomIconId)
-            sourceIconId = 22;
-        else if (resourceId == kHomegroupCustomIconId)
-            sourceIconId = 27;
-
-        if (sourceIconId && IsNetCenter(hInst)) {
-            if (HICON icon = CopyNetworkCenterIcon(sourceIconId, width, height))
-                return icon;
-            // Decoding failed: preserve the previous Windows icon fallback.
-            return LoadImageW_Orig ? LoadImageW_Orig(hInst,
-                MAKEINTRESOURCEW(sourceIconId), type, width, height, flags) : NULL;
-        }
-
-        if (resourceId == kComputerIconId) {
-            if (!IsNetCenter(hInst))
-                return LoadImageW_Orig ? LoadImageW_Orig(hInst, name, type, width, height, flags) : NULL;
-            int wantW = (width  > 0) ? width  : ScaleDpi(48);
-            int wantH = (height > 0) ? height : ScaleDpi(48);
-            HICON copy = CopyCachedBase64Icon(&g_hIconNetworkMapDUI,
-                &g_iconNetworkMapDUIW, &g_iconNetworkMapDUIH,
-                PC_ICON_BASE64, wantW, wantH);
-            Wh_Log(L"[NetMap-Icon] kComputerIconId requested at %dx%d, copy=%p", wantW, wantH, copy);
-            return copy;
-        }
-        if (resourceId == kGlobeIconId) {
-            if (!IsNetCenter(hInst))
-                return LoadImageW_Orig ? LoadImageW_Orig(hInst, name, type, width, height, flags) : NULL;
-            int wantW = (width  > 0) ? width  : ScaleDpi(48);
-            int wantH = (height > 0) ? height : ScaleDpi(48);
-            // The same connectivity test used by the flyout selects a gray
-            // globe whenever this connection has no Internet access.
-            BOOL online = IsInternetConnected();
-            HICON copy = NULL;
-            EnterCriticalSection(&g_Ctx.csLock);
-            if (!g_hIconGlobeDUI || g_iconGlobeDUIW != wantW ||
-                g_iconGlobeDUIH != wantH || g_iconGlobeDUIOnline != online) {
-                if (g_hIconGlobeDUI) { DestroyIcon(g_hIconGlobeDUI); g_hIconGlobeDUI = NULL; }
-                g_hIconGlobeDUI = CreateIconFromBase64PNG(
-                    online ? GLOBE_ICON_BASE64 : GLOBE_ICON_OFFLINE_BASE64,
-                    wantW, wantH);
-                g_iconGlobeDUIW = wantW;
-                g_iconGlobeDUIH = wantH;
-                g_iconGlobeDUIOnline = online;
-            }
-            if (g_hIconGlobeDUI)
-                copy = CopyIcon(g_hIconGlobeDUI);
-            LeaveCriticalSection(&g_Ctx.csLock);
-            Wh_Log(L"[NetMap-Icon] Globe requested at %dx%d (online=%d), copy=%p",
-                   wantW, wantH, online, copy);
-            return copy;
-        }
-
-        if (resourceId == kNoInternetXIconId) {
-            if (!IsNetCenter(hInst))
-                return LoadImageW_Orig ? LoadImageW_Orig(hInst, name, type, width, height, flags) : NULL;
-            int wantW = (width > 0) ? width : ScaleDpi(16);
-            int wantH = (height > 0) ? height : ScaleDpi(16);
-            return CopyCachedBase64Icon(&g_hIconNoInternetXDUI,
-                &g_iconNoInternetXDUIW, &g_iconNoInternetXDUIH,
-                NETWORK_NO_INTERNET_X_BASE64, wantW, wantH);
-        }
-
-        if (resourceId == kOfflineNetworkIconId) {
-            if (!IsNetCenter(hInst))
-                return LoadImageW_Orig ? LoadImageW_Orig(hInst, name, type, width, height, flags) : NULL;
-            int wantW = width > 0 ? width : ScaleDpi(36);
-            int wantH = height > 0 ? height : ScaleDpi(36);
-            HICON copy = CopyCachedBase64Icon(&g_hIconOfflineNetworkDUI,
-                &g_iconOfflineNetworkDUIW, &g_iconOfflineNetworkDUIH,
-                NETLOC_PUBLIC_OFFLINE_ICON_BASE64, wantW, wantH);
-            Wh_Log(L"[NetMap-Icon] Offline gray network icon requested at %dx%d, copy=%p", wantW, wantH, copy);
-            return copy;
-        }
-
-        if (resourceId == kNetMapCategoryIconId) {
-            if (!IsNetCenter(hInst))
-                return LoadImageW_Orig ? LoadImageW_Orig(hInst, name, type, width, height, flags) : NULL;
-            PrimeNetworkCategoryForNetCenterHost();
-            // Decode at DirectUI's requested 36rp active-network size. This
-            // uses the same bicubic scaling path as the PC/globe DUI caches.
-            return CopyNetworkLocationIconForDUI(width, height);
-        }
-    }
-    return LoadImageW_Orig ? LoadImageW_Orig(hInst, name, type, width, height, flags) : NULL;
-}
-
-// Tracks whether we've attempted the one-time priming below, and whether we
-// were the ones who opened g_Ctx.hWlanClient (so Wh_ModUninit's
-// non-explorer-host branch knows it's safe/necessary to close it).
-static bool g_ncCategoryPrimeAttempted = false;
-static bool g_ncOwnsWlanHandleInNonExplorerHost = false;
-// Wh_ModInit() deliberately skips all WLAN/NLM priming when the mod is
-// injected into a non-explorer host (see the g_IsExplorerHost branch there):
-// that infrastructure was designed to run only inside explorer.exe's own
-// tray flyout + hotkey thread. But Network and Sharing Center can also be
-// opened directly as a standalone control.exe process (e.g. via the tray
-// icon's right-click context menu), which never touches that code path at
-// all. Without this, g_CurrentNetworkCategory stays "unknown" for that
-// process's whole lifetime, and CopyNetworkLocationIconForDUI always falls
-// back to the generic Public icon instead of the real Home/Public/Work one.
-// Confirmed by testing: without a real COM apartment on this thread,
-// IsInternetConnected() (used both for the network-map's online/offline icon
-// and inside category detection's NLM path) fails silently and always
-// reports offline, which is why the map row was still always showing the
-// gray offline icon even after WLAN/category priming was added.
-//
-// This is a best-effort, one-shot, defensive addition: it runs at most once
-// per process, and any failure anywhere in it (COM unavailable, WLAN service
-// unavailable, etc.) just leaves the existing Public/offline fallback in
-// place rather than risking the host process. Everything here is wrapped in
-// try/catch per request, even though the Win32/COM calls involved report
-// failure via return codes rather than exceptions - this is extra insurance
-// against an unexpected std::bad_alloc or similar from the helper functions
-// it calls into (LoadUifile, RefreshWifiData, etc.), not a substitute for
-// checking those return codes, which are still checked individually below.
-static LONG volatile g_ncRefreshInFlight = 0;
-static HANDLE g_ncRefreshThread = NULL;   // joined in Wh_ModUninit
-static DWORD WINAPI NcNetworkDataRefreshWorker(PVOID);
-
-static void PrimeNetworkCategoryForNetCenterHost() {
-    if (g_ncCategoryPrimeAttempted || g_IsExplorerHost)
-        return;
-    g_ncCategoryPrimeAttempted = true;
-
-    if (InterlockedCompareExchange(&g_ncRefreshInFlight, 1, 0) != 0)
-        return;
-
-    // See the matching comment in EnsureNetCenterNetworkDataFresh(): guard
-    // the isUninitializing check + CreateThread + handle store with the same
-    // lock Wh_ModUninit joins under, so the check and the join can't
-    // interleave and leave an unjoined worker thread at unload.
-    EnterCriticalSection(&g_Ctx.csLock);
-    if (g_Ctx.isUninitializing) {
-        LeaveCriticalSection(&g_Ctx.csLock);
-        InterlockedExchange(&g_ncRefreshInFlight, 0);
-        return;
-    }
-    if (g_ncRefreshThread) {
-        CloseHandle(g_ncRefreshThread);
-        g_ncRefreshThread = NULL;
-    }
-    g_ncRefreshThread = CreateThread(NULL, 0, NcNetworkDataRefreshWorker, NULL, 0, NULL);
-    HANDLE hCreated = g_ncRefreshThread;
-    LeaveCriticalSection(&g_Ctx.csLock);
-    if (!hCreated) {
-        InterlockedExchange(&g_ncRefreshInFlight, 0);
-        Wh_Log(L"[NetMap] CreateThread failed for initial priming pass");
-    } else {
-        Wh_Log(L"[NetMap] Kicked off background network data priming thread in non-explorer host");
-    }
-}
-
-// Refreshes the shared Wi-Fi/Ethernet/category state from whichever process
-// and thread is rendering the Network Center page. Throttled to once every
-// 2 seconds because Patch() can run several times per page load (initial
-// parse, DirectUI re-layouts, live-refresh pushes). Host-agnostic
-// counterpart of PrimeNetworkCategoryForNetCenterHost(): it also runs in
-// explorer.exe, where the priming helper returns early by design and where
-// the flyout-side machinery is otherwise the only thing keeping
-// g_NetworkList / g_EthernetConnected up to date.
-// Guards against overlapping worker runs (Patch() can trigger a refresh
-// request again - immediate + the 350 ms delayed pass - before a previous
-// one finishes).
-static DWORD WINAPI NcNetworkDataRefreshWorker(PVOID /*unused*/) {
-    // Thread pool threads have no COM apartment by default, but the
-    // CoCreateInstance() below needs one. Balance whatever we do here at
-    // the end of this same function.
-    HRESULT hrCo = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-    bool comInitializedHere = (hrCo == S_OK || hrCo == S_FALSE);
-
-    // Reuse the process-wide WLAN handle if the flyout/hotkey side (or
-    // the non-explorer priming) already opened it. wlanapi handles are
-    // RPC-based and usable from any thread in the process. A handle
-    // opened HERE is ours to close at uninit only in non-explorer hosts;
-    // in explorer the hotkey/flyout path owns the lifecycle (it also
-    // registers notifications on the handle it opens itself).
-    if (!g_Ctx.hWlanClient) {
-        DWORD dwCurVer = 0;
-        HANDLE hClient = NULL;
-        DWORD wlanResult = WlanOpenHandle(2, NULL, &dwCurVer, &hClient);
-        if (wlanResult == ERROR_SUCCESS && hClient) {
-            EnterCriticalSection(&g_Ctx.csLock);
-            if (!g_Ctx.hWlanClient) {
-                g_Ctx.hWlanClient = hClient;
-                if (!g_IsExplorerHost)
-                    g_ncOwnsWlanHandleInNonExplorerHost = true;
-            } else {
-                WlanCloseHandle(hClient, NULL);
-                hClient = nullptr;
-            }
-            LeaveCriticalSection(&g_Ctx.csLock);
-            if (hClient) {
-                Wh_Log(L"[NetMap] WLAN handle opened for NetCenter data refresh");
-            }
-        } else {
-            Wh_Log(L"[NetMap] WlanOpenHandle failed during NetCenter data "
-                   L"refresh (error=%lu)", wlanResult);
-        }
-    }
-
-    if (g_Ctx.hWlanClient)
-        RefreshWifiData(g_Ctx.hWlanClient);  // serializes the g_NetworkList swap internally
-
-    // This runs on a background thread, a different COM apartment from the 
-    // flyout/hotkey thread that owns g_pNLM. Create and use a local instance 
-    // instead of sharing g_pNLM: the hotkey thread releases g_pNLM 
-    // unconditionally on exit, so touching it from here was reachable as a 
-    // use-after-free during unload, on top of using/publishing an interface 
-    // pointer created in the wrong apartment.
-    ComPtr<INetworkListManager> localNlm;
-    HRESULT hrNlm = CoCreateInstance(CLSID_NetworkListManager, NULL, CLSCTX_INPROC_SERVER,
-                                      IID_INetworkListManager, (void**)localNlm.put());
-    if (FAILED(hrNlm)) {
-        // A null localNlm must NOT be treated as "no override requested" by
-        // the callees below - that would silently fall back to the shared
-        // g_pNLM, which is exactly the cross-apartment use / use-after-free
-        // this local instance exists to avoid (HotkeyThreadProc releases
-        // g_pNLM unconditionally on exit and this worker can be mid-call on
-        // it). useOnlyOverride=true below makes the callees skip NLM-backed
-        // work entirely instead of guessing.
-        Wh_Log(L"[NetMap] CoCreateInstance(NetworkListManager) failed (hr=0x%08X) "
-               L"on refresh worker thread; NLM-backed detection skipped this pass", hrNlm);
-    }
-
-    // lock-free COM/WLAN work, locked publish of g_Ethernet*
-    UpdateEthernetStatus(localNlm.get(), /*useOnlyOverride=*/true);
-
-    // Re-evaluate the category on every worker pass, not only while it is
-    // unknown. The first DirectUI render can legitimately use the Public bench
-    // fallback before this background worker completes; if that Public value is
-    // treated as final, Home/Private and Domain/Work profiles never get a
-    // chance to replace it with the house/buildings icon.
-    NetworkStateSnapshot state;
-    CaptureNetworkState(&state);
-    BOOL isAnyConnected = state.ethernetConnected ||
-        (state.networkCount > 0 && state.networks[0].connState == CONN_STATE_CONNECTED);
-    if (isAnyConnected && g_Settings.useNetworkLocationIcons) {
-        int category = DetectNetworkLocationCategory(localNlm.get(), /*useOnlyOverride=*/true);
-        PublishNetworkLocationCategory(category, FALSE);
-    } else if (!isAnyConnected || !g_Settings.useNetworkLocationIcons) {
-        PublishNetworkLocationCategory(-1, TRUE);
-    }
-
-    if (comInitializedHere)
-        CoUninitialize();
-
-    // Keep the in-flight guard until notification posting is complete.
-
-    // Nudge a re-render now that fresher data is available. Same
-    // immediate-plus-later-catch-up shape as the connectivity-event path.
-    EnterCriticalSection(&g_Ctx.csLock);
-    std::vector<NcThreadContext> registryCopy = g_ncRegistry;
-    LeaveCriticalSection(&g_Ctx.csLock);
-
-    for (const auto& item : registryCopy) {
-        if (item.msgWindow && IsWindow(item.msgWindow) && g_ncRefreshMsg) {
-            PostMessageW(item.msgWindow, g_ncRefreshMsg, 0, 0);
-        }
-    }
-    InterlockedExchange(&g_ncRefreshInFlight, 0);
-
-    return 0;
-}
-
-// Kicks off a background refresh of WLAN/adapter/NLM data for the NetCenter
-// page, throttled to once every 2 seconds (Patch() can run several times
-// per page load) and skipped entirely when nothing is around to show the
-// result. The actual WLAN/COM work runs on a worker thread - see
-// NcNetworkDataRefreshWorker() - instead of blocking whatever Explorer UI
-// thread happens to be rendering the page or handling a connectivity event.
-
-static void EnsureNetCenterNetworkDataFresh() {
-    if (g_Ctx.isUninitializing || g_ncSkipRefreshOnThisPass)
-        return;
-
-    // Nothing live to show a fresher result to (no open NetCenter page, no
-    // flyout) - don't pay the WLAN/NLM cost at all.
-    if (!g_ncTarget && !g_hWndFlyout)
-        return;
-
-    static DWORD s_lastRefreshTick = 0;
-    DWORD now = GetTickCount();
-    if (now - s_lastRefreshTick < 2000)
-        return;
-
-    if (InterlockedCompareExchange(&g_ncRefreshInFlight, 1, 0) != 0)
-        return; // a refresh is already running
-
-    s_lastRefreshTick = now;
-
-    // The isUninitializing check above is not atomic with Wh_ModUninit's
-    // join of g_ncRefreshThread: a page thread that passed that check just
-    // before Wh_ModUninit set the flag could otherwise still reach here and
-    // overwrite the handle after uninit already joined and nulled it,
-    // leaving a worker thread unjoined when the DLL is unmapped. (The
-    // in-flight guard above doesn't close this gap either - the worker
-    // clears it right before returning, not as part of uninit's join.) Take
-    // the same lock Wh_ModUninit re-checks under, and re-verify the flag
-    // inside it so the check-then-create is atomic with the join.
-    EnterCriticalSection(&g_Ctx.csLock);
-    if (g_Ctx.isUninitializing) {
-        LeaveCriticalSection(&g_Ctx.csLock);
-        InterlockedExchange(&g_ncRefreshInFlight, 0);
-        return;
-    }
-    if (g_ncRefreshThread) {
-        CloseHandle(g_ncRefreshThread);
-        g_ncRefreshThread = NULL;
-    }
-    g_ncRefreshThread = CreateThread(NULL, 0, NcNetworkDataRefreshWorker, NULL, 0, NULL);
-    HANDLE hCreated = g_ncRefreshThread;
-    LeaveCriticalSection(&g_Ctx.csLock);
-    if (!hCreated) {
-        InterlockedExchange(&g_ncRefreshInFlight, 0);
-        Wh_Log(L"[NetMap] CreateThread failed, skipping this refresh");
-    }
-}
-
-static HRESULT NCL_THISCALL SetXMLFromResource_Hook(void* t, PCWSTR n, PCWSTR tp, HMODULE m,
-                                                HINSTANCE p4, HINSTANCE p5) {
-    if (!SetXMLFromResource_Orig)
-        return E_FAIL;
-    if (!SetXML || g_inHook)
-        return SetXMLFromResource_Orig(t, n, tp, m, p4, p5);
-
-    // Parser addresses can be immediately reused during in-place navigation,
-    // so pointer identity alone cannot identify the live NetCenter page. Any
-    // non-NetCenter parse on this page thread retires the tracked target.
-    bool isNetCenterPage = IsNetCenter(m) && tp && !_wcsicmp(tp, L"UIFILE") &&
-                           IS_INTRESOURCE(n) && (UINT)(UINT_PTR)n == 110;
-    if (g_ncTarget && (g_ncTarget != t || !isNetCenterPage))
-        UnadviseConnectivityEvents();
-
-    if (!isNetCenterPage)
-        return SetXMLFromResource_Orig(t, n, tp, m, p4, p5);
-
-    // Resolve and cache netcenter.dll's address range here, on the one path
-    // guaranteed to run before the page draws any text, instead of paying a
-    // GetModuleHandleW lookup on every DrawTextW call via IsInNetCenter().
-    CacheNetCenterRange(m);
-    EnsurePrivacyTextHookInstalled();
-
-    // One-shot, best-effort: only does anything the first time, and only in
-    // a non-explorer host (see PrimeNetworkCategoryForNetCenterHost's
-    // comment). Must run before Patch() below so the freshly-detected
-    // category is what the network map icon logic actually sees.
-    PrimeNetworkCategoryForNetCenterHost();
-
-    std::wstring xml = LoadUifile(m, n, tp);
-    if (xml.empty() || xml.find(L"atom(NetworkCenter)") == std::wstring::npos ||
-        xml.find(L"atom(diagnosebtn)") == std::wstring::npos) {
-        if (g_ncComInitializedByUs) {
-            CoUninitialize();
-            g_ncComInitializedByUs = false;
-        }
-        return SetXMLFromResource_Orig(t, n, tp, m, p4, p5);
-    }
-
-    std::wstring patched = Patch(xml);
-    bool pageWasPatched = (patched != xml);
-
-    HRESULT hr = S_OK;
-    if (pageWasPatched) {
-        g_inHook++;
-        hr = SetXML(t, patched.c_str(), m, p4);
-        g_inHook--;
-    } else {
-        // No current layout change (for example the feature is disabled), but
-        // still let the native loader initialize the page and then remember the
-        // parser/message window. That makes runtime enabling/language/privacy
-        // changes visible without requiring the user to close and reopen the
-        // Network and Sharing Center page.
-        hr = SetXMLFromResource_Orig(t, n, tp, m, p4, p5);
-    }
-
-    if (SUCCEEDED(hr)) {
-        // Remember this page instance so connectivity/settings-change
-        // notifications can re-push freshly patched or original XML later.
-        g_ncTarget = t;
-        g_ncModule = m;
-        g_ncP4 = p4;
-        g_ncPagePatched = pageWasPatched;
-        EnsureNcHostSubclassed();
-
-        // Create (once per thread) the mod's own message-only window here,
-        // i.e. on the exact STA thread that owns this page - no searching
-        // for or subclassing of some other, possibly unrelated, Explorer
-        // window is needed. ConnectivityChanged (which can fire on an
-        // arbitrary NLM thread) posts to this window, and the actual
-        // SetXML() refresh always then runs on the right thread.
-        if (!EnsureNcMsgWindow()) {
-            Wh_Log(L"[NetMap] Could not create NetCenter live-refresh window");
-            if (g_ncComInitializedByUs) {
-                CoUninitialize();
-                g_ncComInitializedByUs = false;
-            }
-        } else {
-            EnsureConnectivityEventsAdvised();
-            // Kick the refresh once so that we render the correct and fresh data
-            // the very first time the page is opened (per Issue 6). Skip it
-            // when Patch() was a no-op; settings-refresh can start it later if
-            // the Network Map is enabled at runtime.
-            if (pageWasPatched)
-                EnsureNetCenterNetworkDataFresh();
-        }
-    } else {
-        if (g_ncComInitializedByUs) {
-            CoUninitialize();
-            g_ncComInitializedByUs = false;
-        }
-    }
-
-    return hr;
-}
-
-static bool HookAll() {
-    if (g_hookInstalled)
-        return true;
-
-    HMODULE dui = LoadLibraryExW(L"dui70.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (!dui) {
-        Wh_Log(L"Network Center links: dui70.dll could not be loaded - "
-               L"DirectUI may have been removed/relocated by this Windows build");
-        return false;
-    }
-
-    // SetXML is public; resolving it directly avoids a no-op hook on a hot
-    // DirectUI path merely to obtain a trampoline.
-    for (auto n : {"?SetXML@DUIXmlParser@DirectUI@@QEAAJPEBGPEAUHINSTANCE__@@1@Z",
-                   "?SetXML@DUIXmlParser@DirectUI@@QAAJPBGPAUHINSTANCE__@@1@Z"}) {
-        if (FARPROC p = GetProcAddress(dui, n)) {
-            SetXML = reinterpret_cast<SetXML_t>(p);
-            break;
-        }
-    }
-    if (!SetXML) {
-        Wh_Log(L"Network Center links: DUIXmlParser::SetXML symbol not found in "
-               L"dui70.dll - mangled signature likely changed in this Windows build");
-        return false;
-    }
-
-    for (auto n : {
-#ifdef _WIN64
-             "?_SetXMLFromResource@DUIXmlParser@DirectUI@@IEAAJPEBG0PEAUHINSTANCE__@@11@Z",
-#endif
-             "?_SetXMLFromResource@DUIXmlParser@DirectUI@@IAEJPBG0PAUHINSTANCE__@@11@Z"}) {
-        if (FARPROC p = GetProcAddress(dui, n)) {
-            auto target = reinterpret_cast<SetXMLFromResource_t>(p);
-            if (WindhawkUtils::SetFunctionHook(target, SetXMLFromResource_Hook,
-                                                &SetXMLFromResource_Orig)) {
-                break;
-            }
-        }
-    }
-    if (!SetXMLFromResource_Orig) {
-        Wh_Log(L"Network Center links: DUIXmlParser::_SetXMLFromResource symbol "
-               L"not found or hook failed - mangled signature likely changed");
-    }
-    g_hookInstalled = SetXMLFromResource_Orig != nullptr;
-    if (g_hookInstalled && !g_iconHookInstalled) {
-        g_iconHookInstalled = WindhawkUtils::SetFunctionHook(
-            LoadImageW, LoadImageW_Hook, &LoadImageW_Orig);
-        if (!g_iconHookInstalled)
-            Wh_Log(L"Network Center links: custom icon hook unavailable; using Windows icons");
-    }
-    // DrawTextW_Hook's fast path (a null check plus two pointer compares
-    // against g_netcenterBase/g_netcenterEnd) costs essentially nothing, so
-    // when privacy mode is already on at load time there's no reason to
-    // defer installing it until SetXMLFromResource_Hook first observes
-    // netcenter.dll - just install it here, in Wh_ModInit, like every other
-    // hook in this mod. This call is Wh_ModInit-time (via Init() below), so
-    // Wh_ApplyHookOperations() - which Windhawk calls automatically right
-    // after Wh_ModInit returns - will pick it up; applyNow=false skips the
-    // redundant explicit call. If privacy mode gets turned on later at
-    // runtime, EnsurePrivacyTextHookInstalled() is still called from
-    // SettingsChanged()/SetXMLFromResource_Hook and applies the hook itself.
-    EnsurePrivacyTextHookInstalled(/*applyNow=*/false);
-    return g_hookInstalled;
-}
-
-static bool Init() {
-    bool enabled = Wh_GetIntSetting(L"restoreClassicNetworkCenterLinks") != 0;
-    g_addConnect = enabled;
-    g_addHomegroup = enabled;
-    g_addNetworkMap = enabled;  // Visual Network Map rectangle
-
-    // Always install the DirectUI + LoadImageW hooks here, unconditionally,
-    // regardless of whether the feature is currently enabled. Per the
-    // Windhawk API, all hooks should be set in Wh_ModInit, since
-    // Wh_ApplyHookOperations() is called automatically right after it;
-    // hooks registered later (e.g. from Wh_ModSettingsChanged) stay pending
-    // until the mod explicitly calls Wh_ApplyHookOperations() itself, which
-    // SettingsChanged() below does when privacy mode is turned on at
-    // runtime. g_addConnect/g_addHomegroup already make Patch() a no-op
-    // when the feature is off, so installing the hooks unconditionally has
-    // no behavioral effect while it's disabled, and lets it turn on and off
-    // correctly at runtime without a mod reload. The DrawTextW hook is the
-    // one exception: unlike the others, it sits on a very hot user32 path, so
-    // it is deferred until SetXMLFromResource_Hook observes netcenter.dll.
-    // That way, an unused privacy feature never hooks DrawTextW.
-    if (!HookAll()) {
-        Wh_Log(L"Network Center links: DirectUI hook was not installed");
-        return false;
-    }
-    return true;
-}
-
-static void SettingsChanged() {
-    bool enabled = Wh_GetIntSetting(L"restoreClassicNetworkCenterLinks") != 0;
-    g_addConnect = enabled;
-    g_addHomegroup = enabled;
-    g_addNetworkMap = enabled;  // Visual Network Map rectangle
-
-    // Privacy mode may have just been turned on at runtime: install the
-    // DrawTextW hook now (it was skipped in HookAll() while privacy mode
-    // was off) and explicitly apply it, since hooks registered outside
-    // Wh_ModInit stay pending until Wh_ApplyHookOperations() is called.
-    // Note: turning privacy mode back off deliberately does NOT remove the
-    // hook again - MaskConnectedNetworkText() already no-ops when
-    // g_Settings.privacyMode is false, and unhooking/rehooking DrawTextW on
-    // every toggle isn't worth the added complexity for a hot user32 entry
-    // point that's already cheap to no-op through.
-    // If the page is already loaded, apply the runtime setting now. Otherwise
-    // SetXMLFromResource_Hook installs it when netcenter.dll is first used.
-    // Install the hook from the settings path when privacy mode is enabled. The hook
-    // still no-ops until netcenter.dll is observed and its range is cached, so this
-    // doesn't change privacy behavior; it only avoids applying hook operations from
-    // inside the DirectUI SetXML hook.
-    if (g_Settings.privacyMode && g_hookInstalled)
-        EnsurePrivacyTextHookInstalled();
-
-    // Push runtime settings to already-open Network and Sharing Center pages.
-    // This covers toggling the restored layout, privacy mode, network-location
-    // icons and language. RefreshNetworkCenterXml() also reverts to the stock
-    // XML if Patch() is now a no-op, so turning the feature off is visible
-    // immediately instead of only after reopening the page.
-    RequestNetCenterRefreshFromSettings();
-}
-
-#undef NCL_THISCALL
-
-}  // namespace Win7NetworkCenterLinks
-
-
-BOOL Wh_ModInit() {
+BOOL W8NetInit() {
     Wh_Log(L"=== Wh_ModInit ===");
     DetectWindowsVersion();
     LoadSettings();
@@ -13314,12 +12491,8 @@ BOOL Wh_ModInit() {
     g_IsExplorerHost = IsExplorerProcess();
     g_IsRetroBarHost = (!g_IsExplorerHost && IsRetroBarProcess());
 
-    // Win7NetworkCenterLinks hooks dui70.dll/LoadImageW process-wide for a
-    // Control Panel page that RetroBar.exe can never host; skip it there.
-    if (!g_IsRetroBarHost && !Win7NetworkCenterLinks::Init()) {
-        // The flyout does not depend on this optional Control Panel feature.
-        Wh_Log(L"Network Center links: DirectUI hook was not installed");
-    }
+    /* Porting: la parte Pannello di controllo (Win7NetworkCenterLinks)
+     * e esclusa, quindi non si installa alcun hook DirectUI. */
 
     if (!g_IsExplorerHost && !g_IsRetroBarHost) {
         g_Initialized = TRUE;
@@ -13328,7 +12501,7 @@ BOOL Wh_ModInit() {
 
     if (g_IsExplorerHost)
         DarkContextMenu::Init();
-    g_hConnectMutex.reset(CreateMutexW(NULL, FALSE, L"Local\\Win7NetFlyout_ConnectMutex"));
+    g_hConnectMutex.reset(CreateMutexW(NULL, FALSE, L"Local\\Win8NetFlyout_ConnectMutex"));
     g_uTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     LoadSystemIcons();
     InitGdiPlusRendering();
@@ -13368,13 +12541,12 @@ BOOL Wh_ModInit() {
     return TRUE;
 }
 
-void Wh_ModSettingsChanged() {
+void W8NetSettingsChanged() {
     BOOL oldRoundedCorners = g_Settings.useRoundedCorners;
     int  oldTheme          = g_Settings.theme;
 
     LoadSettings();
     DetermineLocale();
-    Win7NetworkCenterLinks::SettingsChanged();
 
     // The Charms background mode/custom color may have changed (and the
     // accent itself too): drop the cached accent and refresh an open pane.
@@ -13427,7 +12599,7 @@ void Wh_ModSettingsChanged() {
     }
 }
 
-void Wh_ModUninit() {
+void W8NetUninit() {
     // Guards against Wh_ModUninit itself being re-entered/called twice.
     // SafeCleanup() used to double as this guard via g_Ctx.isUninitializing,
     // but that flag is now set unconditionally at the very top of this
@@ -13456,63 +12628,8 @@ void Wh_ModUninit() {
     // EnsureNetCenterNetworkDataFresh()/PrimeNetworkCategoryForNetCenterHost()
     // now refuse to create once isUninitializing is set, so this converges
     // in at most one extra iteration.
-    for (;;) {
-        EnterCriticalSection(&g_Ctx.csLock);
-        HANDLE hRefresh = Win7NetworkCenterLinks::g_ncRefreshThread;
-        LeaveCriticalSection(&g_Ctx.csLock);
-        if (!hRefresh)
-            break;
-        // Was bounded to 5s; NcNetworkDataRefreshWorker's worst case
-        // (WlanEnumInterfaces + WlanGetNetworkBssList per network +
-        // GetAdaptersAddresses + 2x CoCreateInstance) can exceed that on a
-        // laptop with many visible SSIDs. A timed-out fall-through here
-        // means Windhawk unmaps the DLL while this thread is still running
-        // inside it, so wait for real completion instead.
-        WaitForSingleObject(hRefresh, INFINITE);
-        EnterCriticalSection(&g_Ctx.csLock);
-        if (Win7NetworkCenterLinks::g_ncRefreshThread == hRefresh) {
-            CloseHandle(Win7NetworkCenterLinks::g_ncRefreshThread);
-            Win7NetworkCenterLinks::g_ncRefreshThread = NULL;
-        }
-        LeaveCriticalSection(&g_Ctx.csLock);
-    }
 
-    if (!g_IsExplorerHost && !g_IsRetroBarHost) {
-        // control.exe can create only the in-memory Network Center icons.
-        // Marshal the subclass removal + COM Unadvise/Release to the STA
-        // thread that owns them (this callback can run on an arbitrary
-        // Windhawk thread), instead of touching the raw, unmarshalled
-        // IConnectionPoint pointer from here directly.
-        Win7NetworkCenterLinks::TeardownNetCenterHost();
-        // Only closes a handle PrimeNetworkCategoryForNetCenterHost() opened
-        // itself in this same (non-explorer-host) process; SafeCleanup()
-        // below (explorer-host branch) already owns the equivalent handle
-        // for the normal flyout case. Best-effort: WlanCloseHandle failing
-        // here just leaks the handle for this short-lived process's
-        // remaining lifetime, which the OS reclaims on exit regardless.
-        if (Win7NetworkCenterLinks::g_ncOwnsWlanHandleInNonExplorerHost && g_Ctx.hWlanClient) {
-            WlanCloseHandle(g_Ctx.hWlanClient, NULL);
-            g_Ctx.hWlanClient = NULL;
-        }
-        if (Win7NetworkCenterLinks::g_ncMsgClassRegistered) {
-            // UnregisterClass fails while any window of the class still
-            // exists. TeardownNetCenterHost now waits for message-only windows
-            // to be destroyed before returning, but keep the flag truthful if
-            // an unexpected window is still alive.
-            if (UnregisterClassW(Win7NetworkCenterLinks::kNcMsgClassName, HINST_THISCOMPONENT)) {
-                Win7NetworkCenterLinks::g_ncMsgClassRegistered = false;
-            } else {
-                Wh_Log(L"[NetMap] UnregisterClass failed (window still alive?)");
-            }
-        }
-        ShutdownGdiPlusRendering();
-        FreeSystemIcons();
-        FreeCachedThemeBrushes();
-        DeleteCriticalSection(&g_Ctx.csLock);
-        return;
-    }
 
-    Win7NetworkCenterLinks::TeardownNetCenterHost();
     SafeCleanup();
     DeleteCriticalSection(&g_Ctx.csLock);
     // DarkContextMenu only hooks menus that the mod itself uses in the
@@ -13524,13 +12641,6 @@ void Wh_ModUninit() {
         g_retrobarAnchorLockInit = FALSE;
     }
     DeleteCriticalSection(&g_toolbarCacheLock);
-    if (Win7NetworkCenterLinks::g_ncMsgClassRegistered) {
-        if (UnregisterClassW(Win7NetworkCenterLinks::kNcMsgClassName, HINST_THISCOMPONENT)) {
-            Win7NetworkCenterLinks::g_ncMsgClassRegistered = false;
-        } else {
-            Wh_Log(L"[NetMap] UnregisterClass failed (window still alive?)");
-        }
-    }
     if (g_trayInfoClassRegistered) {
         // The window itself was destroyed by the hotkey thread before
         // SafeCleanup() joined it above.
@@ -13541,14 +12651,14 @@ void Wh_ModUninit() {
         }
     }
     if (g_flyoutClassRegistered) {
-        if (UnregisterClassW(L"Win7NetworkFlyoutSafe", HINST_THISCOMPONENT)) {
+        if (UnregisterClassW(L"Win8NetworkFlyoutSafe", HINST_THISCOMPONENT)) {
             g_flyoutClassRegistered = false;
         } else {
-            Wh_Log(L"UnregisterClassW(Win7NetworkFlyoutSafe) failed (%lu)", GetLastError());
+            Wh_Log(L"UnregisterClassW(Win8NetworkFlyoutSafe) failed (%lu)", GetLastError());
         }
     }
     if (g_pwdClassRegistered) {
-        if (UnregisterClassW(L"Win7NetPwdClass", HINST_THISCOMPONENT)) {
+        if (UnregisterClassW(L"Win8NetPwdClass", HINST_THISCOMPONENT)) {
             g_pwdClassRegistered = false;
         } else {
             Wh_Log(L"UnregisterClassW(Win7NetPwdClass) failed (%lu)", GetLastError());
@@ -13556,3 +12666,245 @@ void Wh_ModUninit() {
     }
     FreeCachedThemeBrushes();
 }
+
+// ============================================================================
+// Wrapping interno per la facciata Win7Taskbar (w7t::Win8NetworkFlyout)
+// ============================================================================
+
+/* The index of the program's language list is what decides the language of
+ * this pane (W7T_Net8FlyoutSetLanguage is called by the managed layer both
+ * after Properties and before the first toggle). The signature is unchanged,
+ * so the single entry point keeps working for the battery flyout and for the
+ * recreated Windows 7 flyout exactly as before. */
+void W8NetSetLanguage(int appLanguageIndex) {
+    /* The mapping lives in DetermineLocale(), together with the system
+     * fallback used until the program has spoken. */
+    g_AppLanguageIndex = appLanguageIndex;
+    DetermineLocale();
+    CharmsAccentColorInvalidate();
+    if (g_hWndFlyout && IsWindow(g_hWndFlyout) && IsWindowVisible(g_hWndFlyout))
+        InvalidateRect(g_hWndFlyout, NULL, FALSE);
+}
+
+/* v1.21.16: the colour or the privacy mode changed in the program's
+ * Properties window. Re-read them and let the pane's OWN thread repaint: the
+ * message is posted, never sent, because the caller is the UI thread of the
+ * managed layer, not the pane's. */
+void W8NetExtraSettingsChanged() {
+    CharmsApplyExtraSettings();
+    if (g_hWndFlyout && IsWindow(g_hWndFlyout)) {
+        PostMessageW(g_hWndFlyout, WM_DWMCOLORIZATIONCOLORCHANGED, 0, 0);
+    }
+}
+
+BOOL W8NetIsInitialized() { return g_Initialized; }
+
+void W8NetSetAnchorRect(const RECT* rc) {
+    if (!rc) return;
+    /* La mod espone SetRetroBarNetworkAnchor(POINT): il punto del clic
+     * sull icona in RetroBar. Nel porting il clic avviene in Win7Taskbar,
+     * che consegna il RETTANGOLO dell icona: il rappresentante naturale
+     * del punto e il suo centro (serve solo a scegliere monitor/anncora). */
+    POINT pt = { (rc->left + rc->right) / 2, (rc->top + rc->bottom) / 2 };
+    SetRetroBarNetworkAnchor(pt);
+}
+
+void W8NetToggleFlyout() { ToggleFlyoutWindow(); }
+void W8NetShowFlyout()   { ShowFlyoutWindow(); }
+void W8NetHideFlyout()   { HideFlyoutWindow(); }
+
+BOOL W8NetIsFlyoutVisible() {
+    return g_hWndFlyout && IsWindow(g_hWndFlyout) && IsWindowVisible(g_hWndFlyout);
+}
+
+}  // namespace w8tnet
+
+
+// ============================================================================
+// Facciata Win7Taskbar: w7t::Win8NetworkFlyout
+// ----------------------------------------------------------------------------
+// Contratto usato da CoreBridge / TrayService / LocalizationExports, identico
+// a prima del porting: Init prepara il modulo (una volta sola), SetAnchorRect
+// consegna il rettangolo dell icona, Toggle/Show/Hide pilotano il riquadro,
+// SetLanguage porta la lingua dell app. L esclusione reciproca col flyout
+// Windows 7 resta: appena si apre questo riquadro quello Win7 si chiude.
+// ============================================================================
+#include "Win8NetworkFlyout.h"
+#include "NetLogicBridge.h"   /* w7tnet::W8NetLogic_HideWin7FlyoutIfOpen */
+
+namespace w7t {
+
+namespace {
+/* Init/Uninit vengono chiamati una volta sola per sessione (stesso patto
+ * degli altri moduli integrati). Stato minimo tenuto qui, non nel modulo. */
+bool s_net8Initialized = false;
+
+/* v1.21.18: the program announces its language once, at startup, while this
+ * module has not been initialised yet - the Windows 8 pane is created on its
+ * first open. The index used to be dropped in that case, so the pane opened
+ * with the default English pack until the user changed the language again.
+ * It is remembered here and applied the moment Init() succeeds. -1 = the
+ * program has not spoken yet. */
+int s_pendingAppLanguage = -1;
+}
+
+Win8NetworkFlyout& Win8NetworkFlyout::Instance() {
+    static Win8NetworkFlyout s_instance;
+    return s_instance;
+}
+
+bool Win8NetworkFlyout::Init() {
+    if (s_net8Initialized)
+        return true;
+    BOOL ok = FALSE;
+    W7T_SEH_TRY
+    {
+        ok = w8tnet::W8NetInit();
+    }
+    W7T_SEH_CATCH
+    {
+        ok = FALSE;
+    }
+    W7T_SEH_END
+    if (ok != FALSE) {
+        s_net8Initialized = true;
+        /* The language that arrived before Init() is applied now, with the
+         * same guard as any other call into the module. */
+        if (s_pendingAppLanguage >= 0) {
+            const int pending = s_pendingAppLanguage;
+            s_pendingAppLanguage = -1;
+            W7T_SEH_TRY
+            {
+                w8tnet::W8NetSetLanguage(pending);
+            }
+            W7T_SEH_CATCH
+            {
+            }
+            W7T_SEH_END
+        }
+        return true;
+    }
+    return false;
+}
+
+void Win8NetworkFlyout::Uninit() {
+    if (!s_net8Initialized)
+        return;
+    s_net8Initialized = false;
+    W7T_SEH_TRY
+    {
+        w8tnet::W8NetUninit();
+    }
+    W7T_SEH_CATCH
+    {
+    }
+    W7T_SEH_END
+}
+
+void Win8NetworkFlyout::SetAnchorRect(const RECT& iconRect) {
+    if (!s_net8Initialized)
+        return;
+    W7T_SEH_TRY
+    {
+        w8tnet::W8NetSetAnchorRect(&iconRect);
+    }
+    W7T_SEH_CATCH
+    {
+    }
+    W7T_SEH_END
+}
+
+void Win8NetworkFlyout::Toggle() {
+    if (!s_net8Initialized)
+        return;
+    /* Esclusione reciproca: mai i due riquadri visibili insieme. */
+    w7tnet::W8NetLogic_HideWin7FlyoutIfOpen();
+    W7T_SEH_TRY
+    {
+        w8tnet::W8NetToggleFlyout();
+    }
+    W7T_SEH_CATCH
+    {
+    }
+    W7T_SEH_END
+}
+
+void Win8NetworkFlyout::Show() {
+    if (!s_net8Initialized)
+        return;
+    w7tnet::W8NetLogic_HideWin7FlyoutIfOpen();
+    W7T_SEH_TRY
+    {
+        w8tnet::W8NetShowFlyout();
+    }
+    W7T_SEH_CATCH
+    {
+    }
+    W7T_SEH_END
+}
+
+void Win8NetworkFlyout::Hide() {
+    if (!s_net8Initialized)
+        return;
+    W7T_SEH_TRY
+    {
+        w8tnet::W8NetHideFlyout();
+    }
+    W7T_SEH_CATCH
+    {
+    }
+    W7T_SEH_END
+}
+
+bool Win8NetworkFlyout::IsVisible() const {
+    if (!s_net8Initialized)
+        return false;
+    BOOL visible = FALSE;
+    W7T_SEH_TRY
+    {
+        visible = w8tnet::W8NetIsFlyoutVisible();
+    }
+    W7T_SEH_CATCH
+    {
+        visible = FALSE;
+    }
+    W7T_SEH_END
+    return visible != FALSE;
+}
+
+void Win8NetworkFlyout::RefreshFlyoutColour() {
+    if (!s_net8Initialized)
+        return;
+    W7T_SEH_TRY
+    {
+        w8tnet::W8NetExtraSettingsChanged();
+    }
+    W7T_SEH_CATCH
+    {
+    }
+    W7T_SEH_END
+}
+
+void Win8NetworkFlyout::SetLanguage(int appLang) {
+    /* v1.21.18: before Init() the index is kept, not dropped (see
+     * s_pendingAppLanguage): the pane must open in the program's language. */
+    if (!s_net8Initialized) {
+        s_pendingAppLanguage = appLang;
+        return;
+    }
+    W7T_SEH_TRY
+    {
+        w8tnet::W8NetSetLanguage(appLang);
+    }
+    W7T_SEH_CATCH
+    {
+    }
+    W7T_SEH_END
+}
+
+void Win8NetworkFlyout::ShutdownIfCreated() {
+    if (s_net8Initialized)
+        Instance().Uninit();
+}
+
+} // namespace w7t

@@ -40,4 +40,10 @@ void W7TNetFlyout_Hide();
  * tabella interna della mod; ja/zh ripiegano sull'inglese. */
 void W7TNetFlyout_SetLanguage(int appLanguageIndex);
 
+/* v1.21.7: privacy mode of the extra settings
+ * (0 = real network names, 1 = generic "Network 1", "Network 2"...).
+ * It changes ONLY the text drawn by the recreated flyout: no network API, no
+ * Windows setting. */
+void W7TNetFlyout_SetPrivacyMode(int mode);
+
 } // namespace w7tnet

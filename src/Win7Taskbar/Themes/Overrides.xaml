@@ -608,24 +608,41 @@
         </Grid>
     </ControlTemplate>
 
+    <!-- ==================================================================
+         v1.21.22 - raggi delle tessere dei pulsanti della barra.
+
+         Questi nove raggi stanno qui, quindi valgono per ogni skin: il valore
+         di oggi (Windows 7) resta il predefinito dichiarato sotto, mentre la
+         skin Windows 8.1 li porta a zero copiando le sue chiavi (stesso nome,
+         valore 0) nel dizionario principale: le chiavi del dizionario
+         principale hanno la precedenza su quelle dei dizionari mergiati, come
+         documenta Microsoft, mentre con la skin Windows 7 questi valori non
+         vengono toccati da nessuno.
+         ================================================================== -->
+    <CornerRadius x:Key="SuperbarButtonOuterCornerRadius">4</CornerRadius>
+    <CornerRadius x:Key="SuperbarButtonInnerCornerRadius">3</CornerRadius>
+    <CornerRadius x:Key="SuperbarHoverTileCornerRadius">4</CornerRadius>
+    <CornerRadius x:Key="SuperbarGlowCornerRadius">6</CornerRadius>
+
         <ControlTemplate x:Key="SuperbarIdleTemplate" TargetType="Button">
         <!-- v2.53: l'HOVER e' tornato la tessera vettoriale della barra
              (TrayTileHoverImage, la stessa che usano le icone dell'area di
              notifica): era stata sostituita dall'immagine blu nella v2.52 e
              sembrava non esserci piu' nessun passaggio del mouse. -->
         <Border BorderThickness="1.4" BorderBrush="Transparent"
-                CornerRadius="4">
+                CornerRadius="{DynamicResource SuperbarButtonOuterCornerRadius}">
             <Grid>
                 <!-- v3.7.1: the Aero glow stays OUT of the idle template on
                      purpose: pinned icons of programs that are not running
                      keep only the v2.53 hover tile; the radial glow lights up
                      only on open programs (Running/Active/Notification
                      templates below). -->
-                <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
+                <Border x:Name="HoverTile" Margin="-2,0"
+                    CornerRadius="{DynamicResource SuperbarHoverTileCornerRadius}"
                         Background="Transparent" IsHitTestVisible="False" />
                 <Border BorderThickness="1.4" BorderBrush="Transparent"
                         Background="Transparent"
-                        CornerRadius="3" x:Name="IdleInner">
+                        CornerRadius="{DynamicResource SuperbarButtonInnerCornerRadius}" x:Name="IdleInner">
                     <ContentPresenter Margin="5.49,0" VerticalAlignment="Center"
                                       x:Name="Content" />
                 </Border>
@@ -660,11 +677,13 @@
             <Grid>
                 <ContentControl x:Name="Frame"
                                 Template="{DynamicResource TaskButtonFrameHover}" />
-                <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
+                <Border x:Name="HoverTile" Margin="-2,0"
+                    CornerRadius="{DynamicResource SuperbarHoverTileCornerRadius}"
                         Background="Transparent" IsHitTestVisible="False"
                         Opacity="0" />
                 <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
-                <Border x:Name="AeroGlow" Margin="-3,0" CornerRadius="6"
+                <Border x:Name="AeroGlow" Margin="-3,0"
+                    CornerRadius="{DynamicResource SuperbarGlowCornerRadius}"
                         Background="{StaticResource SuperbarAeroGlowBrush}"
                         Opacity="0" IsHitTestVisible="False" />
                 <ContentPresenter Margin="8.45,0" VerticalAlignment="Center"
@@ -717,11 +736,13 @@
             <Grid>
                 <ContentControl x:Name="Frame"
                                 Template="{DynamicResource TaskButtonFrameActive}" />
-                <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
+                <Border x:Name="HoverTile" Margin="-2,0"
+                    CornerRadius="{DynamicResource SuperbarHoverTileCornerRadius}"
                         Background="Transparent" IsHitTestVisible="False"
                         Opacity="0" />
                 <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
-                <Border x:Name="AeroGlow" Margin="-3,0" CornerRadius="6"
+                <Border x:Name="AeroGlow" Margin="-3,0"
+                    CornerRadius="{DynamicResource SuperbarGlowCornerRadius}"
                         Background="{StaticResource SuperbarAeroGlowBrush}"
                         Opacity="0" IsHitTestVisible="False" />
                 <ContentPresenter Margin="8.45,0,8.45,0.7" VerticalAlignment="Center"
@@ -780,11 +801,13 @@
             <Grid>
                 <ContentControl x:Name="Frame"
                                 Template="{DynamicResource TaskButtonFrameNotification}" />
-                <Border x:Name="HoverTile" Margin="-2,0" CornerRadius="4"
+                <Border x:Name="HoverTile" Margin="-2,0"
+                    CornerRadius="{DynamicResource SuperbarHoverTileCornerRadius}"
                         Background="Transparent" IsHitTestVisible="False"
                         Opacity="0" />
                 <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
-                <Border x:Name="AeroGlow" Margin="-3,0" CornerRadius="6"
+                <Border x:Name="AeroGlow" Margin="-3,0"
+                    CornerRadius="{DynamicResource SuperbarGlowCornerRadius}"
                         Background="{StaticResource SuperbarAeroGlowBrush}"
                         Opacity="0" IsHitTestVisible="False" />
                 <ContentPresenter Margin="8.45,0" VerticalAlignment="Center"

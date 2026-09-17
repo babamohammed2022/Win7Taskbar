@@ -422,7 +422,20 @@ W7T_API void    W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t enableSearch, int32_t netFlyout, int32_t classicVolume,
         int32_t batteryFlyout, int32_t aeroPeek, int32_t toolbarDesktop,
         int32_t toolbarAddress, int32_t toolbarLinks,
-        int32_t inputLanguageMode, int32_t taskManagerMode);
+        int32_t inputLanguageMode, int32_t taskManagerMode,
+        /* v1.21.7: extra settings section (fields appended at the end, like
+         * all the others added over the years). */
+        int32_t flyoutColorMode, int32_t flyoutColorRgb,
+        int32_t connectionPrivacyMode, int32_t themeSelection);
+
+/* v1.21.7: secondary settings published by the frontend (which stores them
+ * in its own configuration: the core writes no file). The privacy mode
+ * changes only the text drawn by the recreated connection flyout; the colour
+ * stays available to the Windows 8-style flyout, not implemented yet, and
+ * touches no Windows 7 flyout. */
+W7T_API void    W7T_CALL W7T_SetExtraSettings(int32_t flyoutColorMode,
+        uint32_t flyoutColorRgb, int32_t connectionPrivacyMode);
+W7T_API int32_t W7T_CALL W7T_GetExtraFlyoutColor(uint32_t* outRgb);
 W7T_API void    W7T_CALL W7T_AppSearchShow(int32_t x, int32_t y);
 W7T_API void    W7T_CALL W7T_AppSearchHide(void);
 W7T_API int32_t W7T_CALL W7T_AppSearchIsVisible(void);

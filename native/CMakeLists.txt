@@ -25,15 +25,42 @@ add_library(Win7TaskbarCore SHARED
     src/ImmersiveFlyouts.cpp src/FlyoutLauncher.cpp src/AudioService.cpp
     src/ExplorerTrayReader.cpp src/Win11TrayReader.cpp src/Win11TrayReaderResilience.cpp
     src/TrayOverflowWindow.cpp src/AppSearchWindow.cpp
-    src/Win7NetworkFlyout.cpp src/BatteryFlyout.cpp src/JumpListWindow.cpp
+    src/Win7NetworkFlyout.cpp src/Win8NetworkFlyout.cpp src/BatteryFlyout.cpp src/JumpListWindow.cpp
     src/PropertiesDialog.cpp src/PinnedApps.cpp src/Exports.cpp
+    src/ExtraSettings.cpp
     src/LanguageSwitcher.cpp src/AeroThumbnailFrame.cpp
     src/Strings.cpp src/LocalizationExports.cpp
     src/TrayFallbackIcons.cpp src/CrashHandler.cpp
     src/TrayPrefsStore.cpp resources/app.rc)
 target_include_directories(Win7TaskbarCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_compile_definitions(Win7TaskbarCore PRIVATE W7T_BUILDING_DLL=1 UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00)
-target_link_libraries(Win7TaskbarCore PRIVATE user32 gdi32 shell32 ole32 oleaut32 comctl32 wtsapi32 dwmapi uxtheme msimg32 propsys shlwapi advapi32 powrprof wlanapi iphlpapi uuid psapi windowscodecs)
+# v1.21.18: the revision the DLL is built from, compiled into the binary and
+# written to log-core.txt at the first log line ("=== Win7Taskbar core build:
+# <stamp> ==="). The release workflow passes the commit SHA and then checks
+# that the SAME string is inside the packaged DLL, so a package carrying a
+# stale native core cannot leave CI unnoticed. Unset = local build.
+set(W7T_BUILD_STAMP "local" CACHE STRING "Revision stamped into the native core")
+# No -DW7T_BUILD_STAMP (which would need a change to the release workflow, so it
+# is only a convenience)? Take the revision from the checkout itself: the
+# release build then stamps the commit it is built from with no workflow
+# change at all.
+if(W7T_BUILD_STAMP STREQUAL "local")
+    find_package(Git QUIET)
+    if(Git_FOUND)
+        execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+                        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                        OUTPUT_VARIABLE W7T_GIT_SHA
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
+                        ERROR_QUIET)
+        if(W7T_GIT_SHA)
+            set(W7T_BUILD_STAMP "${W7T_GIT_SHA}")
+        endif()
+    endif()
+endif()
+message(STATUS "Win7TaskbarCore build stamp: ${W7T_BUILD_STAMP}")
+target_compile_definitions(Win7TaskbarCore PRIVATE W7T_BUILDING_DLL=1 UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00 "W7T_BUILD_STAMP=L\"${W7T_BUILD_STAMP}\"")
+# comdlg32: v1.21.7, ChooseColorW for the colour picker of the extra
+# settings tab (the standard Windows colour chooser).
+target_link_libraries(Win7TaskbarCore PRIVATE user32 gdi32 shell32 ole32 oleaut32 comctl32 wtsapi32 dwmapi uxtheme msimg32 propsys shlwapi advapi32 powrprof wlanapi iphlpapi uuid psapi windowscodecs comdlg32)
 set_source_files_properties(resources/app.ico PROPERTIES HEADER_FILE_ONLY TRUE)
 target_sources(Win7TaskbarCore PRIVATE resources/app.ico)
 set_target_properties(Win7TaskbarCore PROPERTIES PREFIX "" OUTPUT_NAME "Win7TaskbarCore")

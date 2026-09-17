@@ -19,6 +19,7 @@
 #define W7T_BUILDING_DLL 1
 
 #include "Common.h"
+#include "Win8NetworkFlyout.h"
 #include <shellapi.h>
 #include "SehGuard.h"
 #include "WindowManager.h"
@@ -31,6 +32,7 @@
 #include "AppSearchWindow.h"
 #include "PropertiesDialog.h"
 #include "FlyoutLauncher.h"
+#include "ExtraSettings.h"     /* v1.21.7: extra settings of the taskbar */
 #include "AudioService.h"
 #include "JumpListWindow.h"     /* v2.38 */
 #include "LanguageSwitcher.h"   /* v1.4: selettore della lingua */
@@ -923,10 +925,62 @@ extern "C" W7T_API void W7T_CALL W7T_SetFlyoutPreferences(
     int32_t batteryWin7) {
     w7t::FlyoutPreferences prefs;
     prefs.clock   = clockWin7   ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
-    prefs.network = networkWin7 ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
+    /* v3.8: per la rete c'e' una terza possibilita': 2 = Windows 8
+     * (ricreato). Per 0 e 1 il significato e' immutato. */
+    prefs.network = networkWin7 == 2 ? w7t::FlyoutStyle::Win8
+                    : (networkWin7 ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern);
     prefs.volume  = volumeWin7  ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
     prefs.battery = batteryWin7 ? w7t::FlyoutStyle::Win7 : w7t::FlyoutStyle::Modern;
     w7t::SetFlyoutPreferences(prefs);
+}
+
+/* ---------------------------------------------------------------------- */
+/*  v1.21.7 - Extra settings: ONE single publication point                */
+/* ---------------------------------------------------------------------- */
+/*  The managed layer stays the only configuration of the program (the     */
+/*  entries of the extra settings live in settings.json like all the       */
+/*  others). The values arrive here when they change, at startup and at    */
+/*  every OK/Apply:
+ *
+ *    - the privacy mode goes straight to the recreated network flyout,
+ *      which changes ONLY the drawn names (no network API, no Windows
+ *      setting);
+ *    - the flyout colour (system or custom) stays available to the
+ *      recreated Windows 8-style flyout, which does not exist yet in this
+ *      version (Win8NetworkFlyout.cpp is not compiled). No Windows 7 flyout
+ *      reads this value: its look does not change, as required. */
+extern "C" W7T_API void W7T_CALL W7T_SetExtraSettings(
+    int32_t flyoutColorMode, uint32_t flyoutColorRgb,
+    int32_t connectionPrivacyMode) {
+    W7T_SEH_TRY
+        w7t::extras::SetFlyoutColorMode(flyoutColorMode);
+        w7t::extras::SetFlyoutCustomColor(flyoutColorRgb);
+        /* The privacy mode is applied here too: this is the call the managed
+         * layer makes after saving the choice, so the flyout is always in
+         * step with the configuration with no further round trip. */
+        w7t::extras::SetConnectionPrivacyMode(connectionPrivacyMode);
+
+        /* v1.21.16: the recreated Windows 8 flyout is the only surface these
+         * two settings are allowed to paint, so it is told right away: it
+         * re-reads them and repaints itself if it is on screen. Nothing else
+         * in the program or in Windows is involved. */
+        w7t::Win8NetworkFlyout::Instance().RefreshFlyoutColour();
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
+/* Resolved colour of the recreated flyout: the system accent when the mode
+ * is "system colour" (asked to the system EVERY time), the chosen colour
+ * otherwise. The frontend uses it to draw the swatch next to the choice; the
+ * recreated Windows 8 flyout (Win8NetworkFlyout.cpp, part of this build since
+ * v1.21.16) draws itself with it too. */
+extern "C" W7T_API int32_t W7T_CALL W7T_GetExtraFlyoutColor(uint32_t* outRgb) {
+    if (outRgb == nullptr) return 0;
+    W7T_SEH_TRY {
+        *outRgb = w7t::extras::ResolveFlyoutColor();
+        return 1;
+    } W7T_SEH_CATCH {} W7T_SEH_END
+    return 0;
 }
 
 /* La porta dei riquadri moderni di questa build. Il frontend la usa per non
@@ -972,7 +1026,9 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t enableSearch, int32_t netFlyout, int32_t classicVolume,
         int32_t batteryFlyout, int32_t aeroPeek, int32_t toolbarDesktop,
         int32_t toolbarAddress, int32_t toolbarLinks,
-        int32_t inputLanguageMode, int32_t taskManagerMode) {
+        int32_t inputLanguageMode, int32_t taskManagerMode,
+        int32_t flyoutColorMode, int32_t flyoutColorRgb,
+        int32_t connectionPrivacyMode, int32_t themeSelection) {
     try {
         /* v3.6: l'ordine DEVE essere quello della firma Show(): nativeFlyout,
          * enableSearch, netFlyout. Prima erano invertiti (netFlyout al posto
@@ -982,7 +1038,9 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
                           seconds, nativeFlyout, enableSearch,
                           netFlyout, classicVolume, batteryFlyout, aeroPeek,
                           toolbarDesktop, toolbarAddress, toolbarLinks,
-                          inputLanguageMode, taskManagerMode);
+                          inputLanguageMode, taskManagerMode,
+                          flyoutColorMode, flyoutColorRgb,
+                          connectionPrivacyMode, themeSelection);
     } catch (...) { /* mai propagare */ }
 }
 
@@ -1168,6 +1226,9 @@ extern "C" W7T_API void W7T_CALL W7T_NetFlyoutUninit(void) {
 
 extern "C" W7T_API void W7T_CALL W7T_NetFlyoutToggleAt(const RECT* rcIcon) {
     W7T_SEH_TRY
+        /* Esclusione reciproca, anche su questo percorso diretto: mai i
+         * due riquadri visibili insieme. */
+        w7t::Win8NetworkFlyout::Instance().Hide();
         w7tnet::W7TNetFlyout_SetAnchorRect(rcIcon);
         w7tnet::W7TNetFlyout_Toggle();
     W7T_SEH_CATCH
@@ -1181,6 +1242,63 @@ extern "C" W7T_API void W7T_CALL W7T_NetFlyoutSetLanguage(int32_t appLanguageInd
         w7tnet::W7TNetFlyout_SetLanguage(appLanguageIndex);
     W7T_SEH_CATCH
     W7T_SEH_END
+}
+
+/* ------------------------------------------------------------------ */
+/* v3.8/v4.0: flyout di rete variazione Windows 8 - PORTING COMPLETO   */
+/* della mod "Windows 8x Network Flyout Recreation" v1.0.0 (AdmXP8/     */
+/* Administratox, MIT): riquadro laterale tipo Charms con propria       */
+/* logica WLAN/Ethernet nativa. Esclusa solo la parte Pannello di       */
+/* controllo. Facciata: Win8NetworkFlyout.h.                           */
+
+extern "C" W7T_API int32_t W7T_CALL W7T_Net8FlyoutInit(void) {
+    int32_t r = 0;
+    W7T_SEH_TRY
+        r = w7t::Win8NetworkFlyout::Instance().Init() ? 1 : 0;
+    W7T_SEH_CATCH
+    W7T_SEH_END
+    return r;
+}
+
+extern "C" W7T_API void W7T_Net8FlyoutUninit(void) {
+    W7T_SEH_TRY
+        w7t::Win8NetworkFlyout::Instance().Uninit();
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
+/* v3.8: chiude il riquadro Windows 8 senza de-inizializzare il modulo (la
+ * modalita' di rete e' cambiata ad altra voce: il riquadro non deve
+ * restare sullo schermo sotto un'etichetta diversa). */
+extern "C" W7T_API void W7T_Net8FlyoutHide(void) {
+    W7T_SEH_TRY
+        w7t::Win8NetworkFlyout::Instance().Hide();
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_Net8FlyoutToggleAt(const RECT* rcIcon) {
+    W7T_SEH_TRY
+        if (rcIcon != nullptr) {
+            w7t::Win8NetworkFlyout::Instance().SetAnchorRect(*rcIcon);
+        }
+        w7t::Win8NetworkFlyout::Instance().Toggle();
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
+extern "C" W7T_API void W7T_CALL W7T_Net8FlyoutSetLanguage(int32_t appLanguageIndex) {
+    W7T_SEH_TRY
+        w7t::Win8NetworkFlyout::Instance().SetLanguage(appLanguageIndex);
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
+/* v3.8: il frontend dichiara pronto il riquadro di rete variante Windows 8
+ * (modulo inizializzato e modo "Windows 8 (ricreato)" attivo). Stesso patto
+ * di W7T_SetWin7NetworkFlyout: senza avviso il core ripiega sulla shell. */
+extern "C" W7T_API void W7T_CALL W7T_SetWin8NetworkFlyout(int32_t ready) {
+    TrayService::Instance().SetWin8NetworkFlyout(ready != 0);
 }
 
 /* v2.36/v2.38: modulo (DLL) che possiede la finestra proprietaria di

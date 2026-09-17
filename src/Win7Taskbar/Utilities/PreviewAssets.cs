@@ -28,6 +28,13 @@
 // Le dimensioni NON sono decorative: il template a griglia 3x3 di
 // Themes/Overrides.xaml (TaskPreviewFrameVista) le usa per lasciare gli angoli
 // alla loro misura esatta e stirare solo i bordi.
+//
+// v1.21.22: la X della skin Windows 8.1 (17x17, tessera rossa squadrata e
+// glifo bianco) e' l'immagine fornita dall'utente che stava in
+// Resources/win81x.png: incorporata qui in base64 e rimossa dal repository,
+// come tutte le altre risorse grafiche. La usa lo stile
+// Win81TaskPreviewCloseButton del tema Windows8.1.xaml, selezionato da
+// ThemeLoader: la X tonda a 14 px resta quella della skin Windows 7.
 // ============================================================================
 
 using System;
@@ -72,6 +79,19 @@ namespace Win7Taskbar.Utilities
             "3+77eMTtQkMCWOyxX6TpGN9ZVxYGN9hb5T5LhcAVMaZc+hqqsYtkk/M0Gra5usrm1OcKaIYZuoujq5ampex1qy" +
             "WUy44/A1tTPeAGBRcbGWbFLz+gTq6Tmy1x2ups7Q1K/IiYuT840wivF8wemZg56eG8FZO4vbOeVetYaqhiQ1D1" +
             "ke/DU5BoGn4fsyBx86zNpZpGePnsc/PzUZ9LqXGnIjnUG/VeA3lCml9GTco10AAAAASUVORK5CYII=";
+
+        /// <summary>17x17 px. La X della skin Windows 8.1.</summary>
+        private const string Win81PreviewClosePngBase64 =
+            "iVBORw0KGgoAAAANSUhEUgAAABEAAAARCAMAAAAMs7fIAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAADAUExURcdQ" +
+            "UMdSUsQ5OcETE8Q1NcdRUcMuLsEUFMU/P8Q8PNulpejLy9mfn8ELC8IXF92srOnLy9eWlsQ9PcMwMOG4uP////r09NSMjMMt" +
+            "LcQ7O9eZmf36+tumpsMxMcAAANukpPz5+dB+ftOKiv79/c98fMxsbMVGRtB/f8lbW8VAQPv39/nx8c1vb/r19dmdnffs7MIW" +
+            "FsQ4OP78/MEEBN+xsffu7teXl8Q0NOG1tfLh4d+vr+S+vsEODsMsLMEQEMU+PsiEiFQAAAAJcEhZcwAADsMAAA7DAcdvqGQA" +
+            "AAAYdEVYdFNvZnR3YXJlAFBhaW50Lk5FVCA1LjEuOBtp6qgAAAC2ZVhJZklJKgAIAAAABQAaAQUAAQAAAEoAAAAbAQUAAQAA" +
+            "AFIAAAAoAQMAAQAAAAMAAAAxAQIAEAAAAFoAAABphwQAAQAAAGoAAAAAAAAAo5MAAOgDAACjkwAA6AMAAFBhaW50Lk5FVCA1" +
+            "LjEuOAADAACQBwAEAAAAMDIzMAGgAwABAAAAAQAAAAWgBAABAAAAlAAAAAAAAAACAAEAAgAEAAAAUjk4AAIABwAEAAAAMDEw" +
+            "MAAAAAC6HzhD+YwuiQAAAJxJREFUKFOdj9cOglAQRPciFxUFRR0p0sSCYsWGWP//r4zhEh5NnLc9mTPJEv0ZJtVkRsSVeoMV" +
+            "pKm22honvdM1egXpDzA0LdvByPWE5QcIxxFCUxMWcd0BMJl6XAAisiNgNq9u4lYMLJZVhWlmAqzWSjnDfGODrYpdvBcodZOD" +
+            "erROOF+kgmTX/OYz8u95IAsrfWTfL56vdzn0Kx/JUgwWhyeAsQAAAABJRU5ErkJggg==";
 
         /// <summary>21x21 px.</summary>
         private const string PreviewFrameCornerTopLeftPngBase64 =
@@ -138,6 +158,7 @@ namespace Win7Taskbar.Utilities
         private static BitmapImage? _previewCloseNormal;
         private static BitmapImage? _previewCloseHover;
         private static BitmapImage? _previewClosePressed;
+        private static BitmapImage? _win81PreviewClose;
         private static BitmapImage? _previewFrameCornerTopLeft;
         private static BitmapImage? _previewFrameCornerTopRight;
         private static BitmapImage? _previewFrameCornerBottomLeft;
@@ -155,6 +176,9 @@ namespace Win7Taskbar.Utilities
 
         /// <summary>14x14 px, decodificata una volta sola.</summary>
         public static BitmapImage PreviewClosePressed => _previewClosePressed ??= Decode(PreviewClosePressedPngBase64);
+
+        /// <summary>17x17 px, decodificata una volta sola. X della skin 8.1.</summary>
+        public static BitmapImage Win81PreviewClose => _win81PreviewClose ??= Decode(Win81PreviewClosePngBase64);
 
         /// <summary>21x21 px, decodificata una volta sola.</summary>
         public static BitmapImage PreviewFrameCornerTopLeft => _previewFrameCornerTopLeft ??= Decode(PreviewFrameCornerTopLeftPngBase64);

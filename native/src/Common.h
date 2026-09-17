@@ -105,6 +105,16 @@ bool BitmapSane(const ArgbBitmap& bmp);
 
 
 
+/* v1.21.18: la revisione da cui il core e' stato compilato. La workflow di
+ * release la passa a CMake (-DW7T_BUILD_STAMP=<sha>); il core la scrive in
+ * log-core.txt alla prima riga di log, cosi' il binario in esecuzione dice
+ * sempre da solo quale build e'. Serve a non consegnare piu' un pacchetto con
+ * una DLL vecchia: la stessa stringa viene cercata in CI dentro il pacchetto
+ * appena creato. */
+#ifndef W7T_BUILD_STAMP
+#define W7T_BUILD_STAMP L"local"
+#endif
+
 /* Diagnostica: una riga di log accanto all'eseguibile. Se un fault ritorna,
  * l'ultima riga dice esattamente in quale messaggio e' avvenuto. */
 void AppendCoreLog(const wchar_t* line);

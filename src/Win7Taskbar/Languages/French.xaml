@@ -51,4 +51,6 @@
     <s:String x:Key="lang_address_tip">Adresse : tapez un chemin ou une URL puis Entrée</s:String>
     <s:String x:Key="lang_tray_pin_tip">Déplacer entre la zone de notification et le débordement (épingler/détacher)</s:String>
     <s:String x:Key="lang_close_tip">Fermer</s:String>
+    <!-- v1.21.7: the only managed string of the extra settings section -->
+    <s:String x:Key="lang_icon_order_drag_hint">Relâchez pour changer l'ordre</s:String>
 </ResourceDictionary>

@@ -5,6 +5,7 @@
 // Italiano: Superficie pubblica minima richiesta dal tema Windows7.xaml (derivato da RetroBar, Apache 2.0). Codice scritto da zero.
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
@@ -207,11 +208,13 @@ namespace RetroBar.Utilities
         /// 1 = "Windows 10/11" (flyout moderno nativo). Persistente e
         /// mutualmente esclusivo. L'icona di rete resta sempre quella
         /// originale di Windows: cambia solo il flyout aperto al click.
+        /// v3.8: 2 = "Windows 8 (ricreato)" (variante grafica ricostruita da
+        /// Administratox; la logica di rete e' la stessa del modulo Win7).
         /// </summary>
         public int NetworkFlyoutMode
         {
             get => _networkFlyoutMode;
-            set => SetField(ref _networkFlyoutMode, value == 1 ? 1 : 0);
+            set => SetField(ref _networkFlyoutMode, value == 1 ? 1 : (value == 2 ? 2 : 0));
         }
 
         private bool _useClassicVolumeMixer;
@@ -258,6 +261,238 @@ namespace RetroBar.Utilities
         {
             get => _useBatteryFlyout;
             set => SetField(ref _useBatteryFlyout, value);
+        }
+
+        /* ==================================================================
+         * v1.21.7 - Extra settings tab of the Properties window.
+         *
+         * The entries of the new tab live HERE, in the usual configuration
+         * file: no parallel file, no registry key, no alternative settings
+         * system. Saving is the atomic one of this class and the label
+         * language is the one of the Languages/ dictionaries.
+         *
+         * What they do NOT touch (explicit constraint): Windows
+         * personalization, Windows theme, personalization registry, Windows
+         * taskbar, Explorer pinning. They are preferences of the program
+         * about itself.
+         * ================================================================== */
+
+        /// <summary>Colour offered while the user has not chosen one: it is
+        /// the blue of the Windows 8-style interfaces. It is only the starting
+        /// point of the colour picker.</summary>
+        public const string DefaultFlyoutCustomColor = "#0078D7";
+
+        /// <summary>0x00RRGGBB of the fallback colour (Windows 8 blue).</summary>
+        private const int DefaultFlyoutCustomRgb = 0x0078D7;
+
+        private int _flyoutColorMode;                       /* 0 system, 1 custom */
+        private string _flyoutCustomColor = DefaultFlyoutCustomColor;
+        private int _connectionPrivacyMode;                 /* 0 normal, 1 privacy */
+        private int _themeSelection;                        /* 0 Windows 7, 1 Windows 8.1 */
+        private List<string> _taskbarIconOrder = new List<string>();
+
+        /// <summary>
+        /// v1.21.7: colour of the flyout recreated by the program.
+        /// 0 = system colour (the Windows accent, read from the system when
+        /// needed), 1 = custom colour chosen by the user.
+        ///
+        /// It concerns ONLY the flyout drawn by the program: it writes nothing
+        /// into the Windows personalization and changes no Windows 7 flyout,
+        /// which stay exactly as they were.
+        /// </summary>
+        public int FlyoutColorMode
+        {
+            get => _flyoutColorMode;
+            set => SetField(ref _flyoutColorMode, value == 1 ? 1 : 0);
+        }
+
+        /// <summary>
+        /// v1.21.7: custom colour as "#RRGGBB" (the form it is shown and
+        /// stored in). An invalid value never enters the configuration: the
+        /// default is used instead.
+        /// </summary>
+        public string FlyoutCustomColor
+        {
+            get => _flyoutCustomColor;
+            set => SetField(ref _flyoutCustomColor,
+                            NormalizeColorHex(value, DefaultFlyoutCustomColor));
+        }
+
+        /// <summary>0x00RRGGBB of the custom colour, for the native core and
+        /// for numeric comparisons.</summary>
+        [JsonIgnore]
+        public int FlyoutCustomColorRgb => ColorHexToRgb(_flyoutCustomColor);
+
+        /// <summary>
+        /// v1.21.7: privacy mode of the recreated connection flyouts.
+        /// 0 = normal (real network names), 1 = privacy (generic names,
+        /// "Network 1", "Network 2"...).
+        ///
+        /// It is presentation only: no network API is called and no Windows
+        /// setting is touched - the flyout simply draws a different text. The
+        /// 0/1 form used today allows more modes to be added later without
+        /// changing the stored format.
+        /// </summary>
+        public int ConnectionFlyoutPrivacyMode
+        {
+            get => _connectionPrivacyMode;
+            set => SetField(ref _connectionPrivacyMode, value == 1 ? 1 : 0);
+        }
+
+        /// <summary>
+        /// v1.21.7: skin of the taskbar. 0 = Windows 7 (the only available one
+        /// and the default), 1 = Windows 8.1 (prepared, not implemented yet).
+        ///
+        /// A skin that is not implemented never becomes the stored value: no
+        /// fake theme loaded by hand. See TaskbarThemeIds, which is the only
+        /// judgement about availability.
+        /// </summary>
+        public int ThemeSelection
+        {
+            get => _themeSelection;
+            set => SetField(ref _themeSelection,
+                            TaskbarThemeIds.Normalize(value));
+        }
+
+        /// <summary>
+        /// v1.21.7: icon order of OUR taskbar.
+        ///
+        /// It is a list of stable KEYS of the items (Application ID /
+        /// AppUserModelID, else the executable path, else the launch shortcut
+        /// of "shell item" pins), not of positions: the position of an icon
+        /// changes by itself when a window opens or closes, the key does not.
+        ///
+        /// Empty list = the user never reordered anything: the usual order is
+        /// used (pins in folder order, then running applications).
+        ///
+        /// Keys that match nothing any more are NOT deleted: if an application
+        /// is uninstalled or its shortcut stops resolving, the key stays and
+        /// takes effect again when the application comes back (never a
+        /// destructive change).
+        ///
+        /// This list concerns Win7Taskbar only: the Windows taskbar is neither
+        /// read nor modified.
+        /// </summary>
+        public List<string> TaskbarIconOrder
+        {
+            get => _taskbarIconOrder;
+            /* Deserialization: this does NOT save (reading the configuration
+             * back must not rewrite it). To change the order use
+             * SetTaskbarIconOrder, which saves. */
+            set => _taskbarIconOrder = NormalizeOrder(value);
+        }
+
+        /// <summary>v1.21.7: changes the icon order and saves it.</summary>
+        public void SetTaskbarIconOrder(IEnumerable<string> order)
+            => SetField(ref _taskbarIconOrder,
+                        NormalizeOrder(order == null ? null : new List<string>(order)),
+                        nameof(TaskbarIconOrder));
+
+        /// <summary>
+        /// Converts "#RRGGBB" (or "RRGGBB", or "AARRGGBB") into 0x00RRGGBB.
+        /// Invalid text -> fallback colour. The hash is optional so that a
+        /// hand-edited file cannot break the Properties window.
+        /// </summary>
+        public static int ColorHexToRgb(string? hex)
+        {
+            return TryParseColorHex(hex, out int rgb) ? rgb : DefaultFlyoutCustomRgb;
+        }
+
+        /// <summary>True if the text is a 6-digit hexadecimal colour (hash
+        /// optional, an alpha channel is ignored).</summary>
+        public static bool TryParseColorHex(string? hex, out int rgb)
+        {
+            rgb = 0;
+            string? text = HexDigits(hex);
+            if (text == null)
+            {
+                return false;
+            }
+
+            if (!int.TryParse(text, NumberStyles.HexNumber,
+                              CultureInfo.InvariantCulture, out int parsed))
+            {
+                return false;
+            }
+
+            rgb = parsed & 0xFFFFFF;
+            return true;
+        }
+
+        /// <summary>Canonical stored and shown form: uppercase "#RRGGBB".
+        /// Invalid text becomes the fallback colour, never a broken string
+        /// inside the configuration.</summary>
+        public static string NormalizeColorHex(string? hex, string fallback)
+        {
+            int rgb = TryParseColorHex(hex, out int parsed)
+                ? parsed
+                : ColorHexToRgb(fallback);
+            return "#" + rgb.ToString("X6", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>The six hexadecimal digits of a colour, or null.</summary>
+        private static string? HexDigits(string? hex)
+        {
+            if (string.IsNullOrWhiteSpace(hex))
+            {
+                return null;
+            }
+
+            string text = hex.Trim();
+            if (text.StartsWith("#", StringComparison.Ordinal))
+            {
+                text = text.Substring(1);
+            }
+            if (text.Length == 8)   /* AARRGGBB: the alpha is not needed here */
+            {
+                text = text.Substring(2);
+            }
+
+            if (text.Length != 6)
+            {
+                return null;
+            }
+
+            foreach (char c in text)
+            {
+                if (!Uri.IsHexDigit(c))
+                {
+                    return null;
+                }
+            }
+            return text;
+        }
+
+        /// <summary>Order list without empty, repeated or oversized keys: the
+        /// configuration stays readable and the comparison between two orders
+        /// does not depend on spaces or letter case.</summary>
+        private static List<string> NormalizeOrder(List<string>? order)
+        {
+            var result = new List<string>();
+            if (order == null)
+            {
+                return result;
+            }
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string key in order)
+            {
+                if (result.Count >= 512)
+                {
+                    break;   /* safety cap: the list does not grow forever */
+                }
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    continue;
+                }
+
+                string trimmed = key.Trim();
+                if (seen.Add(trimmed))
+                {
+                    result.Add(trimmed);
+                }
+            }
+            return result;
         }
 
         /// <summary>One-time migration flags / Flag migrazione una tantum</summary>

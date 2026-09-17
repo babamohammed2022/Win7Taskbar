@@ -51,4 +51,6 @@
     <s:String x:Key="lang_address_tip">Adres: wpisz ścieżkę lub adres URL i naciśnij Enter</s:String>
     <s:String x:Key="lang_tray_pin_tip">Przenieś między zasobnikiem a przepełnieniem (przypnij/odepnij)</s:String>
     <s:String x:Key="lang_close_tip">Zamknij</s:String>
+    <!-- v1.21.7: the only managed string of the extra settings section -->
+    <s:String x:Key="lang_icon_order_drag_hint">Upuść, aby zmienić kolejność</s:String>
 </ResourceDictionary>

@@ -51,4 +51,6 @@
     <s:String x:Key="lang_address_tip">Adresse: Pfad oder URL eingeben und Eingabe drücken</s:String>
     <s:String x:Key="lang_tray_pin_tip">Zwischen Infobereich und Überlauf verschieben (anheften/lösen)</s:String>
     <s:String x:Key="lang_close_tip">Schließen</s:String>
+    <!-- v1.21.7: the only managed string of the extra settings section -->
+    <s:String x:Key="lang_icon_order_drag_hint">Loslassen, um die Reihenfolge zu ändern</s:String>
 </ResourceDictionary>

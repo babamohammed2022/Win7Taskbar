@@ -182,9 +182,46 @@ struct PropStrings {
     const wchar_t* taskManagerAuto;
     const wchar_t* taskManagerModern;
     const wchar_t* taskManagerLegacy;
+    /* v3.8: terza voce della tendina del flyout di rete ("Windows 8
+     * (ricreato)"). In CODA alla struttura: i valori posizionali delle
+     * tabelle per lingua non devono slittare. */
+    const wchar_t* netWin8;
 };
 
 const PropStrings& PropStringsFor(Lang lang);
+
+/* ------------------------------------------------------------------------ */
+/*  Table of the "Extra settings" section                                    */
+/*                                                                           */
+/*  It is a table of its own, like the battery flyout one: the secondary     */
+/*  settings have their own page and their texts have nothing in common      */
+/*  with the entries of the other tabs. Adding an entry here (and the        */
+/*  eleven translations) does not touch PropStrings.                         */
+/* ------------------------------------------------------------------------ */
+struct ExtraStrings {
+    /* Tab label. */
+    const wchar_t* tabExtra;
+    /* Flyout group. */
+    const wchar_t* grpFlyout;
+    const wchar_t* lblFlyoutColor;
+    const wchar_t* optColorSystem;
+    const wchar_t* optColorCustom;
+    const wchar_t* btnPickColor;
+    const wchar_t* txtFlyoutColorHint;
+    const wchar_t* lblPrivacy;
+    const wchar_t* optPrivacyNormal;
+    const wchar_t* optPrivacyPrivate;
+    const wchar_t* txtPrivacyHint;
+    /* Taskbar group: skin and icon order. */
+    const wchar_t* grpTaskbar;
+    const wchar_t* lblTheme;
+    const wchar_t* themeWin7;
+    const wchar_t* themeWin81;
+    const wchar_t* lblIconOrder;
+    const wchar_t* txtIconOrderHint;
+};
+
+const ExtraStrings& ExtraStringsFor(Lang lang);
 
 /* ------------------------------------------------------------------------ */
 /*  Tabella del flyout batteria                                              */

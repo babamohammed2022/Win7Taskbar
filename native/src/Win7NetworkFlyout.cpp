@@ -272,6 +272,7 @@ void RecalcDpiMetrics(UINT dpi) {
 #define WM_UPDATE_REFRESH_TIMER  (WM_USER + 112)
 #define WM_UPDATE_HOTKEY       (WM_USER + 113)
 
+
 static UINT g_uTaskbarCreated = 0;
 static DWORD g_dwFlyoutOwnerThreadId = 0;
 // All async-connect threads that may still be running (the current one plus
@@ -3189,6 +3190,28 @@ void W7TNetFlyout_SetLanguage(int appLanguageIndex) {
     g_Settings.language = internal;
     DetermineLocale();
     /* Se il flyout e' gia' aperto, ridisegnalo nella nuova lingua. */
+    if (g_hWndFlyout != NULL && IsWindow(g_hWndFlyout)) {
+        InvalidateRect(g_hWndFlyout, NULL, TRUE);
+    }
+}
+
+/* v1.21.7 - Privacy mode of the connection flyouts.
+ *
+ * In the mod it is the "privacyMode" value of the Windhawk panel; here it is
+ * decided by the user in the extra settings tab of the Properties window and
+ * published by the managed layer with W7T_SetExtraSettings.
+ *
+ * The shown name is not stored anywhere: FormatDisplaySSID rebuilds it on
+ * every paint by reading g_Settings.privacyMode, so a change made while the
+ * flyout is open shows at once. That is what the invalidation below is for:
+ * the list switches to the generic names (or back to the real ones) without
+ * having to close and reopen the flyout.
+ *
+ * Nothing else is touched: no network API, no Windows configuration. It is
+ * only the text drawn by our flyout. */
+void W7TNetFlyout_SetPrivacyMode(int mode) {
+    w7tshim::SetPrivacyMode(mode != 0);
+    g_Settings.privacyMode = (mode != 0) ? TRUE : FALSE;
     if (g_hWndFlyout != NULL && IsWindow(g_hWndFlyout)) {
         InvalidateRect(g_hWndFlyout, NULL, TRUE);
     }
@@ -9786,8 +9809,6 @@ DWORD WINAPI HotkeyThreadProc(LPVOID lpParam) {
                 Wh_Log(L"HotkeyThreadProc: exception while toggling flyout, ignored");
             }
         }
-        // High Contrast toggled while the flyout is not yet open:
-        // refresh the cache so the next paint uses the correct palette.
         if (msg.message == WM_SETTINGCHANGE && msg.wParam == SPI_SETHIGHCONTRAST) {
             RefreshHighContrastNow();
             if (g_hWndFlyout && IsWindow(g_hWndFlyout) && IsWindowVisible(g_hWndFlyout))
@@ -10143,5 +10164,33 @@ void W7TNetFlyout_Toggle() {
 
 void W7TNetFlyout_Show() { ShowFlyoutWindow(); }
 void W7TNetFlyout_Hide() { HideFlyoutWindow(); }
+
+} // namespace w7tnet
+
+// ============================================================================
+//  v4.0 - ESCLUSIONE RECIPROCA TRA I DUE FLYOUT DI RETE
+// ----------------------------------------------------------------------------
+//  Con il porting completo della mod "Windows 8x Network Flyout Recreation"
+//  (Win8NetworkFlyout.cpp) la variante Windows 8 ha la SUA logica nativa:
+//  non serve piu' il ponte sullo stato di questo modulo. Resta solo una
+//  cosa: aprendo il riquadro Windows 8, quello Windows 7 - se aperto per
+//  qualche percorso laterale (hotkey della mod, ad esempio) - si chiude.
+//  Dichiarazioni in NetLogicBridge.h.
+// ============================================================================
+#include "NetLogicBridge.h"
+
+namespace w7tnet {
+
+BOOL W8NetLogic_IsWin7FlyoutVisible() {
+    if (g_hWndFlyout == NULL || !IsWindow(g_hWndFlyout)) return FALSE;
+    if (!IsWindowVisible(g_hWndFlyout)) return FALSE;
+    if (IsIconic(g_hWndFlyout)) return FALSE;
+    return TRUE;
+}
+
+void W8NetLogic_HideWin7FlyoutIfOpen() {
+    if (W8NetLogic_IsWin7FlyoutVisible())
+        HideFlyoutWindow();
+}
 
 } // namespace w7tnet

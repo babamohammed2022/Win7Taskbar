@@ -85,6 +85,36 @@ namespace Win7Taskbar.Models
 
         public ObservableCollection<TaskGroup> Groups { get; }
 
+        // v1.21.15: ordine personalizzato dal trascinamento (meccanismo
+        // copiato da RetroBar): lista di sessione, svuotata ad ogni
+        // MoveTaskGroup e usata da RefreshWindows per non far tornare i
+        // bottoni alla posizione di default al prossimo refresh.
+        private readonly List<TaskGroup> _userOrder = new();
+
+        /// <summary>Sposta un gruppo alla posizione di inserimento
+        /// <paramref name="rawInsertIndex"/> (indice fra i bottoni, 0..Count;
+        /// la semantica e' quella del trascinamento: il bottone va PRIMA
+        /// dell'i-esimo bottone corrente). Registra l'ordine risultante
+        /// come preferenza di sessione.</summary>
+        public void MoveTaskGroup(TaskGroup group, int rawInsertIndex)
+        {
+            int cur = Groups.IndexOf(group);
+            if (cur < 0)
+            {
+                return;
+            }
+            int index = rawInsertIndex;
+            if (index < 0) index = 0;
+            if (index > Groups.Count) index = Groups.Count;
+            if (index > cur) index--;
+            if (index != cur)
+            {
+                Groups.Move(cur, index);
+            }
+            _userOrder.Clear();
+            _userOrder.AddRange(Groups);
+        }
+
         public NotificationArea NotificationArea { get; }
 
         public ClockModel Clock { get; }
@@ -168,6 +198,10 @@ namespace Win7Taskbar.Models
                 case CoreEvent.PinnedChanged:
                     // v2.25: cartella pin cambiata (watcher nativo).
                     _pinsCache = null;
+                    /* v1.21.8: la mappa collegamento -> icona personalizzata
+                     * si ricostruisce qui: e' il momento in cui l'utente puo'
+                     * aver creato o modificato una scorciatoia. */
+                    PinReader.InvalidateShortcutIconIndex();
                     RefreshWindows();
                     break;
 
@@ -380,7 +414,25 @@ namespace Win7Taskbar.Models
             // (due .lnk possono dichiarare lo stesso AppUserModelID:
             // senza deduplica la lista desired sforava e Move() lanciava
             // ArgumentOutOfRangeException al primo evento del core.)
-            var desired = new List<TaskGroup>(Groups.Count);
+            // v1.21.7: the variable is no longer read-only, because step 3b
+            // applies the user's ordering layer to it.
+            List<TaskGroup> desired = new List<TaskGroup>(Groups.Count);
+            // v1.21.15: riordino con trascinamento (come RetroBar): se
+            // l'utente ha già spostato dei bottoni, QUELL'ordine comanda
+            // per tutti i gruppi che coinvolge; i gruppi spariti si
+            // purgano, i gruppi nuovi si accodano più sotto con la regola
+            // normale. Di sessione, non salvato su disco (come RetroBar).
+            if (_userOrder.Count > 0)
+            {
+                _userOrder.RemoveAll(g => !Groups.Contains(g));
+                foreach (TaskGroup g in _userOrder)
+                {
+                    if (!desired.Contains(g))
+                    {
+                        desired.Add(g);
+                    }
+                }
+            }
             foreach (PinInfo pin in pins)
             {
                 TaskGroup? g = Groups.FirstOrDefault(x => PinMatches(pin, x));
@@ -396,6 +448,17 @@ namespace Win7Taskbar.Models
                     desired.Add(g);
                 }
             }
+
+            // 3b) v1.21.7: ORDERING LAYER of the software taskbar. The order
+            //     just computed (pins in folder order, then running
+            //     applications) stays the BASE: the user's choice, when it
+            //     exists, is applied on top of it. With an empty list the
+            //     sequence does not move by one position (see
+            //     VirtualTaskbarOrder). Nothing of Windows is touched: it is
+            //     only the order our buttons are laid out in.
+            desired = VirtualTaskbarOrder.Apply(
+                desired, ReadSavedTaskbarOrder());
+
             if (desired.Count == Groups.Count)
             {
                 for (int i = 0; i < desired.Count; i++)
@@ -534,7 +597,95 @@ namespace Win7Taskbar.Models
         {
             _bridge.PinnedRefresh();
             _pinsCache = null;
+            PinReader.InvalidateShortcutIconIndex();
             RefreshWindows();
+        }
+
+        // ---------------------------------------------------------------
+        //  v1.21.7 - Icon order chosen by the user
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// Order stored in the configuration (empty list = the user never
+        /// reordered anything, so the usual order is used). Reading it must
+        /// never break a taskbar refresh, therefore any error turns into "no
+        /// order".
+        /// </summary>
+        private static IReadOnlyList<string> ReadSavedTaskbarOrder()
+        {
+            try
+            {
+                return RetroBar.Utilities.Settings.Instance.TaskbarIconOrder;
+            }
+            catch (Exception)
+            {
+                return Array.Empty<string>();
+            }
+        }
+
+        /// <summary>v1.21.7: the keys the order is stored with, for
+        /// diagnostics (a readable log line instead of an index).</summary>
+        public List<string> CurrentTaskbarOrderKeys()
+            => VirtualTaskbarOrder.KeysFor(Groups);
+
+        /// <summary>
+        /// v1.21.7 - applies the order chosen by dragging a button.
+        ///
+        /// It reorders the groups that are already there (no rebuild: the
+        /// buttons do not flicker and the hover state is not lost) and saves
+        /// the list of keys in the program configuration. The Windows taskbar
+        /// is neither read nor written: only OUR representation is reordered.
+        ///
+        /// It rejects the list unless it is exactly a permutation of the shown
+        /// one: that is the defence against a partial reorder, or one coming
+        /// from a model that changed in the meantime (a window closed during
+        /// the drag), which would otherwise move the wrong buttons.
+        /// </summary>
+        public bool ApplyUserTaskbarOrder(IList<TaskGroup> ordered)
+        {
+            if (ordered == null || ordered.Count != Groups.Count || Groups.Count == 0)
+            {
+                return false;
+            }
+
+            var shown = new HashSet<TaskGroup>(Groups);
+            foreach (TaskGroup group in ordered)
+            {
+                if (!shown.Contains(group))
+                {
+                    return false;
+                }
+            }
+
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                int current = Groups.IndexOf(ordered[i]);
+                if (current < 0)
+                {
+                    return false;
+                }
+                if (current != i)
+                {
+                    Groups.Move(current, i);
+                }
+            }
+
+            try
+            {
+                /* SetTaskbarIconOrder (not the property): this is the method
+                 * that saves - the property exists for reading the
+                 * configuration file back and must not rewrite it. */
+                RetroBar.Utilities.Settings.Instance.SetTaskbarIconOrder(
+                    VirtualTaskbarOrder.KeysFor(Groups));
+                return true;
+            }
+            catch (Exception)
+            {
+                // Persistence must never break the bar: the order stays
+                // applied on screen and will be written again at the next
+                // successful reorder.
+                return false;
+            }
         }
 
         /// <summary>
