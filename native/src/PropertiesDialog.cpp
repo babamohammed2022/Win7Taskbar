@@ -851,6 +851,7 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SetDlgItemTextW(hwnd, IDC_BTN_PICK_COLOR, X.btnPickColor);
         SetDlgItemTextW(hwnd, IDC_TXT_COLOR_HINT, X.txtFlyoutColorHint);
         SetDlgItemTextW(hwnd, IDC_LBL_EX_PRIVACY, X.lblPrivacy);
+        SetDlgItemTextW(hwnd, IDC_TXT_PRIVACY_HINT, X.txtPrivacyHint);
         SetDlgItemTextW(hwnd, IDC_LBL_EX_THEME, X.lblTheme);
         SetDlgItemTextW(hwnd, IDC_GRP_EX_TASKBAR, X.grpTaskbar);
         SetDlgItemTextW(hwnd, IDC_LBL_EX_ICON_ORDER, X.lblIconOrder);
