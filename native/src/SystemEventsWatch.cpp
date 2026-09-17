@@ -154,34 +154,39 @@ void SystemEventsWatch::StartRegistryWatch(HWND notifyWnd, UINT notifyMsg) {
     s.notifyMsg = notifyMsg;
     s.event     = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 
-    s.thread = std::thread([] {
-        RegistryWatchState& st = RegistryWatch();
+    try {
+        s.thread = std::thread([] {
+            RegistryWatchState& st = RegistryWatch();
 
-        // Stessa chiave che legge la shell per EnableAutoTray e per le
-        // impostazioni del cassetto (HKCU CurrentVersion Explorer sotto
-        // HKEY_CURRENT_USER), aperta con KEY_NOTIFY.
-        if (RegOpenKeyExW(HKEY_CURRENT_USER,
-                          L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer",
-                          0, KEY_NOTIFY, &st.key) != ERROR_SUCCESS) {
-            st.running.store(false);
-            return;
-        }
+            // Stessa chiave che legge la shell per EnableAutoTray e per le
+            // impostazioni del cassetto (HKCU CurrentVersion Explorer sotto
+            // HKEY_CURRENT_USER), aperta con KEY_NOTIFY.
+            if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                              L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer",
+                              0, KEY_NOTIFY, &st.key) != ERROR_SUCCESS) {
+                st.running.store(false);
+                return;
+            }
 
-        while (st.running.load()) {
-            // Richiesta una-sola-volta: dopo ogni notifica va riarmata.
-            RegNotifyChangeKeyValue(st.key, FALSE, REG_NOTIFY_CHANGE_LAST_SET,
-                                    st.event, TRUE);
-            const DWORD wait = WaitForSingleObject(st.event, 1000);
-            if (wait == WAIT_OBJECT_0) {
-                ResetEvent(st.event);
-                if (st.notifyMsg != 0 && st.notifyWnd != nullptr) {
-                    PostMessageW(st.notifyWnd, st.notifyMsg, 0, 0);
+            while (st.running.load()) {
+                // Richiesta una-sola-volta: dopo ogni notifica va riarmata.
+                RegNotifyChangeKeyValue(st.key, FALSE, REG_NOTIFY_CHANGE_LAST_SET,
+                                        st.event, TRUE);
+                const DWORD wait = WaitForSingleObject(st.event, 1000);
+                if (wait == WAIT_OBJECT_0) {
+                    ResetEvent(st.event);
+                    if (st.notifyMsg != 0 && st.notifyWnd != nullptr) {
+                        PostMessageW(st.notifyWnd, st.notifyMsg, 0, 0);
+                    }
                 }
             }
-        }
-        RegCloseKey(st.key);
-        st.key = nullptr;
-    });
+            RegCloseKey(st.key);
+            st.key = nullptr;
+        });
+    } catch (const std::system_error&) {
+        s.running.store(false);
+        return;
+    }
 }
 
 void SystemEventsWatch::StopRegistryWatch() {
@@ -207,70 +212,75 @@ void SystemEventsWatch::StartNetworkWatch(HWND notifyWnd, UINT notifyMsg) {
         return;
     }
 
-    s.thread = std::thread([notifyWnd, notifyMsg] {
-        NetworkWatchState& st = NetworkWatch();
+    try {
+        s.thread = std::thread([notifyWnd, notifyMsg] {
+            NetworkWatchState& st = NetworkWatch();
 
-        /* STA con message pump: il connection point di NLM arriva dal
-         * LocalServer del Network List Service (svchost), quindi le
-         * chiamate in entrata alla sink vengono marshallsate
-         * nell'apartment: un single-threaded apartment senza pump non le
-         * consegnerebbe mai. Il pump qui e' esplicito (MsgWait + Peek), il
-         * lavoro della sink resta un PostMessage da un soffio. */
-        HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-        if (FAILED(hr)) {
-            st.running.store(false);
-            return;
-        }
+            /* STA con message pump: il connection point di NLM arriva dal
+             * LocalServer del Network List Service (svchost), quindi le
+             * chiamate in entrata alla sink vengono marshallsate
+             * nell'apartment: un single-threaded apartment senza pump non le
+             * consegnerebbe mai. Il pump qui e' esplicito (MsgWait + Peek), il
+             * lavoro della sink resta un PostMessage da un soffio. */
+            HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+            if (FAILED(hr)) {
+                st.running.store(false);
+                return;
+            }
 
-        INetworkEvents* sink = new NetworkEventSink(notifyWnd, notifyMsg);
-        INetworkListManager* manager = nullptr;
-        IConnectionPointContainer* cpc = nullptr;
-        IConnectionPoint* point = nullptr;
-        DWORD cookie = 0;
-        bool advising = false;
+            INetworkEvents* sink = new NetworkEventSink(notifyWnd, notifyMsg);
+            INetworkListManager* manager = nullptr;
+            IConnectionPointContainer* cpc = nullptr;
+            IConnectionPoint* point = nullptr;
+            DWORD cookie = 0;
+            bool advising = false;
 
-        hr = CoCreateInstance(CLSID_NetworkListManager, nullptr,
-                              CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER,
-                              IID_PPV_ARGS(&manager));
-        if (SUCCEEDED(hr)) {
-            hr = manager->QueryInterface(IID_PPV_ARGS(&cpc));
+            hr = CoCreateInstance(CLSID_NetworkListManager, nullptr,
+                                  CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER,
+                                  IID_PPV_ARGS(&manager));
             if (SUCCEEDED(hr)) {
-                // Il connection point degli eventi NLM e' pubblicato con
-                // l'IID della interfaccia-sorgente INetworkListManagerEvents.
-                hr = cpc->FindConnectionPoint(IID_INetworkListManagerEvents,
-                                               &point);
-                if (SUCCEEDED(hr) && point != nullptr) {
-                    advising = SUCCEEDED(
-                        point->Advise(static_cast<IUnknown*>(sink), &cookie));
+                hr = manager->QueryInterface(IID_PPV_ARGS(&cpc));
+                if (SUCCEEDED(hr)) {
+                    // Il connection point degli eventi NLM e' pubblicato con
+                    // l'IID della interfaccia-sorgente INetworkListManagerEvents.
+                    hr = cpc->FindConnectionPoint(IID_INetworkListManagerEvents,
+                                                   &point);
+                    if (SUCCEEDED(hr) && point != nullptr) {
+                        advising = SUCCEEDED(
+                            point->Advise(static_cast<IUnknown*>(sink), &cookie));
+                    }
                 }
             }
-        }
 
-        while (st.running.load()) {
-            MsgWaitForMultipleObjectsEx(0, nullptr, 250, QS_ALLINPUT,
-                                        MWMO_INPUTAVAILABLE);
-            MSG msg;
-            while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-                TranslateMessage(&msg);
-                DispatchMessageW(&msg);
+            while (st.running.load()) {
+                MsgWaitForMultipleObjectsEx(0, nullptr, 250, QS_ALLINPUT,
+                                            MWMO_INPUTAVAILABLE);
+                MSG msg;
+                while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
             }
-        }
 
-        if (advising && point != nullptr) {
-            point->Unadvise(cookie);
-        }
-        if (point != nullptr) {
-            point->Release();
-        }
-        if (cpc != nullptr) {
-            cpc->Release();
-        }
-        if (manager != nullptr) {
-            manager->Release();
-        }
-        sink->Release();
-        CoUninitialize();
-    });
+            if (advising && point != nullptr) {
+                point->Unadvise(cookie);
+            }
+            if (point != nullptr) {
+                point->Release();
+            }
+            if (cpc != nullptr) {
+                cpc->Release();
+            }
+            if (manager != nullptr) {
+                manager->Release();
+            }
+            sink->Release();
+            CoUninitialize();
+        });
+    } catch (const std::system_error&) {
+        s.running.store(false);
+        return;
+    }
 }
 
 void SystemEventsWatch::StopNetworkWatch() {
