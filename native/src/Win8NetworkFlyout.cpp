@@ -2788,6 +2788,21 @@ static int GetNetworkCountSafe() {
     return count;
 }
 
+/* v1.21.18: index of the network the machine is actually connected to, or -1.
+ * Both panes used to look at networks[0] only, but the list is ordered by
+ * signal quality, not by connection state: a connected network that is weaker
+ * than a neighbour sits further down, and the pane then reported "no
+ * connection" and drew no name while the machine was online. The row is
+ * searched here once, by every caller. */
+static int FindConnectedNetworkRow(const NetworkStateSnapshot& state) {
+    for (int i = 0; i < state.networkCount; ++i) {
+        if (state.networks[i].connState == CONN_STATE_CONNECTED) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 static BOOL GetSelectedRowConnState(ConnectionState* outState) {
     BOOL valid = FALSE;
     EnterCriticalSection(&g_Ctx.csLock);
@@ -8588,6 +8603,75 @@ static BOOL SafeShellExecuteOpen(HWND hwnd, const WCHAR* file, const WCHAR* para
     return ok;
 }
 
+/* v1.21.18: the Control Panel is started directly instead of through the
+ * shell. ShellExecuteW makes the SHELL load its in-process extensions into
+ * OUR process - context-menu handlers, namespace extensions and every other
+ * in-proc COM object registered for the object being opened - and anything
+ * that faults inside one of those takes the taskbar down with it. That is the
+ * reported crash: "the program closes when the network settings are opened
+ * from the recreated Windows 8 pane". CreateProcessW starts the very same
+ * executable without hosting anybody else's code here. The shell stays as the
+ * fallback, so the link keeps working if the direct start is refused. */
+static BOOL StartControlPanelPage(const WCHAR* pageName) {
+    if (pageName == nullptr || pageName[0] == L'\0')
+        return FALSE;
+
+    BOOL started = FALSE;
+    W7T_SEH_TRY
+    {
+        WCHAR systemDir[MAX_PATH] = {};
+        const UINT dirLength = GetSystemDirectoryW(systemDir, ARRAYSIZE(systemDir));
+        if (dirLength > 0 && dirLength < ARRAYSIZE(systemDir)) {
+            /* CreateProcessW may write to the command line buffer: keep a
+             * local, writable copy, never a string literal. */
+            WCHAR commandLine[MAX_PATH * 2] = {};
+            if (SUCCEEDED(StringCchPrintfW(commandLine, ARRAYSIZE(commandLine),
+                                           L"\"%s\\control.exe\" /name %s",
+                                           systemDir, pageName))) {
+                STARTUPINFOW si = {};
+                si.cb = sizeof(si);
+                PROCESS_INFORMATION pi = {};
+                if (CreateProcessW(nullptr, commandLine, nullptr, nullptr, FALSE,
+                                   0, nullptr, nullptr, &si, &pi)) {
+                    started = TRUE;
+                    if (pi.hThread) CloseHandle(pi.hThread);
+                    if (pi.hProcess) CloseHandle(pi.hProcess);
+                }
+            }
+        }
+    }
+    W7T_SEH_CATCH
+    {
+        started = FALSE;
+    }
+    W7T_SEH_END
+    return started;
+}
+
+static BOOL SafeOpenControlPanelPage(const WCHAR* pageName) {
+    BOOL ok = FALSE;
+    try {
+        ok = StartControlPanelPage(pageName);
+    } catch (...) {
+        ok = FALSE;
+    }
+    if (!ok && pageName != nullptr) {
+        w7t::LogTagged(L"NET8",
+                       L"control.exe /name %s was not started directly: trying the shell",
+                       pageName);
+        WCHAR params[MAX_PATH] = {};
+        if (SUCCEEDED(StringCchPrintfW(params, ARRAYSIZE(params), L"/name %s",
+                                       pageName))) {
+            ok = SafeShellExecuteOpen(NULL, L"control.exe", params);
+        }
+    }
+    if (ok) {
+        w7t::LogTagged(L"NET8", L"control.exe /name %s: opened",
+                       pageName != nullptr ? pageName : L"?");
+    }
+    return ok;
+}
+
 static BOOL ShellExecuteExInner(SHELLEXECUTEINFOW* sei) {
     BOOL ok = FALSE;
     W7T_SEH_TRY
@@ -9186,8 +9270,9 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     // Connections section
     NetworkStateSnapshot paintState;
     CaptureNetworkState(&paintState);
-    BOOL isWifiConnected = (paintState.networkCount > 0 &&
-                             paintState.networks[0].connState == CONN_STATE_CONNECTED);
+    /* v1.21.18: the row, not networks[0]: see FindConnectedNetworkRow(). */
+    const int connectedRow = FindConnectedNetworkRow(paintState);
+    BOOL isWifiConnected = (connectedRow >= 0);
     BOOL isAnyConnected = (paintState.ethernetConnected || isWifiConnected);
 
     SelectObject(hdc, hFontSection);
@@ -9198,11 +9283,22 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     if (isAnyConnected) {
         WCHAR displayName[64] = {0};
         if (paintState.ethernetConnected) {
-            StringCchCopyW(displayName, ARRAYSIZE(displayName), paintState.ethernetNetworkName);
-            if (displayName[0] == L'\0')
-                StringCchCopyW(displayName, ARRAYSIZE(displayName), L"Ethernet");
-        } else {
-            FormatDisplaySSID(paintState.networks[0], 0, displayName, ARRAYSIZE(displayName));
+            /* v1.21.18: privacy mode covers the cable too. The Wi-Fi rows go
+             * through FormatDisplaySSID(), which masks them; the wired name
+             * used to be printed as it is, so one of the two connections
+             * ignored the setting the user had just turned on. Numbering and
+             * wording match the Windows 7-style header ("Rete 1"). */
+            if (g_Settings.privacyMode) {
+                StringCchPrintfW(displayName, ARRAYSIZE(displayName),
+                                 LOC(STR_NETWORK_PRIVACY_FMT), 1);
+            } else {
+                StringCchCopyW(displayName, ARRAYSIZE(displayName), paintState.ethernetNetworkName);
+                if (displayName[0] == L'\0')
+                    StringCchCopyW(displayName, ARRAYSIZE(displayName), L"Ethernet");
+            }
+        } else if (connectedRow >= 0) {
+            FormatDisplaySSID(paintState.networks[connectedRow], connectedRow,
+                              displayName, ARRAYSIZE(displayName));
         }
         SelectObject(hdc, hFontBodyBold);
         TextOutW(hdc, cx, curY, displayName, lstrlenW(displayName));
@@ -9614,10 +9710,13 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             ethernetNow = g_EthernetConnected;
             LeaveCriticalSection(&g_Ctx.csLock);
             w7t::LogTagged(L"NET8",
-                           L"pane opened: %d network(s) listed, WLAN %s, cable %s",
+                           L"pane opened: %d network(s) listed, WLAN %s, cable %s, "
+                           L"language index %d (pack 0x%04X)",
                            netCountNow,
                            g_Ctx.hWlanClient ? L"available" : L"unavailable",
-                           ethernetNow ? L"connected" : L"not connected");
+                           ethernetNow ? L"connected" : L"not connected",
+                           g_AppLanguageIndex,
+                           (unsigned)g_CurrentLocalePack->langId);
             if (netCountNow == 0) {
                 /* An empty list has two possible causes: the radio has not
                  * scanned yet, or there is no WLAN client at all (the service
@@ -9922,8 +10021,12 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
         DeleteObject(hPenBevelDark);
         DeleteObject(hPenBevelLight);
 
-        BOOL isWifiConnected = (paintNetworkCount > 0 &&
-                                paintState.networks[0].connState == CONN_STATE_CONNECTED);
+        /* v1.21.18: the connected row is searched in the whole list, not
+         * assumed to be networks[0] (the list is ordered by signal): a
+         * connected network that is not the strongest made this header say
+         * "no connection" and hide the name. */
+        const int connectedRow = FindConnectedNetworkRow(paintState);
+        BOOL isWifiConnected = (connectedRow >= 0);
         BOOL isAnyConnected = (paintState.ethernetConnected || isWifiConnected);
         SetBkMode(hdc, TRANSPARENT);
         
@@ -9944,8 +10047,9 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                         StringCchPrintfW(displayName, ARRAYSIZE(displayName), LOC(STR_NETWORK_PRIVACY_FMT), 2);
                     }
                 }
-            } else {
-                FormatDisplaySSID(paintState.networks[0], 0, displayName, ARRAYSIZE(displayName));
+            } else if (connectedRow >= 0) {
+                FormatDisplaySSID(paintState.networks[connectedRow], connectedRow,
+                                  displayName, ARRAYSIZE(displayName));
             }
             
             DrawTextWithWrap(hdc, displayName, ScaleDpi(56), ScaleDpi(36), WINDOW_WIDTH - ScaleDpi(70), ScaleDpi(18));
@@ -10643,8 +10747,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
                 /* v1.21.17: launch and slide-out both guarded: a failure here
                  * must not take the taskbar down. */
                 try {
-                    SafeShellExecuteOpen(NULL, L"control.exe",
-                                         L"/name Microsoft.NetworkAndSharingCenter");
+                    SafeOpenControlPanelPage(L"Microsoft.NetworkAndSharingCenter");
                     HideFlyoutVisual(hwnd);
                 } catch (...) {
                     w7t::LogTagged(L"NET8",
@@ -10748,8 +10851,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
              * launch used to be direct here: a fault inside the Control Panel
              * (or in its COM handlers) closed the program. */
             try {
-                SafeShellExecuteOpen(NULL, L"control.exe",
-                                     L"/name Microsoft.NetworkAndSharingCenter");
+                SafeOpenControlPanelPage(L"Microsoft.NetworkAndSharingCenter");
                 HideFlyoutVisual(hwnd);
             } catch (...) {
                 w7t::LogTagged(L"NET8",

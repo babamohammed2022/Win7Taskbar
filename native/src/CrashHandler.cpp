@@ -3,6 +3,8 @@
 // Licensed under the GNU General Public License version 3 or later.
 
 #include <windows.h>
+#include <stddef.h>   /* size_t: not guaranteed by windows.h on MSVC */
+
 #ifdef _MSC_VER
 #include <crtdbg.h>
 #include <stdlib.h>
@@ -33,26 +35,49 @@ void WriteCrashLine(HANDLE file, const wchar_t* text) noexcept
     WriteFile(file, nl, 2, &written, nullptr);
 }
 
-/* v1.21.18: the same event, as one line in log-core.txt - the file a tester
- * is already asked for. Win32 only, fixed buffers, because the heap may
- * already be unusable when this runs. The path rule is the one
- * w7t::AppendCoreLog() uses: log-core.txt beside the running module. */
-void AppendCrashToCoreLog(const wchar_t* summary) noexcept
+/* Path rule shared by the crash path and the normal logger: log-core.txt
+ * beside the running executable. Win32 only, fixed buffers: this runs while
+ * the process is already dying. */
+bool BuildCoreLogPath(wchar_t* out, size_t count) noexcept
 {
-    if (summary == nullptr) return;
+    if (out == nullptr || count < 2) return false;
+    out[0] = L'\0';
 
     wchar_t modulePath[MAX_PATH]{};
-    if (GetModuleFileNameW(nullptr, modulePath, ARRAYSIZE(modulePath)) == 0) return;
+    if (GetModuleFileNameW(nullptr, modulePath, ARRAYSIZE(modulePath)) == 0) return false;
     int lastSlash = -1;
     for (int i = 0; modulePath[i] != L'\0'; i++) {
         if (modulePath[i] == L'\\') lastSlash = i;
     }
-    if (lastSlash < 0) return;
+    if (lastSlash < 0) return false;
     modulePath[lastSlash + 1] = L'\0';
 
+    /* Copied by hand rather than with lstrcpyW/lstrcatW: those are unbounded,
+     * and "the folder of the running executable" can be long enough that the
+     * fixed MAX_PATH buffers of the crash path fill up. Truncating here is
+     * harmless (the caller only ever gets false or a path that exists), an
+     * overflow is not - the process is already faulting. */
+    const wchar_t* const fileName = L"log-core.txt";
+    size_t used = 0;
+    for (int i = 0; modulePath[i] != L'\0' && used + 1 < count; i++) {
+        out[used++] = modulePath[i];
+    }
+    for (int i = 0; fileName[i] != L'\0' && used + 1 < count; i++) {
+        out[used++] = fileName[i];
+    }
+    out[used] = L'\0';
+    return true;
+}
+
+/* v1.21.18: the same event, as one line in log-core.txt - the file a tester
+ * is already asked for. Win32 only, fixed buffers, because the heap may
+ * already be unusable when this runs. */
+void AppendCrashToCoreLog(const wchar_t* summary) noexcept
+{
+    if (summary == nullptr) return;
+
     wchar_t logPath[MAX_PATH]{};
-    lstrcpynW(logPath, modulePath, ARRAYSIZE(logPath));
-    lstrcatW(logPath, L"log-core.txt");
+    if (!BuildCoreLogPath(logPath, ARRAYSIZE(logPath))) return;
 
     HANDLE file = CreateFileW(logPath, FILE_APPEND_DATA,
                               FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
@@ -69,6 +94,90 @@ void AppendCrashToCoreLog(const wchar_t* summary) noexcept
     WriteFile(file, line, static_cast<DWORD>(lstrlenW(line)) * sizeof(wchar_t),
               &written, nullptr);
     CloseHandle(file);
+}
+
+/* v1.21.18: the report ends with the last lines of log-core.txt. A crash
+ * report that says "access violation in <module> +0x1234" still leaves the
+ * question "of what?" open; the log tail before the fault usually answers it
+ * (which pane was opening, which call was in flight) and it spares the tester
+ * from having to find and send a second file. Read-only, Win32, fixed
+ * buffers, 4 KB: safe to run while the process is dying. */
+void AppendRecentCoreLogToCrashReport(HANDLE file) noexcept
+{
+    if (file == INVALID_HANDLE_VALUE) return;
+
+    wchar_t logPath[MAX_PATH]{};
+    if (!BuildCoreLogPath(logPath, ARRAYSIZE(logPath))) return;
+
+    HANDLE in = CreateFileW(logPath, GENERIC_READ,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (in == INVALID_HANDLE_VALUE) return;
+
+    enum { kTailChars = 4096 };
+    wchar_t tail[kTailChars + 1]{};
+
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(in, &size)) {
+        CloseHandle(in);
+        return;
+    }
+    LARGE_INTEGER position{};
+    position.QuadPart = size.QuadPart > static_cast<LONGLONG>(kTailChars * sizeof(wchar_t))
+        ? size.QuadPart - static_cast<LONGLONG>(kTailChars * sizeof(wchar_t))
+        : 0;
+    if (position.QuadPart != 0 &&
+        !SetFilePointerEx(in, position, nullptr, FILE_BEGIN)) {
+        CloseHandle(in);
+        return;
+    }
+    DWORD read = 0;
+    if (!ReadFile(in, tail, kTailChars * sizeof(wchar_t), &read, nullptr)) {
+        CloseHandle(in);
+        return;
+    }
+    CloseHandle(in);
+
+    /* Whole UTF-16 code units only: a tail that starts mid-character must not
+     * turn into a replacement character inside the report. */
+    read &= ~1u;
+    if (read < sizeof(wchar_t)) return;
+    const int tailChars = static_cast<int>(read / sizeof(wchar_t));
+    tail[tailChars] = L'\0';
+
+    /* Starting in the middle of a line is fine for the eyes, bad for reading
+     * logs: skip to just after the first line break. */
+    const wchar_t* text = tail;
+    if (position.QuadPart != 0) {
+        for (int i = 0; i < tailChars; i++) {
+            if (tail[i] == L'\n') {
+                text = &tail[i + 1];
+                break;
+            }
+        }
+    }
+
+    WriteCrashLine(file, L"---- last lines of log-core.txt (newest last) ----");
+
+    /* WriteCrashLine() truncates at 1 KB of UTF-8; 300 characters stay below
+     * that even when every character is 3 bytes wide. */
+    wchar_t chunk[300]{};
+    int used = 0;
+    for (const wchar_t* p = text; ; ++p) {
+        const wchar_t c = *p;
+        if (c == L'\0' || c == L'\n' || used == ARRAYSIZE(chunk) - 1) {
+            chunk[used] = L'\0';
+            if (used > 0) {
+                WriteCrashLine(file, chunk);
+            }
+            used = 0;
+            if (c == L'\0') break;
+        } else if (c != L'\r') {
+            chunk[used++] = c;
+        }
+    }
+
+    WriteCrashLine(file, L"---- end of log-core.txt tail ----");
 }
 
 void WriteCrashReport(EXCEPTION_POINTERS* ep) noexcept
@@ -190,6 +299,9 @@ void WriteCrashReport(EXCEPTION_POINTERS* ep) noexcept
             WriteCrashLine(file, logLine);
         }
     }
+
+    /* v1.21.18: what the program was doing right before the fault. */
+    AppendRecentCoreLogToCrashReport(file);
 
     CloseHandle(file);
 }

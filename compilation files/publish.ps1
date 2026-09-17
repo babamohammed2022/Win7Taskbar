@@ -49,6 +49,7 @@ Set-StrictMode -Version Latest
 # root (it used to live in build/, two levels below).
 $root = Split-Path -Parent $PSScriptRoot
 $native = Join-Path $root 'native'
+$buildDir = Join-Path $native 'build'
 $dist = Join-Path $root 'dist'
 $out = Join-Path $root $OutputDir
 # 1.0.0-alpha: $IsWindows esiste solo in PowerShell 6+; su Windows
@@ -64,7 +65,6 @@ function Fail($text) { Write-Host "!!  $text" -ForegroundColor Red; exit 1 }
 # ---------------------------------------------------------------------------
 if (-not $SkipNative) {
     Step 'Native core: CMake configure'
-    $buildDir = Join-Path $native 'build'
     # One argument per variable: building the string inline inside the array
     # literal (`'-D...' + $x`) makes PowerShell emit TWO elements and CMake then
     # configures with an empty build type - which silently ships an
@@ -95,6 +95,38 @@ if (-not $SkipNative) {
     if ($LASTEXITCODE -ne 0) { Fail 'native build failed' }
 } else {
     Step 'Native core: skipped (using the existing dist/)'
+}
+
+# v1.21.18: the release workflow builds the native core with CMake and only
+# then calls this script with -SkipNative, which used to mean "package whatever
+# dist/ happens to contain". dist/ is a tracked folder holding a prebuilt DLL,
+# so a package could carry a native core compiled from OLD sources while every
+# managed-side fix in the package was current: exactly the "the fix is in the
+# repo but not on my machine" report this project received three times. The
+# CMake build tree is checked first now - that DLL cannot be older than the
+# sources it was just compiled from - and dist/ stays the fallback for a local
+# run without any build output.
+if ($SkipNative) {
+    # The outer @() keeps $builtCores an array even when nothing matches:
+    # reading .Count on a $null under Set-StrictMode is not a safe bet.
+    $builtCores = @(@(
+        (Join-Path $buildDir "$Configuration/Win7TaskbarCore.dll"),
+        (Join-Path $buildDir 'Win7TaskbarCore.dll')
+    ) | Where-Object { Test-Path $_ } |
+        Sort-Object { (Get-Item $_).LastWriteTimeUtc } -Descending)
+    if ($builtCores.Count -gt 0) {
+        $built = $builtCores[0]
+        Step "Native core: using the CMake build output ($built)"
+        Copy-Item $built (Join-Path $dist 'Win7TaskbarCore.dll') -Force
+    }
+    $builtInject = @(@(
+        (Join-Path $buildDir "$Configuration/W7TInject.dll"),
+        (Join-Path $buildDir 'W7TInject.dll')
+    ) | Where-Object { Test-Path $_ } |
+        Sort-Object { (Get-Item $_).LastWriteTimeUtc } -Descending)
+    if ($builtInject.Count -gt 0) {
+        Copy-Item $builtInject[0] (Join-Path $dist 'W7TInject.dll') -Force
+    }
 }
 
 $coreDll = Join-Path $dist 'Win7TaskbarCore.dll'
