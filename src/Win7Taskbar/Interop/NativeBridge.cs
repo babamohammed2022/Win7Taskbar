@@ -588,7 +588,8 @@ namespace Win7Taskbar.Interop
         }
         public bool IsNetworkTrayOwner(ulong ownerHwnd)
             => NativeMethods.W7T_IsNetworkTrayOwner(ownerHwnd) == 1;
-    public void AppSearchShow(int x, int y) => NativeMethods.W7T_AppSearchShow(x, y);
+    public void AppSearchShow(int x, int y, int theme)
+        => NativeMethods.W7T_AppSearchShow(x, y, theme);
     public void AppSearchHide() => NativeMethods.W7T_AppSearchHide();
 
     /// <summary>v2.37 punto 17: visibilita' della ricerca (per il toggle

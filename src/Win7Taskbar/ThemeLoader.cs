@@ -270,6 +270,24 @@ namespace Win7Taskbar
 
                 ResourceDictionary theme = Build();
                 application.Resources = theme;
+
+                // v1.21.27 - la sostituzione di Application.Resources butta via
+                // anche il dizionario della lingua che App.xaml.cs mergia DOPO il
+                // tema all'avvio: senza questa riga i menu contestuali (che
+                // leggono le chiavi da li') ricadono sul ripiego inglese scritto
+                // nel codice finche' l'utente non cambia di nuovo lingua.
+                // Riproduciamo esattamente la sequenza di avvio.
+                try
+                {
+                    Win7Taskbar.Utilities.LocalizationManager.ApplyLanguage(
+                        RetroBar.Utilities.Settings.Instance.Language);
+                }
+                catch
+                {
+                    // Un dizionario lingua non caricabile non deve impedire il
+                    // cambio di skin: i menu useranno il ripiego inglese.
+                }
+
                 return "tema applicato subito";
             }
             catch (Exception exception)

@@ -8,7 +8,7 @@ Il mapping sotto mantiene nome originale, percorso/provenienza originale e chiav
 
 | Categoria | Quantità | Note |
 |---|---:|---|
-| Asset Base64 nel bundle (PNG) | **52** | Tutti i PNG runtime del tema WPF |
+| Asset Base64 nel bundle (PNG) | **54** | Tutti i PNG runtime del tema WPF (incl. bandierina Start 8.1) |
 | PNG nativi su disco (Aero 9-slice) | **8** | Caricati da filesystem dal backend C++/WIC |
 | ICO di build (`app.ico`) | **2** | Input di build (ApplicationIcon + RC); restano file ICO |
 | Immagini solo documentazione | **1** | `docs/icon-256.png` (non runtime) |
@@ -89,6 +89,8 @@ Non fanno parte del runtime e non vanno nel bundle.
 | `multiplewindowborder` | `multiplewindowborder.png` | `multiplewindowborder.png` | PNG | Theme resource dictionary | `multiplewindowborder` |
 | `startwin7orb` | `startwin7orb.png` | `startwin7orb.png` | PNG | Asset disponibile nel bundle; nessun riferimento diretto trovato | `startwin7orb` |
 | `startwin7orbscaled` | `startwin7orbscaled.png` | `startwin7orbscaled.png` | PNG | Asset disponibile nel bundle; nessun riferimento diretto trovato | `startwin7orbscaled` |
+| `startwin81flag` | `startwin81flag.png` | `startwin81flag.png` | PNG | Bandierina Start skin Windows 8.1 (3 stati) | `startwin81flag` |
+| `startwin81flagscaled` | `startwin81flagscaled.png` | `startwin81flagscaled.png` | PNG | Bandierina Start skin Windows 8.1 (3 stati, alta risoluzione) | `startwin81flagscaled` |
 | `taskbarbackground` | `taskbarBackground.png` | `taskbarBackground.png` | PNG | Asset disponibile nel bundle; nessun riferimento diretto trovato | `taskbarbackground` |
 | `top_center` | `top_center.png` | `top_center.png` | PNG | Asset disponibile nel bundle; nessun riferimento diretto trovato | `top_center` |
 | `top_left` | `top_left.png` | `top_left.png` | PNG | Asset disponibile nel bundle; nessun riferimento diretto trovato | `top_left` |

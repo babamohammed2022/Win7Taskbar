@@ -749,6 +749,33 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 220, PAGE_TEXT_WIDTH, 42,
                 IDC_TXT_ORDER_HINT, L"Static", L"");
 
+        /* v1.21.28 - OPZIONE "POSIZIONE DELLA BARRA" DISATTIVATA.
+         * La rotazione della taskbar e' stata ritirata (l'edge scelto non
+         * coincideva con l'enum del taskbar: "A destra" finiva in basso e le
+         * anteprime DWM restavano ancorate al lato sbagliato), quindi questa
+         * tendina non viene creata e il pacchetto WM_COPYDATA resta a 76 byte.
+         * Il codice e' tenuto qui commentato, pronto da riattivare insieme
+         * alla conversione esplicita posizione -> TaskbarEdge che manca nel
+         * core gestito (vedi TaskbarWindow.xaml.cs):
+         *
+         *   // IDC_LBL_EX_POSITION / IDC_CMB_EX_POSITION nell'enum CtrlId;
+         *   // gruppo IDC_GRP_EX_TASKBAR alto 102 per ospitare la riga:
+         *   // addCtrl(BS_GROUPBOX, 0, 12, 176, GROUP_WIDTH, 102,
+         *   //         IDC_GRP_EX_TASKBAR, L"Button", L"");
+         *   // addCtrl(SS_LEFT, 0, 18, 204, 90, 10,
+         *   //         IDC_LBL_EX_POSITION, L"Static", L"");
+         *   // addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
+         *   //         0, 112, 202, 190, 80,
+         *   //         IDC_CMB_EX_POSITION, L"ComboBox", L"");
+         *   //   + righe "Ordine icone"/hint spostate a y 220/236 (hint h26)
+         *   // WM_INITDIALOG: SetDlgItemTextW(IDC_LBL_EX_POSITION, X.lblPosition)
+         *   //   e 4 ComboBox_AddString (Basso/Alto/Sinistra/Destra) + SetCurSel
+         *   // SendApply: msg.taskbarPosition da CB_GETCURSEL (CB_ERR -> 0)
+         *   // Strings.h/Strings.cpp: lblPosition + posBottom/posTop/posLeft/
+         *   //   posRight APPESI IN FONDO a ExtraStrings (11 lingue, ordine
+         *   //   posizionale: campo e valore vanno aggiunti insieme).
+         */
+
         // ---- pulsanti standard 50x14, come la mod ----
         /* v3.5: the row moves 14 DLU down with the window.
          * v1.21.8: the three command buttons sit in the LOWER-RIGHT corner,

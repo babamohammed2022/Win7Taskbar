@@ -515,7 +515,7 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_IsNetworkTrayOwner(ulong ownerHwnd);
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
-        public static extern void W7T_AppSearchShow(int x, int y);
+        public static extern void W7T_AppSearchShow(int x, int y, int theme);
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_AppSearchHide();
 

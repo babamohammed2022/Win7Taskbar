@@ -113,6 +113,42 @@ namespace Win7Taskbar
             }
         }
 
+        /* =====================================================================
+         * ROTAZIONE TASKBAR (1.21.28) - DISATTIVATA.
+         *
+         * La barra resta sempre in BASSO: geometria, AppBar, orientamento del
+         * tema e anchor delle anteprime DWM sono quelli di sempre. Il codice
+         * della rotazione e' tenuto qui commentato, non cancellato.
+         *
+         * Perche' era rotta: il valore salvato ("posizione") e' codificato
+         * 0=Basso, 1=Alto, 2=Sinistra, 3=Destra, mentre l'enum esistente e'
+         * TaskbarEdge { Left=0, Top=1, Right=2, Bottom=3 }. Il cast diretto
+         * (TaskbarEdge)position spostava ogni scelta di una posizione - con
+         * "A destra" (3) si finiva su Bottom - e SetThumbnailEdge riceveva
+         * l'edge sbagliato, quindi le anteprime DWM erano ancorate al lato
+         * sbagliato. Prima di riattivare qualunque cosa serve una conversione
+         * esplicita, mai un cast:
+         *
+         *     // posizione (persistita)   -> TaskbarEdge / AppBarEdgeValue
+         *     // 0 Basso                  -> TaskbarEdge.Bottom (3)
+         *     // 1 Alto                   -> TaskbarEdge.Top    (1)
+         *     // 2 Sinistra               -> TaskbarEdge.Left   (0)
+         *     // 3 Destra                 -> TaskbarEdge.Right  (2)
+         *     private static TaskbarEdge EdgeFromPosition(int position) =>
+         *         position switch
+         *         {
+         *             1 => TaskbarEdge.Top,
+         *             2 => TaskbarEdge.Left,
+         *             3 => TaskbarEdge.Right,
+         *             _ => TaskbarEdge.Bottom,
+         *         };
+         *
+         * Il resto dell'infrastruttura (AppBarService accetta i 4 edge,
+         * ComputeTaskPreviewPlacement ragiona gia' per TaskbarEdge, i temi
+         * hanno i DataTrigger su Orientation) resta dov'e' e non e' stato
+         * toccato: la sola cosa che mancava era la traduzione dei valori.
+         * ===================================================================== */
+
         internal TaskbarWindow(NativeBridge bridge)
         {
             _bridge = bridge;
@@ -1599,6 +1635,11 @@ namespace Win7Taskbar
 
             double scale = _hwndSource.CompositionTarget.TransformToDevice.M11;
             IsScaled = scale > 1.0;
+
+            // v1.21.27 - la bandierina Start 8.1 e' ricampionata via GDI+ alla
+            // scala dispositivo del monitor: quando questa cambia (avvio su uno
+            // schermo secondario, WM_DPICHANGED) ripubblica lo sprite nitido.
+            Win7Taskbar.Utilities.StartFlagAssets.ApplyToResources(scale);
         }
 
         private void PositionOnScreen()
@@ -1947,8 +1988,23 @@ namespace Win7Taskbar
                         string appliedSkin = (AppliedThemeSelection ==
                                               RetroBar.Utilities.TaskbarThemeIds.Windows81)
                                                  ? "Windows 8.1" : "Windows 7";
+                        string themeSwapResult = ThemeLoader.ReapplyNow();
                         _bridge.Log("proprieta': skin " + appliedSkin + " -> " +
-                                    ThemeLoader.ReapplyNow());
+                                    themeSwapResult);
+
+                        /* v1.21.27 - ThemeLoader.ReapplyNow sostituisce
+                         * Application.Resources e con esso perde le risorse
+                         * pubblicate a runtime SOPRA il tema: la maschera alpha
+                         * derivata del bordo anteprima (DwmPreviewBorderMaskImage)
+                         * e il pennello d'accento dal vivo (DwmPreviewAccentBrush).
+                         * Senza di esse la cornice delle anteprime torna alla PNG
+                         * grezza ad alpha pieno: "le trasparenze non ci sono".
+                         * Ricostruiamole subito dopo uno swap riuscito. */
+                        if (themeSwapResult.StartsWith(
+                                "tema applicato subito", StringComparison.Ordinal))
+                        {
+                            RestorePreviewResourcesAfterThemeSwap();
+                        }
                     }
 
                     /* The choice is saved: it is published to the core right
@@ -2127,6 +2183,29 @@ namespace Win7Taskbar
         /// percorso del messaggio (brush + invalidazione dei frame nativi).
         /// Una query DWM per controllo; la logica di render non cambia.
         /// </summary>
+        /// <summary>
+        /// v1.21.27 - dopo uno swap del tema (ThemeLoader.ReapplyNow) le risorse
+        /// pubblicate a runtime sopra il dizionario del tema non esistono piu':
+        /// azzera le cache della maschera e dell'accento e ripubblica entrambe nel
+        /// NUOVO Application.Resources, cosi' le anteprime DWM ritrovano la loro
+        /// trasparenza (la maschera alpha derivata) e il colore d'accento dal vivo.
+        /// Idempotente e puramente cosmetica: un'eccezione lascia la cornice XAML.
+        /// </summary>
+        private void RestorePreviewResourcesAfterThemeSwap()
+        {
+            try
+            {
+                _dwmPreviewMaskReady = false;
+                _dwmAccentArgb = null;
+                UpdateDwmPreviewAccentColor();
+            }
+            catch (Exception ex)
+            {
+                try { _bridge.Log($"ripristino risorse anteprima: {ex.Message}"); }
+                catch { }
+            }
+        }
+
         private void EnsureDwmAccentFresh()
         {
             try
@@ -7104,7 +7183,10 @@ namespace Win7Taskbar
             }
 
             Point tl = StartButton.PointToScreen(new Point(0, 0));
-            _bridge.AppSearchShow((int)tl.X, (int)tl.Y);
+            /* v1.21.30: la ricerca usa la skin del tema attivo
+             * (0 Win7 blu, 1 Win8.1 metro viola). */
+            _bridge.AppSearchShow((int)tl.X, (int)tl.Y,
+                RetroBar.Utilities.Settings.Instance.ThemeSelection);
         }
 
         /// <summary>v3.3: Proprietà = vera finestra Win32 nel core nativo

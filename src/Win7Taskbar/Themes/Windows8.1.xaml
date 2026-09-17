@@ -60,8 +60,8 @@
     <x:Static x:Key="Win7_ShowDesktopImage" Member="bundle:GraphicalResourceBundle.win7showdesktop" />
     <x:Static x:Key="Win7_ShowDesktopImageScaled" Member="bundle:GraphicalResourceBundle.win7showdesktop" />
     <x:Static x:Key="Win7_TaskbarTextureImage" Member="bundle:GraphicalResourceBundle.win7taskbar" />
-    <SolidColorBrush x:Key="Win7_TaskbarTextureBrush" Color="#59000000" />
-    <SolidColorBrush x:Key="Win7_Win7_TaskbarTextureBrushVertical" Color="#59000000" />
+    <SolidColorBrush x:Key="Win7_TaskbarTextureBrush" Color="#33000000" />
+    <SolidColorBrush x:Key="Win7_Win7_TaskbarTextureBrushVertical" Color="#33000000" />
 
 
 
@@ -450,8 +450,8 @@
     <x:Static x:Key="StartButtonImageBottomScaled" Member="bundle:GraphicalResourceBundle.startwin81flagscaled" />
     <x:Static x:Key="StartButtonImageTop" Member="bundle:GraphicalResourceBundle.startwin81flag" />
     <x:Static x:Key="StartButtonImageTopScaled" Member="bundle:GraphicalResourceBundle.startwin81flagscaled" />
-    <x:Static x:Key="StartButtonImageLarge" Member="bundle:GraphicalResourceBundle.startwin81flag" />
-    <x:Static x:Key="StartButtonImageLargeScaled" Member="bundle:GraphicalResourceBundle.startwin81flagscaled" />
+    <x:Static x:Key="StartButtonImageLarge" Member="bundle:StartFlagAssets.Sprite" />
+    <x:Static x:Key="StartButtonImageLargeScaled" Member="bundle:StartFlagAssets.Sprite" />
 
     <Style TargetType="MenuItem"
            x:Key="TaskManMenuItem">
@@ -1126,7 +1126,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
-                    <Grid>
+                    <Grid RenderOptions.BitmapScalingMode="HighQuality">
                         <Border x:Name="OrbNormal"
                                 FlowDirection="LeftToRight">
                             <Border.Background>
@@ -3045,9 +3045,15 @@
                                 NearestNeighbor una scala frazionaria salterebbe righe. -->
                     <Image x:Name="CloseGlyph"
                            Source="{x:Static bundle:PreviewAssets.Win81PreviewClose}"
-                           Width="15.64" Height="15.64" Stretch="Uniform"
+                           Width="13.29" Height="13.29" Stretch="Uniform"
                            SnapsToDevicePixels="True"
-                           RenderOptions.BitmapScalingMode="HighQuality" />
+                           RenderOptions.BitmapScalingMode="HighQuality">
+                        <!-- v1.21.27 - X 15% piu' piccola (15.64 -> 13.29 DIP) e
+                             2% piu' in alto (3.32 DIP sul riquadro da 166). -->
+                        <Image.RenderTransform>
+                            <TranslateTransform Y="-3.32" />
+                        </Image.RenderTransform>
+                    </Image>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="CloseGlyph"

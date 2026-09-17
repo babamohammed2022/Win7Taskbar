@@ -46,21 +46,178 @@ constexpr wchar_t kClassName[] = L"Win7Taskbar_AppSearch";
 
 /* Gradiente di trasparenza "un po' basso": quasi opaco ma il desktop
  * traspare leggermente, piu' trasparente in alto. */
-constexpr int kAlphaTop    = 222;
-constexpr int kAlphaBottom = 242;
+struct SearchSkin {
+    int alphaTop, alphaBottom;      /* mask gradient (255/255 = opaque) */
+    COLORREF bgTop, bgBottom;       /* background gradient (equal = flat) */
+    COLORREF text, textDim;         /* primary / secondary text */
+    COLORREF sep;                   /* hairlines (column + right panel) */
+    COLORREF selTop, selBot;        /* best-match gradient (equal = flat) */
+    COLORREF selEdge;               /* 1 px frames (window, rows, scroll) */
+    COLORREF hover;                 /* row / option / magnifier hover */
+    COLORREF editBg, editEdge, editText;
+    COLORREF scrollTrack, scrollThumb;
+    COLORREF selText;               /* text-selection colour in the box */
+};
 
-constexpr COLORREF kBgTop    = RGB(0x86, 0xAE, 0xD6);   // blu della foto
-constexpr COLORREF kBgBottom = RGB(0x57, 0x8B, 0xBE);
-constexpr COLORREF kText     = RGB(0xFF, 0xFF, 0xFF);
-constexpr COLORREF kTextDim  = RGB(0xE8, 0xF2, 0xFB);
-constexpr COLORREF kSep      = RGB(0xC6, 0xDC, 0xF1);
-constexpr COLORREF kSelTop   = RGB(0x9C, 0xC4, 0xEC);
-constexpr COLORREF kSelBot   = RGB(0x7F, 0xB0, 0xE2);
-constexpr COLORREF kSelEdge  = RGB(0xD9, 0xEA, 0xFA);
-constexpr COLORREF kHover    = RGB(0x6F, 0xA0, 0xD4);
-constexpr COLORREF kEditBg   = RGB(0xFF, 0xFF, 0xFF);
-constexpr COLORREF kEditEdge = RGB(0x4E, 0x6E, 0x92);
-constexpr COLORREF kEditText = RGB(0x1E, 0x1E, 0x1E);
+/* Windows 7: the translucent blue look of the reference photo. */
+constexpr SearchSkin kSkinWin7 = {
+    222, 242,
+    RGB(0x86, 0xAE, 0xD6), RGB(0x57, 0x8B, 0xBE),
+    RGB(0xFF, 0xFF, 0xFF), RGB(0xE8, 0xF2, 0xFB),
+    RGB(0xC6, 0xDC, 0xF1),
+    RGB(0x9C, 0xC4, 0xEC), RGB(0x7F, 0xB0, 0xE2),
+    RGB(0xD9, 0xEA, 0xFA),
+    RGB(0x6F, 0xA0, 0xD4),
+    RGB(0xFF, 0xFF, 0xFF), RGB(0x4E, 0x6E, 0x92), RGB(0x1E, 0x1E, 0x1E),
+    RGB(0xA8, 0xC6, 0xE4), RGB(0xEC, 0xF4, 0xFC),
+    RGB(0x33, 0x99, 0xFF),
+};
+
+/* Windows 8.1: metro skin. Flat and fully opaque, fixed violet taken
+ * from the 8.1 Start screen, no gradients and no transparency; the only
+ * decoration is a flat diagonal band, like the Start-screen pattern. */
+constexpr SearchSkin kSkinMetro = {
+    255, 255,
+    RGB(0x51, 0x2D, 0x78), RGB(0x51, 0x2D, 0x78),
+    RGB(0xFF, 0xFF, 0xFF), RGB(0xE4, 0xD9, 0xF0),
+    RGB(0x7B, 0x52, 0xA6),
+    RGB(0x7E, 0x4E, 0x9E), RGB(0x7E, 0x4E, 0x9E),
+    RGB(0x9A, 0x72, 0xC4),
+    RGB(0x66, 0x3C, 0x90),
+    RGB(0xFF, 0xFF, 0xFF), RGB(0x51, 0x2D, 0x78), RGB(0x1E, 0x1E, 0x1E),
+    RGB(0x46, 0x26, 0x68), RGB(0xB9, 0x9A, 0xDB),
+    RGB(0x7E, 0x4E, 0x9E),
+};
+
+/* v1.21.30 metro - GDI+ caricato a runtime con lo STESSO approccio degli
+ * altri componenti (gdiplus.dll + GetProcAddress, nessun nuovo link): gli
+ * handle sono RAII e ogni chiamata e' dentro try/catch; se GDI+ manca o
+ * fallisce il chiamante ricade sul percorso GDI, quindi la finestra disegna
+ * comunque. Usato SOLO dalla skin metro (tema 8.1): la skin Win7 non lo
+ * tocca mai. */
+typedef int  (WINAPI *GdipStartupFn)(ULONG_PTR*, const void*, void*);
+typedef void (WINAPI *GdipShutdownFn)(ULONG_PTR);
+typedef int  (WINAPI *GdipFromHDCFn)(HDC, void**);
+typedef int  (WINAPI *GdipDelGraphFn)(void*);
+typedef int  (WINAPI *GdipSmoothFn)(void*, int);
+typedef int  (WINAPI *GdipSolidFn)(DWORD, void**);
+typedef int  (WINAPI *GdipDelBrushFn)(void*);
+typedef int  (WINAPI *GdipFillRectFn)(void*, void*, int, int, int, int);
+typedef int  (WINAPI *GdipPenFn)(DWORD, float, int, void**);
+typedef int  (WINAPI *GdipDelPenFn)(void*);
+typedef int  (WINAPI *GdipDrawRectFn)(void*, void*, int, int, int, int);
+typedef int  (WINAPI *GdipDrawEllipseFn)(void*, void*, int, int, int, int);
+typedef int  (WINAPI *GdipDrawLineFn)(void*, void*, int, int, int, int);
+
+static HMODULE s_gdipMod = nullptr;
+static ULONG_PTR s_gdipToken = 0;
+static GdipFromHDCFn fFromHDC = nullptr;
+static GdipDelGraphFn fDelGraph = nullptr;
+static GdipSmoothFn fSmooth = nullptr;
+static GdipSolidFn fSolid = nullptr;
+static GdipDelBrushFn fDelBrush = nullptr;
+static GdipFillRectFn fFillRect = nullptr;
+static GdipPenFn fPen = nullptr;
+static GdipDelPenFn fDelPen = nullptr;
+static GdipDrawRectFn fDrawRect = nullptr;
+static GdipDrawEllipseFn fDrawEllipse = nullptr;
+static GdipDrawLineFn fDrawLine = nullptr;
+
+static bool GdipEnsure() {
+    if (s_gdipMod) return true;
+    HMODULE m = LoadLibraryExW(L"gdiplus.dll", nullptr,
+                               LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!m) return false;
+    fFromHDC = reinterpret_cast<GdipFromHDCFn>(GetProcAddress(m, "GdipCreateFromHDC"));
+    fDelGraph = reinterpret_cast<GdipDelGraphFn>(GetProcAddress(m, "GdipDeleteGraphics"));
+    fSmooth = reinterpret_cast<GdipSmoothFn>(GetProcAddress(m, "GdipSetSmoothingMode"));
+    fSolid = reinterpret_cast<GdipSolidFn>(GetProcAddress(m, "GdipCreateSolidFill"));
+    fDelBrush = reinterpret_cast<GdipDelBrushFn>(GetProcAddress(m, "GdipDeleteBrush"));
+    fFillRect = reinterpret_cast<GdipFillRectFn>(GetProcAddress(m, "GdipFillRectangleI"));
+    fPen = reinterpret_cast<GdipPenFn>(GetProcAddress(m, "GdipCreatePen1"));
+    fDelPen = reinterpret_cast<GdipDelPenFn>(GetProcAddress(m, "GdipDeletePen"));
+    fDrawRect = reinterpret_cast<GdipDrawRectFn>(GetProcAddress(m, "GdipDrawRectangleI"));
+    fDrawEllipse = reinterpret_cast<GdipDrawEllipseFn>(GetProcAddress(m, "GdipDrawEllipseI"));
+    fDrawLine = reinterpret_cast<GdipDrawLineFn>(GetProcAddress(m, "GdipDrawLineI"));
+    auto pStartup = reinterpret_cast<GdipStartupFn>(GetProcAddress(m, "GdiplusStartup"));
+    if (!fFromHDC || !fDelGraph || !fSmooth || !fSolid || !fDelBrush ||
+        !fFillRect || !fPen || !fDelPen || !fDrawRect || !fDrawEllipse ||
+        !fDrawLine || !pStartup) {
+        FreeLibrary(m); s_gdipMod = nullptr; return false;
+    }
+    struct { DWORD Version; void* Callback; BOOL Suppress; } si = { 1, nullptr, FALSE };
+    if (pStartup(&s_gdipToken, &si, nullptr) != 0) {
+        FreeLibrary(m); s_gdipMod = nullptr; s_gdipToken = 0; return false;
+    }
+    s_gdipMod = m;
+    return true;
+}
+
+static DWORD ArgbOf(COLORREF c) {
+    return 0xFF000000u | (static_cast<DWORD>(GetRValue(c)) << 16) |
+           (static_cast<DWORD>(GetGValue(c)) << 8) | GetBValue(c);
+}
+
+/* Handle RAII: rilasciano l'oggetto GDI+ anche in caso di eccezione. */
+struct GdipGraphicsRAII {
+    void* g = nullptr;
+    ~GdipGraphicsRAII() { if (g && fDelGraph) fDelGraph(g); }
+};
+struct GdipBrushRAII {
+    void* b = nullptr;
+    ~GdipBrushRAII() { if (b && fDelBrush) fDelBrush(b); }
+};
+struct GdipPenRAII {
+    void* p = nullptr;
+    ~GdipPenRAII() { if (p && fDelPen) fDelPen(p); }
+};
+
+/* Riempimento piatto GDI+ (rettangolo). Ritorna false se GDI+ non c'e':
+ * il chiamante usa allora il ripiego GDI. */
+static bool GdipFlatFill(HDC hdc, const RECT& d, DWORD argb) {
+    if (!GdipEnsure()) return false;
+    try {
+        GdipGraphicsRAII gr;
+        if (fFromHDC(hdc, &gr.g) != 0 || !gr.g) return false;
+        fSmooth(gr.g, 3);   /* SmoothingModeNone: geometria netta, metro */
+        GdipBrushRAII br;
+        if (fSolid(argb, &br.b) != 0 || !br.b) return false;
+        return fFillRect(gr.g, br.b, d.left, d.top,
+                         d.right - d.left, d.bottom - d.top) == 0;
+    } catch (...) { return false; }
+}
+
+/* Cornice piatta GDI+ (1 px). */
+static bool GdipFlatFrame(HDC hdc, const RECT& d, DWORD argb) {
+    if (!GdipEnsure()) return false;
+    try {
+        GdipGraphicsRAII gr;
+        if (fFromHDC(hdc, &gr.g) != 0 || !gr.g) return false;
+        fSmooth(gr.g, 3);
+        GdipPenRAII pen;
+        if (fPen(argb, 1.0f, 2, &pen.p) != 0 || !pen.p) return false;
+        return fDrawRect(gr.g, pen.p, d.left, d.top,
+                         d.right - d.left - 1, d.bottom - d.top - 1) == 0;
+    } catch (...) { return false; }
+}
+
+/* Lente d'ingrandimento piccola disegnata con GDI+ (cerchio + manico),
+ * anti-aliasata: e' l'icona della casella di ricerca nella skin metro. */
+static bool GdipLens(HDC hdc, int cx, int cy, DWORD argb) {
+    if (!GdipEnsure()) return false;
+    try {
+        GdipGraphicsRAII gr;
+        if (fFromHDC(hdc, &gr.g) != 0 || !gr.g) return false;
+        fSmooth(gr.g, 4);   /* SmoothingModeAntiAlias per la lente */
+        GdipPenRAII pen;
+        if (fPen(argb, 2.0f, 2, &pen.p) != 0 || !pen.p) return false;
+        const int d = 8;    /* diametro del vetro */
+        if (fDrawEllipse(gr.g, pen.p, cx - d / 2, cy - d / 2, d, d) != 0)
+            return false;
+        return fDrawLine(gr.g, pen.p, cx + d / 2 - 1, cy + d / 2 - 1,
+                         cx + d / 2 + 3, cy + d / 2 + 3) == 0;
+    } catch (...) { return false; }
+}
 
 std::wstring Lower(std::wstring s) {
     std::transform(s.begin(), s.end(), s.begin(), ::towlower);
@@ -1180,8 +1337,9 @@ void AppSearchWindow::ShowPropertiesOfSelected() {
 void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
                                     int W, int H, bool mask) {
     std::lock_guard<std::mutex> lk(m_scanMutex);
+    const SearchSkin& sk = (m_theme == 1) ? kSkinMetro : kSkinWin7;
     auto grayAt = [&](int y) -> int {
-        return kAlphaTop + (kAlphaBottom - kAlphaTop) * y / (H > 1 ? H - 1 : 1);
+        return sk.alphaTop + (sk.alphaBottom - sk.alphaTop) * y / (H > 1 ? H - 1 : 1);
     };
     auto col = [&](COLORREF c) -> COLORREF {
         return mask ? RGB(0xFF, 0xFF, 0xFF) : c;
@@ -1220,34 +1378,46 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
     };
 
 
-    // sfondo: gradiente blu (colori) o gradiente di alpha (maschera)
-    {
+    // sfondo: la skin Win7 resta il gradiente blu traslucido di prima;
+    // la skin metro (8.1) e' UN UNICO viola piatto e opaco, disegnato con
+    // GDI+ (RAII + try/catch) e ripiego GDI se gdiplus non e' disponibile.
+    if (m_theme == 1) {
+        const DWORD bg = mask ? 0xFFFFFFFFu : ArgbOf(sk.bgTop);
+        RECT full{ 0, 0, W, H };
+        RECT fd = PxRect(full);
+        if (!GdipFlatFill(hdc, fd, bg)) {
+            HBRUSH hb = CreateSolidBrush(col(sk.bgTop));
+            FillRect(hdc, &full, hb);
+            DeleteObject(hb);
+        }
+    } else {
         TRIVERTEX vtx[2] = {};
         vtx[0].x = 0; vtx[0].y = 0;
         if (mask) {
             vtx[0].Red = vtx[0].Green = vtx[0].Blue =
                 static_cast<COLOR16>(grayAt(0)) << 8;
         } else {
-            vtx[0].Red = static_cast<COLOR16>(GetRValue(kBgTop)) << 8;
-            vtx[0].Green = static_cast<COLOR16>(GetGValue(kBgTop)) << 8;
-            vtx[0].Blue = static_cast<COLOR16>(GetBValue(kBgTop)) << 8;
+            vtx[0].Red = static_cast<COLOR16>(GetRValue(sk.bgTop)) << 8;
+            vtx[0].Green = static_cast<COLOR16>(GetGValue(sk.bgTop)) << 8;
+            vtx[0].Blue = static_cast<COLOR16>(GetBValue(sk.bgTop)) << 8;
         }
         vtx[1].x = W; vtx[1].y = H;
         if (mask) {
             vtx[1].Red = vtx[1].Green = vtx[1].Blue =
                 static_cast<COLOR16>(grayAt(H - 1)) << 8;
         } else {
-            vtx[1].Red = static_cast<COLOR16>(GetRValue(kBgBottom)) << 8;
-            vtx[1].Green = static_cast<COLOR16>(GetGValue(kBgBottom)) << 8;
-            vtx[1].Blue = static_cast<COLOR16>(GetBValue(kBgBottom)) << 8;
+            vtx[1].Red = static_cast<COLOR16>(GetRValue(sk.bgBottom)) << 8;
+            vtx[1].Green = static_cast<COLOR16>(GetGValue(sk.bgBottom)) << 8;
+            vtx[1].Blue = static_cast<COLOR16>(GetBValue(sk.bgBottom)) << 8;
         }
         GRADIENT_RECT gf{ 0, 1 };
         GradientFill(hdc, vtx, 2, &gf, 1, GRADIENT_FILL_RECT_V);
     }
-    // bordo "Aero" disegnato dentro (1 px chiaro, opaco)
-    {
+    // bordo "Aero" disegnato dentro (1 px chiaro, opaco) solo su Win7:
+    // la skin metro non ha cornici, e' puro colore piatto.
+    if (m_theme != 1) {
         RECT b{ 0, 0, W, H };
-        HBRUSH hb = CreateSolidBrush(col(kSelEdge));
+        HBRUSH hb = CreateSolidBrush(col(sk.selEdge));
         FrameRect(hdc, &b, hb);
         DeleteObject(hb);
     }
@@ -1263,7 +1433,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
     auto drawHeader = [&](const wchar_t* text, int y) {
         HFONT ob = static_cast<HFONT>(SelectObject(hdc, fontBold));
         RECT r{ 14, y, kLeftWidth - 10, y + 20 };
-        SetTextColor(hdc, col(kTextDim));
+        SetTextColor(hdc, col(sk.textDim));
         DrawTextW(hdc, text, -1, &r, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
         SelectObject(hdc, ob);
     };
@@ -1271,7 +1441,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         return CreatePen(PS_SOLID, 1, mask ? RGB(0xFF, 0xFF, 0xFF) : c);
     };
     auto vline = [&](int x, int y0, int y1) {
-        HPEN pen = makePen(kSep);
+        HPEN pen = makePen(sk.sep);
         HPEN op = static_cast<HPEN>(SelectObject(hdc, pen));
         MoveToEx(hdc, x, y0, nullptr);
         LineTo(hdc, x, y1);
@@ -1279,12 +1449,33 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         DeleteObject(pen);
     };
     auto hline = [&](int y, int x0, int x1) {
-        HPEN pen = makePen(kSep);
+        HPEN pen = makePen(sk.sep);
         HPEN op = static_cast<HPEN>(SelectObject(hdc, pen));
         MoveToEx(hdc, x0, y, nullptr);
         LineTo(hdc, x1, y);
         SelectObject(hdc, op);
         DeleteObject(pen);
+    };
+    /* v1.21.30 metro: riempimenti e cornici piatte via GDI+ (handle RAII e
+     * try/catch dentro i helper); se GDI+ manca, o su Win7, si passa dal
+     * percorso GDI di sempre. La skin Win7 non usa mai GDI+. */
+    auto metroFill = [&](const RECT& r, COLORREF c) {
+        if (m_theme == 1 &&
+            GdipFlatFill(hdc, PxRect(r), mask ? 0xFFFFFFFFu : ArgbOf(c))) {
+            return;
+        }
+        HBRUSH b = CreateSolidBrush(col(c));
+        FillRect(hdc, &r, b);
+        DeleteObject(b);
+    };
+    auto metroFrame = [&](const RECT& r, COLORREF c) {
+        if (m_theme == 1 &&
+            GdipFlatFrame(hdc, PxRect(r), mask ? 0xFFFFFFFFu : ArgbOf(c))) {
+            return;
+        }
+        HBRUSH b = CreateSolidBrush(col(c));
+        FrameRect(hdc, &r, b);
+        DeleteObject(b);
     };
     auto drawIcon = [&](int x, int y, HICON ic, int w, int h) {
         /* Icone 32bpp: blend per-pixel nei buffer di scena (DrawIconEx
@@ -1312,42 +1503,47 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         const AppEntry& app = m_allApps[m_filtered[0]];
         RECT selR{ 10, yCur, kLeftWidth - 10, yCur + 46 };
         if (m_selectedRow == 0) {
-            if (mask) {
-                HBRUSH b = CreateSolidBrush(RGB(0xFF, 0xFF, 0xFF));
-                FillRect(hdc, &selR, b);
-                DeleteObject(b);
+            if (m_theme == 1) {
+                /* metro: un solo riempimento piatto GDI+, niente cornice */
+                metroFill(selR, sk.selTop);
             } else {
-                TRIVERTEX vtx[2] = {};
-                vtx[0].x = selR.left; vtx[0].y = selR.top;
-                vtx[0].Red = static_cast<COLOR16>(GetRValue(kSelTop)) << 8;
-                vtx[0].Green = static_cast<COLOR16>(GetGValue(kSelTop)) << 8;
-                vtx[0].Blue = static_cast<COLOR16>(GetBValue(kSelTop)) << 8;
-                vtx[1].x = selR.right; vtx[1].y = selR.bottom;
-                vtx[1].Red = static_cast<COLOR16>(GetRValue(kSelBot)) << 8;
-                vtx[1].Green = static_cast<COLOR16>(GetGValue(kSelBot)) << 8;
-                vtx[1].Blue = static_cast<COLOR16>(GetBValue(kSelBot)) << 8;
-                GRADIENT_RECT gf{ 0, 1 };
-                GradientFill(hdc, vtx, 2, &gf, 1, GRADIENT_FILL_RECT_V);
+                if (mask) {
+                    HBRUSH b = CreateSolidBrush(RGB(0xFF, 0xFF, 0xFF));
+                    FillRect(hdc, &selR, b);
+                    DeleteObject(b);
+                } else {
+                    TRIVERTEX vtx[2] = {};
+                    vtx[0].x = selR.left; vtx[0].y = selR.top;
+                    vtx[0].Red = static_cast<COLOR16>(GetRValue(sk.selTop)) << 8;
+                    vtx[0].Green = static_cast<COLOR16>(GetGValue(sk.selTop)) << 8;
+                    vtx[0].Blue = static_cast<COLOR16>(GetBValue(sk.selTop)) << 8;
+                    vtx[1].x = selR.right; vtx[1].y = selR.bottom;
+                    vtx[1].Red = static_cast<COLOR16>(GetRValue(sk.selBot)) << 8;
+                    vtx[1].Green = static_cast<COLOR16>(GetGValue(sk.selBot)) << 8;
+                    vtx[1].Blue = static_cast<COLOR16>(GetBValue(sk.selBot)) << 8;
+                    GRADIENT_RECT gf{ 0, 1 };
+                    GradientFill(hdc, vtx, 2, &gf, 1, GRADIENT_FILL_RECT_V);
+                }
+                HBRUSH eb = CreateSolidBrush(col(sk.selEdge));
+                FrameRect(hdc, &selR, eb);
+                DeleteObject(eb);
             }
-            HBRUSH eb = CreateSolidBrush(col(kSelEdge));
-            FrameRect(hdc, &selR, eb);
-            DeleteObject(eb);
         }
         if (app.iconLarge) drawIcon(16, yCur + 7, app.iconLarge, 32, 32);
-        SetTextColor(hdc, col(kText));
+        SetTextColor(hdc, col(sk.text));
         RECT tr{ 56, yCur + 4, kLeftWidth - 12, yCur + 25 };
         HFONT ob = static_cast<HFONT>(SelectObject(hdc, fontBold));
         DrawTextW(hdc, app.name.c_str(), -1, &tr,
                   DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
         SelectObject(hdc, ob);
         RECT sr{ 56, yCur + 25, kLeftWidth - 12, yCur + 43 };
-        SetTextColor(hdc, col(kTextDim));
+        SetTextColor(hdc, col(sk.textDim));
         DrawTextW(hdc, S(StrId::AppItem), -1, &sr, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
         yCur += 46;
     }
 
     if (!m_scanDone && m_allApps.empty() && m_query.empty()) {
-        SetTextColor(hdc, col(kTextDim));
+        SetTextColor(hdc, col(sk.textDim));
         RECT lr{ 10, kListTop + 60, kLeftWidth - 10, kListTop + 140 };
         DrawTextW(hdc, S(StrId::ScanningApplications), -1, &lr,
                   DT_SINGLELINE | DT_VCENTER | DT_CENTER);
@@ -1367,21 +1563,25 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         const int yy = rowsTop + (row - first - m_scroll) * kRowHeight;
         RECT rowR{ 10, yy, kLeftWidth - 10, yy + kRowHeight };
         if (row == m_selectedRow) {
-            HBRUSH b = CreateSolidBrush(col(kHover));
-            FillRect(hdc, &rowR, b);
-            DeleteObject(b);
-            HBRUSH eb = CreateSolidBrush(col(kSelEdge));
-            FrameRect(hdc, &rowR, eb);
-            DeleteObject(eb);
+            if (m_theme == 1) {
+                metroFill(rowR, sk.hover);   /* piatto GDI+, senza cornice */
+            } else {
+                HBRUSH b = CreateSolidBrush(col(sk.hover));
+                FillRect(hdc, &rowR, b);
+                DeleteObject(b);
+                HBRUSH eb = CreateSolidBrush(col(sk.selEdge));
+                FrameRect(hdc, &rowR, eb);
+                DeleteObject(eb);
+            }
         }
-        SetTextColor(hdc, col(kText));
+        SetTextColor(hdc, col(sk.text));
         if (app.iconLarge) drawIcon(14, yy + 3, app.iconLarge, 32, 32);
         else if (app.iconSmall) drawIcon(22, yy + 11, app.iconSmall, 16, 16);
         RECT tr{ 56, yy, kLeftWidth - 14, yy + kRowHeight };
         DrawNameWithMatch(hdc, app.name, m_query, &tr, font, fontMatch, m_dpi);
     }
     if (m_filtered.empty() && !m_query.empty()) {
-        SetTextColor(hdc, col(kTextDim));
+        SetTextColor(hdc, col(sk.textDim));
         RECT nr{ 14, rowsTop + 6, kLeftWidth - 14, rowsTop + 66 };
         DrawTextW(hdc, S(StrId::NoSearchResults), -1,
                   &nr, DT_WORDBREAK | DT_LEFT);
@@ -1393,16 +1593,16 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
     {
         const ScrollGeom sg = ComputeScrollGeom();
         if (sg.visible) {
-            HBRUSH tb = CreateSolidBrush(col(RGB(0xA8, 0xC6, 0xE4)));
+            HBRUSH tb = CreateSolidBrush(col(sk.scrollTrack));
             FillRect(hdc, &sg.track, tb);
             DeleteObject(tb);
-            HBRUSH te = CreateSolidBrush(col(kSelEdge));
+            HBRUSH te = CreateSolidBrush(col(sk.selEdge));
             FrameRect(hdc, &sg.track, te);
             DeleteObject(te);
-            HBRUSH th = CreateSolidBrush(col(RGB(0xEC, 0xF4, 0xFC)));
+            HBRUSH th = CreateSolidBrush(col(sk.scrollThumb));
             FillRect(hdc, &sg.thumb, th);
             DeleteObject(th);
-            HBRUSH thE = CreateSolidBrush(col(kSelEdge));
+            HBRUSH thE = CreateSolidBrush(col(sk.selEdge));
             FrameRect(hdc, &sg.thumb, thE);
             DeleteObject(thE);
             auto arrow = [&](const RECT& r, bool up) {
@@ -1418,7 +1618,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
                     pts[1] = POINT{ cx - 4, cy - 3 };
                     pts[2] = POINT{ cx + 4, cy - 3 };
                 }
-                HBRUSH ab = CreateSolidBrush(col(kEditEdge));
+                HBRUSH ab = CreateSolidBrush(col(sk.editEdge));
                 HBRUSH ob = static_cast<HBRUSH>(SelectObject(hdc, ab));
                 Polygon(hdc, pts, 3);
                 SelectObject(hdc, ob);
@@ -1439,14 +1639,14 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
                     : (app.iconLarge ? app.iconLarge : app.iconSmall);
         if (big) drawIcon(kLeftWidth + (kRightWidth - 48) / 2, 16, big, 48, 48);
 
-        SetTextColor(hdc, col(kText));
+        SetTextColor(hdc, col(sk.text));
         RECT nr{ kLeftWidth + 10, 70, W - 10, 90 };
         HFONT ob = static_cast<HFONT>(SelectObject(hdc, fontBold));
         DrawTextW(hdc, app.name.c_str(), -1, &nr,
                   DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_END_ELLIPSIS);
         SelectObject(hdc, ob);
         RECT ar{ kLeftWidth + 10, 88, W - 10, 102 };
-        SetTextColor(hdc, col(kTextDim));
+        SetTextColor(hdc, col(sk.textDim));
         DrawTextW(hdc, S(StrId::AppItem), -1, &ar, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
 
         hline(kHeaderH + 2, kLeftWidth + 14, W - 14);
@@ -1462,11 +1662,9 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         for (int i = 0; i < 3; ++i) {
             RECT itemRc{ kLeftWidth + 10, oy, W - 10, oy + kOptionHeight };
             if (i == m_hoverOption) {
-                HBRUSH b = CreateSolidBrush(col(kHover));
-                FillRect(hdc, &itemRc, b);
-                DeleteObject(b);
+                metroFill(itemRc, sk.hover);
             }
-            SetTextColor(hdc, col(kText));
+            SetTextColor(hdc, col(sk.text));
             RECT textRc = itemRc;
             if (i == 1) {
                 /* v2.37 punto 13: scudo UAC accanto a "Esegui come
@@ -1517,7 +1715,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
             hline(oy + 6, kLeftWidth + 14, W - 14);
             RECT fr{ kLeftWidth + 10, oy + 12, W - 10, oy + 30 };
             HFONT ob2 = static_cast<HFONT>(SelectObject(hdc, fontBold));
-            SetTextColor(hdc, col(kTextDim));
+            SetTextColor(hdc, col(sk.textDim));
             DrawTextW(hdc, S(StrId::RecentFiles), -1, &fr, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
             SelectObject(hdc, ob2);
             int ry = oy + 32;
@@ -1526,7 +1724,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
                 if (ry + 24 > H - 8) break;   /* mai uscire dal pannello */
                 const AppEntry& ra = m_allApps[idxApp];
                 if (ra.iconSmall) drawIcon(kLeftWidth + 14, ry + 4, ra.iconSmall, 16, 16);
-                SetTextColor(hdc, col(kText));
+                SetTextColor(hdc, col(sk.text));
                 RECT rr{ kLeftWidth + 36, ry, W - 12, ry + 24 };
                 DrawTextW(hdc, ra.name.c_str(), -1, &rr,
                           DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
@@ -1538,23 +1736,28 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
     /* ---------- casella di ricerca in basso ---------- */
     const int eTop = kListTop + kListH + 8;
     RECT editR{ 12, eTop, kLeftWidth - 12, eTop + 30 };
-    HBRUSH wb = CreateSolidBrush(col(kEditBg));
-    FillRect(hdc, &editR, wb);
-    DeleteObject(wb);
-    HBRUSH eb = CreateSolidBrush(col(kEditEdge));
-    FrameRect(hdc, &editR, eb);
-    DeleteObject(eb);
+    metroFill(editR, sk.editBg);
+    metroFrame(editR, sk.editEdge);
     /* v2.37 punti 10/11: lente d'ingrandimento INCORPORATA (base64,
      * decodificata una volta all'avvio, ~14 px: punto 8), terza zona
-     * hover col solito colore kHover. Niente piu' indici di icona da
+     * hover col solito colore sk.hover. Niente piu' indici di icona da
      * shell32. */
     if (m_hoverMag) {
         RECT mr{ editR.left + 4, eTop + 4, editR.left + 26, eTop + 26 };
-        HBRUSH b = CreateSolidBrush(col(kHover));
-        FillRect(hdc, &mr, b);
-        DeleteObject(b);
+        metroFill(mr, sk.hover);
     }
-    if (!m_magPixels.empty() && sceneBits) {
+    if (m_theme == 1) {
+        /* v1.21.30 metro: lente piccola disegnata con GDI+ (RAII+try/catch);
+         * se GDI+ manca si ricade sull'asset incorporato come su Win7. */
+        const DWORD lc = mask ? 0xFFFFFFFFu : ArgbOf(sk.editEdge);
+        if (!GdipLens(hdc, Px(editR.left + 15), Px(eTop + 15), lc)) {
+            if (!m_magPixels.empty() && sceneBits) {
+                BlitArgb(sceneBits, W, H, m_magPixels.data(), m_magW, m_magH,
+                         editR.left + 8 + (16 - m_magW) / 2,
+                         eTop + 7 + (16 - m_magH) / 2, mask, m_dpi);
+            }
+        }
+    } else if (!m_magPixels.empty() && sceneBits) {
         const int mx = editR.left + 8 + (16 - m_magW) / 2;
         const int my = eTop + 7 + (16 - m_magH) / 2;
         BlitArgb(sceneBits, W, H, m_magPixels.data(), m_magW, m_magH,
@@ -1576,17 +1779,17 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
                    std::min<int>(txR.left + ts.cx + 2, editR.right - 4),
                    eTop + 26 };
         HBRUSH b = CreateSolidBrush(mask ? RGB(0xFF, 0xFF, 0xFF)
-                                         : RGB(0x33, 0x99, 0xFF));
+                                         : sk.selText);
         FillRect(hdc, &selR, b);
         DeleteObject(b);
         SetTextColor(hdc, mask ? RGB(0xFF, 0xFF, 0xFF) : RGB(0xFF, 0xFF, 0xFF));
     } else {
-        SetTextColor(hdc, mask ? RGB(0xFF, 0xFF, 0xFF) : kEditText);
+        SetTextColor(hdc, mask ? RGB(0xFF, 0xFF, 0xFF) : sk.editText);
     }
     DrawTextW(hdc, m_query.c_str(), -1, &txR, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
     if (m_caretOn) {
         const int cx = std::min<int>(editR.left + 28 + ts.cx, editR.right - 28);
-        HPEN cp = CreatePen(PS_SOLID, 1, mask ? RGB(0xFF, 0xFF, 0xFF) : kEditText);
+        HPEN cp = CreatePen(PS_SOLID, 1, mask ? RGB(0xFF, 0xFF, 0xFF) : sk.editText);
         HPEN op = static_cast<HPEN>(SelectObject(hdc, cp));
         MoveToEx(hdc, cx, eTop + 7, nullptr);
         LineTo(hdc, cx, eTop + 23);
