@@ -374,6 +374,11 @@ static COLORREF CharmsParseHexColor(const wchar_t* text, COLORREF fallback) {
  * the colour family of the pane is decided. */
 static void CharmsApplyExtraSettings();
 
+/* v1.21.17: defined further down together with the locale packs; declared here
+ * because LoadSettings() re-resolves the locale at the end, so the program's
+ * language choice survives every settings reload. */
+void DetermineLocale();
+
 void LoadSettings() {
     int raw_intercept  = Wh_GetIntSetting(L"interceptNativeFlyout");
     int raw_privacy    = Wh_GetIntSetting(L"privacyMode");
@@ -425,6 +430,13 @@ void LoadSettings() {
     if (g_Settings.refreshInterval > 0 && g_Settings.refreshInterval < 1000) {
         g_Settings.refreshInterval = 1000;
     }
+
+    /* v1.21.17: the locale is re-resolved here too. LoadSettings() runs again
+     * every time the pane is shown and after every settings change, and the
+     * "language" option it reads is the one of the original mod: without this
+     * call a pane that had already been told to speak the program's language
+     * would fall back to the system language on the next opening. */
+    DetermineLocale();
 }
 
 // ----------------------------------------------------------------------------
@@ -3416,7 +3428,41 @@ static const LocalePack* FindLocalePack(LANGID langId) {
     return &g_Locales[0];
 }
 
+/* v1.21.17: index of the PROGRAM's language list (0 = Italian, 1 = English,
+ * 2 = Spanish, 3 = French, 4 = German, 5 = Portuguese, 6 = Polish, 7 = Russian,
+ * 8 = Japanese, 9 = Chinese, 10 = Arabic), filled by W8NetSetLanguage with the
+ * same call every other surface of the taskbar receives. -1 = the program has
+ * not spoken yet: the mod's own "language" option decides, exactly as before
+ * this change. */
+static int g_AppLanguageIndex = -1;
+
 void DetermineLocale() {
+    /* v1.21.17: the pane must speak the language of the rest of the taskbar.
+     * Before this change the Windows 8 pane ALWAYS used the system language,
+     * so an Italian installation showed an English pane. The index is translated
+     * with the same table W7TNetFlyout_SetLanguage uses for the Windows 7 pane:
+     * it/en/es/fr/de/pt/pl/ru have a pack of their own, ja/zh/ar fall back to
+     * English exactly as they do there. */
+    if (g_AppLanguageIndex >= 0) {
+        LANGID wanted = 0;
+        switch (g_AppLanguageIndex) {
+            case 0: wanted = 0x0410; break;   /* it */
+            case 1: wanted = 0x0409; break;   /* en */
+            case 2: wanted = 0x040A; break;   /* es */
+            case 3: wanted = 0x040C; break;   /* fr */
+            case 4: wanted = 0x0407; break;   /* de */
+            case 5: wanted = 0x0816; break;   /* pt */
+            case 6: wanted = 0x0415; break;   /* pl */
+            case 7: wanted = 0x0419; break;   /* ru */
+            case 8: case 9: case 10:         /* ja, zh, ar -> English pack */
+                wanted = 0x0409; break;
+            default: break;
+        }
+        if (wanted != 0) {
+            g_CurrentLocalePack = FindLocalePack(wanted);
+            return;
+        }
+    }
     switch (g_Settings.language) {
         case 1: g_CurrentLocalePack = FindLocalePack(0x0409); break;
         case 2: g_CurrentLocalePack = FindLocalePack(0x0410); break;
@@ -5363,12 +5409,221 @@ void PositionWindowNearTray(HWND hwnd) {
 static GUID g_WlanInterfaceGuids[16];
 static int  g_WlanInterfaceCount = 0;
 
+/* ---------------------------------------------------------------------- */
+/*  v1.21.17 - GUARDED WLAN CALLS, SCAN TRIGGER AND DIAGNOSTICS           */
+/* ---------------------------------------------------------------------- */
+/*  The WLAN API talks to the driver and to the radio layer: a fault there is
+ *  an access violation, not a return code, and it would take the taskbar
+ *  process down with it. Every WLAN call of the refresh path - interface
+ *  enumeration, available networks, profile list, scan, handle open,
+ *  notification registration - gets the same two protections used for the
+ *  shell launches, each in its own function: <Api>Inner() carries the SEH
+ *  guard, Safe<Api>() the C++ catch around it.
+ *
+ *  TriggerWlanScanIfNeeded is the piece the Windows 8 pane was missing (the
+ *  recreated Windows 7 flyout has had it since v3.5): on a machine whose radio
+ *  has not scanned yet - right after logon, or after the adapter has been
+ *  re-enabled - WlanGetAvailableNetworkList answers with an EMPTY list, and the
+ *  pane looked like it had no connections at all. When the pane opens with an
+ *  empty list a scan is ordered and the data is read again a few seconds
+ *  later. */
+
+static DWORD WlanEnumInterfacesInner(HANDLE hClient, PWLAN_INTERFACE_INFO_LIST* outList) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanEnumInterfaces(hClient, NULL, outList);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanEnumInterfaces(HANDLE hClient, PWLAN_INTERFACE_INFO_LIST* outList) {
+    try {
+        return WlanEnumInterfacesInner(hClient, outList);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+static DWORD WlanGetAvailableNetworkListInner(HANDLE hClient,
+                                              const GUID* pInterfaceGuid,
+                                              DWORD dwFlags,
+                                              PWLAN_AVAILABLE_NETWORK_LIST* outList) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanGetAvailableNetworkList(hClient, pInterfaceGuid, dwFlags, NULL, outList);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanGetAvailableNetworkList(HANDLE hClient,
+                                             const GUID* pInterfaceGuid,
+                                             DWORD dwFlags,
+                                             PWLAN_AVAILABLE_NETWORK_LIST* outList) {
+    try {
+        return WlanGetAvailableNetworkListInner(hClient, pInterfaceGuid, dwFlags, outList);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+static DWORD WlanScanInner(HANDLE hClient, const GUID* pInterfaceGuid) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanScan(hClient, pInterfaceGuid, NULL, NULL, NULL);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanScan(HANDLE hClient, const GUID* pInterfaceGuid) {
+    try {
+        return WlanScanInner(hClient, pInterfaceGuid);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+static DWORD WlanOpenHandleInner(DWORD dwClientVersion, DWORD* pdwNegotiatedVersion, HANDLE* phClientHandle) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanOpenHandle(dwClientVersion, NULL, pdwNegotiatedVersion, phClientHandle);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanOpenHandle(DWORD dwClientVersion, DWORD* pdwNegotiatedVersion, HANDLE* phClientHandle) {
+    try {
+        return WlanOpenHandleInner(dwClientVersion, pdwNegotiatedVersion, phClientHandle);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+/* Set when the pane opens and cleared by the first refresh that follows: the
+ * "is the list empty?" check must run AFTER that refresh (the count read while
+ * the pane is opening is still the previous one, because the refresh is
+ * posted), and exactly once per opening. */
+static BOOL g_ScanCheckPending = FALSE;
+
+static DWORD WlanGetProfileListInner(HANDLE hClient, const GUID* pInterfaceGuid, PWLAN_PROFILE_INFO_LIST* outList) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanGetProfileList(hClient, pInterfaceGuid, NULL, outList);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanGetProfileList(HANDLE hClient, const GUID* pInterfaceGuid, PWLAN_PROFILE_INFO_LIST* outList) {
+    try {
+        return WlanGetProfileListInner(hClient, pInterfaceGuid, outList);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+static DWORD WlanRegisterNotificationInner(HANDLE hClient,
+                                          DWORD dwSource,
+                                          BOOL bIgnoreDuplicates,
+                                          WLAN_NOTIFICATION_CALLBACK callback,
+                                          PVOID pCallbackContext) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanRegisterNotification(hClient, dwSource, bIgnoreDuplicates,
+                                          callback, pCallbackContext, NULL, NULL);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanRegisterNotification(HANDLE hClient,
+                                          DWORD dwSource,
+                                          BOOL bIgnoreDuplicates,
+                                          WLAN_NOTIFICATION_CALLBACK callback,
+                                          PVOID pCallbackContext) {
+    try {
+        return WlanRegisterNotificationInner(hClient, dwSource, bIgnoreDuplicates,
+                                             callback, pCallbackContext);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+/* One scan per opening, and never more often than one every 5 s: WlanScan
+ * costs the radio. Same rule as the recreated Windows 7 flyout. */
+void TriggerWlanScanIfNeeded(void) {
+    static DWORD lastScanRequest = 0;
+    const DWORD now = GetTickCount();
+    if (lastScanRequest != 0 && now - lastScanRequest < 5000) {
+        return;
+    }
+    lastScanRequest = now;
+    HANDLE hClient = g_Ctx.hWlanClient;
+    if (!hClient) {
+        w7t::LogTagged(L"NET8", L"WLAN scan not requested: no WLAN client");
+        return;
+    }
+    PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
+    if (SafeWlanEnumInterfaces(hClient, &pIfList) != ERROR_SUCCESS || !pIfList) {
+        w7t::LogTagged(L"NET8", L"WLAN scan: WlanEnumInterfaces failed");
+        return;
+    }
+    for (DWORD i = 0; i < pIfList->dwNumberOfItems; i++) {
+        const DWORD scanResult =
+            SafeWlanScan(hClient, &pIfList->InterfaceInfo[i].InterfaceGuid);
+        w7t::LogTagged(L"NET8", L"WLAN scan requested on interface %lu: %lu",
+                       (unsigned long)i, (unsigned long)scanResult);
+    }
+    WlanFreeMemory(pIfList);
+}
+
 void RefreshWifiData(HANDLE hClient) {
-    if (!hClient) return;
+    if (!hClient) {
+        w7t::LogTagged(L"NET8", L"network list not refreshed: no WLAN client");
+        return;
+    }
     static DWORD lastValidRefresh = 0;
     DWORD now = GetTickCount();
     PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
-    if (WlanEnumInterfaces(hClient, NULL, &pIfList) != ERROR_SUCCESS) return;
+    const DWORD enumResult = SafeWlanEnumInterfaces(hClient, &pIfList);
+    if (enumResult != ERROR_SUCCESS) {
+        w7t::LogTagged(L"NET8", L"WlanEnumInterfaces failed (%lu)",
+                       (unsigned long)enumResult);
+        return;
+    }
     
     int localWlanIfCount = 0;
     GUID localWlanIfGuids[16];
@@ -5389,10 +5644,22 @@ void RefreshWifiData(HANDLE hClient) {
         WLAN_INTERFACE_INFO IfInfo = pIfList->InterfaceInfo[i];
         PWLAN_AVAILABLE_NETWORK_LIST pBssList  = NULL;
         PWLAN_PROFILE_INFO_LIST      pProfList = NULL;
-        WlanGetProfileList(hClient, &IfInfo.InterfaceGuid, NULL, &pProfList);
-        if (WlanGetAvailableNetworkList(hClient, &IfInfo.InterfaceGuid,
-                WLAN_AVAILABLE_NETWORK_INCLUDE_ALL_MANUAL_HIDDEN_PROFILES,
-                NULL, &pBssList) == ERROR_SUCCESS) {
+        const DWORD profileListResult =
+            SafeWlanGetProfileList(hClient, &IfInfo.InterfaceGuid, &pProfList);
+        if (profileListResult != ERROR_SUCCESS) {
+            w7t::LogTagged(L"NET8", L"WlanGetProfileList failed (%lu): saved networks unknown",
+                           (unsigned long)profileListResult);
+        }
+        const DWORD scanListResult = SafeWlanGetAvailableNetworkList(
+            hClient, &IfInfo.InterfaceGuid,
+            WLAN_AVAILABLE_NETWORK_INCLUDE_ALL_MANUAL_HIDDEN_PROFILES,
+            &pBssList);
+        if (scanListResult != ERROR_SUCCESS) {
+            w7t::LogTagged(L"NET8",
+                           L"WlanGetAvailableNetworkList failed (%lu): no network from this interface",
+                           (unsigned long)scanListResult);
+        }
+        if (scanListResult == ERROR_SUCCESS) {
             for (DWORD j = 0; j < pBssList->dwNumberOfItems && tempCount < 50; j++) {
                 WLAN_AVAILABLE_NETWORK network = pBssList->Network[j];
                 size_t len = (size_t)network.dot11Ssid.uSSIDLength;
@@ -5598,6 +5865,10 @@ void RefreshWifiData(HANDLE hClient) {
     LeaveCriticalSection(&g_Ctx.csLock);
     Wh_Log(L"Refresh complete: %d network(s) found, connected: %s, g_PendingConnectIndex=%d",
            loggedNetworkCount, loggedConnected ? L"yes" : L"no", loggedPendingIndex);
+    /* v1.21.17: the count also goes to the core log, which is the file the user
+     * can send back when a list stays empty. */
+    w7t::LogTagged(L"NET8", L"network list refreshed: %d network(s), connected: %s",
+                   loggedNetworkCount, loggedConnected ? L"yes" : L"no");
 }
 
 // -------------------------------------------------------
@@ -7071,8 +7342,18 @@ void WINAPI WlanNotificationCallback(PWLAN_NOTIFICATION_DATA data, PVOID context
 static void DrawIconBicubic(HDC hdc, int x, int y, int w, int h, HICON hIcon, void** ppCached) {
     if (!hIcon) return;
     if (!g_hGdiPlus || !pGdipCreateBitmapFromHICON || !pGdipSetInterpolationMode) {
-        DrawIconEx(hdc, x, y, hIcon, w, h, 0, NULL, DI_NORMAL);
-        return;
+        /* v1.21.17 - GDI+ WHERE IT IS NEEDED. The artwork of this pane is
+         * designed to be resampled with GDI+ high quality bicubic: on the plain
+         * GDI path (DrawIconEx) it comes out visibly coarser. InitGdiPlusRendering()
+         * runs at module start, but if a paint gets here before that - or in a
+         * host where the first load failed - the library is loaded NOW instead of
+         * silently dropping to the coarse path. The GDI call stays as the last
+         * resort: if gdiplus.dll cannot be loaded, the icon is still drawn. */
+        InitGdiPlusRendering();
+        if (!g_hGdiPlus || !pGdipCreateBitmapFromHICON || !pGdipSetInterpolationMode) {
+            DrawIconEx(hdc, x, y, hIcon, w, h, 0, NULL, DI_NORMAL);
+            return;
+        }
     }
     void* srcBitmap = ppCached ? *ppCached : NULL;
     if (!srcBitmap && ppCached) {
@@ -8022,6 +8303,78 @@ static DWORD WINAPI WlanProfileDialogThreadProc(LPVOID lpParam) {
 // the flyout's UI thread is not blocked by a modal native dialog. Cleanup code
 // must account for that thread, but removing this path entirely would trade a
 // lifecycle concern for a user-visible behavior regression.
+/* ---------------------------------------------------------------------- */
+/*  v1.21.17 - LAUNCHES FROM THE FLYOUT MUST NOT TAKE THE TASKBAR DOWN    */
+/* ---------------------------------------------------------------------- */
+/*  "Open Network and Sharing Center" and the Status / Properties verbs of a
+ *  row are handed to the shell, which below the surface loads COM, verb
+ *  handlers and Control Panel pages: every one of those steps can fail in ways
+ *  a C++ exception does not catch (an access violation inside a third-party
+ *  module, for instance), and the process hosting this pane is the taskbar
+ *  itself.
+ *
+ *  The two protections the recreated Windows 7 flyout has used since v2.63 are
+ *  applied here too, each in its own function and never mixed in the same body
+ *  (MSVC rule: a C++ try and an SEH __try cannot share one function):
+ *    - ShellExecuteInner / ShellExecuteExInner: SEH guard on the shell API;
+ *    - SafeShellExecuteOpen / SafeShellExecuteEx: C++ try/catch around it.
+ *  Every failure is written to the core log, so "the panel does not open" can
+ *  be told apart from "the shell refused it", and the taskbar stays alive. */
+static BOOL ShellExecuteInner(HWND hwnd, const WCHAR* file, const WCHAR* params) {
+    BOOL ok = FALSE;
+    W7T_SEH_TRY
+    {
+        const HINSTANCE result =
+            ShellExecuteW(hwnd, L"open", file, params, NULL, SW_SHOWNORMAL);
+        ok = reinterpret_cast<INT_PTR>(result) > 32 ? TRUE : FALSE;
+    }
+    W7T_SEH_CATCH
+    {
+        ok = FALSE;
+    }
+    W7T_SEH_END
+    return ok;
+}
+
+static BOOL SafeShellExecuteOpen(HWND hwnd, const WCHAR* file, const WCHAR* params) {
+    BOOL ok = FALSE;
+    try {
+        ok = ShellExecuteInner(hwnd, file, params);
+    } catch (...) {
+        ok = FALSE;
+    }
+    if (!ok) {
+        w7t::LogTagged(L"NET8", L"launch failed: %s %s",
+                       file != NULL ? file : L"?",
+                       params != NULL ? params : L"");
+    }
+    return ok;
+}
+
+static BOOL ShellExecuteExInner(SHELLEXECUTEINFOW* sei) {
+    BOOL ok = FALSE;
+    W7T_SEH_TRY
+    {
+        ok = ShellExecuteExW(sei);
+    }
+    W7T_SEH_CATCH
+    {
+        ok = FALSE;
+    }
+    W7T_SEH_END
+    return ok;
+}
+
+static BOOL SafeShellExecuteEx(SHELLEXECUTEINFOW* sei) {
+    BOOL ok = FALSE;
+    try {
+        ok = ShellExecuteExInner(sei);
+    } catch (...) {
+        ok = FALSE;
+    }
+    return ok;
+}
+
 void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
     WifiNetworkItem menuItem = {};
     EnterCriticalSection(&g_Ctx.csLock);
@@ -8177,11 +8530,11 @@ case IDM_PROPERTIES:
                 sei.lpVerb =
                     (cmd == IDM_STATUS) ? L"status" : L"properties";
 
-                launched = ShellExecuteExW(&sei);
+                launched = SafeShellExecuteEx(&sei);
 
                 if (!launched) {
                     sei.lpVerb = L"properties";
-                    launched = ShellExecuteExW(&sei);
+                    launched = SafeShellExecuteEx(&sei);
                 }
 
                 CoTaskMemFree(pidl);
@@ -8190,13 +8543,7 @@ case IDM_PROPERTIES:
     }
 
     if (!launched) {
-        ShellExecuteW(
-            hwnd,
-            L"open",
-            L"shell:::{7007ACC7-3202-11D1-AAD2-00805FC1270E}",
-            NULL,
-            NULL,
-            SW_SHOWNORMAL);
+        SafeShellExecuteOpen(hwnd, L"shell:::{7007ACC7-3202-11D1-AAD2-00805FC1270E}", NULL);
     }
 
     HideFlyoutVisual(hwnd);
@@ -8792,7 +9139,28 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     SelectClipRgn(hdc, NULL);
 }
 
+/* v1.21.17: the window procedure is a dispatcher with a C++ try/catch around
+ * the real handler. This pane lives inside the taskbar process, so one thrown
+ * exception in one branch (a std::bad_alloc while building a tooltip, a
+ * std::wstring operation on a malformed SSID) used to close the whole bar.
+ * The two protections the project uses elsewhere are kept separate for the
+ * same MSVC reason as everywhere else: the SEH guards live in the Safe*()
+ * helpers called from inside, the C++ catch lives here. Anything caught is
+ * written to the core log with the message that caused it. */
+LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
 LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    try {
+        return FlyoutWndProcInner(hwnd, uMsg, wParam, lParam);
+    } catch (...) {
+        w7t::LogTagged(L"NET8",
+                       L"window message 0x%04X raised a C++ exception: ignored",
+                       (unsigned)uMsg);
+        return 0;
+    }
+}
+
+LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_NCHITTEST: {
         LRESULT r = DefWindowProc(hwnd, uMsg, wParam, lParam);
@@ -8900,6 +9268,17 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
             CheckConnectionTimeouts();
             UpdateLayoutGeometry();
             InvalidateRect(hwnd, NULL, FALSE);
+        } else if (wParam == 1003) {
+            /* v1.21.17: THE SHOT AFTER THE SCAN (from the recreated Windows 7
+             * flyout, v3.6). Opening with an empty list orders a WLAN scan: the
+             * results arrive a few seconds later, but nothing re-read the data
+             * when the periodic refresh timer was not running. One single shot
+             * after 4 s brings them into the list. */
+            KillTimer(hwnd, 1003);
+            RefreshNetworkData();
+            ClampScrollPos();
+            UpdateLayoutGeometry();
+            InvalidateRect(hwnd, NULL, TRUE);
         } else if (wParam == CHARMS_ANIM_TIMER_ID) {
             InterlockedExchange(&g_CharmsTickPosted, 0);
             CharmsAnimTick(hwnd);
@@ -8946,6 +9325,9 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
         if (!g_RefreshTimer && g_Settings.refreshInterval > 0) {
             g_RefreshTimer = SetTimer(hwnd, 1000, g_Settings.refreshInterval, NULL);
         }
+        /* v1.21.17: the "is the list empty?" check must run AFTER the refresh
+         * this message posts (here the count is still the previous one). */
+        g_ScanCheckPending = TRUE;
         PostMessageW(hwnd, WM_REFRESH_DATA, TRUE, 0);
         break;
     case WM_REFRESH_DATA: {
@@ -8956,6 +9338,46 @@ LRESULT CALLBACK FlyoutWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
             break;
         }
         RefreshNetworkData(/*forceDetection=*/(BOOL)wParam);
+        /* v1.21.17: diagnostics of the first refresh after opening and, when the
+         * list stayed empty, a scan order plus a guaranteed re-read after 4 s
+         * (timer 1003). This is the piece of the recreated Windows 7 flyout
+         * that makes the networks appear on a radio that had not scanned yet:
+         * without it the Windows 8 pane looked like it had no connections. */
+        if (g_ScanCheckPending) {
+            g_ScanCheckPending = FALSE;
+            int netCountNow = 0;
+            EnterCriticalSection(&g_Ctx.csLock);
+            netCountNow = g_NetworkCount;
+            LeaveCriticalSection(&g_Ctx.csLock);
+            w7t::LogTagged(L"NET8", L"pane opened: %d network(s) listed, WLAN %s",
+                           netCountNow,
+                           g_Ctx.hWlanClient ? L"available" : L"unavailable");
+            if (netCountNow == 0) {
+                /* An empty list has two possible causes: the radio has not
+                 * scanned yet, or there is no WLAN client at all (the service
+                 * was not ready when the module started - the log line above
+                 * says which). Ask for the client once more here, then order the
+                 * scan; the re-read at 4 s picks up whatever arrives. */
+                if (!g_Ctx.hWlanClient) {
+                    DWORD dwMaxClient = 2, dwCurVer = 0;
+                    const DWORD retryOpen =
+                        SafeWlanOpenHandle(dwMaxClient, &dwCurVer, &g_Ctx.hWlanClient);
+                    if (retryOpen == ERROR_SUCCESS) {
+                        SafeWlanRegisterNotification(g_Ctx.hWlanClient,
+                                                     WLAN_NOTIFICATION_SOURCE_ALL, TRUE,
+                                                     WlanNotificationCallback, &g_Ctx);
+                        w7t::LogTagged(L"NET8", L"WLAN client opened on the empty-list retry");
+                        PostMessageW(hwnd, WM_REFRESH_DATA, TRUE, 0);
+                    } else {
+                        g_Ctx.hWlanClient = NULL;
+                        w7t::LogTagged(L"NET8", L"WLAN client still unavailable on retry (%lu)",
+                                       (unsigned long)retryOpen);
+                    }
+                }
+                TriggerWlanScanIfNeeded();
+                SetTimer(hwnd, 1003, 4000, NULL);
+            }
+        }
         ClampScrollPos();
         UpdateLayoutGeometry();
         InvalidateRect(hwnd, NULL, FALSE);
@@ -9952,8 +10374,16 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
 
         if (g_UseCharmsTestStyle) {
             if (PtInRect(&g_rcCharmsLink, pt)) {
-                ShellExecuteW(NULL,L"open",L"control.exe",L"/name Microsoft.NetworkAndSharingCenter",NULL,SW_SHOWNORMAL);
-                HideFlyoutVisual(hwnd);
+                /* v1.21.17: launch and slide-out both guarded: a failure here
+                 * must not take the taskbar down. */
+                try {
+                    SafeShellExecuteOpen(NULL, L"control.exe",
+                                         L"/name Microsoft.NetworkAndSharingCenter");
+                    HideFlyoutVisual(hwnd);
+                } catch (...) {
+                    w7t::LogTagged(L"NET8",
+                                   L"Network and Sharing Center did not open (charms link)");
+                }
                 break;
             }
             if (PtInRect(&g_rcCharmsAirplaneToggle, pt)) {
@@ -10012,15 +10442,18 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             Wh_Log(L"Manual refresh requested");
             if (g_Ctx.hWlanClient) {
                 PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
-                if (WlanEnumInterfaces(g_Ctx.hWlanClient, NULL, &pIfList) == ERROR_SUCCESS) {
+                if (SafeWlanEnumInterfaces(g_Ctx.hWlanClient, &pIfList) == ERROR_SUCCESS) {
                     for (DWORD i = 0; i < pIfList->dwNumberOfItems; i++) {
-                        DWORD scanResult = WlanScan(g_Ctx.hWlanClient, &pIfList->InterfaceInfo[i].InterfaceGuid, NULL, NULL, NULL);
-                        Wh_Log(L"WlanScan requested on interface %lu: %lu", i, scanResult);
+                        const DWORD scanResult =
+                            SafeWlanScan(g_Ctx.hWlanClient, &pIfList->InterfaceInfo[i].InterfaceGuid);
+                        w7t::LogTagged(L"NET8", L"manual refresh: scan on interface %lu: %lu",
+                                       (unsigned long)i, (unsigned long)scanResult);
                     }
                     WlanFreeMemory(pIfList);
                 }
             } else {
-                Wh_Log(L"Manual refresh skipped: WLAN client not available");
+                w7t::LogTagged(L"NET8",
+                               L"manual refresh without a WLAN client: no scan requested");
             }
             RefreshNetworkData();
             ClampScrollPos();
@@ -10045,8 +10478,17 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             break;
         }
         if (PtInRect(&rcF,pt)) {
-            ShellExecuteW(NULL,L"open",L"control.exe",L"/name Microsoft.NetworkAndSharingCenter",NULL,SW_SHOWNORMAL);
-            HideFlyoutVisual(hwnd);
+            /* v1.21.17: same shield as the recreated Windows 7 flyout. The
+             * launch used to be direct here: a fault inside the Control Panel
+             * (or in its COM handlers) closed the program. */
+            try {
+                SafeShellExecuteOpen(NULL, L"control.exe",
+                                     L"/name Microsoft.NetworkAndSharingCenter");
+                HideFlyoutVisual(hwnd);
+            } catch (...) {
+                w7t::LogTagged(L"NET8",
+                               L"Network and Sharing Center did not open (footer link)");
+            }
             break;
         }
         if (showWifiList && g_bListExpanded && ly >= LIST_Y_START && ly < LIST_Y_END) {
@@ -10944,13 +11386,20 @@ void ToggleFlyoutWindow() {
         } else {
             if (!g_Ctx.hWlanClient) {
                 DWORD dwMaxClient = 2, dwCurVer = 0;
-                if (WlanOpenHandle(dwMaxClient, NULL, &dwCurVer, &g_Ctx.hWlanClient) == ERROR_SUCCESS) {
-                    WlanRegisterNotification(g_Ctx.hWlanClient, WLAN_NOTIFICATION_SOURCE_ALL, TRUE,
-                                             WlanNotificationCallback, &g_Ctx, NULL, NULL);
+                const DWORD openResult =
+                    SafeWlanOpenHandle(dwMaxClient, &dwCurVer, &g_Ctx.hWlanClient);
+                if (openResult == ERROR_SUCCESS) {
+                    SafeWlanRegisterNotification(g_Ctx.hWlanClient,
+                                                 WLAN_NOTIFICATION_SOURCE_ALL, TRUE,
+                                                 WlanNotificationCallback, &g_Ctx);
                     Wh_Log(L"WLAN handle opened lazily on first flyout show");
                 } else {
                     g_Ctx.hWlanClient = NULL;
-                    Wh_Log(L"WLAN service still unavailable on flyout show");
+                    /* v1.21.17: this line explains a pane with no networks
+                     * (WLAN service off, no adapter, driver). */
+                    w7t::LogTagged(L"NET8",
+                                   L"WLAN service unavailable when the pane opened (%lu)",
+                                   (unsigned long)openResult);
                 }
             }
             DetermineLocale();
@@ -11512,8 +11961,11 @@ void W8NetUninit() {
  * gli altri percorsi (batteria e flyout Windows 7 seguono la lingua
  * dell app come prima). */
 void W8NetSetLanguage(int appLanguageIndex) {
-    (void)appLanguageIndex;
-    g_Settings.language = 0;
+    /* v1.21.17: the index of the program's language list is honoured, instead
+     * of being dropped in favour of the system language (an Italian program
+     * showed an English pane). The mapping lives in DetermineLocale(), which
+     * also keeps the pack right after every LoadSettings(). */
+    g_AppLanguageIndex = appLanguageIndex;
     DetermineLocale();
     CharmsAccentColorInvalidate();
     if (g_hWndFlyout && IsWindow(g_hWndFlyout) && IsWindowVisible(g_hWndFlyout))
