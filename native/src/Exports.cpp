@@ -1028,8 +1028,7 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t toolbarAddress, int32_t toolbarLinks,
         int32_t inputLanguageMode, int32_t taskManagerMode,
         int32_t flyoutColorMode, int32_t flyoutColorRgb,
-        int32_t connectionPrivacyMode, int32_t themeSelection,
-        int32_t taskbarPosition) {
+        int32_t connectionPrivacyMode, int32_t themeSelection) {
     try {
         /* v3.6: l'ordine DEVE essere quello della firma Show(): nativeFlyout,
          * enableSearch, netFlyout. Prima erano invertiti (netFlyout al posto
@@ -1041,8 +1040,7 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
                           toolbarDesktop, toolbarAddress, toolbarLinks,
                           inputLanguageMode, taskManagerMode,
                           flyoutColorMode, flyoutColorRgb,
-                          connectionPrivacyMode, themeSelection,
-                          taskbarPosition);
+                          connectionPrivacyMode, themeSelection);
     } catch (...) { /* mai propagare */ }
 }
 

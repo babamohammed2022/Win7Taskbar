@@ -113,63 +113,41 @@ namespace Win7Taskbar
             }
         }
 
-        /// <summary>
-        /// v1.21.28 - spessore (DIP) della barra quando e' verticale
-        /// (sinistra/destra): chiave del tema TaskbarWidth, ripiego 60 come il
-        /// tema Windows 7. Per gli edge orizzontali si usa
-        /// <see cref="ThemeTaskbarHeightDip"/>.
-        /// </summary>
-        private double ThemeTaskbarThicknessVerticalDip
-        {
-            get
-            {
-                if (TryFindResource("TaskbarWidth") is double value && value > 0)
-                {
-                    return value;
-                }
-                return 60;
-            }
-        }
-
-        /// <summary>
-        /// v1.21.28 - edge corrente letto dalla configurazione persistita
-        /// (0 Bottom, 1 Top, 2 Left, 3 Right). Unico punto da cui la barra
-        /// decide il proprio lato: geometria, AppBar, orientamento del tema e
-        /// anchor di preview/tooltip lo derivano da qui, cosi' un cambio di
-        /// posizione non lascia stati appesi in giro.
-        /// </summary>
-        private TaskbarEdge CurrentTaskbarEdge =>
-            (TaskbarEdge)RetroBar.Utilities.Settings.NormalizeTaskbarPosition(
-                RetroBar.Utilities.Settings.Instance.TaskbarPosition);
-
-        /// <summary>
-        /// v1.21.28 - applica l'edge a tutte le proprieta' che il tema e le
-        /// anteprime leggono (Orientation per i DataTrigger, AppBarEdge/Index,
-        /// thumbnail edge). Non tocca la geometria: quella la fanno
-        /// PositionOnScreen/UpdateAppBarPosition con lo stesso edge.
-        /// </summary>
-        private void ApplyEdgeState(TaskbarEdge edge)
-        {
-            Orientation = edge is TaskbarEdge.Left or TaskbarEdge.Right
-                ? Orientation.Vertical
-                : Orientation.Horizontal;
-            AppBarEdge = edge.ToString();
-            AppBarEdgeIndex = (int)edge;
-            SetThumbnailEdge(this, (int)edge);
-        }
-
-        /// <summary>
-        /// v1.21.28 - spessore della barra in pixel fisici per l'edge dato:
-        /// l'altezza del tema per Bottom/Top, la larghezza verticale per
-        /// Left/Right. E' il valore che la shell riserva con ABM_SETPOS.
-        /// </summary>
-        private int ThicknessPxFor(TaskbarEdge edge, double scale)
-        {
-            double thicknessDip = edge is TaskbarEdge.Left or TaskbarEdge.Right
-                ? ThemeTaskbarThicknessVerticalDip
-                : ThemeTaskbarHeightDip;
-            return Math.Max(1, (int)Math.Round(thicknessDip * scale));
-        }
+        /* =====================================================================
+         * ROTAZIONE TASKBAR (1.21.28) - DISATTIVATA.
+         *
+         * La barra resta sempre in BASSO: geometria, AppBar, orientamento del
+         * tema e anchor delle anteprime DWM sono quelli di sempre. Il codice
+         * della rotazione e' tenuto qui commentato, non cancellato.
+         *
+         * Perche' era rotta: il valore salvato ("posizione") e' codificato
+         * 0=Basso, 1=Alto, 2=Sinistra, 3=Destra, mentre l'enum esistente e'
+         * TaskbarEdge { Left=0, Top=1, Right=2, Bottom=3 }. Il cast diretto
+         * (TaskbarEdge)position spostava ogni scelta di una posizione - con
+         * "A destra" (3) si finiva su Bottom - e SetThumbnailEdge riceveva
+         * l'edge sbagliato, quindi le anteprime DWM erano ancorate al lato
+         * sbagliato. Prima di riattivare qualunque cosa serve una conversione
+         * esplicita, mai un cast:
+         *
+         *     // posizione (persistita)   -> TaskbarEdge / AppBarEdgeValue
+         *     // 0 Basso                  -> TaskbarEdge.Bottom (3)
+         *     // 1 Alto                   -> TaskbarEdge.Top    (1)
+         *     // 2 Sinistra               -> TaskbarEdge.Left   (0)
+         *     // 3 Destra                 -> TaskbarEdge.Right  (2)
+         *     private static TaskbarEdge EdgeFromPosition(int position) =>
+         *         position switch
+         *         {
+         *             1 => TaskbarEdge.Top,
+         *             2 => TaskbarEdge.Left,
+         *             3 => TaskbarEdge.Right,
+         *             _ => TaskbarEdge.Bottom,
+         *         };
+         *
+         * Il resto dell'infrastruttura (AppBarService accetta i 4 edge,
+         * ComputeTaskPreviewPlacement ragiona gia' per TaskbarEdge, i temi
+         * hanno i DataTrigger su Orientation) resta dov'e' e non e' stato
+         * toccato: la sola cosa che mancava era la traduzione dei valori.
+         * ===================================================================== */
 
         internal TaskbarWindow(NativeBridge bridge)
         {
@@ -1680,60 +1658,20 @@ namespace Win7Taskbar
             double screenWidthDip = SystemParameters.PrimaryScreenWidth;
             double screenHeightDip = SystemParameters.PrimaryScreenHeight;
 
-            /* v1.21.28 - la finestra occupa l'intero lato scelto: orizzontale
-             * (Bottom/Top) larga quanto lo schermo e alta lo spessore del tema,
-             * verticale (Left/Right) alta quanto lo schermo e larga lo spessore
-             * verticale. Il rettangolo definitivo lo conferma comunque la shell
-             * con UpdateAppBarPosition; qui diamo solo la forma corretta. */
-            TaskbarEdge edge = CurrentTaskbarEdge;
-            bool vertical = edge is TaskbarEdge.Left or TaskbarEdge.Right;
-            double thickness = vertical
-                ? ThemeTaskbarThicknessVerticalDip
-                : ThemeTaskbarHeightDip;
+            double heightDip = ThemeTaskbarHeightDip;
 
-            Width = vertical ? thickness : screenWidthDip;
-            Height = vertical ? screenHeightDip : thickness;
-            Left = edge == TaskbarEdge.Right ? screenWidthDip - thickness : 0;
-            Top = edge == TaskbarEdge.Bottom ? screenHeightDip - thickness : 0;
+            Width = screenWidthDip;
+            Height = heightDip;
+            Left = 0;
+            Top = screenHeightDip - heightDip;
 
-            ApplyEdgeState(edge);
+            AppBarEdge = "Bottom";
+            AppBarEdgeIndex = (int)TaskbarEdge.Bottom;
+            Orientation = Orientation.Horizontal;
 
+            SetThumbnailEdge(this, (int)TaskbarEdge.Bottom);
             SetThumbnailScale(this,
                 _hwndSource?.CompositionTarget?.TransformToDevice.M11 ?? 1.0);
-        }
-
-        /// <summary>
-        /// v1.21.28 - cambio posizione a runtime: chiude popup/anteprime che
-        /// altrimenti resterebbero ancorati alle coordinate del lato vecchio,
-        /// riapplica orientamento e geometria e rinegocia l'AppBar sul nuovo
-        /// edge. Chiamato all'avvio (OnLoaded) e dal pacchetto Proprietà.
-        /// </summary>
-        internal void ApplyTaskbarPosition()
-        {
-            try
-            {
-                // Niente coordinate residue: anteprime, overflow e flyout si
-                // riapriranno ricalcolando l'anchor sul lato nuovo.
-                if (TaskPreviewPopup != null)
-                {
-                    TaskPreviewPopup.IsOpen = false;
-                    TaskPreviewPopup.Child = null;
-                }
-                if (OverflowPopup != null)
-                {
-                    OverflowPopup.IsOpen = false;
-                }
-
-                TaskbarEdge edge = CurrentTaskbarEdge;
-                ApplyEdgeState(edge);
-                PositionOnScreen();
-                UpdateAppBarPosition();
-                UpdateLayout();
-            }
-            catch (Exception ex)
-            {
-                _bridge.Log($"cambio posizione taskbar: {ex.Message}");
-            }
         }
 
         private void RegisterAppBar()
@@ -1744,11 +1682,10 @@ namespace Win7Taskbar
             }
 
             double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-            TaskbarEdge edge = CurrentTaskbarEdge;
-            int sizePx = ThicknessPxFor(edge, scale);
+            int sizePx = Math.Max(1, (int)Math.Round(ThemeTaskbarHeightDip * scale));
 
             _appBarRegistered = _bridge.RegisterAppBar(
-                _hwndSource.Handle, (int)edge, sizePx);
+                _hwndSource.Handle, AppBarEdgeValue.Bottom, sizePx);
             if (_appBarRegistered)
             {
                 // Il core, dentro la Register, esegue gia' QUERYPOS/SETPOS e
@@ -1778,13 +1715,12 @@ namespace Win7Taskbar
             {
                 scale = 1.0;
             }
-            TaskbarEdge edge = CurrentTaskbarEdge;
-            int sizePx = ThicknessPxFor(edge, scale);
+            int sizePx = Math.Max(1, (int)Math.Round(ThemeTaskbarHeightDip * scale));
 
             // Il rettangolo confermato dalla shell e' in PIXEL FISICI: il core
             // ci sposta lui stesso la finestra (SetWindowPos con SWP_NOZORDER,
             // lo stato topresta intatto) e notifica ABM_WINDOWPOSCHANGED.
-            if (_bridge.SetAppBarPos(_hwndSource.Handle, (int)edge,
+            if (_bridge.SetAppBarPos(_hwndSource.Handle, AppBarEdgeValue.Bottom,
                                      sizePx, out Rect reserved) && !reserved.IsEmpty)
             {
                 _appBarRect = reserved;
@@ -2068,27 +2004,6 @@ namespace Win7Taskbar
                                 "tema applicato subito", StringComparison.Ordinal))
                         {
                             RestorePreviewResourcesAfterThemeSwap();
-                        }
-                    }
-
-                    /* v1.21.28 - posizione della taskbar (offset 76, pacchetto
-                     * a 80 byte). Letta solo se il pacchetto la contiene davvero
-                     * (un core piu' vecchio la lascia stare). Il valore e'
-                     * normalizzato in Settings; se cambia, la barra si sposta
-                     * subito senza riavvio. */
-                    if (cds.cbData >= 80)
-                    {
-                        int taskbarPosition = System.Runtime.InteropServices.Marshal
-                            .ReadInt32(cds.lpData, 76);
-                        int normalized = RetroBar.Utilities.Settings
-                            .NormalizeTaskbarPosition(taskbarPosition);
-                        bool positionChanged = normalized != st.TaskbarPosition;
-                        st.TaskbarPosition = normalized;
-                        if (positionChanged)
-                        {
-                            _bridge.Log("proprieta': posizione taskbar -> " +
-                                        (TaskbarEdge)normalized);
-                            ApplyTaskbarPosition();
                         }
                     }
 
@@ -7301,9 +7216,7 @@ namespace Win7Taskbar
                     st.FlyoutColorMode,
                     st.FlyoutCustomColorRgb,
                     st.ConnectionFlyoutPrivacyMode,
-                    st.ThemeSelection,
-                    /* v1.21.28: posizione della taskbar (0..3). */
-                    st.TaskbarPosition);
+                    st.ThemeSelection);
             }
             catch (Exception ex)
             {

@@ -532,15 +532,13 @@ namespace Win7Taskbar.Interop
             int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
             int inputLanguageMode, int taskManagerMode,
             int flyoutColorMode, int flyoutColorRgb,
-            int connectionPrivacyMode, int themeSelection,
-            int taskbarPosition)
+            int connectionPrivacyMode, int themeSelection)
             => NativeMethods.W7T_PropertiesShow((ulong)owner, lang, seconds, nativeFlyout,
                 enableSearch, netFlyout, classicVolume, batteryFlyout,
                 aeroPeek, toolbarDesktop, toolbarAddress, toolbarLinks,
                 inputLanguageMode, taskManagerMode,
                 flyoutColorMode, flyoutColorRgb,
-                connectionPrivacyMode, themeSelection,
-                taskbarPosition);
+                connectionPrivacyMode, themeSelection);
 
         /// <summary>
         /// v1.21.7: settings of the extra section published to the core (a

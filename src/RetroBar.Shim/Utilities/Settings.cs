@@ -289,7 +289,6 @@ namespace RetroBar.Utilities
         private string _flyoutCustomColor = DefaultFlyoutCustomColor;
         private int _connectionPrivacyMode;                 /* 0 normal, 1 privacy */
         private int _themeSelection;                        /* 0 Windows 7, 1 Windows 8.1 */
-        private int _taskbarPosition;                       /* 0 bottom 1 top 2 left 3 right */
         private List<string> _taskbarIconOrder = new List<string>();
 
         /// <summary>
@@ -354,23 +353,6 @@ namespace RetroBar.Utilities
             set => SetField(ref _themeSelection,
                             TaskbarThemeIds.Normalize(value));
         }
-
-        /// <summary>
-        /// v1.21.28 - edge of the taskbar. 0 = Bottom (default), 1 = Top,
-        /// 2 = Left, 3 = Right. The value is normalized so a hand-edited or
-        /// out-of-range configuration can never select an unknown edge: it
-        /// falls back to Bottom, the edge the whole pipeline always supported.
-        /// Persisted like every other entry (settings.json).
-        /// </summary>
-        public int TaskbarPosition
-        {
-            get => _taskbarPosition;
-            set => SetField(ref _taskbarPosition, NormalizeTaskbarPosition(value));
-        }
-
-        /// <summary>Clamps an arbitrary position to 0..3 (Bottom fallback).</summary>
-        public static int NormalizeTaskbarPosition(int position)
-            => position is >= 0 and <= 3 ? position : 0;
 
         /// <summary>
         /// v1.21.7: icon order of OUR taskbar.
