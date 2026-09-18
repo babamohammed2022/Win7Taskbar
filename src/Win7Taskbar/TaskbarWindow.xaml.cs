@@ -3032,6 +3032,16 @@ namespace Win7Taskbar
                     return;
                 }
 
+                /* v1.21.33: Color hot-track. The button lights up with the
+                 * dominant colour of the application icon in the moment the
+                 * mouse arrives, pinned programs included (in Windows 7 every
+                 * button lights up, running or not). The light then follows
+                 * the cursor in TaskButton_MouseMove. */
+                if (button is Button taskButton)
+                {
+                    ApplyTaskButtonHotlight(taskButton, group);
+                }
+
                 if (group.Windows.Count == 0)
                 {
                     /* App non avviata: nessuna anteprima. Se il mouse arriva
@@ -3108,6 +3118,108 @@ namespace Win7Taskbar
             catch (Exception ex)
             {
                 Debug.WriteLine($"uscita pulsante (anteprima): {ex.Message}");
+            }
+        }
+
+        /* ------------------------------------------------------------------ */
+        /*  v1.21.33: Color hot-track                                          */
+        /*                                                                     */
+        /*  Microsoft describes the behaviour precisely (Raymond Chen,         */
+        /*  official Microsoft blog, 2011-12-06): the hovered taskbar button   */
+        /*  "lights up in a color that matches the colors in the icon itself", */
+        /*  "the lighting effect is centered on the mouse", and "the code just */
+        /*  looks for the predominant color in the icon [...] black, white,    */
+        /*  and shades of gray are not considered 'colors'".                   */
+        /*                                                                     */
+        /*  The extraction (HotlightColor.cs) is cached per icon; the brush is */
+        /*  per BUTTON, because its centre moves with the cursor.              */
+        /* ------------------------------------------------------------------ */
+
+        private sealed class HotlightState
+        {
+            /// <summary>Pixels the current brush was built from.</summary>
+            public ulong IconKey;
+
+            /// <summary>Element the brush was assigned to. A template change
+            /// (idle -> running -> active) creates new visual children, so the
+            /// brush has to be re-assigned to whatever AeroGlow is live now.</summary>
+            public Border? Element;
+
+            public RadialGradientBrush? Brush;
+        }
+
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Button, HotlightState> _hotlights = new();
+
+        private void ApplyTaskButtonHotlight(Button button, TaskGroup? group)
+        {
+            try
+            {
+                if (button.Template?.FindName("AeroGlow", button) is not Border glow)
+                {
+                    return;
+                }
+
+                Color light = HotlightColor.DominantLight(group?.Icon, out ulong key);
+                HotlightState state = _hotlights.GetOrCreateValue(button);
+                if (state.Brush == null || state.IconKey != key)
+                {
+                    state.Brush = HotlightColor.CreateLightBrush(light);
+                    state.IconKey = key;
+                    HotlightColor.ResetLight(state.Brush);
+                }
+
+                if (!ReferenceEquals(state.Element, glow))
+                {
+                    state.Element = glow;
+                    glow.Background = state.Brush;
+                }
+            }
+            catch (Exception ex)
+            {
+                /* The hover has to survive a missing or unreadable icon: the
+                 * theme's own glow stays in place. */
+                Debug.WriteLine($"alone del pulsante: {ex.Message}");
+            }
+        }
+
+        private void TaskButton_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (sender is not Button button ||
+                button.Template?.FindName("AeroGlow", button) is not Border glow ||
+                glow.Background is not RadialGradientBrush brush)
+            {
+                return;
+            }
+            if (!_hotlights.TryGetValue(button, out HotlightState? state) ||
+                state.Brush == null || !ReferenceEquals(state.Brush, brush))
+            {
+                return;
+            }
+
+            double width = button.ActualWidth;
+            double height = button.ActualHeight;
+            if (width <= 0 || height <= 0)
+            {
+                return;
+            }
+
+            Point position = e.GetPosition(button);
+            double fractionX = position.X / width;
+            double fractionY = position.Y / height;
+
+            if (Orientation == Orientation.Vertical)
+            {
+                /* Vertical bar: the light travels along the bar and keeps a
+                 * fixed horizontal position, so it never lands on the text of
+                 * the button. */
+                HotlightColor.MoveLight(brush, 0.42, 0.10 + (fractionY * 0.80));
+            }
+            else
+            {
+                /* Horizontal bar: the light is centered on the cursor,
+                 * keeping the Aero bias toward the lower half of the tile. */
+                HotlightColor.MoveLight(brush, 0.10 + (fractionX * 0.80),
+                                        0.62 + ((fractionY - 0.5) * 0.25));
             }
         }
 

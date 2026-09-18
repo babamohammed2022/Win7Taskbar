@@ -433,3 +433,39 @@ windows.
 **Revisit if.** Windows documents a public replacement for the class-name
 lookup (a documented query or interface for third-party taskbars): the query
 handler and `TaskSwitchWndProc` are the only two places to change.
+
+## 18. v1.21.33: the hover light is drawn by us, following the documented feature
+
+**Decision.** A task button's hover is the glossy square glass tile of Windows 7
+(vector gradients, no rescaling bitmap) and, on top of it, a radial light tinted
+with the dominant colour of the application icon and centred on the mouse
+(`Utilities/HotlightColor.cs`, applied to the `AeroGlow` element of the four
+button templates in `Themes/Overrides.xaml`). The behaviour implemented is the
+one Microsoft documents, sentence by sentence, as "Color hot-track" (Raymond
+Chen, The Old New Thing, 2011-12-06): the button "lights up in a color that
+matches the colors in the icon itself", "the lighting effect is centered on the
+mouse", and "the code just looks for the predominant color in the icon [...]
+black, white, and shades of gray are not considered 'colors' for the purpose of
+this calculation".
+
+**Why.** The check on the official documentation came first, as it was asked
+for, and it is what defines the implementation: the three documented properties
+are the acceptance criteria, and nothing beyond them was invented (no API, no
+registry, no effect on Windows personalization or on the icons themselves).
+Drawing the light ourselves is the only way to obtain it at all, because the
+real one lives inside Explorer's taskbar, which this program replaces.
+
+**Consequences.** The tile is vector paint, so it survives any taskbar height or
+DPI without resampling and without a second asset to keep in sync; the light is
+computed from the icon the button already shows, cached per icon, and cannot
+throw (an unsamplable icon falls back to the neutral white-blue Aero light); the
+brush is per button because its centre moves, and a template change (idle ->
+running -> active) re-assigns it to the new visual child. Pinned buttons that are
+not running light up as well, which is what Windows 7 does and what the request
+asked to bring back.
+
+**Revisit if.** Real-hardware feedback prefers a different tint strength, a
+different treatment of greyscale icons, or the light pinned to a fixed centre
+instead of following the cursor: the constants at the top of `HotlightColor.cs`
+and the single `MoveLight` call in `TaskbarWindow.xaml.cs` are the only places
+to change.

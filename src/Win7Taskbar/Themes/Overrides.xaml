@@ -56,6 +56,35 @@
         <GradientStop Color="#00D6F0FF" Offset="1.0" />
     </RadialGradientBrush>
 
+    <!-- ==================================================================
+         v1.21.33 - tessera lucida (glass) del pulsante della barra.
+
+         L'hover di un pulsante della Superbar torna la tessera quadrata
+         lucida di Windows 7: meta' alta chiara e riflettente, meta' bassa
+         in vetro acciaio-blu piu' densa, bordo sottile di vetro. E' un
+         gradiente vettoriale, quindi regge qualsiasi altezza di barra e
+         qualsiasi scala (100/125/150%): nessuna immagine da riscalare.
+
+         Il COLORE applicazione (Color hot-track) non e' qui: lo dipinge
+         per-pulsante il codice gestito sopra questa tessera, con un
+         RadialGradientBrush centrato sul cursore (vedi HotlightColor.cs e
+         TaskbarWindow.ApplyTaskButtonHotlight).
+         ================================================================== -->
+    <LinearGradientBrush x:Key="SuperbarHoverGlassBrush"
+                         StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#F2F7FBFF" Offset="0.00" />
+        <GradientStop Color="#D6E3EFF7" Offset="0.42" />
+        <GradientStop Color="#A6B9D2E4" Offset="0.52" />
+        <GradientStop Color="#6E92B2CC" Offset="1.00" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="SuperbarHoverGlassBorderBrush"
+                         StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#CCFFFFFF" Offset="0.00" />
+        <GradientStop Color="#4DFFFFFF" Offset="0.55" />
+        <GradientStop Color="#26FFFFFF" Offset="1.00" />
+    </LinearGradientBrush>
+
     <conv:ToolTipHorizontalOffsetConverter x:Key="ToolTipHorizontalOffset" />
     <conv:ToolTipVerticalOffsetConverter x:Key="ToolTipVerticalOffset" />
     <conv:ToolTipPlacementConverter x:Key="ToolTipPlacement" />
@@ -636,10 +665,21 @@
                      purpose: pinned icons of programs that are not running
                      keep only the v2.53 hover tile; the radial glow lights up
                      only on open programs (Running/Active/Notification
-                     templates below). -->
+                     templates below).
+
+                     v1.21.33: the tile itself is now the glossy glass of
+                     Windows 7 (no longer the tray image), and the idle
+                     template carries the same AeroGlow element as the other
+                     three so a pinned icon lights up with the application
+                     colour too - the hot-track belongs to every button. -->
                 <Border x:Name="HoverTile" Margin="-2,0"
                     CornerRadius="{DynamicResource SuperbarHoverTileCornerRadius}"
+                        BorderThickness="1" BorderBrush="Transparent"
                         Background="Transparent" IsHitTestVisible="False" />
+                <Border x:Name="AeroGlow" Margin="-3,0"
+                    CornerRadius="{DynamicResource SuperbarGlowCornerRadius}"
+                        Background="{StaticResource SuperbarAeroGlowBrush}"
+                        Opacity="0" IsHitTestVisible="False" />
                 <Border BorderThickness="1.4" BorderBrush="Transparent"
                         Background="Transparent"
                         CornerRadius="{DynamicResource SuperbarButtonInnerCornerRadius}" x:Name="IdleInner">
@@ -650,12 +690,10 @@
         </Border>
         <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="HoverTile" Property="Background">
-                    <Setter.Value>
-                        <ImageBrush ImageSource="{DynamicResource TrayTileHoverImage}"
-                                    Stretch="Fill" />
-                    </Setter.Value>
-                </Setter>
+                <Setter TargetName="HoverTile" Property="Background"
+                        Value="{DynamicResource SuperbarHoverGlassBrush}" />
+                <Setter TargetName="HoverTile" Property="BorderBrush"
+                        Value="{DynamicResource SuperbarHoverGlassBorderBrush}" />
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
                 <Setter Property="Foreground"
@@ -665,6 +703,26 @@
                 <Setter TargetName="HoverTile" Property="Background"
                         Value="{DynamicResource TaskButtonBackgroundPressed}" />
             </Trigger>
+            <!-- v1.21.33: fade of the glow in and out, as in the other states. -->
+            <EventTrigger RoutedEvent="MouseEnter">
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="1" Duration="0:0:0.18"
+                                         FillBehavior="HoldEnd" />
+                    </Storyboard>
+                </BeginStoryboard>
+            </EventTrigger>
+            <EventTrigger RoutedEvent="MouseLeave">
+                <BeginStoryboard>
+                    <Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="0" Duration="0:0:0.35" />
+                    </Storyboard>
+                </BeginStoryboard>
+            </EventTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
@@ -679,6 +737,7 @@
                                 Template="{DynamicResource TaskButtonFrameHover}" />
                 <Border x:Name="HoverTile" Margin="-2,0"
                     CornerRadius="{DynamicResource SuperbarHoverTileCornerRadius}"
+                        BorderThickness="1" BorderBrush="Transparent"
                         Background="Transparent" IsHitTestVisible="False"
                         Opacity="0" />
                 <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
@@ -693,12 +752,13 @@
         <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="HoverTile" Property="Opacity" Value="1" />
-                <Setter TargetName="HoverTile" Property="Background">
-                    <Setter.Value>
-                        <ImageBrush ImageSource="{DynamicResource TrayTileHoverImage}"
-                                    Stretch="Fill" />
-                    </Setter.Value>
-                </Setter>
+                <!-- v1.21.33: glossy square glass tile of Windows 7 (the
+                     application colour of the hot-track is painted on top of
+                     it by the managed code, per button). -->
+                <Setter TargetName="HoverTile" Property="Background"
+                        Value="{DynamicResource SuperbarHoverGlassBrush}" />
+                <Setter TargetName="HoverTile" Property="BorderBrush"
+                        Value="{DynamicResource SuperbarHoverGlassBorderBrush}" />
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
                 <Setter Property="Foreground"
@@ -738,6 +798,7 @@
                                 Template="{DynamicResource TaskButtonFrameActive}" />
                 <Border x:Name="HoverTile" Margin="-2,0"
                     CornerRadius="{DynamicResource SuperbarHoverTileCornerRadius}"
+                        BorderThickness="1" BorderBrush="Transparent"
                         Background="Transparent" IsHitTestVisible="False"
                         Opacity="0" />
                 <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
@@ -755,12 +816,13 @@
         <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="HoverTile" Property="Opacity" Value="1" />
-                <Setter TargetName="HoverTile" Property="Background">
-                    <Setter.Value>
-                        <ImageBrush ImageSource="{DynamicResource TrayTileHoverImage}"
-                                    Stretch="Fill" />
-                    </Setter.Value>
-                </Setter>
+                <!-- v1.21.33: glossy square glass tile of Windows 7 (the
+                     application colour of the hot-track is painted on top of
+                     it by the managed code, per button). -->
+                <Setter TargetName="HoverTile" Property="Background"
+                        Value="{DynamicResource SuperbarHoverGlassBrush}" />
+                <Setter TargetName="HoverTile" Property="BorderBrush"
+                        Value="{DynamicResource SuperbarHoverGlassBorderBrush}" />
                 <Setter TargetName="BottomHighlight" Property="Fill"
                         Value="{DynamicResource TaskButtonBottomHighlightActiveHover}" />
             </Trigger>
@@ -803,6 +865,7 @@
                                 Template="{DynamicResource TaskButtonFrameNotification}" />
                 <Border x:Name="HoverTile" Margin="-2,0"
                     CornerRadius="{DynamicResource SuperbarHoverTileCornerRadius}"
+                        BorderThickness="1" BorderBrush="Transparent"
                         Background="Transparent" IsHitTestVisible="False"
                         Opacity="0" />
                 <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
@@ -817,12 +880,13 @@
         <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="HoverTile" Property="Opacity" Value="1" />
-                <Setter TargetName="HoverTile" Property="Background">
-                    <Setter.Value>
-                        <ImageBrush ImageSource="{DynamicResource TrayTileHoverImage}"
-                                    Stretch="Fill" />
-                    </Setter.Value>
-                </Setter>
+                <!-- v1.21.33: glossy square glass tile of Windows 7 (the
+                     application colour of the hot-track is painted on top of
+                     it by the managed code, per button). -->
+                <Setter TargetName="HoverTile" Property="Background"
+                        Value="{DynamicResource SuperbarHoverGlassBrush}" />
+                <Setter TargetName="HoverTile" Property="BorderBrush"
+                        Value="{DynamicResource SuperbarHoverGlassBorderBrush}" />
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
                 <Setter TargetName="Frame" Property="Opacity" Value="0.85" />

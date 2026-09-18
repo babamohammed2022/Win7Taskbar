@@ -17,7 +17,7 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Pinned applications | ✅ | Pinned taskbar applications are supported. |
 | Application grouping | ✅ | Grouped task buttons are supported as part of the Windows 7-style Superbar behavior. |
 | Taskbar-list compatibility (shell clients) | ⚠️ | **v1.21.32:** the taskbar window answers the private query `WM_USER + 236` that `ITaskbarList` clients send to the window of class `Shell_TrayWnd` (`HrInit` fails when it answers zero), and the shell-hook codes those clients then send are honoured as the documented `AddTab`/`DeleteTab`/`ActivateTab` effects. Toolkits that run this during window creation (tao/Tauri, Chromium/Electron, i.e. Windhawk and VS Codium) can therefore add and remove their own buttons instead of failing or waiting. Windows with an empty title are accepted when they carry `WS_CAPTION`, and a window whose title arrives later joins the bar on the name-change event instead of waiting for the next full enumeration. **Needs real-hardware confirmation** with Windhawk and VS Codium, which is what this PR's test build is for. |
-| Application icons | ✅ | The general appearance is accurate, but icon accuracy is not yet complete for every application and system icon. |
+| Superbar hover tile and Color hot-track | ⚠️ | **v1.21.33:** the hover of a task button is the glossy square glass tile of Windows 7 (vector gradients, no bitmap to rescale) and the button lights up with the application colour: the light is tinted with the most dominant colour of the icon and centred on the mouse, exactly as Microsoft describes the feature ("Color hot-track": the button "lights up in a color that matches the colors in the icon itself", "the lighting effect is centered on the mouse", and "black, white, and shades of gray are not considered 'colors'"). Pinned programs that are not running light up too. **Needs real-hardware confirmation** of the exact tint and of the light's travel, which is what the test build attached to PR #30 is for. |
 | Open-application indicators | ⚠️ | Active/running-state indicators work. Multi-window separator lines are a right-aligned overlay (1 line at 2 windows, 2 lines at 3+). Both lines are shifted another 2% right; at 3+ the inner line moves 1.5% toward the outer line to tighten the pair. Pending real-hardware DPI verification. |
 | Application tooltips | ✅ | Application-name tooltips are available. |
 | File drag & drop onto taskbar buttons | ⚠️ | Dropping a file onto a pinned/running app button to open it with that app (hover-to-activate + drop) has an initial implementation: standard WPF drag&drop (no COM IDropTarget needed, since this isn't injected into explorer.exe), with a fallback to ShellExecute when the known executable can't be launched directly, and an extension check (via registry SupportedTypes, permissive when unknown) driving the allowed/forbidden cursor feedback. Needs real-world testing (multi-file drops, apps without declared SupportedTypes, mixed-extension drops). |
@@ -116,6 +116,38 @@ bar on the name-change event rather than at the next full enumeration.
 Real-hardware confirmation with Windhawk and VS Codium is the purpose of the
 test build attached to this pull request; the protocol path is also logged
 once with the `TABPROT` tag in `log-core.txt`.
+
+### Superbar hover tile and Color hot-track (v1.21.33)
+
+The hover of a task button is the glossy square glass tile of Windows 7,
+drawn with vector gradients (`Overrides.xaml`: `SuperbarHoverGlassBrush`,
+`SuperbarHoverGlassBorderBrush`), so it keeps its look at any taskbar height
+and at 100/125/150% scaling instead of rescaling a bitmap. The tile replaces
+the tray-hover image the buttons had borrowed since v2.53, which stays where
+it belongs: the notification-area icons.
+
+On top of the tile, every button - running, active, flashing and pinned-only -
+now lights up with the colour of its own icon, following the mouse. That is the
+feature Microsoft calls "Color hot-track" and documents in the official
+developer blog: the button "lights up in a color that matches the colors in
+the icon itself", "the lighting effect is centered on the mouse", and "the code
+just looks for the predominant color in the icon [...] black, white, and shades
+of gray are not considered 'colors' for the purpose of this calculation".
+
+`Utilities/HotlightColor.cs` implements exactly those three sentences: the icon
+is sampled at 24x24, the pixels that are near-black or that have too little
+saturation (white, greys) are discarded, the remaining pixels vote for a colour
+bucket weighted by their saturation, and the winning colour - lightened toward
+white, because the glow is a light and not the flat icon colour - becomes a
+radial light centred on the cursor. The result is cached per icon; the light's
+centre is per button, so two buttons never share a moving brush. Icons with no
+colour at all fall back to the neutral white-blue Aero light. On a vertical
+taskbar the light travels along the bar and keeps a fixed horizontal position,
+so it never sits on the button's text.
+
+**Revisit if.** Real-hardware feedback asks for a different tint strength or a
+different behaviour on greyscale icons: the three constants at the top of
+`HotlightColor.cs` (sample edge, saturation threshold, tint) are the only knobs.
 
 ## Areas that are already in good shape
 
