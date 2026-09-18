@@ -62,6 +62,11 @@ namespace Win7Taskbar.Utilities
         /// a light and not the flat colour of the icon.</summary>
         private const float LightenTint = 0.35f;
 
+        /// <summary>Overall strength of the accent: it is not a constant of
+        /// this file. The theme owns it, in the two `Hotlight` opacity
+        /// animations of each template (12%, inside the 10-15% band asked
+        /// for after the 5% of v1.21.34 was judged too faint).</summary>
+
         /// <summary>Neutral light: white-blue Aero glass, used when the icon
         /// has no colour at all (a black, white or grey icon).</summary>
         public static readonly Color NeutralLight = Color.FromRgb(0xD6, 0xF0, 0xFF);
@@ -70,6 +75,14 @@ namespace Win7Taskbar.Utilities
         /// same bias the previous static glow had.</summary>
         public const double DefaultCenterX = 0.5;
         public const double DefaultCenterY = 0.62;
+
+        /// <summary>Radii of the spot, as fractions of the button. Small on
+        /// purpose: the accent has to read as a spot of light around the
+        /// cursor, not as a wash over the whole tile. The vertical radius is
+        /// the larger one so the spot fits the tall shape of a taskbar
+        /// button.</summary>
+        private const double SpotRadiusX = 0.55;
+        private const double SpotRadiusY = 0.72;
 
         private const int MaxCacheEntries = 256;
 
@@ -218,8 +231,10 @@ namespace Win7Taskbar.Utilities
         }
 
         /// <summary>
-        /// Radial light of the hot-track: a bright tinted core that fades
-        /// through the application colour into transparency. Proportional
+        /// Radial light of the hot-track: a small bright tinted core that
+        /// fades through the application colour into transparency. The
+        /// overall weight is not set here: it is the opacity the theme
+        /// animates (12%), so the two things stay independent. Proportional
         /// coordinates, so it scales with the button at any DPI.
         /// </summary>
         public static RadialGradientBrush CreateLightBrush(Color color)
@@ -231,8 +246,8 @@ namespace Win7Taskbar.Utilities
                 MappingMode = BrushMappingMode.RelativeToBoundingBox,
                 Center = new Point(DefaultCenterX, DefaultCenterY),
                 GradientOrigin = new Point(DefaultCenterX, DefaultCenterY),
-                RadiusX = 0.85,
-                RadiusY = 1.15
+                RadiusX = SpotRadiusX,
+                RadiusY = SpotRadiusY
             };
             brush.GradientStops.Add(new GradientStop(WithAlpha(bright, 0xE8), 0.0));
             brush.GradientStops.Add(new GradientStop(WithAlpha(color, 0x9C), 0.38));
