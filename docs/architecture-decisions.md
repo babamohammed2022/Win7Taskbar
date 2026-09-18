@@ -434,38 +434,37 @@ windows.
 lookup (a documented query or interface for third-party taskbars): the query
 handler and `TaskSwitchWndProc` are the only two places to change.
 
-## 18. v1.21.33: the hover light is drawn by us, following the documented feature
+## 18. v1.21.34: Color hot-track as a 5% accent on open programs only
 
-**Decision.** A task button's hover is the glossy square glass tile of Windows 7
-(vector gradients, no rescaling bitmap) and, on top of it, a radial light tinted
-with the dominant colour of the application icon and centred on the mouse
-(`Utilities/HotlightColor.cs`, applied to the `AeroGlow` element of the four
-button templates in `Themes/Overrides.xaml`). The behaviour implemented is the
-one Microsoft documents, sentence by sentence, as "Color hot-track" (Raymond
-Chen, The Old New Thing, 2011-12-06): the button "lights up in a color that
-matches the colors in the icon itself", "the lighting effect is centered on the
-mouse", and "the code just looks for the predominant color in the icon [...]
-black, white, and shades of gray are not considered 'colors' for the purpose of
-this calculation".
+**Decision.** The hover look of a task button is left exactly as it was before
+v1.21.33 (the tray hover tile plus the theme's Aero glow, `Themes/Overrides.xaml`).
+On top of it, and only for a program that is **open** (running, active or
+flashing), a separate `Hotlight` element paints the colour of the application
+icon - the "Color hot-track" Microsoft documents (Raymond Chen, The Old New
+Thing, 2011-12-06: the button "lights up in a color that matches the colors in
+the icon itself", "the lighting effect is centered on the mouse", and "the code
+just looks for the predominant color in the icon [...] black, white, and shades
+of gray are not considered 'colors'") - at **5%** strength, with its centre
+moved to the cursor by `TaskButton_MouseMove`. Pinned buttons that are not
+running carry no accent at all.
 
-**Why.** The check on the official documentation came first, as it was asked
-for, and it is what defines the implementation: the three documented properties
-are the acceptance criteria, and nothing beyond them was invented (no API, no
-registry, no effect on Windows personalization or on the icons themselves).
-Drawing the light ourselves is the only way to obtain it at all, because the
-real one lives inside Explorer's taskbar, which this program replaces.
+**Why.** The first attempt (v1.21.33) replaced the hover tile everywhere with a
+glossy square glass tile and tinted every button at full strength. Feedback from
+real use rejected it: Windows 7 was far more moderate, and the light belonged to
+open programs. The documented feature is therefore kept, but its scope and its
+weight follow the feedback rather than the first implementation: the existing
+hover is untouched, the colour is only a nuance, and it appears only where the
+original showed it.
 
-**Consequences.** The tile is vector paint, so it survives any taskbar height or
-DPI without resampling and without a second asset to keep in sync; the light is
-computed from the icon the button already shows, cached per icon, and cannot
-throw (an unsamplable icon falls back to the neutral white-blue Aero light); the
-brush is per button because its centre moves, and a template change (idle ->
-running -> active) re-assigns it to the new visual child. Pinned buttons that are
-not running light up as well, which is what Windows 7 does and what the request
-asked to bring back.
+**Consequences.** The `Hotlight` element is a no-op when it is not wanted (it
+starts at opacity 0 and the templates animate it to 0.05 only on the hover of an
+open program), so a pinned program cannot light up by accident; the 5% value is
+the only knob and lives in the two animations per template, clearly marked; the
+colour extraction (`Utilities/HotlightColor.cs`) is unchanged and still cannot
+break a hover (an unsamplable icon falls back to the neutral white-blue light).
+No tile, no border and no brush of the pre-v1.21.33 hover were replaced.
 
-**Revisit if.** Real-hardware feedback prefers a different tint strength, a
-different treatment of greyscale icons, or the light pinned to a fixed centre
-instead of following the cursor: the constants at the top of `HotlightColor.cs`
-and the single `MoveLight` call in `TaskbarWindow.xaml.cs` are the only places
-to change.
+**Revisit if.** The 5% is too faint or too strong on real hardware: the marked
+`To="0.05"` animations are the single place to change. If the accent should also
+appear on pinned programs, the guard is the single `group.IsRunning` condition
+in `TaskbarWindow.xaml.cs`.

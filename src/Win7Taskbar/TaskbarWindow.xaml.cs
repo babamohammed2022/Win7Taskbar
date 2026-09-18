@@ -3032,26 +3032,27 @@ namespace Win7Taskbar
                     return;
                 }
 
-                /* v1.21.33: Color hot-track. The button lights up with the
-                 * dominant colour of the application icon in the moment the
-                 * mouse arrives, pinned programs included (in Windows 7 every
-                 * button lights up, running or not). The light then follows
-                 * the cursor in TaskButton_MouseMove. */
-                if (button is Button taskButton)
-                {
-                    ApplyTaskButtonHotlight(taskButton, group);
-                }
-
                 if (group.Windows.Count == 0)
                 {
-                    /* App non avviata: nessuna anteprima. Se il mouse arriva
-                     * da un altro pulsante, la sua anteprima non serve
-                     * piu'. */
+                    /* App non avviata: nessuna anteprima, e NESSUN accento
+                     * colorato: in Windows 7 l'hot-track riguardava solo i
+                     * programmi APERTI, e un'icona pinnata deve restare
+                     * esattamente com'era. Se il mouse arriva da un altro
+                     * pulsante, la sua anteprima non serve piu'. */
                     if (!ReferenceEquals(_previewAnchor, button))
                     {
                         CloseTaskPreview();
                     }
                     return;
+                }
+
+                /* v1.21.34: Color hot-track, solo sui programmi aperti e con
+                 * la sola nuance di colore al 5% (vedi il template: l'opacita'
+                 * dell'accento e' animata a 0.05). La luce segue poi il
+                 * cursore in TaskButton_MouseMove. */
+                if (button is Button taskButton && group.IsRunning)
+                {
+                    ApplyTaskButtonHotlight(taskButton, group);
                 }
 
                 /* v3.8: anteprima GIA' a schermo: il passaggio del mouse su
@@ -3122,7 +3123,7 @@ namespace Win7Taskbar
         }
 
         /* ------------------------------------------------------------------ */
-        /*  v1.21.33: Color hot-track                                          */
+        /*  v1.21.34: Color hot-track, 5% accent on open programs              */
         /*                                                                     */
         /*  Microsoft describes the behaviour precisely (Raymond Chen,         */
         /*  official Microsoft blog, 2011-12-06): the hovered taskbar button   */
@@ -3131,8 +3132,12 @@ namespace Win7Taskbar
         /*  looks for the predominant color in the icon [...] black, white,    */
         /*  and shades of gray are not considered 'colors'".                   */
         /*                                                                     */
-        /*  The extraction (HotlightColor.cs) is cached per icon; the brush is */
-        /*  per BUTTON, because its centre moves with the cursor.              */
+        /*  Scope, after the feedback on the first attempt: the hover look     */
+        /*  itself is untouched (the theme's own gravity: tray hover tile +    */
+        /*  Aero glow) and the colour is ONLY a 5% accent on top of it,        */
+        /*  only on programs that are open. The extraction                */
+        /*  (HotlightColor.cs) is cached per icon; the brush is per BUTTON,    */
+        /*  because its centre moves with the cursor.                          */
         /* ------------------------------------------------------------------ */
 
         private sealed class HotlightState
@@ -3141,8 +3146,9 @@ namespace Win7Taskbar
             public ulong IconKey;
 
             /// <summary>Element the brush was assigned to. A template change
-            /// (idle -> running -> active) creates new visual children, so the
-            /// brush has to be re-assigned to whatever AeroGlow is live now.</summary>
+            /// (running -> active -> notification) creates new visual children,
+            /// so the brush has to be re-assigned to whatever Hotlight is live
+            /// now.</summary>
             public Border? Element;
 
             public RadialGradientBrush? Brush;
@@ -3154,7 +3160,7 @@ namespace Win7Taskbar
         {
             try
             {
-                if (button.Template?.FindName("AeroGlow", button) is not Border glow)
+                if (button.Template?.FindName("Hotlight", button) is not Border accent)
                 {
                     return;
                 }
@@ -3168,10 +3174,10 @@ namespace Win7Taskbar
                     HotlightColor.ResetLight(state.Brush);
                 }
 
-                if (!ReferenceEquals(state.Element, glow))
+                if (!ReferenceEquals(state.Element, accent))
                 {
-                    state.Element = glow;
-                    glow.Background = state.Brush;
+                    state.Element = accent;
+                    accent.Background = state.Brush;
                 }
             }
             catch (Exception ex)
@@ -3185,8 +3191,8 @@ namespace Win7Taskbar
         private void TaskButton_MouseMove(object sender, MouseEventArgs e)
         {
             if (sender is not Button button ||
-                button.Template?.FindName("AeroGlow", button) is not Border glow ||
-                glow.Background is not RadialGradientBrush brush)
+                button.Template?.FindName("Hotlight", button) is not Border accent ||
+                accent.Background is not RadialGradientBrush brush)
             {
                 return;
             }
