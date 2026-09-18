@@ -5724,7 +5724,7 @@ static DWORD SafeWlanSetProfile(HANDLE hClient, const GUID* interfaceGuid,
 }
 
 static DWORD WlanConnectInner(HANDLE hClient, const GUID* interfaceGuid,
-                              const WLAN_CONNECTION_PARAMETERS* parameters) {
+                              WLAN_CONNECTION_PARAMETERS* parameters) {
     DWORD result = ERROR_INVALID_PARAMETER;
     W7T_SEH_TRY
     {
@@ -5739,7 +5739,7 @@ static DWORD WlanConnectInner(HANDLE hClient, const GUID* interfaceGuid,
 }
 
 static DWORD SafeWlanConnect(HANDLE hClient, const GUID* interfaceGuid,
-                             const WLAN_CONNECTION_PARAMETERS* parameters) {
+                             WLAN_CONNECTION_PARAMETERS* parameters) {
     try {
         return WlanConnectInner(hClient, interfaceGuid, parameters);
     } catch (...) {
@@ -5820,7 +5820,7 @@ static DWORD SafeWlanGetProfileList(HANDLE hClient, const GUID* pInterfaceGuid, 
 }
 
 static DWORD WlanGetNetworkBssListInner(HANDLE hClient, const GUID* interfaceGuid,
-                                             const DOT11_SSID* ssid, DOT11_BSS_TYPE bssType,
+                                             DOT11_SSID* ssid, DOT11_BSS_TYPE bssType,
                                              BOOL securityEnabled, PWLAN_BSS_LIST* outList) {
     DWORD result = ERROR_INVALID_PARAMETER;
     W7T_SEH_TRY
@@ -5837,7 +5837,7 @@ static DWORD WlanGetNetworkBssListInner(HANDLE hClient, const GUID* interfaceGui
 }
 
 static DWORD SafeWlanGetNetworkBssList(HANDLE hClient, const GUID* interfaceGuid,
-                                       const DOT11_SSID* ssid, DOT11_BSS_TYPE bssType,
+                                       DOT11_SSID* ssid, DOT11_BSS_TYPE bssType,
                                        BOOL securityEnabled, PWLAN_BSS_LIST* outList) {
     try {
         return WlanGetNetworkBssListInner(hClient, interfaceGuid, ssid, bssType,
@@ -13085,23 +13085,6 @@ void Win8NetworkFlyout::SetLanguage(int appLang) {
 }
 
 void Win8NetworkFlyout::ShutdownIfCreated() {
-    if (s_net8Initialized)
-        Instance().Uninit();
-}
-
-} // namespace w7t
-  {
-    }
-    W7T_SEH_END
-}
-
-void Win8NetworkFlyout::ShutdownIfCreated() {
-    if (s_net8Initialized)
-        Instance().Uninit();
-}
-
-} // namespace w7t
-rkFlyout::ShutdownIfCreated() {
     if (s_net8Initialized)
         Instance().Uninit();
 }
