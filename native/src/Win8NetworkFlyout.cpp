@@ -9004,7 +9004,7 @@ static BOOL SafeShellExecuteEx(SHELLEXECUTEINFOW* sei) {
 }
 
 // Windows 10/11 expose the supported network troubleshooter through Settings.
-// Keep the decompiled Windows 8 msdt command only as a compatibility fallback:
+// Keep the legacy Windows diagnostic command only as a compatibility fallback:
 // msdt.exe is deprecated on recent Windows builds and must never be the first
 // choice. Both launches use the existing SEH + C++ exception barriers.
 static BOOL SafeOpenNetworkTroubleshooter(HWND hwnd) {
