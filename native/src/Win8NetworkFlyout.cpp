@@ -9003,6 +9003,42 @@ static BOOL SafeShellExecuteEx(SHELLEXECUTEINFOW* sei) {
     return ok;
 }
 
+// Windows 10/11 expose the supported network troubleshooter through Settings.
+// Keep the decompiled Windows 8 msdt command only as a compatibility fallback:
+// msdt.exe is deprecated on recent Windows builds and must never be the first
+// choice. Both launches use the existing SEH + C++ exception barriers.
+static BOOL SafeOpenNetworkTroubleshooter(HWND hwnd) {
+    (void)hwnd;
+    try {
+        if (SafeShellExecuteOpen(NULL, L"ms-settings:troubleshoot", NULL)) {
+            w7t::LogTagged(L"NET8", L"network troubleshooter opened through Settings");
+            return TRUE;
+        }
+
+        WCHAR windowsDir[MAX_PATH] = {};
+        const UINT length = GetWindowsDirectoryW(windowsDir, ARRAYSIZE(windowsDir));
+        if (length == 0 || length >= ARRAYSIZE(windowsDir))
+            return FALSE;
+
+        WCHAR msdtPath[MAX_PATH] = {};
+        WCHAR parameters[MAX_PATH * 2] = {};
+        if (FAILED(StringCchPrintfW(msdtPath, ARRAYSIZE(msdtPath),
+                                    L"%s\\System32\\msdt.exe", windowsDir)) ||
+            FAILED(StringCchPrintfW(parameters, ARRAYSIZE(parameters),
+                                    L"-skip TRUE -path %s\\diagnostics\\system\\networking "
+                                    L"-ep NetworkDiagnosticsPNI", windowsDir))) {
+            return FALSE;
+        }
+        const BOOL opened = SafeShellExecuteOpen(NULL, msdtPath, parameters);
+        if (opened)
+            w7t::LogTagged(L"NET8", L"network troubleshooter opened through legacy msdt fallback");
+        return opened;
+    } catch (...) {
+        w7t::LogTagged(L"NET8", L"network troubleshooter launch raised an exception");
+        return FALSE;
+    }
+}
+
 void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
     WifiNetworkItem menuItem = {};
     EnterCriticalSection(&g_Ctx.csLock);
@@ -9037,6 +9073,8 @@ void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
     if (menuItem.hasProfile) {
         AppendMenuW(hMenu, MF_STRING, IDM_PROPERTIES, LOC(STR_CTX_PROPERTIES));
     }
+    AppendMenuW(hMenu, MF_STRING, IDM_TRAY_TROUBLESHOOT,
+                LOC(STR_TRAY_TROUBLESHOOT));
     if (g_Settings.theme == 1) {
         DarkContextMenu::Apply(TRUE);
     }
@@ -9082,6 +9120,9 @@ void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
             break;
         case IDM_DISCONNECT:
             SafeDisconnectFromNetwork(targetIndex);
+            break;
+        case IDM_TRAY_TROUBLESHOOT:
+            SafeOpenNetworkTroubleshooter(hwnd);
             break;
         case IDM_STATUS:
 case IDM_PROPERTIES:
