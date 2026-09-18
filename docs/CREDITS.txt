@@ -49,14 +49,17 @@ Derived works and scope of the attribution:
         RetroBar.Utilities.Settings         (Instance, CollapseNotifyIcons)
 
 EXPLICIT STATEMENT ABOUT THE SOURCE CODE
-    NO line of RetroBar's C# source code was copied verbatim into this project.
-    All the logic (Superbar grouping, jump lists, notification area, AppBar
-    behaviour) was REIMPLEMENTED FROM SCRATCH in native C++, under native/.
-    What is taken from the RetroBar project:
+    Apart from the single, documented exception below (the autostart logic,
+    copied verbatim since v1.21.37 on purpose and fully attributed), NO line
+    of RetroBar's C# source code was copied verbatim into this project.
+    All the other logic (Superbar grouping, jump lists, notification area,
+    AppBar behaviour) was REIMPLEMENTED FROM SCRATCH in native C++, under
+    native/. What is taken from the RetroBar project:
       - the XAML theme file listed above, an existing derived work;
       - the public type/member names that the XAML bindings require;
       - the ALGORITHMS of a few features described below, reimplemented as
-        original code but following the same logic.
+        original code but following the same logic;
+      - the autostart implementation, copied as described below.
 
   * src/Win7Taskbar/Controls/TaskThumbnail.cs
     Live window previews through the DWM APIs. It follows the logic of
@@ -134,6 +137,27 @@ EXPLICIT STATEMENT ABOUT THE SOURCE CODE
       - mouse wheel: up activates, down minimises;
       - middle click opens a new instance of the application.
     Reimplemented as original code. Apache 2.0.
+
+  * src/Win7Taskbar/Utilities/AutoStart.cs  (v1.21.37)
+    "Start with Windows" (reversible) - the checkbox in the "About /
+    Informazioni" tab of the Properties window. This one is a COMPLETE PORT,
+    copied from RetroBar on purpose:
+      - RetroBar/PropertiesWindow.xaml.cs, LoadAutoStart(): the state is read
+        from the VALUE NAMES of
+        HKCU\Software\Microsoft\Windows\CurrentVersion\Run;
+      - RetroBar/PropertiesWindow.xaml.cs, CbAutoStart_OnChecked(): enabling
+        writes the quoted executable path as the "Win7Taskbar" value of that
+        key (Run values are command lines, hence the quotes), disabling
+        DELETES the value - fully reversible;
+      - RetroBar/Utilities/ExePath.cs, GetExecutablePath(): the executable
+        path through GetModuleFileName(NULL).
+    Every step is wrapped in try/catch with error logging, exactly as in the
+    original. The only differences: the value name ("Win7Taskbar" instead of
+    "RetroBar"), the error sink (DiagnosticLogger instead of ShellLogger), the
+    checkbox labels (the very "autostart" strings of RetroBar's language
+    files, minus the accelerator character) and the moment the choice is
+    committed (OK/Apply of this Properties dialog instead of the checkbox
+    click, like every other setting of this dialog). Apache 2.0.
 
 
 --------------------------------------------------------------------------------

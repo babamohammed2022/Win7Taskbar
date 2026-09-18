@@ -98,6 +98,8 @@ constexpr PropStrings kPropIt = {
     L"Gestione attività:", L"Automatico (predefinito)", L"Gestione attività", L"Gestione attività (classico)",
     /* v3.8: terza voce della tendina rete. */
     L"Windows 8 (ricreato)",
+    /* v1.21.37: avvio automatico (stringa "autostart" di RetroBar). */
+    L"Esegui automaticamente all'accesso",
 };
 constexpr PropStrings kPropEn = {
     L"Properties",
@@ -151,6 +153,8 @@ constexpr PropStrings kPropEn = {
     L"Task Manager:", L"Automatic (default)", L"Task Manager (Windows 11)", L"Task Manager (Legacy)",
     /* v3.8: terza voce della tendina rete. */
     L"Windows 8 (recreated)",
+    /* v1.21.37: avvio automatico (stringa "autostart" di RetroBar). */
+    L"Automatically start at logon",
 };
 constexpr PropStrings kPropEs = {
     L"Propiedades",
@@ -204,6 +208,8 @@ constexpr PropStrings kPropEs = {
     L"Administrador de tareas:", L"Automático (predeterminado)", L"Administrador de tareas (Windows 11)", L"Administrador de tareas (heredado)",
     /* v3.8: terza voce della tendina rete. */
     L"Windows 8 (recreado)",
+    /* v1.21.37: avvio automatico (stringa "autostart" di RetroBar). */
+    L"Iniciar automáticamente al iniciar sesión",
 };
 constexpr PropStrings kPropFr = {
     L"Propriétés",
@@ -257,6 +263,8 @@ constexpr PropStrings kPropFr = {
     L"Gestionnaire des tâches:", L"Automatique (par défaut)", L"Gestionnaire des tâches (Windows 11)", L"Gestionnaire des tâches (hérité)",
     /* v3.8: terza voce della tendina rete. */
     L"Windows 8 (recréé)",
+    /* v1.21.37: avvio automatico (stringa "autostart" di RetroBar). */
+    L"Démarrer automatiquement à la connexion",
 };
 constexpr PropStrings kPropDe = {
     L"Eigenschaften",
@@ -308,6 +316,8 @@ constexpr PropStrings kPropDe = {
     L"Task-Manager:", L"Automatisch (Standard)", L"Task-Manager (Windows 11)", L"Task-Manager (Legacy)",
     /* v3.8: terza voce della tendina rete. */
     L"Windows 8 (nachgebaut)",
+    /* v1.21.37: avvio automatico (stringa "autostart" di RetroBar). */
+    L"Automatisch mit Windows starten",
 };
 constexpr PropStrings kPropPt = {
     L"Propriedades",
@@ -360,6 +370,8 @@ constexpr PropStrings kPropPt = {
     L"Gestor de Tarefas:", L"Automático (predefinição)", L"Gestor de Tarefas (Windows 11)", L"Gestor de Tarefas (Legado)",
     /* v3.8: terza voce della tendina rete. */
     L"Windows 8 (recriado)",
+    /* v1.21.37: avvio automatico (stringa "autostart" di RetroBar). */
+    L"Iniciar automaticamente no logon",
 };
 constexpr PropStrings kPropPl = {
     L"Właściwości",
@@ -411,6 +423,8 @@ constexpr PropStrings kPropPl = {
     L"Menedżer zadań:", L"Automatycznie (domyślne)", L"Menedżer zadań (Windows 11)", L"Menedżer zadań (starszy)",
     /* v3.8: terza voce della tendina rete. */
     L"Windows 8 (odtworzony)",
+    /* v1.21.37: avvio automatico (stringa "autostart" di RetroBar). */
+    L"Uruchamiaj podczas startu systemu",
 };
 constexpr PropStrings kPropRu = {
     L"Свойства",
@@ -462,6 +476,8 @@ constexpr PropStrings kPropRu = {
     L"Диспетчер задач:", L"Автоматически (по умолчанию)", L"Диспетчер задач (Windows 11)", L"Диспетчер задач (классический)",
     /* v3.8: terza voce della tendina rete. */
     L"Windows 8 (воссозданный)",
+    /* v1.21.37: avvio automatico (stringa "autostart" di RetroBar). */
+    L"Запускать при входе в систему",
 };
 constexpr PropStrings kPropJa = {
     L"プロパティ",
@@ -509,6 +525,8 @@ constexpr PropStrings kPropJa = {
     L"タスク マネージャー:", L"自動 (既定)", L"タスク マネージャー (Windows 11)", L"タスク マネージャー (レガシ)",
     /* v3.8: terza voce della tendina rete. */
     L"Windows 8 (再現)",
+    /* v1.21.37: avvio automatico (stringa "autostart" di RetroBar). */
+    L"ログオン時に自動的に起動する",
 };
 constexpr PropStrings kPropZh = {
     L"属性",
@@ -554,6 +572,8 @@ constexpr PropStrings kPropZh = {
     L"任务管理器:", L"自动（默认）", L"任务管理器 (Windows 11)", L"任务管理器（旧版）",
     /* v3.8: terza voce della tendina rete. */
     L"Windows 8 (重新创建)",
+    /* v1.21.37: avvio automatico (stringa "autostart" di RetroBar). */
+    L"开机时自动启动",
 };
 
 /* Arabic - contributed by mahmogamer (see CREDITS.txt). */
@@ -600,6 +620,8 @@ constexpr PropStrings kPropAr = {
     L"إدارة المهام:", L"تلقائي (افتراضي)", L"إدارة المهام (Windows 11)", L"إدارة المهام (قديم)",
     /* v3.8: terza voce della tendina rete. */
     L"Windows 8 (معاد إنشاؤه)",
+    /* v1.21.37: avvio automatico (stringa "autostart" di RetroBar). */
+    L"بدء التشغيل تلقائيًا عند تسجيل الدخول",
 };
 
 /* ------------------------------------------------------------------------ */

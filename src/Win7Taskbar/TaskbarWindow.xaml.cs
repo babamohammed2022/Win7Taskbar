@@ -2012,6 +2012,23 @@ namespace Win7Taskbar
                      * without waiting for a restart. */
                     ApplyExtraSettings();
                 }
+                /* v1.21.37 - avvio automatico con Windows, implementazione
+                 * COPIATA DA RETROBAR (PropertiesWindow.xaml.cs:
+                 * LoadAutoStart/CbAutoStart_OnChecked). Offset 76, pacchetto
+                 * da 80 byte: si legge solo se il nativo lo contiene davvero,
+                 * come tutti i campi aggiunti in coda. L'effetto e'
+                 * reversibile: spuntato scrive il percorso dell'eseguibile
+                 * nel valore "Win7Taskbar" della chiave Run dell'utente,
+                 * non spuntato elimina il valore (Utilities/AutoStart.cs). */
+                if (cds.cbData >= 80)
+                {
+                    int autoStart = System.Runtime.InteropServices.Marshal
+                        .ReadInt32(cds.lpData, 76);
+                    Win7Taskbar.Utilities.AutoStart.SetEnabled(autoStart == 1);
+                    _bridge.Log("proprieta': avvio automatico " +
+                                (autoStart == 1 ? "attivato" : "disattivato") +
+                                " (logica RetroBar)");
+                }
                 if (hasToolbars)
                 {
                     /* Le caselle della scheda "Barre degli strumenti" sono le
@@ -7423,7 +7440,12 @@ namespace Win7Taskbar
                     st.FlyoutColorMode,
                     st.FlyoutCustomColorRgb,
                     st.ConnectionFlyoutPrivacyMode,
-                    st.ThemeSelection);
+                    st.ThemeSelection,
+                    /* v1.21.37: stato corrente dell'avvio automatico con
+                     * Windows, letto dal registro con la logica di RetroBar
+                     * (LoadAutoStart), per la casella della scheda
+                     * Informazioni. */
+                    Win7Taskbar.Utilities.AutoStart.IsEnabled() ? 1 : 0);
             }
             catch (Exception ex)
             {
