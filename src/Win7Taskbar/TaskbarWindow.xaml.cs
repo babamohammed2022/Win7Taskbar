@@ -3034,14 +3034,25 @@ namespace Win7Taskbar
 
                 if (group.Windows.Count == 0)
                 {
-                    /* App non avviata: nessuna anteprima. Se il mouse arriva
-                     * da un altro pulsante, la sua anteprima non serve
-                     * piu'. */
+                    /* App non avviata: nessuna anteprima, e NESSUN accento
+                     * colorato: in Windows 7 l'hot-track riguardava solo i
+                     * programmi APERTI, e un'icona pinnata deve restare
+                     * esattamente com'era. Se il mouse arriva da un altro
+                     * pulsante, la sua anteprima non serve piu'. */
                     if (!ReferenceEquals(_previewAnchor, button))
                     {
                         CloseTaskPreview();
                     }
                     return;
+                }
+
+                /* v1.21.34: Color hot-track, solo sui programmi aperti e con
+                 * la sola nuance di colore al 5% (vedi il template: l'opacita'
+                 * dell'accento e' animata a 0.05). La luce segue poi il
+                 * cursore in TaskButton_MouseMove. */
+                if (button is Button taskButton && group.IsRunning)
+                {
+                    ApplyTaskButtonHotlight(taskButton, group);
                 }
 
                 /* v3.8: anteprima GIA' a schermo: il passaggio del mouse su
@@ -3108,6 +3119,113 @@ namespace Win7Taskbar
             catch (Exception ex)
             {
                 Debug.WriteLine($"uscita pulsante (anteprima): {ex.Message}");
+            }
+        }
+
+        /* ------------------------------------------------------------------ */
+        /*  v1.21.34: Color hot-track, 5% accent on open programs              */
+        /*                                                                     */
+        /*  Microsoft describes the behaviour precisely (Raymond Chen,         */
+        /*  official Microsoft blog, 2011-12-06): the hovered taskbar button   */
+        /*  "lights up in a color that matches the colors in the icon itself", */
+        /*  "the lighting effect is centered on the mouse", and "the code just */
+        /*  looks for the predominant color in the icon [...] black, white,    */
+        /*  and shades of gray are not considered 'colors'".                   */
+        /*                                                                     */
+        /*  Scope, after the feedback on the first attempt: the hover look     */
+        /*  itself is untouched (the theme's own gravity: tray hover tile +    */
+        /*  Aero glow) and the colour is ONLY a 5% accent on top of it,        */
+        /*  only on programs that are open. The extraction                */
+        /*  (HotlightColor.cs) is cached per icon; the brush is per BUTTON,    */
+        /*  because its centre moves with the cursor.                          */
+        /* ------------------------------------------------------------------ */
+
+        private sealed class HotlightState
+        {
+            /// <summary>Pixels the current brush was built from.</summary>
+            public ulong IconKey;
+
+            /// <summary>Element the brush was assigned to. A template change
+            /// (running -> active -> notification) creates new visual children,
+            /// so the brush has to be re-assigned to whatever Hotlight is live
+            /// now.</summary>
+            public Border? Element;
+
+            public RadialGradientBrush? Brush;
+        }
+
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Button, HotlightState> _hotlights = new();
+
+        private void ApplyTaskButtonHotlight(Button button, TaskGroup? group)
+        {
+            try
+            {
+                if (button.Template?.FindName("Hotlight", button) is not Border accent)
+                {
+                    return;
+                }
+
+                Color light = HotlightColor.DominantLight(group?.Icon, out ulong key);
+                HotlightState state = _hotlights.GetOrCreateValue(button);
+                if (state.Brush == null || state.IconKey != key)
+                {
+                    state.Brush = HotlightColor.CreateLightBrush(light);
+                    state.IconKey = key;
+                    HotlightColor.ResetLight(state.Brush);
+                }
+
+                if (!ReferenceEquals(state.Element, accent))
+                {
+                    state.Element = accent;
+                    accent.Background = state.Brush;
+                }
+            }
+            catch (Exception ex)
+            {
+                /* The hover has to survive a missing or unreadable icon: the
+                 * theme's own glow stays in place. */
+                Debug.WriteLine($"alone del pulsante: {ex.Message}");
+            }
+        }
+
+        private void TaskButton_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (sender is not Button button ||
+                button.Template?.FindName("Hotlight", button) is not Border accent ||
+                accent.Background is not RadialGradientBrush brush)
+            {
+                return;
+            }
+            if (!_hotlights.TryGetValue(button, out HotlightState? state) ||
+                state.Brush == null || !ReferenceEquals(state.Brush, brush))
+            {
+                return;
+            }
+
+            double width = button.ActualWidth;
+            double height = button.ActualHeight;
+            if (width <= 0 || height <= 0)
+            {
+                return;
+            }
+
+            Point position = e.GetPosition(button);
+            double fractionX = position.X / width;
+            double fractionY = position.Y / height;
+
+            if (Orientation == Orientation.Vertical)
+            {
+                /* Vertical bar: the light travels along the bar and keeps a
+                 * fixed horizontal position, so it never lands on the text of
+                 * the button. */
+                HotlightColor.MoveLight(brush, 0.42, 0.10 + (fractionY * 0.80));
+            }
+            else
+            {
+                /* Horizontal bar: the light is centered on the cursor,
+                 * keeping the Aero bias toward the lower half of the tile. */
+                HotlightColor.MoveLight(brush, 0.10 + (fractionX * 0.80),
+                                        0.62 + ((fractionY - 0.5) * 0.25));
             }
         }
 
@@ -4082,6 +4200,92 @@ namespace Win7Taskbar
         }
 
         /// <summary>
+        /// <summary>
+        /// v1.21.32: vertical position of the preview close X.
+        ///
+        /// The top margin is no longer a magic number hard-coded in the
+        /// template: once the preview is laid out, the X copies the height
+        /// of the title label (PreviewTitleText) and centres itself on it,
+        /// so it stays aligned with the text at any band height, DPI or
+        /// skin.
+        ///
+        /// The historical value (14) stays as the FALLBACK: when the text
+        /// is not laid out yet, when another skin supplies the template or
+        /// when the measurement fails, the X returns exactly where it was.
+        /// </summary>
+        private const double PreviewCloseTopFallback = 14d;
+        private const double PreviewCloseHeightFallback = 20d;
+        private const string PreviewTitleTextName = "PreviewTitleText";
+
+        private void PreviewCloseButton_Loaded(object sender, RoutedEventArgs e)
+        {
+            AlignPreviewCloseButton(sender as Button);
+        }
+
+        private void PreviewCloseButton_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            /* The first layout pass runs after Loaded: this re-aligns the X
+             * as soon as its real size is known. */
+            if (e.HeightChanged)
+            {
+                AlignPreviewCloseButton(sender as Button);
+            }
+        }
+
+        private void AlignPreviewCloseButton(Button? button)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            double top = PreviewCloseTopFallback;
+            try
+            {
+                if (VisualTreeHelper.GetParent(button) is FrameworkElement root &&
+                    root.FindName(PreviewTitleTextName) is TextBlock title)
+                {
+                    double titleHeight = title.ActualHeight;
+                    if (!double.IsNaN(titleHeight) && titleHeight > 0)
+                    {
+                        /* Vertical centre of the text, in the coordinates of
+                         * the template root (the grid that also holds the
+                         * button). */
+                        Point origin = title.TransformToAncestor(root)
+                                            .Transform(new Point(0, 0));
+                        double titleCenter = origin.Y + (titleHeight / 2d);
+
+                        double buttonHeight = button.ActualHeight;
+                        if (double.IsNaN(buttonHeight) || buttonHeight <= 0)
+                        {
+                            buttonHeight = PreviewCloseHeightFallback;
+                        }
+
+                        double candidate = titleCenter - (buttonHeight / 2d);
+                        if (!double.IsNaN(candidate) && !double.IsInfinity(candidate))
+                        {
+                            /* Never outside the title band (38 px, the same
+                             * height the native core reserves on top). */
+                            top = Math.Max(0d, Math.Min(candidate, 38d - buttonHeight));
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                /* No exception may stop the preview from opening: the
+                 * fallback value keeps the X where it has always been. */
+                Debug.WriteLine($"preview close X alignment: {ex.Message}");
+                top = PreviewCloseTopFallback;
+            }
+
+            var margin = button.Margin;
+            if (Math.Abs(margin.Top - top) > 0.1d)
+            {
+                button.Margin = new Thickness(margin.Left, top, margin.Right, margin.Bottom);
+            }
+        }
+
         /// v2.44: la X dell'anteprima chiude DAVVERO la finestra. Usa lo
         /// stesso comando della voce "Chiudi" della jump list (WM_CLOSE
         /// inviato alla finestra dal core nativo), quindi funziona anche con

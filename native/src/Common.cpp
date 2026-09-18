@@ -24,6 +24,8 @@
 #include <string>
 #include <cstring>
 #include <vector>
+#include <map>          /* v1.21.32: taskbar-list protocol overrides */
+#include <mutex>        /* v1.21.32: taskbar-list protocol overrides */
 #include <psapi.h>
 #include <wincodec.h>   /* v2.38: WIC per i PNG incorporati condivisi */
 
@@ -914,6 +916,69 @@ UINT GetDpiForWindowSafe(HWND hwnd) {
 /*  Filtro finestre                                                    */
 /* ------------------------------------------------------------------ */
 
+/* v1.21.32: explicit overrides requested through the taskbar-list protocol.
+ *
+ * An application may ask the taskbar to show or remove the button of one of
+ * its windows (ITaskbarList::AddTab/DeleteTab). The request reaches this
+ * registry from the protocol responder in TrayService. It is small and
+ * process-local: a map behind a mutex, with the entries of dead windows
+ * dropped as soon as the map is touched. */
+namespace {
+
+std::mutex& TaskbarOverrideMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::map<HWND, int>& TaskbarOverrides() {
+    static std::map<HWND, int> overrides;
+    return overrides;
+}
+
+} /* namespace */
+
+void SetTaskbarListOverride(HWND hwnd, int state) {
+    if (hwnd == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(TaskbarOverrideMutex());
+    std::map<HWND, int>& overrides = TaskbarOverrides();
+    if (state == 0) {
+        overrides.erase(hwnd);
+    } else {
+        overrides[hwnd] = (state > 0) ? 1 : -1;
+    }
+}
+
+int TaskbarListOverride(HWND hwnd) {
+    if (hwnd == nullptr) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(TaskbarOverrideMutex());
+    std::map<HWND, int>& overrides = TaskbarOverrides();
+    auto it = overrides.find(hwnd);
+    if (it == overrides.end()) {
+        return 0;
+    }
+    if (!IsWindow(hwnd)) {
+        overrides.erase(it);
+        return 0;
+    }
+    return it->second;
+}
+
+void PruneTaskbarOverrides() {
+    std::lock_guard<std::mutex> lock(TaskbarOverrideMutex());
+    std::map<HWND, int>& overrides = TaskbarOverrides();
+    for (auto it = overrides.begin(); it != overrides.end();) {
+        if (!IsWindow(it->first)) {
+            it = overrides.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 bool IsTaskbarWindow(HWND hwnd) {
     if (hwnd == nullptr || !IsWindow(hwnd)) {
         return false;
@@ -933,6 +998,25 @@ bool IsTaskbarWindow(HWND hwnd) {
     const LONG_PTR style   = GetWindowLongPtrW(hwnd, GWL_STYLE);
     const LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
 
+    /* A child window is never a taskbar item, not even when an application
+     * asks for it explicitly: the button belongs to the top-level window
+     * that owns it. */
+    if (style & WS_CHILD) {
+        return false;
+    }
+
+    /* v1.21.32: an explicit request wins over the heuristics. DeleteTab
+     * removes the button; AddTab adds it, including for a window the
+     * heuristics below would drop - the documented case of ITaskbarList
+     * ("Any type of window can be added to the taskbar"). */
+    const int taskbarListCall = TaskbarListOverride(hwnd);
+    if (taskbarListCall < 0) {
+        return false;
+    }
+    if (taskbarListCall > 0) {
+        return true;
+    }
+
     if (exStyle & WS_EX_TOOLWINDOW) {
         return false;
     }
@@ -943,9 +1027,6 @@ bool IsTaskbarWindow(HWND hwnd) {
      * un programma il flyout dell'orologio/calendario della shell
      * (ShellExperienceHost), che e' una finestra non attivabile. */
     if ((exStyle & WS_EX_NOACTIVATE) != 0 && (exStyle & WS_EX_APPWINDOW) == 0) {
-        return false;
-    }
-    if (style & WS_CHILD) {
         return false;
     }
 
@@ -973,12 +1054,32 @@ bool IsTaskbarWindow(HWND hwnd) {
      * quasi sempre finestre di servizio (popup dei menu, host di layered
      * window, finestre di messaggio dei framework grafici) che vengono create
      * e distrutte di continuo. Senza questo filtro comparirebbero pulsanti
-     * fantasma per la durata di un menu aperto. */
-    wchar_t title[8] = {};
-    if (GetWindowTextLengthW(hwnd) == 0 ||
-        (GetWindowTextW(hwnd, title, static_cast<int>(std::size(title))) == 0 &&
-         GetLastError() != ERROR_SUCCESS)) {
-        return false;
+     * fantasma per la durata di un menu aperto.
+     *
+     * v1.21.32: application windows, though, can be published BEFORE their
+     * title arrives. Chromium/Electron (VS Codium and the other editors) and
+     * tao/Tauri (Windhawk) create the window, show it and set the caption
+     * only afterwards: rejecting it here kept it off the bar until the next
+     * safety enumeration (seconds later) and, when a window returns to a
+     * previously used title, kept it off for good. Microsoft documents that
+     * an application window is meant to carry WS_CAPTION ("Any type of
+     * window can be added to the taskbar, but it is recommended that the
+     * window at least have the WS_CAPTION style", see ITaskbarList::AddTab
+     * and the taskbar overview), so a window with a caption frame is an
+     * application window even while its caption is still empty, whereas the
+     * service popups that must stay off the bar (menus, tooltips, panels)
+     * have no caption. The rule below therefore accepts an empty title ONLY
+     * together with WS_CAPTION. */
+    if (GetWindowTextLengthW(hwnd) == 0) {
+        if ((style & WS_CAPTION) == 0) {
+            return false;
+        }
+    } else {
+        wchar_t title[8] = {};
+        if (GetWindowTextW(hwnd, title, static_cast<int>(std::size(title))) == 0 &&
+            GetLastError() != ERROR_SUCCESS) {
+            return false;
+        }
     }
 
     return true;

@@ -686,6 +686,20 @@
                     CornerRadius="{DynamicResource SuperbarGlowCornerRadius}"
                         Background="{StaticResource SuperbarAeroGlowBrush}"
                         Opacity="0" IsHitTestVisible="False" />
+                <!-- v1.21.36: Color hot-track, the only accent the hover of an
+                     OPEN program gets on top of the glow above: a SMALL spot of
+                     the application colour, centered on the mouse, at 30%
+                     (MOUSE light opacity - see the two animations at the
+                     bottom of this template; the size of the spot is the two
+                     radii in HotlightColor.CreateLightBrush). No glossy tile
+                     of its own and no light at all on a pinned program that is
+                     not running: Windows 7 kept both very moderate and tied to
+                     open programs. The brush is replaced per button by the
+                     managed code (HotlightColor.cs, TaskbarWindow.xaml.cs). -->
+                <Border x:Name="Hotlight" Margin="-3,0"
+                    CornerRadius="{DynamicResource SuperbarGlowCornerRadius}"
+                        Background="{StaticResource SuperbarAeroGlowBrush}"
+                        Opacity="0" IsHitTestVisible="False" />
                 <ContentPresenter Margin="8.45,0" VerticalAlignment="Center"
                                   x:Name="Content" />
             </Grid>
@@ -713,6 +727,12 @@
                                          Storyboard.TargetProperty="Opacity"
                                          To="1" Duration="0:0:0.18"
                                          FillBehavior="HoldEnd" />
+                        <!-- v1.21.36: HOTLIGHT MOUSE OPACITY = 0.30 (30%,
+                             tried after the 12% of v1.21.35). -->
+                        <DoubleAnimation Storyboard.TargetName="Hotlight"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="0.30" Duration="0:0:0.18"
+                                         FillBehavior="HoldEnd" />
                     </Storyboard>
                 </BeginStoryboard>
             </EventTrigger>
@@ -720,6 +740,10 @@
                 <BeginStoryboard>
                     <Storyboard>
                         <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="0" Duration="0:0:0.35" />
+                        <!-- v1.21.36: HOTLIGHT MOUSE OPACITY back to 0. -->
+                        <DoubleAnimation Storyboard.TargetName="Hotlight"
                                          Storyboard.TargetProperty="Opacity"
                                          To="0" Duration="0:0:0.35" />
                     </Storyboard>
@@ -742,6 +766,20 @@
                         Opacity="0" />
                 <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
                 <Border x:Name="AeroGlow" Margin="-3,0"
+                    CornerRadius="{DynamicResource SuperbarGlowCornerRadius}"
+                        Background="{StaticResource SuperbarAeroGlowBrush}"
+                        Opacity="0" IsHitTestVisible="False" />
+                <!-- v1.21.36: Color hot-track, the only accent the hover of an
+                     OPEN program gets on top of the glow above: a SMALL spot of
+                     the application colour, centered on the mouse, at 30%
+                     (MOUSE light opacity - see the two animations at the
+                     bottom of this template; the size of the spot is the two
+                     radii in HotlightColor.CreateLightBrush). No glossy tile
+                     of its own and no light at all on a pinned program that is
+                     not running: Windows 7 kept both very moderate and tied to
+                     open programs. The brush is replaced per button by the
+                     managed code (HotlightColor.cs, TaskbarWindow.xaml.cs). -->
+                <Border x:Name="Hotlight" Margin="-3,0"
                     CornerRadius="{DynamicResource SuperbarGlowCornerRadius}"
                         Background="{StaticResource SuperbarAeroGlowBrush}"
                         Opacity="0" IsHitTestVisible="False" />
@@ -778,6 +816,12 @@
                                          Storyboard.TargetProperty="Opacity"
                                          To="1" Duration="0:0:0.18"
                                          FillBehavior="HoldEnd" />
+                        <!-- v1.21.36: HOTLIGHT MOUSE OPACITY = 0.30 (30%,
+                             tried after the 12% of v1.21.35). -->
+                        <DoubleAnimation Storyboard.TargetName="Hotlight"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="0.30" Duration="0:0:0.18"
+                                         FillBehavior="HoldEnd" />
                     </Storyboard>
                 </BeginStoryboard>
             </EventTrigger>
@@ -785,6 +829,10 @@
                 <BeginStoryboard>
                     <Storyboard>
                         <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="0" Duration="0:0:0.35" />
+                        <!-- v1.21.36: HOTLIGHT MOUSE OPACITY back to 0. -->
+                        <DoubleAnimation Storyboard.TargetName="Hotlight"
                                          Storyboard.TargetProperty="Opacity"
                                          To="0" Duration="0:0:0.35" />
                     </Storyboard>
@@ -807,6 +855,20 @@
                         Opacity="0" />
                 <!-- v3.7: alone Aero sopra la tessera, sotto l'icona -->
                 <Border x:Name="AeroGlow" Margin="-3,0"
+                    CornerRadius="{DynamicResource SuperbarGlowCornerRadius}"
+                        Background="{StaticResource SuperbarAeroGlowBrush}"
+                        Opacity="0" IsHitTestVisible="False" />
+                <!-- v1.21.36: Color hot-track, the only accent the hover of an
+                     OPEN program gets on top of the glow above: a SMALL spot of
+                     the application colour, centered on the mouse, at 30%
+                     (MOUSE light opacity - see the two animations at the
+                     bottom of this template; the size of the spot is the two
+                     radii in HotlightColor.CreateLightBrush). No glossy tile
+                     of its own and no light at all on a pinned program that is
+                     not running: Windows 7 kept both very moderate and tied to
+                     open programs. The brush is replaced per button by the
+                     managed code (HotlightColor.cs, TaskbarWindow.xaml.cs). -->
+                <Border x:Name="Hotlight" Margin="-3,0"
                     CornerRadius="{DynamicResource SuperbarGlowCornerRadius}"
                         Background="{StaticResource SuperbarAeroGlowBrush}"
                         Opacity="0" IsHitTestVisible="False" />
@@ -835,6 +897,12 @@
                                          Storyboard.TargetProperty="Opacity"
                                          To="1" Duration="0:0:0.18"
                                          FillBehavior="HoldEnd" />
+                        <!-- v1.21.36: HOTLIGHT MOUSE OPACITY = 0.30 (30%,
+                             tried after the 12% of v1.21.35). -->
+                        <DoubleAnimation Storyboard.TargetName="Hotlight"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="0.30" Duration="0:0:0.18"
+                                         FillBehavior="HoldEnd" />
                     </Storyboard>
                 </BeginStoryboard>
             </EventTrigger>
@@ -842,6 +910,10 @@
                 <BeginStoryboard>
                     <Storyboard>
                         <DoubleAnimation Storyboard.TargetName="AeroGlow"
+                                         Storyboard.TargetProperty="Opacity"
+                                         To="0" Duration="0:0:0.35" />
+                        <!-- v1.21.36: HOTLIGHT MOUSE OPACITY back to 0. -->
+                        <DoubleAnimation Storyboard.TargetName="Hotlight"
                                          Storyboard.TargetProperty="Opacity"
                                          To="0" Duration="0:0:0.35" />
                     </Storyboard>

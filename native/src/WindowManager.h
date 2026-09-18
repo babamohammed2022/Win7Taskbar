@@ -84,10 +84,20 @@ public:
     /* Azzera lo stato di lampeggio: la finestra e' stata aperta. */
     void ClearFlash(HWND hwnd);
 
+    /* v1.21.32: an application asked the bar to show (add = true, AddTab) or
+     * remove (add = false, DeleteTab) the button of this window, through the
+     * taskbar-list protocol served by TrayService. True when the model
+     * actually changed. */
+    bool ApplyTaskbarListCall(HWND hwnd, bool add);
+
 private:
     WindowManager() = default;
     WindowManager(const WindowManager&) = delete;
     WindowManager& operator=(const WindowManager&) = delete;
+
+    /* v3.6: real body under the SEH strap (a function holding __try cannot
+     * also hold C++ objects: see OnWinEvent/Refresh). */
+    bool ApplyTaskbarListCallImpl(HWND hwnd, bool add);
 
     void EnsureIcon(TrackedWindow& win, int32_t desiredSize);
     bool BuildTracked(HWND hwnd, TrackedWindow& out);

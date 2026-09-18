@@ -16,11 +16,12 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Start button / Windows orb | ✅ | The Windows 7-style Start orb is present with normal, hover, and pressed states. |
 | Pinned applications | ✅ | Pinned taskbar applications are supported. |
 | Application grouping | ✅ | Grouped task buttons are supported as part of the Windows 7-style Superbar behavior. |
-| Application icons | ✅ | The general appearance is accurate, but icon accuracy is not yet complete for every application and system icon. |
+| Taskbar-list compatibility (shell clients) | ⚠️ | **v1.21.32:** the taskbar window answers the private query `WM_USER + 236` that `ITaskbarList` clients send to the window of class `Shell_TrayWnd` (`HrInit` fails when it answers zero), and the shell-hook codes those clients then send are honoured as the documented `AddTab`/`DeleteTab`/`ActivateTab` effects. Toolkits that run this during window creation (tao/Tauri, Chromium/Electron, i.e. Windhawk and VS Codium) can therefore add and remove their own buttons instead of failing or waiting. Windows with an empty title are accepted when they carry `WS_CAPTION`, and a window whose title arrives later joins the bar on the name-change event instead of waiting for the next full enumeration. **Needs real-hardware confirmation** with Windhawk and VS Codium, which is what this PR's test build is for. |
+| Color hot-track (hover accent) | ⚠️ | **v1.21.36:** the hover look of a task button is unchanged (tray hover tile + the theme's Aero glow); on top of it, a program that is **open** gets a **small spot** of its own colour, centred on the mouse, at **30%** strength. Pinned programs that are not running get no accent. History: v1.21.33 replaced the hover everywhere with a glossy tile at full strength (rejected), v1.21.34 cut it to 5% (too faint), v1.21.35 set the small spot at 12%, v1.21.36 raises the weight to 30% on the user's request while keeping the small spot. **Needs real-hardware confirmation** of the 30% value. |
 | Open-application indicators | ⚠️ | Active/running-state indicators work. Multi-window separator lines are a right-aligned overlay (1 line at 2 windows, 2 lines at 3+). Both lines are shifted another 2% right; at 3+ the inner line moves 1.5% toward the outer line to tighten the pair. Pending real-hardware DPI verification. |
 | Application tooltips | ✅ | Application-name tooltips are available. |
 | File drag & drop onto taskbar buttons | ⚠️ | Dropping a file onto a pinned/running app button to open it with that app (hover-to-activate + drop) has an initial implementation: standard WPF drag&drop (no COM IDropTarget needed, since this isn't injected into explorer.exe), with a fallback to ShellExecute when the known executable can't be launched directly, and an extension check (via registry SupportedTypes, permissive when unknown) driving the allowed/forbidden cursor feedback. Needs real-world testing (multi-file drops, apps without declared SupportedTypes, mixed-extension drops). |
-| Thumbnail previews (DWM) | ⚠️ | **Confirmed working on real hardware at 100% and at 125% DPI on a 1920x1080 display.** On a 1368x768 display at 125% DPI, the taskbar shows a brief flash (disappears and reappears) — likely a low-resolution/small-monitor edge case rather than a general 125% DPI issue; considered rare and not currently prioritized. The popup uses the direct RetroBar-style DWM path (TaskThumbnail.xaml.cs): source-size query, aspect-preserving 180×120 fit, render-time destination updates and guaranteed unload cleanup. Frame, close button and navigation remain in TaskbarWindow.xaml; no confirmation timer or icon fallback is interposed. The frame's accent layer comes from the core's native 9-slice renderer (W7T_RenderAeroThumbnailFrame, cached per size/accent by Utilities/NativePreviewFrame.cs) whenever the core can supply it; the XAML slice template draws it otherwise, and the grayscale overlay, the clipped static blur and the close button are shared by both paths. v1.21.18: the live surface rectangle is measured in physical pixels (PointToScreen, both corners, popup client origin subtracted) instead of multiplying a DIP rectangle by the monitor scale, and the preview popup keeps its 100%-DPI pixel geometry at any scaling (one layout transform on the popup content, no-op at 100%), so the frame, the 202x109 aperture and the DWM rectangle agree by construction at 125%/150% too. v1.21.20: on a display above 100% the normalised preview is drawn 10% larger (PreviewHighDpiEnlargement): the geometry is still the 100%-pixel one (same frame, same aperture, same measured rectangles) and only its size on screen changes, so every measurement taken from the screen follows automatically. At 100% the factor is 1. Not yet tried at 150% or on multi-monitor/mixed-DPI setups. |
+| Thumbnail previews (DWM) | ⚠️ | **Confirmed working on real hardware at 100% and at 125% DPI on a 1920x1080 display.** On a 1368x768 display at 125% DPI, the taskbar shows a brief flash (disappears and reappears) — likely a low-resolution/small-monitor edge case rather than a general 125% DPI issue; considered rare and not currently prioritized. The popup uses the direct RetroBar-style DWM path (TaskThumbnail.xaml.cs): source-size query, aspect-preserving 180×120 fit, render-time destination updates and guaranteed unload cleanup. Frame, close button and navigation remain in TaskbarWindow.xaml; no confirmation timer or icon fallback is interposed. v1.21.32: the close X copies the height of the title label and centres itself on it (falling back to the historical 14 px when the text cannot be measured), so it no longer depends on a magic value in the template. The frame's accent layer comes from the core's native 9-slice renderer (W7T_RenderAeroThumbnailFrame, cached per size/accent by Utilities/NativePreviewFrame.cs) whenever the core can supply it; the XAML slice template draws it otherwise, and the grayscale overlay, the clipped static blur and the close button are shared by both paths. v1.21.18: the live surface rectangle is measured in physical pixels (PointToScreen, both corners, popup client origin subtracted) instead of multiplying a DIP rectangle by the monitor scale, and the preview popup keeps its 100%-DPI pixel geometry at any scaling (one layout transform on the popup content, no-op at 100%), so the frame, the 202x109 aperture and the DWM rectangle agree by construction at 125%/150% too. v1.21.20: on a display above 100% the normalised preview is drawn 10% larger (PreviewHighDpiEnlargement): the geometry is still the 100%-pixel one (same frame, same aperture, same measured rectangles) and only its size on screen changes, so every measurement taken from the screen follows automatically. At 100% the factor is 1. Not yet tried at 150% or on multi-monitor/mixed-DPI setups. |
 | Jump Lists | ❌ | Despite the Windows 7-style Jump Lists being implemented as a dedicated subsystem (left-button press + drag-up on a task button opens the list; releasing the button over a row activates it), they are currently not enabled in the code of the software (confirmed still disabled). The data comes from the real Shell APIs (IApplicationDocumentLists + the window/shortcut AppUserModelID), never from invented entries, and the right-click menu is unchanged. The popup is a native window with DPI-scaled geometry. Not yet verified against a real Windows desktop at every scale, so it is not marked complete. |
 | Windows 7 toolbars | ✅ | The three Windows 7-style toolbars are present. |
 | Notification area | ⚠️ | The notification area is implemented, but support for all modern Windows tray states is still partial. v1.7.6: per-icon behavior preferences moved from the legacy registry key to trayicons.ini (zero-footprint); the old key is imported and deleted on first run. |
@@ -91,6 +92,65 @@ Implementation notes:
 - Failure handling: every Shell/COM call is wrapped in try/catch with logging (managed DiagnosticLogger, category JUMPLIST) and controlled cancellation; native resources are RAII owned and hard faults are contained by the project's portable SEH barrier. A jump list failure can never take the taskbar down.
 
 Remaining work before this is marked ✅ and re-enabled: complete the unfinished behavior, then verify it on a real Windows 10/11 desktop at 100/125/150/200% scaling and on a mixed-DPI multi-monitor setup.
+
+### Taskbar-list compatibility (v1.21.32)
+
+Windows implements `CLSID_TaskbarList`/`ITaskbarList` inside the shell, and
+its `HrInit`/`AddTab`/`DeleteTab`/`ActivateTab` reach the taskbar through the
+window found by class name (`Shell_TrayWnd`) - the same lookup
+`Shell_NotifyIcon` performs. Because this program registers that class name
+for its own notification area, the shell lookup can resolve to its tray
+window, so the tray window answers the private query (`WM_USER + 236`) with a
+live window of its own and that window honours the shell-hook codes the
+clients send afterwards. Toolkits that build windows with this protocol
+(`tao`/Tauri, used by Windhawk; Chromium/Electron, used by VS Codium and the
+other editors) therefore see the documented behavior instead of an unanswered
+query: `HrInit` succeeds, `AddTab`/`DeleteTab` add and remove the button, and
+no application is left waiting on a reply from a window that does not exist.
+
+Two related fixes ship with it: a window that is published before its title
+arrives is accepted when it carries `WS_CAPTION` (Microsoft recommends that
+style for taskbar windows), and a window whose title arrives later joins the
+bar on the name-change event rather than at the next full enumeration.
+
+Real-hardware confirmation with Windhawk and VS Codium is the purpose of the
+test build attached to this pull request; the protocol path is also logged
+once with the `TABPROT` tag in `log-core.txt`.
+
+### Color hot-track (hover accent, v1.21.36)
+
+Microsoft documents the effect precisely (Raymond Chen, official Microsoft blog,
+2011-12-06): the hovered taskbar button "lights up in a color that matches the
+colors in the icon itself", "the lighting effect is centered on the mouse", and
+"the code just looks for the predominant color in the icon [...] black, white,
+and shades of gray are not considered 'colors' for the purpose of this
+calculation".
+
+**Shape it has today**, after three rounds of feedback: the hover look of a task
+button is left exactly as it was before the feature (the tray hover tile and the
+theme's Aero glow, unchanged), and the colour is a **small spot** on top of it:
+
+- **30%** strength - the `Hotlight` element's opacity is animated to `0.30` in
+  the templates of an open program (running, active, flashing). The sequence of
+  attempts is worth keeping: 5% (v1.21.34) was too faint, 12% (v1.21.35) was
+  raised to 30% on request;
+- the spot stays **small**: its radii are the `SpotRadiusX`/`SpotRadiusY`
+  constants of `Utilities/HotlightColor.cs` (0.55 and 0.72 of the button), so it
+  remains a spot of light around the cursor rather than a wash over the tile;
+- it exists **only on programs that are open**: a pinned program that is not
+  running keeps the plain hover, with no accent at all;
+- it follows the mouse and takes the **dominant colour of the icon** (near-black
+  and low-saturation pixels - black, white, greys - are excluded, the rest vote
+  weighted by saturation, the winner is lightened toward white).
+
+The colour extraction is cached per icon, the brush is per button (its centre
+moves), an icon that cannot be sampled falls back to the neutral white-blue Aero
+light, and on a vertical taskbar the light travels along the bar so it never sits
+on the button's text. Nothing about the icon, the theme or Windows is modified.
+
+**The two knobs** are the opacity animations of `Hotlight` in
+`Themes/Overrides.xaml` (`To="0.30"` / `To="0"`) and the two spot radii in
+`HotlightColor.cs`.
 
 ## Areas that are already in good shape
 

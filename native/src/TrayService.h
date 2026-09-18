@@ -290,6 +290,25 @@ private:
     static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+    /* v1.21.32: responder of the taskbar-list protocol.
+     *
+     * WM_USER + 236 (TWM_GETTASKSWITCH in the ReactOS reimplementation of
+     * CTaskbarList, which reproduces the Explorer sequence) asks the window
+     * of class "Shell_TrayWnd" for the handle of the window that receives
+     * the AddTab/DeleteTab/ActivateTab notifications. The client side is:
+     * CoCreateInstance(CLSID_TaskbarList) -> FindWindowW(L"Shell_TrayWnd")
+     * -> SendMessage(TWM_GETTASKSWITCH) -> SendMessage(SHELLHOOK, HSHELL_*,
+     * hwnd); HrInit fails outright when the query answers zero.
+     *
+     * Because this program registers that class name for its own
+     * notification area, the lookup can land here, so the answer has to be
+     * a live window: a client that receives zero - tao/Tauri (Windhawk) and
+     * Chromium/Electron (VS Codium and the other editors) both go through
+     * this at window-creation time - is left with a taskbar list that does
+     * nothing and can park inside its own window build. */
+    static LRESULT CALLBACK TaskSwitchWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    static constexpr UINT kTWMGetTaskSwitch = WM_USER + 236;
+
     /* v2.60: la tray di Windows 11 cambia quando la sua isola XAML crea,
      * mostra o nasconde qualcosa. L'hook e' filtrato per classe e processo,
      * quindi costa una GetClassNameW per evento e nient'altro. */
@@ -433,6 +452,9 @@ private:
     DWORD              m_threadId  = 0;
     HWND               m_trayWnd   = nullptr;
     HWND               m_notifyWnd = nullptr;
+    /* v1.21.32: hidden window (owned by m_trayWnd) that answers the
+     * taskbar-list protocol; see kTWMGetTaskSwitch. */
+    HWND               m_taskSwitchWnd = nullptr;
     UINT               m_taskbarCreatedMsg = 0;
 
     /* Messaggi privati dei watcher (WM_APP+...), gestiti in TrayWndProc. */

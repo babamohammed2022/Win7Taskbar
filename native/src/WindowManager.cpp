@@ -133,6 +133,22 @@ void WindowManager::OnWinEventImpl(DWORD event, HWND hwnd) {
             break;
         }
         case EVENT_OBJECT_NAMECHANGE: {
+            /* v1.21.32: a window published without a title (or with a title
+             * that did not satisfy the filter yet) joins the bar the moment
+             * its name arrives. This branch used to update ONLY windows that
+             * were already tracked, so the button appeared only at the next
+             * safety enumeration - up to ten seconds later, or never when no
+             * enumeration happened in the meantime. */
+            if (!tracked && eligible) {
+                TrackedWindow win;
+                if (BuildTracked(hwnd, win)) {
+                    m_windows[hwnd] = std::move(win);
+                    m_order.push_back(hwnd);
+                    CoreState::Instance().QueueEvent(W7T_EVT_WINDOW_ADDED,
+                                                     reinterpret_cast<uint64_t>(hwnd), 0);
+                }
+                break;
+            }
             if (tracked) {
                 wchar_t title[W7T_MAX_TITLE] = {};
                 GetWindowTextW(hwnd, title, W7T_MAX_TITLE);
@@ -247,6 +263,55 @@ void WindowManager::ClearFlash(HWND hwnd) {
                                      reinterpret_cast<uint64_t>(hwnd), 0);
 }
 
+/* v1.21.32: taskbar-list protocol (ITaskbarList::AddTab/DeleteTab), served
+ * by TrayService on the window that answers WM_USER + 236. The real body
+ * sits under the SEH strap because it touches the identity and the style of
+ * a window owned by somebody else. */
+bool WindowManager::ApplyTaskbarListCall(HWND hwnd, bool add) {
+    __try {
+        return ApplyTaskbarListCallImpl(hwnd, add);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool WindowManager::ApplyTaskbarListCallImpl(HWND hwnd, bool add) {
+    if (hwnd == nullptr || !IsWindow(hwnd)) {
+        return false;
+    }
+
+    /* The request also holds for the enumerations that follow: it is the
+     * registry IsTaskbarWindow consults. */
+    SetTaskbarListOverride(hwnd, add ? 1 : -1);
+
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+    auto it = m_windows.find(hwnd);
+    if (add) {
+        if (it == m_windows.end() && IsTaskbarWindow(hwnd)) {
+            TrackedWindow win;
+            if (BuildTracked(hwnd, win)) {
+                m_windows[hwnd] = std::move(win);
+                m_order.push_back(hwnd);
+                CoreState::Instance().QueueEvent(W7T_EVT_WINDOW_ADDED,
+                                                 reinterpret_cast<uint64_t>(hwnd), 0);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (it != m_windows.end()) {
+        m_windows.erase(it);
+        m_order.erase(std::remove(m_order.begin(), m_order.end(), hwnd),
+                      m_order.end());
+        CoreState::Instance().QueueEvent(W7T_EVT_WINDOW_REMOVED,
+                                         reinterpret_cast<uint64_t>(hwnd), 0);
+        return true;
+    }
+    return false;
+}
+
 uint32_t WindowManager::ComputeState(HWND hwnd) {
     uint32_t state = 0;
     if (GetForegroundWindow() == hwnd) {
@@ -304,6 +369,10 @@ int32_t WindowManager::Refresh() {
 }
 
 int32_t WindowManager::RefreshImpl() {
+    /* v1.21.32: dead windows must not leave entries behind in the override
+     * registry of the taskbar-list protocol. */
+    PruneTaskbarOverrides();
+
     std::vector<HWND> found;
     found.reserve(64);
     EnumWindows(EnumProc, reinterpret_cast<LPARAM>(&found));
