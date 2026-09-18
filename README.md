@@ -12,6 +12,7 @@ On Windows 11, **ExplorerPatcher is recommended for the best experience**, but i
 
 **Open-Shell is also recommended alongside Win7Taskbar** for a more complete Windows 7-style desktop experience, particularly for restoring a Windows 7-style Start menu. Open-Shell is optional and complements Win7Taskbar rather than replacing it.
 
+This software has only been tested with ExplorerPatcher and OpenShell. Support for other third-party tools that serve a similar purpose will be analyzed individually where possible.
 
 **Current state: `Alpha`**
 
