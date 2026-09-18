@@ -5691,6 +5691,84 @@ static DWORD SafeWlanScan(HANDLE hClient, const GUID* pInterfaceGuid) {
     }
 }
 
+// The WLAN service is an external, driver-backed boundary. Microsoft documents
+// these calls as returning Win32 errors, but a provider can still fault while
+// it is being unloaded. Keep the SEH barrier and the C++ catch at this small
+// boundary so the flyout remains usable when connect/disconnect is unavailable.
+static DWORD WlanSetProfileInner(HANDLE hClient, const GUID* interfaceGuid,
+                                 DWORD flags, LPCWSTR profileXml, BOOL overwrite,
+                                 DWORD* reason) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanSetProfile(hClient, interfaceGuid, flags, profileXml, NULL,
+                                overwrite, NULL, reason);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanSetProfile(HANDLE hClient, const GUID* interfaceGuid,
+                                DWORD flags, LPCWSTR profileXml, BOOL overwrite,
+                                DWORD* reason) {
+    try {
+        return WlanSetProfileInner(hClient, interfaceGuid, flags, profileXml,
+                                   overwrite, reason);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+static DWORD WlanConnectInner(HANDLE hClient, const GUID* interfaceGuid,
+                              WLAN_CONNECTION_PARAMETERS* parameters) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanConnect(hClient, interfaceGuid, parameters, NULL);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanConnect(HANDLE hClient, const GUID* interfaceGuid,
+                             WLAN_CONNECTION_PARAMETERS* parameters) {
+    try {
+        return WlanConnectInner(hClient, interfaceGuid, parameters);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+static DWORD WlanDisconnectInner(HANDLE hClient, const GUID* interfaceGuid) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanDisconnect(hClient, interfaceGuid, NULL);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanDisconnect(HANDLE hClient, const GUID* interfaceGuid) {
+    try {
+        return WlanDisconnectInner(hClient, interfaceGuid);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
 static DWORD WlanOpenHandleInner(DWORD dwClientVersion, DWORD* pdwNegotiatedVersion, HANDLE* phClientHandle) {
     DWORD result = ERROR_INVALID_PARAMETER;
     W7T_SEH_TRY
@@ -5736,6 +5814,62 @@ static DWORD WlanGetProfileListInner(HANDLE hClient, const GUID* pInterfaceGuid,
 static DWORD SafeWlanGetProfileList(HANDLE hClient, const GUID* pInterfaceGuid, PWLAN_PROFILE_INFO_LIST* outList) {
     try {
         return WlanGetProfileListInner(hClient, pInterfaceGuid, outList);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+static DWORD WlanGetNetworkBssListInner(HANDLE hClient, const GUID* interfaceGuid,
+                                             DOT11_SSID* ssid, DOT11_BSS_TYPE bssType,
+                                             BOOL securityEnabled, PWLAN_BSS_LIST* outList) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanGetNetworkBssList(hClient, interfaceGuid, ssid, bssType,
+                                       securityEnabled, NULL, outList);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanGetNetworkBssList(HANDLE hClient, const GUID* interfaceGuid,
+                                       DOT11_SSID* ssid, DOT11_BSS_TYPE bssType,
+                                       BOOL securityEnabled, PWLAN_BSS_LIST* outList) {
+    try {
+        return WlanGetNetworkBssListInner(hClient, interfaceGuid, ssid, bssType,
+                                          securityEnabled, outList);
+    } catch (...) {
+        return ERROR_INVALID_PARAMETER;
+    }
+}
+
+static DWORD WlanGetProfileInner(HANDLE hClient, const GUID* interfaceGuid,
+                                 LPCWSTR profileName, LPWSTR* profileXml,
+                                 DWORD* flags) {
+    DWORD result = ERROR_INVALID_PARAMETER;
+    W7T_SEH_TRY
+    {
+        result = WlanGetProfile(hClient, interfaceGuid, profileName, NULL,
+                                profileXml, flags, NULL);
+    }
+    W7T_SEH_CATCH
+    {
+        result = ERROR_INVALID_PARAMETER;
+    }
+    W7T_SEH_END
+    return result;
+}
+
+static DWORD SafeWlanGetProfile(HANDLE hClient, const GUID* interfaceGuid,
+                                LPCWSTR profileName, LPWSTR* profileXml,
+                                DWORD* flags) {
+    try {
+        return WlanGetProfileInner(hClient, interfaceGuid, profileName,
+                                   profileXml, flags);
     } catch (...) {
         return ERROR_INVALID_PARAMETER;
     }
@@ -5787,18 +5921,21 @@ void TriggerWlanScanIfNeeded(void) {
         w7t::LogTagged(L"NET8", L"WLAN scan not requested: no WLAN client");
         return;
     }
-    PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
-    if (SafeWlanEnumInterfaces(hClient, &pIfList) != ERROR_SUCCESS || !pIfList) {
+    PWLAN_INTERFACE_INFO_LIST rawIfList = NULL;
+    if (SafeWlanEnumInterfaces(hClient, &rawIfList) != ERROR_SUCCESS || !rawIfList) {
         w7t::LogTagged(L"NET8", L"WLAN scan: WlanEnumInterfaces failed");
         return;
     }
-    for (DWORD i = 0; i < pIfList->dwNumberOfItems; i++) {
+    // WlanEnumInterfaces transfers ownership to the caller. Keep it in the
+    // same WlanFreeMemory-backed RAII type used by the refresh path: every
+    // early return and every future exception now releases the list.
+    WlanMemoryPtr<WLAN_INTERFACE_INFO_LIST> ifList(rawIfList);
+    for (DWORD i = 0; i < ifList->dwNumberOfItems; i++) {
         const DWORD scanResult =
-            SafeWlanScan(hClient, &pIfList->InterfaceInfo[i].InterfaceGuid);
+            SafeWlanScan(hClient, &ifList->InterfaceInfo[i].InterfaceGuid);
         w7t::LogTagged(L"NET8", L"WLAN scan requested on interface %lu: %lu",
                        (unsigned long)i, (unsigned long)scanResult);
     }
-    WlanFreeMemory(pIfList);
 }
 
 /* v1.21.19: name of the network Windows itself says the machine is on.
@@ -5825,6 +5962,10 @@ void RefreshWifiData(HANDLE hClient) {
                        (unsigned long)enumResult);
         return;
     }
+    // The WLAN API allocates this list. Keep the raw pointer for the existing
+    // read-only loops, but transfer ownership immediately to an RAII guard so
+    // a future early return or C++ exception cannot leak it.
+    WlanMemoryPtr<WLAN_INTERFACE_INFO_LIST> ifListOwner(pIfList);
     
     int localWlanIfCount = 0;
     GUID localWlanIfGuids[16];
@@ -5845,6 +5986,8 @@ void RefreshWifiData(HANDLE hClient) {
         WLAN_INTERFACE_INFO IfInfo = pIfList->InterfaceInfo[i];
         PWLAN_AVAILABLE_NETWORK_LIST pBssList  = NULL;
         PWLAN_PROFILE_INFO_LIST      pProfList = NULL;
+        WlanMemoryPtr<WLAN_AVAILABLE_NETWORK_LIST> bssListOwner;
+        WlanMemoryPtr<WLAN_PROFILE_INFO_LIST> profileListOwner;
         const DWORD profileListResult =
             SafeWlanGetProfileList(hClient, &IfInfo.InterfaceGuid, &pProfList);
         if (profileListResult != ERROR_SUCCESS) {
@@ -5855,6 +5998,8 @@ void RefreshWifiData(HANDLE hClient) {
             hClient, &IfInfo.InterfaceGuid,
             WLAN_AVAILABLE_NETWORK_INCLUDE_ALL_MANUAL_HIDDEN_PROFILES,
             &pBssList);
+        if (pProfList) profileListOwner.reset(pProfList);
+        if (scanListResult == ERROR_SUCCESS && pBssList) bssListOwner.reset(pBssList);
         if (scanListResult != ERROR_SUCCESS) {
             w7t::LogTagged(L"NET8",
                            L"WlanGetAvailableNetworkList failed (%lu): no network from this interface",
@@ -5917,9 +6062,10 @@ void RefreshWifiData(HANDLE hClient) {
                 ZeroMemory(tempList[tempCount].bssid, sizeof(tempList[tempCount].bssid));
                 {
                     PWLAN_BSS_LIST pBssDetailList = NULL;
-                    if (WlanGetNetworkBssList(hClient, &IfInfo.InterfaceGuid,
+                    if (SafeWlanGetNetworkBssList(hClient, &IfInfo.InterfaceGuid,
                             &network.dot11Ssid, network.dot11BssType,
-                            network.bSecurityEnabled, NULL, &pBssDetailList) == ERROR_SUCCESS && pBssDetailList) {
+                            network.bSecurityEnabled, &pBssDetailList) == ERROR_SUCCESS && pBssDetailList) {
+                        WlanMemoryPtr<WLAN_BSS_LIST> bssDetailOwner(pBssDetailList);
                         LONG bestRssi = -32768L;
                         for (DWORD b = 0; b < pBssDetailList->dwNumberOfItems; b++) {
                             const WLAN_BSS_ENTRY& bss = pBssDetailList->wlanBssEntries[b];
@@ -5929,7 +6075,6 @@ void RefreshWifiData(HANDLE hClient) {
                                 tempList[tempCount].hasBssid = TRUE;
                             }
                         }
-                        WlanFreeMemory(pBssDetailList);
                     }
                 }
                 if (pProfList) {
@@ -5938,14 +6083,14 @@ void RefreshWifiData(HANDLE hClient) {
                             continue;
                         LPWSTR pProfileXml = NULL;
                         DWORD flags = 0;
-                        if (WlanGetProfile(hClient, &IfInfo.InterfaceGuid,
+                        if (SafeWlanGetProfile(hClient, &IfInfo.InterfaceGuid,
                                             pProfList->ProfileInfo[p].strProfileName,
-                                            NULL, &pProfileXml, &flags, NULL) == ERROR_SUCCESS) {
+                                            &pProfileXml, &flags) == ERROR_SUCCESS) {
+                            WlanMemoryPtr<WCHAR> profileXmlOwner(pProfileXml);
                             tempList[tempCount].hasProfile = ProfileSecurityMatches(
                                 pProfileXml,
                                 tempList[tempCount].authAlgorithm,
                                 tempList[tempCount].cipherAlgorithm);
-                            WlanFreeMemory(pProfileXml);
                         } else {
                             tempList[tempCount].hasProfile = FALSE;
                         }
@@ -5960,9 +6105,7 @@ void RefreshWifiData(HANDLE hClient) {
                 }
                 tempCount++;
             }
-            WlanFreeMemory(pBssList);
         }
-        if (pProfList) WlanFreeMemory(pProfList);
     }
     /* v1.21.18: empty list, but is the machine really offline? The available
      * network list is empty until the radio has scanned (right after logon, or
@@ -5978,9 +6121,9 @@ void RefreshWifiData(HANDLE hClient) {
             const DWORD connResult = SafeWlanQueryCurrentConnection(
                 hClient, &pIfList->InterfaceInfo[i].InterfaceGuid,
                 &connData, &connSize);
+            WlanMemoryPtr<BYTE> connDataOwner(static_cast<BYTE*>(connData));
             if (connResult != ERROR_SUCCESS || !connData ||
                 connSize < sizeof(WLAN_CONNECTION_ATTRIBUTES)) {
-                if (connData) WlanFreeMemory(connData);
                 /* v1.21.19: the reason used to be swallowed here, which is why
                  * an empty list on a connected PC could not be explained from
                  * the log. ERROR_ACCESS_DENIED (5) is the usual answer on
@@ -5992,7 +6135,6 @@ void RefreshWifiData(HANDLE hClient) {
             }
             WLAN_CONNECTION_ATTRIBUTES attr;
             CopyMemory(&attr, connData, sizeof(attr));
-            WlanFreeMemory(connData);
             if (attr.isState != wlan_interface_state_connected)
                 continue;
 
@@ -6077,7 +6219,6 @@ void RefreshWifiData(HANDLE hClient) {
             }
         }
     }
-    WlanFreeMemory(pIfList);
     {
         bool seenConnectedForInterface[64] = {false};
         GUID seenGuids[64];
@@ -7253,8 +7394,8 @@ static unsigned int __stdcall AsyncConnectThreadProc(void* pParam) {
         tempItem.cipherAlgorithm = ctx->cipherAlgorithm;
         BuildWlanProfileXml(&tempItem, ctx->password, autoConn, xmlProfile, ARRAYSIZE(xmlProfile));
         
-        dwResult = WlanSetProfile(g_Ctx.hWlanClient, &ctx->interfaceGuid, 
-            0, xmlProfile, NULL, TRUE, NULL, &dwReason);
+        dwResult = SafeWlanSetProfile(g_Ctx.hWlanClient, &ctx->interfaceGuid,
+            0, xmlProfile, TRUE, &dwReason);
         
         LogSsidSafe(L"WlanSetProfile for", ctx->ssid);
         Wh_Log(L"  returned: %lu (reason: %lu)", dwResult, dwReason);
@@ -7291,7 +7432,7 @@ static unsigned int __stdcall AsyncConnectThreadProc(void* pParam) {
         params.pDesiredBssidList = &bssidList;
     }
     
-    dwResult = WlanConnect(g_Ctx.hWlanClient, &ctx->interfaceGuid, &params, NULL);
+    dwResult = SafeWlanConnect(g_Ctx.hWlanClient, &ctx->interfaceGuid, &params);
     LogSsidSafe(L"WlanConnect for", ctx->ssid);
     Wh_Log(L"  returned: %lu (0x%08X), targeted BSSID: %s", dwResult, dwResult, ctx->hasBssid ? L"yes" : L"no (system choice)");
     
@@ -7540,7 +7681,7 @@ void DisconnectFromNetwork(int index) {
     UpdateLayoutGeometry();
     if (g_hWndFlyout) InvalidateRect(g_hWndFlyout, NULL, TRUE);
 
-    DWORD res = WlanDisconnect(g_Ctx.hWlanClient, &item.interfaceGuid, NULL);
+    DWORD res = SafeWlanDisconnect(g_Ctx.hWlanClient, &item.interfaceGuid);
     if (res != ERROR_SUCCESS) {
         Wh_Log(L"WlanDisconnect failed: %lu", res);
         EnterCriticalSection(&g_Ctx.csLock);
@@ -8862,6 +9003,42 @@ static BOOL SafeShellExecuteEx(SHELLEXECUTEINFOW* sei) {
     return ok;
 }
 
+// Windows 10/11 expose the supported network troubleshooter through Settings.
+// Keep the legacy Windows diagnostic command only as a compatibility fallback:
+// msdt.exe is deprecated on recent Windows builds and must never be the first
+// choice. Both launches use the existing SEH + C++ exception barriers.
+static BOOL SafeOpenNetworkTroubleshooter(HWND hwnd) {
+    (void)hwnd;
+    try {
+        if (SafeShellExecuteOpen(NULL, L"ms-settings:troubleshoot", NULL)) {
+            w7t::LogTagged(L"NET8", L"network troubleshooter opened through Settings");
+            return TRUE;
+        }
+
+        WCHAR windowsDir[MAX_PATH] = {};
+        const UINT length = GetWindowsDirectoryW(windowsDir, ARRAYSIZE(windowsDir));
+        if (length == 0 || length >= ARRAYSIZE(windowsDir))
+            return FALSE;
+
+        WCHAR msdtPath[MAX_PATH] = {};
+        WCHAR parameters[MAX_PATH * 2] = {};
+        if (FAILED(StringCchPrintfW(msdtPath, ARRAYSIZE(msdtPath),
+                                    L"%s\\System32\\msdt.exe", windowsDir)) ||
+            FAILED(StringCchPrintfW(parameters, ARRAYSIZE(parameters),
+                                    L"-skip TRUE -path %s\\diagnostics\\system\\networking "
+                                    L"-ep NetworkDiagnosticsPNI", windowsDir))) {
+            return FALSE;
+        }
+        const BOOL opened = SafeShellExecuteOpen(NULL, msdtPath, parameters);
+        if (opened)
+            w7t::LogTagged(L"NET8", L"network troubleshooter opened through legacy msdt fallback");
+        return opened;
+    } catch (...) {
+        w7t::LogTagged(L"NET8", L"network troubleshooter launch raised an exception");
+        return FALSE;
+    }
+}
+
 void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
     WifiNetworkItem menuItem = {};
     EnterCriticalSection(&g_Ctx.csLock);
@@ -8896,6 +9073,8 @@ void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
     if (menuItem.hasProfile) {
         AppendMenuW(hMenu, MF_STRING, IDM_PROPERTIES, LOC(STR_CTX_PROPERTIES));
     }
+    AppendMenuW(hMenu, MF_STRING, IDM_TRAY_TROUBLESHOOT,
+                LOC(STR_TRAY_TROUBLESHOOT));
     if (g_Settings.theme == 1) {
         DarkContextMenu::Apply(TRUE);
     }
@@ -8941,6 +9120,9 @@ void ShowContextMenu(HWND hwnd, int itemIndex, POINT pt) {
             break;
         case IDM_DISCONNECT:
             SafeDisconnectFromNetwork(targetIndex);
+            break;
+        case IDM_TRAY_TROUBLESHOOT:
+            SafeOpenNetworkTroubleshooter(hwnd);
             break;
         case IDM_STATUS:
 case IDM_PROPERTIES:
@@ -12213,10 +12395,10 @@ DWORD WINAPI HotkeyThreadProc(LPVOID lpParam) {
     {
         DWORD dwMaxClient = 2, dwCurVer = 0;
         for (int attempt = 0; attempt < 2; attempt++) {
-            DWORD wlanResult = WlanOpenHandle(dwMaxClient, NULL, &dwCurVer, &ctx->hWlanClient);
+            DWORD wlanResult = SafeWlanOpenHandle(dwMaxClient, &dwCurVer, &ctx->hWlanClient);
             if (wlanResult == ERROR_SUCCESS) {
-                WlanRegisterNotification(ctx->hWlanClient, WLAN_NOTIFICATION_SOURCE_ALL, TRUE,
-                                         WlanNotificationCallback, ctx, NULL, NULL);
+                SafeWlanRegisterNotification(ctx->hWlanClient, WLAN_NOTIFICATION_SOURCE_ALL, TRUE,
+                                             WlanNotificationCallback, ctx);
                 Wh_Log(L"WLAN handle opened on hotkey thread (attempt %d)", attempt + 1);
                 break;
             }
@@ -12444,8 +12626,8 @@ void SafeCleanup() {
         // callback is not a documented guarantee, and an in-flight callback
         // could still be executing mod code (or blocked on the
         // soon-to-be-deleted critical section) while Windhawk unmaps the DLL.
-        WlanRegisterNotification(g_Ctx.hWlanClient, WLAN_NOTIFICATION_SOURCE_NONE, TRUE,
-                                  NULL, NULL, NULL, NULL);
+        SafeWlanRegisterNotification(g_Ctx.hWlanClient, WLAN_NOTIFICATION_SOURCE_NONE, TRUE,
+                                     NULL, NULL);
         WlanCloseHandle(g_Ctx.hWlanClient, NULL);
         g_Ctx.hWlanClient = NULL;
     }
