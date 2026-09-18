@@ -1640,6 +1640,46 @@ bool TrayService::CreateWindows() {
         0, 0, 0, 0,
         m_trayWnd, nullptr, instance, nullptr);
 
+    /* v1.21.32: responder of the taskbar-list protocol.
+     *
+     * Microsoft implements CLSID_TaskbarList/ITaskbarList inside the shell,
+     * whose AddTab/DeleteTab/ActivateTab reach the taskbar through the
+     * window found by class name ("Shell_TrayWnd") - the same lookup
+     * Shell_NotifyIcon performs. Since this program registers that class
+     * name for its own notification area (see TrayService.h), ITaskbarList
+     * calls can land here as well: the query that resolves the taskbar
+     * window (WM_USER + 236) must find a real, answering window, otherwise
+     * the application that issued it stays with a taskbar list that does
+     * nothing and can wait forever on a reply that never comes.
+     *
+     * This window IS that reply: hidden, owned by the tray window (so it
+     * dies with it), and its procedure only translates shell-hook codes
+     * into AddTab/DeleteTab on the window model. */
+    WNDCLASSEXW switchWc = {};
+    switchWc.cbSize        = sizeof(switchWc);
+    switchWc.lpfnWndProc   = TaskSwitchWndProc;
+    switchWc.hInstance     = instance;
+    switchWc.lpszClassName = L"W7T_TaskSwitch";
+
+    /* Optional by design: when it cannot be created, the answer to
+     * WM_USER + 236 goes back to zero (the previous behaviour) and the tray
+     * keeps working. */
+    const bool switchClassReady =
+        RegisterClassExW(&switchWc) != 0 ||
+        GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+    if (switchClassReady) {
+        m_taskSwitchWnd = CreateWindowExW(
+            WS_EX_TOOLWINDOW,
+            L"W7T_TaskSwitch", nullptr,
+            WS_POPUP,
+            0, 0, 0, 0,
+            m_trayWnd, nullptr, instance, nullptr);
+    }
+    if (m_taskSwitchWnd == nullptr) {
+        LogTagged(L"TABPROT",
+                  L"taskbar-list responder window not created: clients not served");
+    }
+
     /* Modello a toolbar reale dentro la gerarchia della shell:
      * TrayNotifyWnd -> SysPager -> ToolbarWindow32 (vedi TrayToolbar.h). */
     EnsureToolbarModel();
@@ -1763,6 +1803,10 @@ void TrayService::DestroyWindows() {
     m_powerNotifyAc.reset();
     m_powerNotifyBattery.reset();
 
+    if (m_taskSwitchWnd != nullptr) {
+        DestroyWindow(m_taskSwitchWnd);
+        m_taskSwitchWnd = nullptr;
+    }
     if (m_notifyWnd != nullptr) {
         DestroyWindow(m_notifyWnd);
         m_notifyWnd = nullptr;
@@ -1820,6 +1864,20 @@ LRESULT CALLBACK TrayService::TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
 }
 
 LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    /* v1.21.32: the taskbar-list protocol comes before any other work on
+     * this thread. The caller is the window build of ANOTHER process
+     * (tao/Tauri, Chromium/Electron): the reply has to be immediate and
+     * constant, with no lock taken and no model touched. See TrayService.h
+     * (kTWMGetTaskSwitch) and TaskSwitchWndProc. */
+    if (msg == kTWMGetTaskSwitch) {
+        static std::atomic<int> logged{ 0 };
+        if (logged.fetch_add(1) == 0) {
+            LogTagged(L"TABPROT",
+                      L"taskbar-list: WM_USER+236 answered (an application is looking for the bar)");
+        }
+        return reinterpret_cast<LRESULT>(Instance().m_taskSwitchWnd);
+    }
+
     if (msg == WM_COPYDATA) {
         return Instance().HandleCopyData(hwnd, reinterpret_cast<const COPYDATASTRUCT*>(lParam));
     }
@@ -1963,6 +2021,61 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
     }
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+/* v1.21.32: procedure of the window that answers the taskbar-list protocol.
+ * It receives only the shell-hook notification that ITaskbarList clients
+ * send to the "task switch window" obtained with WM_USER + 236, and the
+ * three documented methods map to the three codes (AddTab ->
+ * HSHELL_WINDOWCREATED, DeleteTab -> HSHELL_WINDOWDESTROYED, ActivateTab ->
+ * HSHELL_WINDOWACTIVATED; the same translation the ReactOS reimplementation
+ * of CTaskbarList performs).
+ *
+ * No painting, no lock taken up front, no waiting: the sender is another
+ * application busy creating a window. The code is masked with 0x7FFF the way
+ * the shell does it (the high bit of HSHELL_RUDEAPPACTIVATED is not part of
+ * the code). */
+LRESULT CALLBACK TrayService::TaskSwitchWndProc(HWND hwnd, UINT msg, WPARAM wParam,
+                                                LPARAM lParam) {
+    try {
+        /* Same registered message the tray window already uses for
+         * HSHELL_FLASH; RegisterWindowMessageW is cheap and returns the
+         * shared value. */
+        static const UINT shellHook = RegisterWindowMessageW(L"SHELLHOOK");
+        if (shellHook != 0 && msg == shellHook) {
+            const int code = static_cast<int>(wParam & 0x7FFF);
+            HWND target = reinterpret_cast<HWND>(lParam);
+            if (target != nullptr && IsWindow(target)) {
+                bool add = false;
+                bool known = true;
+                switch (code) {
+                    case HSHELL_WINDOWCREATED:      /* AddTab */
+                    case HSHELL_WINDOWACTIVATED:    /* ActivateTab */
+                        add = true;
+                        break;
+                    case HSHELL_WINDOWDESTROYED:    /* DeleteTab */
+                        add = false;
+                        break;
+                    default:
+                        known = false;
+                        break;
+                }
+                if (known) {
+                    const bool changed =
+                        WindowManager::Instance().ApplyTaskbarListCall(target, add);
+                    if (changed) {
+                        LogTagged(L"TABPROT",
+                                  add ? L"taskbar-list: AddTab honoured for a foreign window"
+                                      : L"taskbar-list: DeleteTab honoured for a foreign window");
+                    }
+                }
+            }
+            return 0;
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    } catch (...) {
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
 }
 
 LRESULT TrayService::HandleCopyData(HWND, const COPYDATASTRUCT* cds) {

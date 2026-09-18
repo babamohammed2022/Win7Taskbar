@@ -4082,6 +4082,92 @@ namespace Win7Taskbar
         }
 
         /// <summary>
+        /// <summary>
+        /// v1.21.32: vertical position of the preview close X.
+        ///
+        /// The top margin is no longer a magic number hard-coded in the
+        /// template: once the preview is laid out, the X copies the height
+        /// of the title label (PreviewTitleText) and centres itself on it,
+        /// so it stays aligned with the text at any band height, DPI or
+        /// skin.
+        ///
+        /// The historical value (14) stays as the FALLBACK: when the text
+        /// is not laid out yet, when another skin supplies the template or
+        /// when the measurement fails, the X returns exactly where it was.
+        /// </summary>
+        private const double PreviewCloseTopFallback = 14d;
+        private const double PreviewCloseHeightFallback = 20d;
+        private const string PreviewTitleTextName = "PreviewTitleText";
+
+        private void PreviewCloseButton_Loaded(object sender, RoutedEventArgs e)
+        {
+            AlignPreviewCloseButton(sender as Button);
+        }
+
+        private void PreviewCloseButton_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            /* The first layout pass runs after Loaded: this re-aligns the X
+             * as soon as its real size is known. */
+            if (e.HeightChanged)
+            {
+                AlignPreviewCloseButton(sender as Button);
+            }
+        }
+
+        private void AlignPreviewCloseButton(Button? button)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            double top = PreviewCloseTopFallback;
+            try
+            {
+                if (VisualTreeHelper.GetParent(button) is FrameworkElement root &&
+                    root.FindName(PreviewTitleTextName) is TextBlock title)
+                {
+                    double titleHeight = title.ActualHeight;
+                    if (!double.IsNaN(titleHeight) && titleHeight > 0)
+                    {
+                        /* Vertical centre of the text, in the coordinates of
+                         * the template root (the grid that also holds the
+                         * button). */
+                        Point origin = title.TransformToAncestor(root)
+                                            .Transform(new Point(0, 0));
+                        double titleCenter = origin.Y + (titleHeight / 2d);
+
+                        double buttonHeight = button.ActualHeight;
+                        if (double.IsNaN(buttonHeight) || buttonHeight <= 0)
+                        {
+                            buttonHeight = PreviewCloseHeightFallback;
+                        }
+
+                        double candidate = titleCenter - (buttonHeight / 2d);
+                        if (!double.IsNaN(candidate) && !double.IsInfinity(candidate))
+                        {
+                            /* Never outside the title band (38 px, the same
+                             * height the native core reserves on top). */
+                            top = Math.Max(0d, Math.Min(candidate, 38d - buttonHeight));
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                /* No exception may stop the preview from opening: the
+                 * fallback value keeps the X where it has always been. */
+                Debug.WriteLine($"preview close X alignment: {ex.Message}");
+                top = PreviewCloseTopFallback;
+            }
+
+            var margin = button.Margin;
+            if (Math.Abs(margin.Top - top) > 0.1d)
+            {
+                button.Margin = new Thickness(margin.Left, top, margin.Right, margin.Bottom);
+            }
+        }
+
         /// v2.44: la X dell'anteprima chiude DAVVERO la finestra. Usa lo
         /// stesso comando della voce "Chiudi" della jump list (WM_CLOSE
         /// inviato alla finestra dal core nativo), quindi funziona anche con

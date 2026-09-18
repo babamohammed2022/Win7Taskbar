@@ -390,3 +390,46 @@ configuration is.
 taskbar items that survives reinstall (for example a stable package identity
 for all Win32 apps): the key function in `VirtualTaskbarOrder` is the single
 place to change.
+
+## 17. v1.21.32: the taskbar-list protocol is answered, not ignored
+
+**Decision.** The window that registers the `Shell_TrayWnd` class (the tray
+window, see `TrayService.cpp`) answers the private taskbar query
+`WM_USER + 236` with a live window of its own (`W7T_TaskSwitch`, hidden and
+owned by the tray window), and that window turns the shell-hook codes it then
+receives into `ITaskbarList::AddTab` / `DeleteTab` / `ActivateTab` effects on
+the window model (`HSHELL_WINDOWCREATED` / `HSHELL_WINDOWDESTROYED` /
+`HSHELL_WINDOWACTIVATED`; `Common.cpp` keeps the resulting per-window
+override and `IsTaskbarWindow` consults it).
+
+**Why.** Microsoft documents `CLSID_TaskbarList` / `ITaskbarList` as
+implemented by the shell ("You do not implement ITaskbarList; it is
+implemented by the Shell"), and its methods' notes add that any type of window
+can be added to the taskbar, and that a window added with `AddTab` must be
+removed with `DeleteTab`. The shell implementation reaches the taskbar through
+the class-name lookup that also serves `Shell_NotifyIcon`, so a program that
+registers `Shell_TrayWnd` for its own notification area also receives the
+taskbar-list calls. `ITaskbarList::HrInit` requires a non-zero answer from
+that query, and the callers are toolkits that run it while they are building a
+window (tao/Tauri, Chromium/Electron): an unanswered or failing taskbar list
+surfaces as an application that opens late, opens without a button, or does not
+open at all. Answering the query with a live window and honouring the two calls
+keeps those applications compatible with this taskbar instead of merely
+tolerating them.
+
+**Consequences.** `DeleteTab` removes a button that the heuristics would have
+shown (the documented way an application keeps a window off the taskbar, e.g.
+`skip_taskbar`/`setSkipTaskbar`); `AddTab` publishes a window the heuristics
+would have dropped, but never a hidden, cloaked or child window, so the style
+filters that protect the bar (`WS_EX_TOOLWINDOW`, `WS_EX_NOACTIVATE`,
+`WS_CHILD`) still apply first and no service window can be promoted into a
+button. The response to the query takes no lock, touches no model and never
+waits, because it is sent from another process's window build. An empty title
+is now accepted for a window that carries `WS_CAPTION` (and a newly titled
+window joins the bar on the name-change event, not on the next full
+enumeration), which is what the same documentation recommends for taskbar
+windows.
+
+**Revisit if.** Windows documents a public replacement for the class-name
+lookup (a documented query or interface for third-party taskbars): the query
+handler and `TaskSwitchWndProc` are the only two places to change.

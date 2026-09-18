@@ -198,6 +198,37 @@ uint32_t GetWindowsBuildNumber();
 bool IsTaskbarWindow(HWND hwnd);
 
 /* ------------------------------------------------------------------ */
+/*  v1.21.32: taskbar-list protocol calls (ITaskbarList)               */
+/*                                                                     */
+/*  Microsoft documents CLSID_TaskbarList/ITaskbarList as implemented  */
+/*  BY THE SHELL ("You do not implement ITaskbarList; it is            */
+/*  implemented by the Shell"). AddTab adds an item to the taskbar,    */
+/*  DeleteTab removes it and ActivateTab activates it, and the         */
+/*  per-method notes add that "any type of window can be added to the  */
+/*  taskbar" and that a window added with AddTab must later be removed */
+/*  with DeleteTab. The shell implementation reaches the taskbar       */
+/*  through the window whose class name is "Shell_TrayWnd" - the same  */
+/*  class-name lookup Shell_NotifyIcon performs.                       */
+/*                                                                     */
+/*  A program that registers that class name (this one does, for the   */
+/*  notification area) therefore receives those calls too. What the    */
+/*  functions below keep is the result:                               */
+/*                                                                     */
+/*    +1  AddTab    -> the window belongs in the bar even when one of  */
+/*                     the heuristics below would drop it;             */
+/*    -1  DeleteTab -> the window has no button (the documented pair   */
+/*                     used by applications that remove their own      */
+/*                     button, e.g. tray-only windows);                */
+/*     0  no call   -> the heuristic decides, as before.               */
+/*                                                                     */
+/*  An override lives as long as the window: entries of destroyed      */
+/*  windows are dropped by PruneTaskbarOverrides/TaskbarListOverride.  */
+/* ------------------------------------------------------------------ */
+void SetTaskbarListOverride(HWND hwnd, int state);
+int  TaskbarListOverride(HWND hwnd);
+void PruneTaskbarOverrides(void);
+
+/* ------------------------------------------------------------------ */
 /*  Impostazioni della tray lette dalla STESSA chiave di Explorer      */
 /*                                                                     */
 /*  "Nascondi icone e notifiche inattive" di Windows sara'  il          */
