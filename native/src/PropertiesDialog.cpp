@@ -106,6 +106,8 @@ enum CtrlId {
     IDC_GRP_SYSFLY, IDC_CHK_CLASSIC_VOL, IDC_CHK_BATT_FLYOUT,
     IDC_GRP_EXIT, IDC_BTN_EXIT,
     IDC_TXT_ABOUT, IDC_TXT_CREDITS,
+    /* v1.21.37: avvio automatico con Windows (scheda Informazioni). */
+    IDC_CHK_AUTOSTART,
     /* v2.47 */
     IDC_GRP_TASKBAR,
     IDC_LBL_CLOCK, IDC_CMB_CLOCK,
@@ -237,6 +239,9 @@ void ShowTabPage(HWND hwnd, int page) {
 
     /* Pagina 2: informazioni + uscita. */
     vis(IDC_TXT_ABOUT, p2);   /* v2.58: i crediti sono dentro questo testo */
+    /* v1.21.37: la casella dell'avvio automatico sta fra il testo e il
+     * gruppo di uscita. */
+    vis(IDC_CHK_AUTOSTART, p2);
     vis(IDC_GRP_EXIT, p2); vis(IDC_BTN_EXIT, p2);
 
     /* Pagina 3: le nostre barre degli strumenti. */
@@ -512,7 +517,8 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                             int32_t toolbarLinks, int32_t inputLanguageMode,
                             int32_t taskManagerMode,
                             int32_t flyoutColorMode, int32_t flyoutColorRgb,
-                            int32_t connectionPrivacyMode, int32_t themeSelection) {
+                            int32_t connectionPrivacyMode, int32_t themeSelection,
+                            int32_t autoStart) {
     try {
         if (m_hWnd && IsWindow(m_hWnd)) {
             return;
@@ -552,6 +558,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * stays Windows 7, and the stored value is brought back to 0 when the
          * user opens and confirms the Properties. */
         m_themeSelection = (themeSelection == 1 && ThemeIsAvailable(1)) ? 1 : 0;
+        /* v1.21.37: stato dell'avvio automatico letto dal registro dal gestito
+         * prima di aprire il dialogo (come LoadAutoStart di RetroBar). */
+        m_autoStart = autoStart ? 1 : 0;
         RefreshExtraSwatchColor();
 
         /* v2.47: oltre alle schede e ai controlli standard serve la classe
@@ -685,6 +694,18 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          * this page is measured or computed at run time any more. The page
          * still ends at ~282 units, like the other two. */
         addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 14, 22, 296, 196, IDC_TXT_ABOUT, L"Static", L"");
+        /* v1.21.37 - "Avvio automatico con Windows", COPIATO DA RETROBAR.
+         * RetroBar ha la stessa casella nella finestra Proprieta' (voce
+         * "autostart", Advanced tab): la spunta scrive il percorso
+         * dell'eseguibile nel valore "RetroBar" di
+         * HKCU\Software\Microsoft\Windows\CurrentVersion\Run, toglierla
+         * elimina il valore - reversibile. Qui la casella sta nella scheda
+         * Informazioni, fra il testo e il gruppo di uscita, nello spazio che
+         * il template lasciava libero (222..232 DLU); l'effetto sul registro
+         * lo applica il gestito all'Applica/OK (Utilities/AutoStart.cs,
+         * stessa logica di RetroBar, stessa reversibilita'). */
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 14, 222, 296, 10,
+                IDC_CHK_AUTOSTART, L"Button", L"");
         /* v3.5: il gruppo di uscita segue il fondo pagina (+14 DLU). */
         addCtrl(BS_GROUPBOX, 0, 14, 238, 296, 40, IDC_GRP_EXIT, L"Button", L"");
         addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 20, 254, 110, 14, IDC_BTN_EXIT, L"Button", L"");
@@ -888,6 +909,12 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
             SendDlgItemMessageW(m_hWnd, IDC_CMB_EX_THEME, CB_GETCURSEL, 0, 0));
         msg.themeSelection = ThemeIsAvailable(themeSel) ? themeSel : 0;
     }
+    /* v1.21.37: avvio automatico con Windows (casella della scheda
+     * Informazioni, logica copiata da RetroBar). Il pacchetto porta solo la
+     * scelta; a scrivere/togliere il valore Run nel registro e' il gestito. */
+    msg.autoStart =
+        (SendDlgItemMessageW(m_hWnd, IDC_CHK_AUTOSTART, BM_GETCHECK, 0, 0)
+            & BST_CHECKED) ? 1 : 0;
     msg.openSearch = openSearch ? 1 : 0;
     msg.closeApp = closeApp ? 1 : 0;
 
@@ -1019,6 +1046,11 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             aboutText += S.credits;
             SetDlgItemTextW(hwnd, IDC_TXT_ABOUT, aboutText.c_str());
         }
+        /* v1.21.37: la casella dell'avvio automatico (RetroBar): etichetta
+         * dalla tabella della lingua e stato corrente letto dal registro. */
+        SetDlgItemTextW(hwnd, IDC_CHK_AUTOSTART, S.chkAutoStart);
+        SendDlgItemMessageW(hwnd, IDC_CHK_AUTOSTART, BM_SETCHECK,
+                            self->m_autoStart ? BST_CHECKED : BST_UNCHECKED, 0);
         SetDlgItemTextW(hwnd, IDC_TXT_TB_INFO, S.txtToolbars);
         SetDlgItemTextW(hwnd, IDOK, S.ok);
         SetDlgItemTextW(hwnd, IDCANCEL, S.cancel);

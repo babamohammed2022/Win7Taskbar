@@ -89,12 +89,25 @@ the Apache License 2.0. Derived portions keep their attribution in the
 relevant source files. The full Apache-2.0 text is reproduced in the appendix
 of [`CREDITS.txt`](./CREDITS.txt), as required by Apache-2.0 §4.
 
-No line of RetroBar's C# source code was copied verbatim: the logic
-(Superbar grouping, jump lists, notification area, AppBar behaviour) was
-reimplemented from scratch in native C++ under `native/`. What was taken from
-RetroBar is: the XAML theme file (a pre-existing derivative work, included
-unmodified), the public type/member names required for XAML binding
-resolution, and the *algorithms* of the features listed in `CREDITS.txt`.
+With one documented exception, no line of RetroBar's C# source code was
+copied verbatim: the logic (Superbar grouping, jump lists, notification area,
+AppBar behaviour) was reimplemented from scratch in native C++ under
+`native/`. What was taken from RetroBar is: the XAML theme file (a
+pre-existing derivative work, included unmodified), the public type/member
+names required for XAML binding resolution, and the *algorithms* of the
+features listed in `CREDITS.txt`.
+
+**The exception (since v1.21.37):** the "start with Windows" (reversible)
+option of the Properties window is a complete port of RetroBar's autostart
+implementation, copied into `src/Win7Taskbar/Utilities/AutoStart.cs` from
+`RetroBar/PropertiesWindow.xaml.cs` (`LoadAutoStart`,
+`CbAutoStart_OnChecked`) and `RetroBar/Utilities/ExePath.cs`
+(`GetExecutablePath`): state read from the value names of
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, enabling writes the
+quoted executable path as the `Win7Taskbar` value, disabling deletes it,
+every step guarded by try/catch as in the original. The checkbox labels are
+RetroBar's own "autostart" strings from its language files. The port remains
+under the Apache License 2.0, attributed in `CREDITS.txt`.
 
 ### ExplorerPatcher
 

@@ -186,6 +186,11 @@ struct PropStrings {
      * (ricreato)"). In CODA alla struttura: i valori posizionali delle
      * tabelle per lingua non devono slittare. */
     const wchar_t* netWin8;
+    /* v1.21.37: casella "avvio automatico con Windows" della scheda
+     * Informazioni. Implementazione copiata da RetroBar (vedi CREDITS.txt);
+     * le etichette sono le stesse stringhe "autostart" di RetroBar, tolto
+     * il carattere acceleratore. Sempre IN CODA alla struttura. */
+    const wchar_t* chkAutoStart;
 };
 
 const PropStrings& PropStringsFor(Lang lang);

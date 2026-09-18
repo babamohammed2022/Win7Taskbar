@@ -14,6 +14,38 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * ---------------------------------------------------------------------------
+ * v2.6.1 (2026-09): HARDENING + FIX OF THE "FLASH" ON THE TOOLBARS SUBMENU
+ *
+ * 1. RAII. Every HMENU created here is owned by a w7t::raii::MenuHandle
+ *    (RaiiWrappers.h): no more manual CreatePopupMenu()/DestroyMenu()
+ *    pairs, no leak possible on early returns or C++ exceptions. All the
+ *    exported entry points are wrapped in standard C++ try/catch (the
+ *    W7T_SEH_* macros are no-ops on MinGW), so a C++ exception can never
+ *    unwind through the P/Invoke boundary into the CLR.
+ *
+ * 2. THE FLASH. The "Toolbars" submenu of the taskbar context menu used
+ *    to flicker on open/close. Root cause: the topmost promotion below
+ *    was NOT idempotent. On every HCBT_CREATEWND/HCBT_ACTIVATE of ANY
+ *    "#32768" window (the parent menu AND its submenu are both #32768)
+ *    the hook re-applied SetWindowLongPtrW(GWL_EXSTYLE) + SetWindowPos,
+ *    and each window's 15 ms timer re-issued SetWindowPos(HWND_TOPMOST)
+ *    UNCONDITIONALLY. While the submenu was open, the PARENT's timer
+ *    yanked the parent back to the head of the topmost band - above its
+ *    own submenu - every 15 ms; the menu manager then restored the
+ *    submenu above the parent, and the Z-order ping-pong was visible as
+ *    a flash (the same restyle churn ran on every submenu activation).
+ *    Fix:
+ *    - the CBT hook promotes a menu window ONLY while it is not topmost
+ *      yet: the style change now happens once, at creation time, while
+ *      the window is still invisible (nothing to redraw);
+ *    - the timer re-asserts the Z-order ONLY if the window has been
+ *      covered by a NON-menu window (the taskbar / its AppBar guard, or
+ *      another application). If the window directly above it is another
+ *      "#32768" menu - i.e. its own submenu - the order is already
+ *      correct and the timer does nothing.
+ * ---------------------------------------------------------------------------
  */
 
 #include "ShellMenu.h"
@@ -36,10 +68,37 @@ constexpr UINT_PTR kMenuPriorityTimer = 0x574D;
  * loop. The WPF AppBar guard periodically reasserts the taskbar's own
  * topmost position; a one-shot CBT promotion can therefore be undone. */
 void CALLBACK MenuPriorityTimerProc(HWND hwnd, UINT, UINT_PTR id, DWORD) {
-    if (id != kMenuPriorityTimer || hwnd == nullptr || !IsWindow(hwnd)) return;
-    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
-                 SWP_NOOWNERZORDER);
+    /* v2.6.1: a Windows callback must never let a C++ exception escape. */
+    try {
+        if (id != kMenuPriorityTimer || hwnd == nullptr || !IsWindow(hwnd)) return;
+
+        /* v2.6.1 - the flash fix. Reassert the Z-order ONLY when something
+         * NON-menu has climbed above us (the taskbar's AppBar guard or
+         * another application window). If the window directly above us is
+         * another #32768 menu it is our own submenu and the order is
+         * already correct: the old unconditional SetWindowPos used to yank
+         * the parent back above its open submenu every 15 ms, the menu
+         * manager put the submenu back, and that ping-pong was the visible
+         * flash. */
+        HWND above = GetWindow(hwnd, GW_HWNDPREV);
+        if (above == nullptr) {
+            return; /* already at the front of the topmost band: nothing to do */
+        }
+
+        {
+            wchar_t aboveClass[32] = {};
+            if (GetClassNameW(above, aboveClass, static_cast<int>(std::size(aboveClass))) > 0 &&
+                lstrcmpW(aboveClass, L"#32768") == 0) {
+                return; /* submenu (or sibling menu) above us: leave it there */
+            }
+        }
+
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+                     SWP_NOOWNERZORDER);
+    } catch (...) {
+        /* never propagate through the timer callback */
+    }
 }
 
 /*
@@ -61,26 +120,45 @@ void CALLBACK MenuPriorityTimerProc(HWND hwnd, UINT, UINT_PTR id, DWORD) {
  * the scope.
  */
 LRESULT CALLBACK MenuPriorityCbtProc(int code, WPARAM wParam, LPARAM lParam) {
+    /* v2.6.1: a Windows callback must never let a C++ exception escape. */
+    try {
     if (code == HCBT_CREATEWND || code == HCBT_ACTIVATE) {
         HWND hwnd = reinterpret_cast<HWND>(wParam);
         wchar_t className[32] = {};
         if (hwnd != nullptr &&
             GetClassNameW(hwnd, className, static_cast<int>(std::size(className))) > 0 &&
             lstrcmpW(className, L"#32768") == 0) {
-            /* A tracked menu is its own #32768 window. Put that actual
-             * window, not only its invisible owner, at the front of the
-             * topmost band. This outranks the WS_EX_TOPMOST taskbar even
-             * when its AppBar guard reasserts the taskbar during tracking. */
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE,
-                GetWindowLongPtrW(hwnd, GWL_EXSTYLE) | WS_EX_TOPMOST);
-            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
-                         SWP_NOOWNERZORDER);
-            /* TrackPopupMenu runs a modal message loop, so this timer keeps
-             * firing even while the menu is open. It disappears with the
-             * menu HWND and cannot outlive the tracking call. */
-            SetTimer(hwnd, kMenuPriorityTimer, 15, MenuPriorityTimerProc);
+            /* v2.6.1 - idempotent promotion. The old code re-applied
+             * SetWindowLongPtrW(GWL_EXSTYLE) + SetWindowPos on EVERY
+             * create/activate notification of every #32768 window, i.e.
+             * it restyled the visible parent menu again when its submenu
+             * opened/activated: a visible window whose extended style is
+             * rewritten redraws, and that restyle churn was part of the
+             * flash. Now the promotion runs only while the window is not
+             * topmost yet: that is the creation-time path (the window is
+             * still invisible, nothing can flash). If the shell ever
+             * strips WS_EX_TOPMOST from a live menu, the very next
+             * activation restores it once, and the timer below keeps the
+             * Z-order correct in between. */
+            const LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            if ((exStyle & WS_EX_TOPMOST) == 0) {
+                /* A tracked menu is its own #32768 window. Put that actual
+                 * window, not only its invisible owner, at the front of the
+                 * topmost band. This outranks the WS_EX_TOPMOST taskbar even
+                 * when its AppBar guard reasserts the taskbar during tracking. */
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle | WS_EX_TOPMOST);
+                SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+                             SWP_NOOWNERZORDER);
+                /* TrackPopupMenu runs a modal message loop, so this timer keeps
+                 * firing even while the menu is open. It disappears with the
+                 * menu HWND and cannot outlive the tracking call. */
+                SetTimer(hwnd, kMenuPriorityTimer, 15, MenuPriorityTimerProc);
+            }
         }
+    }
+    } catch (...) {
+        /* swallow: the hook chain below must always continue */
     }
     return CallNextHookEx(nullptr, code, wParam, lParam);
 }
@@ -305,6 +383,9 @@ void ApplySystemMenuGlyphs(HMENU menu) noexcept {
 
 int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
                                         bool bottomEdge) {
+    /* v2.6.1: standard C++ try/catch - the SEH macros are no-ops on
+     * MinGW, and nothing may unwind through the P/Invoke boundary. */
+    try {
     y = AnchorYToTaskbarTop(x, y, bottomEdge);   /* v2.42 */
     if (ownerHwnd == nullptr || !IsWindow(ownerHwnd)) {
         return W7T_ERR_NOT_FOUND;
@@ -315,11 +396,15 @@ int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
         return W7T_ERR_CREATE_WINDOW;
     }
 
-    /* false = restituisce il menu in uso; lo cloniamo per non alterarlo. */
+    /* false = restituisce il menu in uso; lo cloniamo per non alterarlo.
+     * NOT ours: GetSystemMenu(FALSE) returns a handle owned by the
+     * system/target window and must never be destroyed here. */
     HMENU systemMenu = GetSystemMenu(ownerHwnd, FALSE);
 
-    HMENU popup = CreatePopupMenu();
-    if (popup == nullptr) {
+    /* v2.6.1: RAII - the popup (and everything appended to it) is
+     * destroyed automatically on every return path. */
+    raii::MenuHandle popup(CreatePopupMenu());
+    if (!popup) {
         return W7T_ERR_APPBAR;
     }
 
@@ -329,7 +414,7 @@ int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
      * mostra comunque il menu: lo ricostruiamo con le voci standard e lo
      * stato corretto, invece di non mostrare nulla. */
     if (systemMenu == nullptr) {
-        BuildFallbackWindowMenu(popup, ownerHwnd);
+        BuildFallbackWindowMenu(popup.get(), ownerHwnd);
     } else {
         /* Copia voce per voce: cosi' rispettiamo esattamente cio' che
          * l'applicazione espone, comprese le voci personalizzate. */
@@ -347,7 +432,7 @@ int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
             }
 
             if ((info.fType & MFT_SEPARATOR) != 0) {
-                AppendMenuW(popup, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(popup.get(), MF_SEPARATOR, 0, nullptr);
                 continue;
             }
 
@@ -365,7 +450,7 @@ int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
 
             /* info.cch viene azzerato per le voci senza testo. */
             info.dwTypeData = text;
-            AppendMenuW(popup, flags, info.wID, text);
+            AppendMenuW(popup.get(), flags, info.wID, text);
         }
     }
 
@@ -375,39 +460,40 @@ int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
      * something there: rebuild the standard menu instead of showing
      * nothing, so Close/Minimize are always available. */
     bool usable = false;
-    const int copiedCount = GetMenuItemCount(popup);
+    const int copiedCount = GetMenuItemCount(popup.get());
     for (int i = 0; i < copiedCount && !usable; ++i) {
         MENUITEMINFOW state = {};
         state.cbSize = sizeof(state);
         state.fMask  = MIIM_STATE | MIIM_FTYPE;
-        if (GetMenuItemInfoW(popup, static_cast<UINT>(i), TRUE, &state) &&
+        if (GetMenuItemInfoW(popup.get(), static_cast<UINT>(i), TRUE, &state) &&
             (state.fType & MFT_SEPARATOR) == 0 &&
             (state.fState & (MFS_DISABLED | MFS_GRAYED)) == 0) {
             usable = true;
         }
     }
     if (!usable) {
-        DestroyMenu(popup);
-        popup = CreatePopupMenu();
-        if (popup == nullptr) {
+        /* v2.6.1 RAII: reset() destroys the unusable clone and takes
+         * ownership of the fresh one; no manual pairing. */
+        popup.reset(CreatePopupMenu());
+        if (!popup) {
             return W7T_ERR_APPBAR;
         }
-        BuildFallbackWindowMenu(popup, ownerHwnd);
+        BuildFallbackWindowMenu(popup.get(), ownerHwnd);
     }
 
     /* Native caption glyphs (Restore/Minimize/Maximize/Close) drawn by
      * Windows itself. Best effort: without them this is still the exact
      * menu built above. */
-    ApplySystemMenuGlyphs(popup);
+    ApplySystemMenuGlyphs(popup.get());
 
     int32_t chosen = 0;
     {
         ForegroundMenuScope scope(menuOwner);
         chosen = static_cast<int32_t>(TrackPopupMenuEx(
-            popup, CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
+            popup.get(), CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
     }
 
-    DestroyMenu(popup);
+    /* popup destroyed here by MenuHandle */
 
     if (chosen == 0) {
         return W7T_OK; /* annullato: non e' un errore */
@@ -418,44 +504,50 @@ int32_t ShellMenu::ShowWindowSystemMenu(HWND ownerHwnd, int32_t x, int32_t y,
     PostMessageW(ownerHwnd, WM_SYSCOMMAND, static_cast<WPARAM>(chosen),
                  MAKELPARAM(x, y));
     return W7T_OK;
+    } catch (...) {
+        /* Never let an exception cross the P/Invoke boundary. */
+        return W7T_ERR_APPBAR;
+    }
 }
 
 int32_t ShellMenu::ShowGroupMenu(HWND ownerHwnd, int32_t x, int32_t y,
                                  bool bottomEdge,
                                  const wchar_t* minimizeText,
                                  const wchar_t* closeText) {
+    /* v2.6.1: standard C++ try/catch around the whole body. */
+    try {
     y = AnchorYToTaskbarTop(x, y, bottomEdge);   /* v2.42 */
     HWND menuOwner = GetMenuOwnerWindow();
     if (menuOwner == nullptr) {
         return W7T_ERR_CREATE_WINDOW;
     }
 
-    HMENU popup = CreatePopupMenu();
-    if (popup == nullptr) {
+    raii::MenuHandle popup(CreatePopupMenu());   /* v2.6.1: RAII */
+    if (!popup) {
         return W7T_ERR_APPBAR;
     }
 
     /* v2.59: il managed manda le sue stringhe (gia' nella lingua scelta);
      * se non le manda - o non le ha - il testo viene dalla tabella unica,
      * che conosce tutte e 11 le lingue: mai italiano per omissione. */
-    AppendMenuW(popup, MF_STRING, kGroupMinimizeId,
+    AppendMenuW(popup.get(), MF_STRING, kGroupMinimizeId,
                 minimizeText != nullptr ? minimizeText : S(StrId::GroupMinimize));
-    AppendMenuW(popup, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(popup, MF_STRING, kGroupCloseId,
+    AppendMenuW(popup.get(), MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(popup.get(), MF_STRING, kGroupCloseId,
                 closeText != nullptr ? closeText : S(StrId::GroupClose));
 
     /* Native minimize/close glyphs drawn by Windows itself. Best effort. */
-    SetItemBitmapByCommand(popup, kGroupMinimizeId, HBMMENU_POPUP_MINIMIZE);
-    SetItemBitmapByCommand(popup, kGroupCloseId, HBMMENU_POPUP_CLOSE);
+    SetItemBitmapByCommand(popup.get(), kGroupMinimizeId, HBMMENU_POPUP_MINIMIZE);
+    SetItemBitmapByCommand(popup.get(), kGroupCloseId, HBMMENU_POPUP_CLOSE);
 
     int32_t chosen = 0;
     {
         ForegroundMenuScope scope(menuOwner);
         chosen = static_cast<int32_t>(TrackPopupMenuEx(
-            popup, CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
+            popup.get(), CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
     }
 
-    DestroyMenu(popup);
+    /* popup destroyed here by MenuHandle */
     (void)ownerHwnd;
 
     if (chosen == static_cast<int32_t>(kGroupMinimizeId)) {
@@ -465,6 +557,9 @@ int32_t ShellMenu::ShowGroupMenu(HWND ownerHwnd, int32_t x, int32_t y,
         return 2;
     }
     return 0;
+    } catch (...) {
+        return 0;
+    }
 }
 
 int32_t ShellMenu::ShowPinMenu(int32_t x, int32_t y, bool bottomEdge,
@@ -472,22 +567,24 @@ int32_t ShellMenu::ShowPinMenu(int32_t x, int32_t y, bool bottomEdge,
                                const wchar_t* pinText,
                                const wchar_t* lnkPath,
                                const wchar_t* targetPath) {
+    /* v2.6.1: standard C++ try/catch around the whole body. */
+    try {
     y = AnchorYToTaskbarTop(x, y, bottomEdge);
     HWND menuOwner = GetMenuOwnerWindow();
     if (menuOwner == nullptr) {
         return 0;
     }
 
-    HMENU popup = CreatePopupMenu();
-    if (popup == nullptr) {
+    raii::MenuHandle popup(CreatePopupMenu());   /* v2.6.1: RAII */
+    if (!popup) {
         return 0;
     }
 
     /* Same two rows, same ids (1/2) the generic menu produced for the pin:
      * the managed switch on the result does not change. */
-    AppendMenuW(popup, MF_STRING, 1,
+    AppendMenuW(popup.get(), MF_STRING, 1,
                 launchText != nullptr ? launchText : L"");
-    AppendMenuW(popup, MF_STRING, 2,
+    AppendMenuW(popup.get(), MF_STRING, 2,
                 pinText != nullptr ? pinText : L"");
 
     /* Text-only rows: Windows 7 draws no icon next to the launch entry,
@@ -500,15 +597,20 @@ int32_t ShellMenu::ShowPinMenu(int32_t x, int32_t y, bool bottomEdge,
     {
         ForegroundMenuScope scope(menuOwner);
         chosen = static_cast<int32_t>(TrackPopupMenuEx(
-            popup, CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
+            popup.get(), CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
     }
 
-    DestroyMenu(popup);
+    /* popup destroyed here by MenuHandle */
     return chosen;
+    } catch (...) {
+        return 0;
+    }
 }
 
 int32_t ShellMenu::ShowContextMenu(int32_t x, int32_t y, bool bottomEdge,
                                    const wchar_t* itemsSeparatedByNewline) {
+    /* v2.6.1: standard C++ try/catch around the whole body. */
+    try {
     y = AnchorYToTaskbarTop(x, y, bottomEdge);   /* v2.42 */
     if (itemsSeparatedByNewline == nullptr) {
         return 0;
@@ -519,8 +621,8 @@ int32_t ShellMenu::ShowContextMenu(int32_t x, int32_t y, bool bottomEdge,
         return 0;
     }
 
-    HMENU popup = CreatePopupMenu();
-    if (popup == nullptr) {
+    raii::MenuHandle popup(CreatePopupMenu());   /* v2.6.1: RAII */
+    if (!popup) {
         return 0;
     }
 
@@ -541,7 +643,7 @@ int32_t ShellMenu::ShowContextMenu(int32_t x, int32_t y, bool bottomEdge,
         start = end + 1;
 
         if (item == L"-") {
-            AppendMenuW(popup, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(popup.get(), MF_SEPARATOR, 0, nullptr);
             continue;
         }
 
@@ -558,23 +660,28 @@ int32_t ShellMenu::ShowContextMenu(int32_t x, int32_t y, bool bottomEdge,
             item.erase(0, 1);
         }
 
-        AppendMenuW(popup, flags, nextId++, item.c_str());
+        AppendMenuW(popup.get(), flags, nextId++, item.c_str());
     }
 
     int32_t chosen = 0;
     {
         ForegroundMenuScope scope(menuOwner);
         chosen = static_cast<int32_t>(TrackPopupMenuEx(
-            popup, CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
+            popup.get(), CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
     }
 
-    DestroyMenu(popup);
+    /* popup destroyed here by MenuHandle */
     return chosen;
+    } catch (...) {
+        return 0;
+    }
 }
 
 int32_t ShellMenu::ShowContextMenuEx(int32_t x, int32_t y, bool bottomEdge,
                                      const wchar_t* itemsSeparatedByNewline,
                                      bool anchorAtCursor) {
+    /* v2.6.1: standard C++ try/catch around the whole body. */
+    try {
     /* v2.43: con anchorAtCursor il punto ricevuto e' il cursore e va
      * usato COSI' COM'E' (menu della barra/orologio, che devono aprirsi
      * dove si trova il puntatore); per i menu delle app resta l'ancoraggio
@@ -591,8 +698,12 @@ int32_t ShellMenu::ShowContextMenuEx(int32_t x, int32_t y, bool bottomEdge,
         return 0;
     }
 
-    HMENU root = CreatePopupMenu();
-    if (root == nullptr) {
+    /* v2.6.1: RAII. DestroyMenu on the root recursively destroys every
+     * submenu appended with MF_POPUP, so the root wrapper owns the whole
+     * tree and each child handle is release()d the moment it is attached
+     * to its parent (see the ">" branch below). */
+    raii::MenuHandle root(CreatePopupMenu());
+    if (!root) {
         return 0;
     }
 
@@ -601,7 +712,7 @@ int32_t ShellMenu::ShowContextMenuEx(int32_t x, int32_t y, bool bottomEdge,
      * troppo nel testo non deve mai farla sparire, altrimenti le voci
      * successive finirebbero perse nel vuoto invece che nel menu giusto. */
     std::vector<HMENU> stack;
-    stack.push_back(root);
+    stack.push_back(root.get());
 
     UINT nextId = 1;
     std::wstring all(itemsSeparatedByNewline);
@@ -639,11 +750,15 @@ int32_t ShellMenu::ShowContextMenuEx(int32_t x, int32_t y, bool bottomEdge,
 
         if (item[0] == L'>') {
             std::wstring label = item.substr(1);
-            HMENU sub = CreatePopupMenu();
-            if (sub != nullptr) {
+            /* The child is RAII-guarded until the instant it is attached
+             * to its parent; release() hands ownership over (the parent's
+             * DestroyMenu will free it). If AppendMenuW ever failed, the
+             * wrapper would still destroy the orphan - no leak either way. */
+            raii::MenuHandle sub(CreatePopupMenu());
+            if (sub) {
                 AppendMenuW(current, MF_STRING | MF_POPUP,
-                            reinterpret_cast<UINT_PTR>(sub), label.c_str());
-                stack.push_back(sub);
+                            reinterpret_cast<UINT_PTR>(sub.get()), label.c_str());
+                stack.push_back(sub.release());
             }
             continue;
         }
@@ -666,13 +781,16 @@ int32_t ShellMenu::ShowContextMenuEx(int32_t x, int32_t y, bool bottomEdge,
     {
         ForegroundMenuScope scope(menuOwner);
         chosen = static_cast<int32_t>(TrackPopupMenuEx(
-            root, CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
+            root.get(), CommonFlags(bottomEdge), x, y, menuOwner, nullptr));
     }
 
     /* DestroyMenu distrugge ricorsivamente anche i sottomenu agganciati
-     * con MF_POPUP: non serve distruggerli uno per uno. */
-    DestroyMenu(root);
+     * con MF_POPUP: non serve distruggerli uno per uno. Qui ci pensa il
+     * distruttore di MenuHandle, su QUALUNQUE percorso di uscita. */
     return chosen;
+    } catch (...) {
+        return 0;
+    }
 }
 
 } /* namespace w7t */

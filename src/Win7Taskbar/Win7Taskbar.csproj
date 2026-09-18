@@ -285,7 +285,32 @@
          (PR #27). Nothing was dropped from either one; the only code touched
          during the union is where the two visual drag systems would have
          collided (see TaskbarWindow.xaml.cs and TaskbarViewModel.cs). -->
-    <Version>1.21.36-alpha</Version>
+    <!-- 1.21.37-alpha: "Start with Windows" (reversible) in the About /
+         Informazioni tab of the Properties window. The implementation is
+         COPIED FROM RETROBAR (PropertiesWindow.xaml.cs: LoadAutoStart and
+         CbAutoStart_OnChecked; Utilities/ExePath.cs), ported into
+         src/Win7Taskbar/Utilities/AutoStart.cs with the same try/catch
+         guards: the state is read from the value names of
+         HKCU\Software\Microsoft\Windows\CurrentVersion\Run; enabling writes
+         the quoted executable path as the "Win7Taskbar" value, disabling
+         deletes it. The checkbox labels are RetroBar's own "autostart"
+         strings (all 11 languages, accelerator character removed), the
+         native dialog carries the control and the WM_COPYDATA packet grows
+         by one field appended at the end (80 bytes). Full attribution in
+         docs/CREDITS.txt and docs/THIRD-PARTY-NOTICES.md. -->
+    <!-- 1.21.38-alpha: toolbar fixes. The Desktop popup now uses the shell
+         DISPLAY NAME (SHGetFileInfo + SHGFI_DISPLAYNAME), so ".lnk"/".url"
+         /".txt" extensions are hidden exactly like Explorer's own Desktop
+         toolbar; hidden+system metadata files (desktop.ini) are skipped.
+         The popup items are real aero buttons (hover/pressed light-blue
+         palette taken from Win7NetworkFlyout.cpp row colors), and the band
+         buttons get white labels + the same aero hover. Native side
+         (ShellMenu.cpp): all HMENU handles are RAII (raii::MenuHandle, new
+         in RaiiWrappers.h), every exported menu entry point is wrapped in
+         standard C++ try/catch (the SEH macros are no-ops on MinGW), and
+         the topmost-promotion hook/timer is now idempotent, which fixes
+         the visible flash of the "Toolbars" submenu on open/close. -->
+    <Version>1.21.38-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

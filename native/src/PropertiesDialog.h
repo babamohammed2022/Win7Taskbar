@@ -44,6 +44,12 @@ struct PropsApplyMsg {
     int32_t flyoutColorRgb;        // 0x00RRGGBB of the custom colour
     int32_t connectionPrivacyMode; // 0 = normal, 1 = privacy
     int32_t themeSelection;        // 0 = Windows 7, 1 = Windows 8.1
+    /* v1.21.37 - "avvio automatico con Windows" della scheda Informazioni.
+     * Ultimo campo, AGGIUNTO IN CODA come tutti gli altri: il ricevente lo
+     * legge solo se il pacchetto contiene davvero 80 byte (cbData). L'effetto
+     * (scrivere/togliere il valore Run nel registro) lo applica il gestito,
+     * con la stessa logica di RetroBar (vedi AutoStart.cs e CREDITS.txt). */
+    int32_t autoStart;             // 0/1 avvia il programma all'avvio di Windows
 };
 constexpr DWORD kPropsCopyDataId = 'W7PA';
 
@@ -58,7 +64,8 @@ public:
               int32_t toolbarLinks, int32_t inputLanguageMode,
               int32_t taskManagerMode,
               int32_t flyoutColorMode, int32_t flyoutColorRgb,
-              int32_t connectionPrivacyMode, int32_t themeSelection);
+              int32_t connectionPrivacyMode, int32_t themeSelection,
+              int32_t autoStart);
 
     /* v2.47: il font del dialogo e' un oggetto GDI: si crea una volta per
      * apertura e si distrugge alla chiusura, nel distruttore della classe
@@ -104,6 +111,9 @@ private:
     int32_t m_flyoutColorRgb = 0x0078D7;   /* chosen custom colour */
     int32_t m_connectionPrivacyMode = 0;
     int32_t m_themeSelection = 0;      /* Windows 7 (8.1 not available) */
+    /* v1.21.37: stato corrente dell'avvio automatico (letto dal registro dal
+     * gestito prima di aprire il dialogo, come fa RetroBar in LoadAutoStart). */
+    int32_t m_autoStart = 0;
     /* Colour shown by the swatch next to the two entries: with the "system
      * colour" mode it is read from the system (see
      * RefreshExtraSwatchColor). */
