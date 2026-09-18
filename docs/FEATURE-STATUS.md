@@ -17,7 +17,7 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Pinned applications | ✅ | Pinned taskbar applications are supported. |
 | Application grouping | ✅ | Grouped task buttons are supported as part of the Windows 7-style Superbar behavior. |
 | Taskbar-list compatibility (shell clients) | ⚠️ | **v1.21.32:** the taskbar window answers the private query `WM_USER + 236` that `ITaskbarList` clients send to the window of class `Shell_TrayWnd` (`HrInit` fails when it answers zero), and the shell-hook codes those clients then send are honoured as the documented `AddTab`/`DeleteTab`/`ActivateTab` effects. Toolkits that run this during window creation (tao/Tauri, Chromium/Electron, i.e. Windhawk and VS Codium) can therefore add and remove their own buttons instead of failing or waiting. Windows with an empty title are accepted when they carry `WS_CAPTION`, and a window whose title arrives later joins the bar on the name-change event instead of waiting for the next full enumeration. **Needs real-hardware confirmation** with Windhawk and VS Codium, which is what this PR's test build is for. |
-| Color hot-track (hover accent) | ⚠️ | **v1.21.35:** the hover look of a task button is unchanged (tray hover tile + the theme's Aero glow); on top of it, a program that is **open** gets a **small spot** of its own colour, centred on the mouse and at **12%** strength - present, but discreet. Pinned programs that are not running get no accent. History: v1.21.33 replaced the hover everywhere with a glossy tile at full strength (rejected on feedback), v1.21.34 cut it to a 5% accent (judged too faint), v1.21.35 sets the spot at 12% of a 10-15% band and shrinks it. **Needs real-hardware confirmation** of the 12% value. |
+| Color hot-track (hover accent) | ⚠️ | **v1.21.36:** the hover look of a task button is unchanged (tray hover tile + the theme's Aero glow); on top of it, a program that is **open** gets a **small spot** of its own colour, centred on the mouse, at **30%** strength. Pinned programs that are not running get no accent. History: v1.21.33 replaced the hover everywhere with a glossy tile at full strength (rejected), v1.21.34 cut it to 5% (too faint), v1.21.35 set the small spot at 12%, v1.21.36 raises the weight to 30% on the user's request while keeping the small spot. **Needs real-hardware confirmation** of the 30% value. |
 | Open-application indicators | ⚠️ | Active/running-state indicators work. Multi-window separator lines are a right-aligned overlay (1 line at 2 windows, 2 lines at 3+). Both lines are shifted another 2% right; at 3+ the inner line moves 1.5% toward the outer line to tighten the pair. Pending real-hardware DPI verification. |
 | Application tooltips | ✅ | Application-name tooltips are available. |
 | File drag & drop onto taskbar buttons | ⚠️ | Dropping a file onto a pinned/running app button to open it with that app (hover-to-activate + drop) has an initial implementation: standard WPF drag&drop (no COM IDropTarget needed, since this isn't injected into explorer.exe), with a fallback to ShellExecute when the known executable can't be launched directly, and an extension check (via registry SupportedTypes, permissive when unknown) driving the allowed/forbidden cursor feedback. Needs real-world testing (multi-file drops, apps without declared SupportedTypes, mixed-extension drops). |
@@ -117,7 +117,7 @@ Real-hardware confirmation with Windhawk and VS Codium is the purpose of the
 test build attached to this pull request; the protocol path is also logged
 once with the `TABPROT` tag in `log-core.txt`.
 
-### Color hot-track (hover accent, v1.21.35)
+### Color hot-track (hover accent, v1.21.36)
 
 Microsoft documents the effect precisely (Raymond Chen, official Microsoft blog,
 2011-12-06): the hovered taskbar button "lights up in a color that matches the
@@ -126,16 +126,17 @@ colors in the icon itself", "the lighting effect is centered on the mouse", and
 and shades of gray are not considered 'colors' for the purpose of this
 calculation".
 
-**Shape it has today**, after two rounds of feedback: the hover look of a task
+**Shape it has today**, after three rounds of feedback: the hover look of a task
 button is left exactly as it was before the feature (the tray hover tile and the
 theme's Aero glow, unchanged), and the colour is a **small spot** on top of it:
 
-- **12%** strength - the `Hotlight` element's opacity is animated to `0.12` in
-  the templates of an open program (running, active, flashing), inside the
-  10-15% band asked for after the 5% of v1.21.34 was judged too faint;
-- the spot is **small**: its radii are the `SpotRadiusX`/`SpotRadiusY`
+- **30%** strength - the `Hotlight` element's opacity is animated to `0.30` in
+  the templates of an open program (running, active, flashing). The sequence of
+  attempts is worth keeping: 5% (v1.21.34) was too faint, 12% (v1.21.35) was
+  raised to 30% on request;
+- the spot stays **small**: its radii are the `SpotRadiusX`/`SpotRadiusY`
   constants of `Utilities/HotlightColor.cs` (0.55 and 0.72 of the button), so it
-  reads as a spot of light around the cursor, not as a wash over the tile;
+  remains a spot of light around the cursor rather than a wash over the tile;
 - it exists **only on programs that are open**: a pinned program that is not
   running keeps the plain hover, with no accent at all;
 - it follows the mouse and takes the **dominant colour of the icon** (near-black
@@ -148,7 +149,7 @@ light, and on a vertical taskbar the light travels along the bar so it never sit
 on the button's text. Nothing about the icon, the theme or Windows is modified.
 
 **The two knobs** are the opacity animations of `Hotlight` in
-`Themes/Overrides.xaml` (`To="0.12"` / `To="0"`) and the two spot radii in
+`Themes/Overrides.xaml` (`To="0.30"` / `To="0"`) and the two spot radii in
 `HotlightColor.cs`.
 
 ## Areas that are already in good shape

@@ -434,7 +434,7 @@ windows.
 lookup (a documented query or interface for third-party taskbars): the query
 handler and `TaskSwitchWndProc` are the only two places to change.
 
-## 18. v1.21.35: Color hot-track as a small 12% spot on open programs only
+## 18. v1.21.36: Color hot-track as a small spot on open programs only
 
 **Decision.** The hover look of a task button is left exactly as it was before
 the feature (the tray hover tile plus the theme's Aero glow,
@@ -445,33 +445,31 @@ spot** of the application colour - the "Color hot-track" Microsoft documents
 that matches the colors in the icon itself", "the lighting effect is centered on
 the mouse", and "the code just looks for the predominant color in the icon [...]
 black, white, and shades of gray are not considered 'colors'") - with its centre
-moved to the cursor by `TaskButton_MouseMove`. The accent's weight is **12%**
-(the opacity the theme animates: `0.12` on hover, `0` when the mouse leaves) and
-its size is the two `SpotRadiusX`/`SpotRadiusY` constants of
-`Utilities/HotlightColor.cs`. Pinned buttons that are not running carry no accent
-at all.
+moved to the cursor by `TaskButton_MouseMove`. Its size is the two
+`SpotRadiusX`/`SpotRadiusY` constants of `Utilities/HotlightColor.cs` and its
+weight is the opacity the theme animates (`0.30` on hover, `0` when the mouse
+leaves). Pinned buttons that are not running carry no accent at all.
 
-**Why.** Three rounds fixed the scope and the weight of this feature, and the
-sequence is the record of what each round taught. v1.21.33 replaced the hover
-tile everywhere with a glossy glass square and tinted every button at full
-strength: real use rejected it, because Windows 7 was far more moderate and the
-light belonged to open programs. v1.21.34 restored the hover and reduced the
-colour to a 5% accent, open programs only: judged too faint to be seen. v1.21.35
-keeps the restored hover and the open-programs-only scope, and sets the accent at
-12% inside the asked-for 10-15% band while shrinking the spot, so the effect is a
-spot of light around the cursor instead of a wash over the tile.
+**Why.** The scope of this feature took several rounds of real use to settle,
+and each round is recorded here because each was a correction of the previous
+one. v1.21.33 replaced the hover tile everywhere with a glossy glass square and
+tinted every button at full strength: rejected, because Windows 7 was far more
+moderate and the light belonged to open programs. v1.21.34 restored the hover and
+reduced the colour to a 5% accent, open programs only: too faint to be seen.
+v1.21.35 kept the restored hover and the open-programs-only scope and set the
+accent at 12%. v1.21.36 raises the weight to 30% on request, and leaves the spot
+small, so the accent is clearly visible without becoming a wash over the tile.
 
 **Consequences.** The `Hotlight` element is a no-op when it is not wanted (it
-starts at opacity 0, the templates animate it to 0.12 only on the hover of an
-open program, and only the running/active/flashing templates contain it), so a
-pinned program cannot light up by accident. Weight and size are independent and
-each has a single home: the animations in `Overrides.xaml` for the weight, the
-two radii in `HotlightColor.cs` for the size. The colour extraction is unchanged
-and still cannot break a hover (an unsamplable icon falls back to the neutral
-white-blue light), and no tile, border or brush of the original hover was
+starts at opacity 0, and only the running/active/flashing templates animate it,
+so a pinned program cannot light up by accident). Weight and size are independent
+and each has a single home: the animations in `Overrides.xaml` for the weight,
+the two radii in `HotlightColor.cs` for the size. The colour extraction is
+unchanged and still cannot break a hover (an unsamplable icon falls back to the
+neutral white-blue light), and no tile, border or brush of the original hover was
 replaced.
 
-**Revisit if.** The 12% is still not right on real hardware: the marked
-`To="0.12"` animations are the single place to change. If the accent should also
+**Revisit if.** The weight is still not right on real hardware: the marked
+`To="0.30"` animations are the single place to change. If the accent should also
 appear on pinned programs, the guard is the single `group.IsRunning` condition in
 `TaskbarWindow.xaml.cs`.
