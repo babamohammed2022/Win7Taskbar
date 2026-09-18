@@ -298,7 +298,19 @@
          native dialog carries the control and the WM_COPYDATA packet grows
          by one field appended at the end (80 bytes). Full attribution in
          docs/CREDITS.txt and docs/THIRD-PARTY-NOTICES.md. -->
-    <Version>1.21.37-alpha</Version>
+    <!-- 1.21.38-alpha: toolbar fixes. The Desktop popup now uses the shell
+         DISPLAY NAME (SHGetFileInfo + SHGFI_DISPLAYNAME), so ".lnk"/".url"
+         /".txt" extensions are hidden exactly like Explorer's own Desktop
+         toolbar; hidden+system metadata files (desktop.ini) are skipped.
+         The popup items are real aero buttons (hover/pressed light-blue
+         palette taken from Win7NetworkFlyout.cpp row colors), and the band
+         buttons get white labels + the same aero hover. Native side
+         (ShellMenu.cpp): all HMENU handles are RAII (raii::MenuHandle, new
+         in RaiiWrappers.h), every exported menu entry point is wrapped in
+         standard C++ try/catch (the SEH macros are no-ops on MinGW), and
+         the topmost-promotion hook/timer is now idempotent, which fixes
+         the visible flash of the "Toolbars" submenu on open/close. -->
+    <Version>1.21.38-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

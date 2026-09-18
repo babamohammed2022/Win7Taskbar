@@ -129,6 +129,19 @@ struct IconDeleter { void operator()(HICON hicon) const noexcept { if (hicon) De
 using IconHandle = unique_handle<HICON, IconDeleter>;
 
 // ------------------------------------------------------------
+// Menu handle (HMENU).
+// v2.6.1: used by ShellMenu.cpp so that popup menus can never
+// leak, even on early returns or C++ exceptions.
+// NOTE: DestroyMenu() destroys a popup menu AND every submenu
+// appended to it, so ownership must be *released* (see
+// unique_handle::release) when a child menu is attached to a
+// parent with AppendMenuW(MF_POPUPUP, ...) — from that moment
+// the parent's wrapper owns the whole tree.
+// ------------------------------------------------------------
+struct MenuDeleter { void operator()(HMENU hmenu) const noexcept { if (hmenu) DestroyMenu(hmenu); } };
+using MenuHandle = unique_handle<HMENU, MenuDeleter>;
+
+// ------------------------------------------------------------
 // Registry key handle
 // ------------------------------------------------------------
 struct RegKeyDeleter { void operator()(HKEY hkey) const noexcept { if (hkey) RegCloseKey(hkey); } };

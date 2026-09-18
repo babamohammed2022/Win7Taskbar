@@ -439,8 +439,73 @@
                         VerticalAlignment="Center"
                         Margin="6,0,6,0">
                 <StackPanel.Resources>
+                    <!-- v2.6.1: palette "aero" per le bande, gli stessi colori
+                         chiari del flyout di rete Win7 (Win7NetworkFlyout.cpp:
+                         GetRowHoverColor RGB(242,247,253), GetRowHoverBorderColor
+                         RGB(216,231,248), GetRowSelectedColor RGB(228,241,252),
+                         GetRowSelectedBorderColor RGB(174,212,243)). -->
+                    <LinearGradientBrush x:Key="AeroItemHoverBackground" StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#FFF6FAFE" Offset="0.0" />
+                        <GradientStop Color="#FFE9F2FA" Offset="1.0" />
+                    </LinearGradientBrush>
+                    <SolidColorBrush x:Key="AeroItemHoverBorder" Color="#FFD8E7F8" />
+                    <LinearGradientBrush x:Key="AeroItemPressedBackground" StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#FFE4F1FC" Offset="0.0" />
+                        <GradientStop Color="#FFD8EAF9" Offset="1.0" />
+                    </LinearGradientBrush>
+                    <SolidColorBrush x:Key="AeroItemPressedBorder" Color="#FFAED4F3" />
+
+                    <!-- v2.6.1: la voce del popup Desktop e' ora un vero
+                         pulsante con stato hover/premuto aero (gradiente
+                         azzurro chiaro + bordo), come le righe del flyout
+                         di connessione. Prima era uno StackPanel senza
+                         alcuno stato visivo. -->
+                    <Style x:Key="AeroPopupItemButton" TargetType="Button">
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="BorderBrush" Value="Transparent" />
+                        <Setter Property="Cursor" Value="Hand" />
+                        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="ItemBorder"
+                                            Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="3"
+                                            Padding="3,2">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="ItemBorder" Property="Background"
+                                                    Value="{StaticResource AeroItemHoverBackground}" />
+                                            <Setter TargetName="ItemBorder" Property="BorderBrush"
+                                                    Value="{StaticResource AeroItemHoverBorder}" />
+                                        </Trigger>
+                                        <Trigger Property="IsPressed" Value="True">
+                                            <Setter TargetName="ItemBorder" Property="Background"
+                                                    Value="{StaticResource AeroItemPressedBackground}" />
+                                            <Setter TargetName="ItemBorder" Property="BorderBrush"
+                                                    Value="{StaticResource AeroItemPressedBorder}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+
                     <Style x:Key="BandButton" TargetType="Button">
                         <Setter Property="Background" Value="Transparent" />
+                        <!-- v2.6.1: testo BIANCO. Le bande sono WPF (non un
+                             controllo nativo: non esiste alcun NM_CUSTOMDRAW
+                             con clrText qui) e lo stile esplicito BandButton
+                             sostituiva quello di tema, quindi le etichette
+                             dei Collegamenti ereditavano il colore di
+                             sistema (azzurrino su vetro scuro) invece del
+                             bianco del tema Aero. -->
+                        <Setter Property="Foreground" Value="White" />
                         <Setter Property="BorderThickness" Value="0" />
                         <Setter Property="Cursor" Value="Hand" />
                         <Setter Property="Padding" Value="4,2" />
@@ -448,14 +513,33 @@
                         <Setter Property="Template">
                             <Setter.Value>
                                 <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}"
+                                    <Border x:Name="BandBorder"
+                                            Background="{TemplateBinding Background}"
+                                            BorderBrush="Transparent"
+                                            BorderThickness="1"
                                             CornerRadius="2"
                                             Padding="{TemplateBinding Padding}">
                                         <ContentPresenter />
                                     </Border>
                                     <ControlTemplate.Triggers>
+                                        <!-- v2.6.1: hover azzurro aero (la
+                                             palette del flyout, in opacita'
+                                             adatta al vetro scuro) al posto
+                                             del vecchio bianco 20%. -->
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter Property="Background" Value="#33FFFFFF" />
+                                            <Setter TargetName="BandBorder" Property="Background">
+                                                <Setter.Value>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                        <GradientStop Color="#4DD8E7F8" Offset="0.0" />
+                                                        <GradientStop Color="#33AED4F3" Offset="1.0" />
+                                                    </LinearGradientBrush>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Setter TargetName="BandBorder" Property="BorderBrush" Value="#80D8E7F8" />
+                                        </Trigger>
+                                        <Trigger Property="IsPressed" Value="True">
+                                            <Setter TargetName="BandBorder" Property="Background" Value="#66AED4F3" />
+                                            <Setter TargetName="BandBorder" Property="BorderBrush" Value="#B3AED4F3" />
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
@@ -504,15 +588,21 @@
                                 <ItemsControl x:Name="DesktopBandList">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <StackPanel Orientation="Horizontal"
-                                                        Margin="2,3"
-                                                        Cursor="Hand"
-                                                        MouseLeftButtonUp="DesktopBandItem_Click">
-                                                <Image Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,6,0" />
-                                                <TextBlock Text="{Binding Name}" FontSize="11"
-                                                           VerticalAlignment="Center"
-                                                           MaxWidth="260" TextTrimming="CharacterEllipsis" />
-                                            </StackPanel>
+                                            <!-- v2.6.1: pulsante aero con hover/premuto
+                                                 azzurro chiaro (stile flyout di rete
+                                                 Win7) al posto del vecchio StackPanel
+                                                 senza alcun effetto. -->
+                                            <Button Style="{StaticResource AeroPopupItemButton}"
+                                                    Margin="0,1"
+                                                    ToolTip="{Binding Path}"
+                                                    Click="DesktopBandItem_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Image Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,6,0" />
+                                                    <TextBlock Text="{Binding Name}" FontSize="11"
+                                                               VerticalAlignment="Center"
+                                                               MaxWidth="260" TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                            </Button>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>

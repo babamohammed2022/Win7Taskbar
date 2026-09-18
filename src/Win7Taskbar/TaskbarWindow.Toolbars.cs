@@ -209,11 +209,31 @@ namespace Win7Taskbar
                     {
                         if (items.Count >= 60) break;
                         if (items.Any(i => string.Equals(i.Path, entry.FullName, StringComparison.OrdinalIgnoreCase))) continue;
+
+                        /* v2.6.1: come Explorer, niente voci di sistema
+                         * nascoste (desktop.ini ecc.): attributi
+                         * Hidden+System insieme = metadati della shell. */
+                        const FileAttributes hiddenSystem = FileAttributes.Hidden | FileAttributes.System;
+                        if ((entry.Attributes & hiddenSystem) == hiddenSystem) continue;
+
+                        /* v2.6.1: nome VISUALIZZATO dalla shell, come la
+                         * barra Desktop di Explorer: niente ".lnk"/".url"
+                         * /".txt" (le estensioni registrate vengono gia'
+                         * nascoste da Windows) e nomi localizzati. Solo se
+                         * la shell non risponde ripieghiamo sul nome file,
+                         * comunque senza estensione. */
+                        bool isFolder = entry is DirectoryInfo;
+                        var icon = ExtractFileIcon(entry.FullName, isFolder, out string shellName);
+                        string name = !string.IsNullOrWhiteSpace(shellName)
+                            ? shellName
+                            : (isFolder ? entry.Name
+                                        : System.IO.Path.GetFileNameWithoutExtension(entry.Name));
+
                         items.Add(new ShellBandItem
                         {
-                            Name = entry.Name,
+                            Name = name,
                             Path = entry.FullName,
-                            Icon = ExtractFileIcon(entry.FullName, entry is DirectoryInfo),
+                            Icon = icon,
                         });
                     }
                 }
@@ -239,7 +259,11 @@ namespace Win7Taskbar
             }
         }
 
-        private void DesktopBandItem_Click(object sender, MouseButtonEventArgs e)
+        /* v2.6.1: la voce del popup e' ora un Button con stile aero
+         * (hover/premuto azzurro, v. AeroPopupItemButton in
+         * TaskbarWindow.xaml): l'evento e' Click (RoutedEventArgs), non
+         * piu' MouseLeftButtonUp sullo StackPanel. */
+        private void DesktopBandItem_Click(object sender, RoutedEventArgs e)
         {
             if (sender is FrameworkElement fe && fe.DataContext is ShellBandItem item)
             {
@@ -273,11 +297,17 @@ namespace Win7Taskbar
                                  .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
                                  .Take(12))
                     {
+                        /* v2.6.1: nome visualizzato dalla shell (gia' senza
+                         * estensione e localizzato); il vecchio taglio
+                         * manuale dell'estensione resta solo da ripiego. */
+                        var icon = ExtractFileIcon(file.FullName, false, out string shellName);
                         items.Add(new ShellBandItem
                         {
-                            Name = System.IO.Path.GetFileNameWithoutExtension(file.Name),
+                            Name = !string.IsNullOrWhiteSpace(shellName)
+                                ? shellName
+                                : System.IO.Path.GetFileNameWithoutExtension(file.Name),
                             Path = file.FullName,
-                            Icon = ExtractFileIcon(file.FullName, false),
+                            Icon = icon,
                         });
                     }
                 }
@@ -433,28 +463,46 @@ namespace Win7Taskbar
         }
 
         /// <summary>Icona REALE del file/cartella dalla shell (SHGetFileInfo),
-        /// non un disegno inventato.</summary>
-        private static BitmapSource? ExtractFileIcon(string path, bool isFolder)
+        /// non un disegno inventato.
+        ///
+        /// v2.6.1: la stessa chiamata chiede anche SHGFI_DISPLAYNAME e lo
+        /// restituisce in <paramref name="displayName"/>: e' il nome che
+        /// mostra Explorer, quindi NASCONDE le estensioni registrate
+        /// ("Documento.lnk" -> "Documento", "Sito.url" -> "Sito") e usa i
+        /// nomi localizzati delle cartelle. Prima il popup Desktop mostrava
+        /// le voci complete di ".lnk"/".url"/".txt". L'icona ottenuta e'
+        /// sempre gestita in RAII (SafeShellIconHandle), anche se la
+        /// conversione in BitmapSource lancia un'eccezione.</summary>
+        private static BitmapSource? ExtractFileIcon(string path, bool isFolder,
+                                                     out string displayName)
         {
+            displayName = string.Empty;
             try
             {
                 var shfi = new Interop.NativeMethods.SHFILEINFOW();
-                uint flags = Interop.NativeMethods.SHGFI_ICON | Interop.NativeMethods.SHGFI_SMALLICON;
+                uint flags = Interop.NativeMethods.SHGFI_ICON
+                           | Interop.NativeMethods.SHGFI_SMALLICON
+                           | Interop.NativeMethods.SHGFI_DISPLAYNAME;
                 uint attrib = isFolder ? Interop.NativeMethods.FILE_ATTRIBUTE_DIRECTORY
                                        : Interop.NativeMethods.FILE_ATTRIBUTE_NORMAL;
                 if (Interop.NativeMethods.SHGetFileInfoW(path, attrib, ref shfi,
                         (uint)System.Runtime.InteropServices.Marshal.SizeOf<Interop.NativeMethods.SHFILEINFOW>(),
-                        flags) != IntPtr.Zero && shfi.hIcon != IntPtr.Zero)
+                        flags) != IntPtr.Zero)
                 {
-                    using var icon = new SafeShellIconHandle(shfi.hIcon);
-                    var bmp = Imaging.CreateBitmapSourceFromHIcon(
-                        icon.DangerousGetHandle(), Int32Rect.Empty,
-                        BitmapSizeOptions.FromEmptyOptions());
-                    if (bmp.CanFreeze)
+                    displayName = shfi.szDisplayName ?? string.Empty;
+
+                    if (shfi.hIcon != IntPtr.Zero)
                     {
-                        bmp.Freeze();
+                        using var icon = new SafeShellIconHandle(shfi.hIcon);
+                        var bmp = Imaging.CreateBitmapSourceFromHIcon(
+                            icon.DangerousGetHandle(), Int32Rect.Empty,
+                            BitmapSizeOptions.FromEmptyOptions());
+                        if (bmp.CanFreeze)
+                        {
+                            bmp.Freeze();
+                        }
+                        return bmp;
                     }
-                    return bmp;
                 }
             }
             catch (Exception ex)

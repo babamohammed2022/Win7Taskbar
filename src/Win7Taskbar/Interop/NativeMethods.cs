@@ -942,6 +942,9 @@ namespace Win7Taskbar.Interop
          * (stessa fonte della shell). */
         public const uint SHGFI_ICON = 0x000000100;
         public const uint SHGFI_SMALLICON = 0x000000001;
+        /* v2.6.1: riempie SHFILEINFOW.szDisplayName col nome che mostra
+         * Explorer (nasconde le estensioni registrate: "File.lnk" -> "File"). */
+        public const uint SHGFI_DISPLAYNAME = 0x000000200;
         public const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
         public const uint FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
 
