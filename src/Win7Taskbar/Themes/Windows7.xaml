@@ -2638,8 +2638,15 @@
         <Setter Property="Margin"
                 Value="36,-0,0,0" />
         <Style.Triggers>
-            <DataTrigger Binding="{Binding Path=Icon}"
-                         Value="{x:Null}">
+            <!-- v1.21.39: the original trigger (RetroBar port) bound "Icon",
+                 a property of ManagedShell's NotificationBalloon that does
+                 not exist on our NotifyBalloon control: the binding failed,
+                 the trigger never fired and the 36 px icon indent stayed
+                 even when the balloon had no icon (the empty gap where the
+                 icon should have been). Bind the control's IconVisibility
+                 instead: no icon -> no indent, full text width. -->
+            <DataTrigger Binding="{Binding Path=IconVisibility, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type UserControl}}}"
+                         Value="Collapsed">
                 <DataTrigger.Setters>
                     <Setter Property="Margin"
                             Value="0" />

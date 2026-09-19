@@ -879,6 +879,13 @@ namespace Win7Taskbar.Models
 
                     model.Tooltip = info.Tooltip ?? string.Empty;
 
+                    /* v1.21.39: servono al feedback dei fumetti: i codici
+                     * NIN_BALLOON* viaggiano su uCallbackMessage verso la
+                     * finestra proprietaria, e da NOTIFYICON_VERSION_4 in poi
+                     * con una disposizione diversa di wParam/lParam. */
+                    model.CallbackMessage = info.CallbackMessage;
+                    model.Version = info.Version;
+
                     if (model.IsPinned != (info.IsPinned != 0))
                     {
                         model.IsPinned = info.IsPinned != 0;

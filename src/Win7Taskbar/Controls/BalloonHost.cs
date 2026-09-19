@@ -18,11 +18,21 @@ namespace Win7Taskbar.Controls
     {
         /// <summary>
         /// Distanza del vertice della "puntina" dal bordo DESTRO del fumetto.
-        /// Deriva dal tema (stile NotifyBalloon): freccia 21x21 con margine
-        /// destro 13, quindi 13 + 21/2. Servirebbe per allineare la punta
-        /// all'icona che ha generato la notifica.
+        /// Deriva dal tema (stile NotifyBalloon, identico nei due temi):
+        /// freccia 21x21 con margine destro 13 e geometria "M 0,0 l 20,20 V 0",
+        /// cioe' un triangolo rettangolo il cui vertice in BASSO (la punta che
+        /// tocca la barra) sta a x=20 dei 21 px del riquadro, NON al centro.
+        /// Quindi: 13 + (21 - 20) = 14.
+        ///
+        /// v1.21.39: valeva 23.5 (13 + 21/2), che supponeva erroneamente la
+        /// punta a meta' del riquadro: il fumetto ancorato all'icona finiva
+        /// ~9.5 px troppo a destra e la puntina non centrava l'icona.
+        /// (RetroBar usa la stessa geometria della freccia e piazza il bordo
+        /// destro del fumetto 11 px a destra del bordo destro dell'icona:
+        /// la punta cade a 14 - 11 = 3 px dal bordo destro dell'icona; qui
+        /// invece la punta viene centrata sull'icona, come in Windows 7.)
         /// </summary>
-        private const double TipOffsetFromRightEdge = 23.5;
+        private const double TipOffsetFromRightEdge = 14.0;
 
         /// <summary>
         /// Distacco verticale della punta dall'icona quando si ancorano
@@ -68,8 +78,22 @@ namespace Win7Taskbar.Controls
         /// giusta, non il bordo dell'intera area di notifica. Null se l'icona
         /// non c'e' (overflow, icona rimossa): si usa il ripiego.
         /// </param>
-        public void Show(string title, string info, uint infoFlags, uint timeoutMs,
-                         UIElement? iconAnchor = null)
+        /// <param name="userIcon">
+        /// v1.21.39: icona dell'applicazione per i fumetti NIIF_USER (il
+        /// ripiego legacy su hIcon documentato da Microsoft e usato da
+        /// ManagedShell). Null negli altri casi.
+        /// </param>
+        /// <param name="feedback">
+        /// v1.21.39: riceve i codici NIN_BALLOON* da recapitare alla finestra
+        /// che ha generato la notifica (show/hide/timeout/click).
+        /// </param>
+        /// <returns>
+        /// La durata applicata al fumetto (TimeSpan.Zero se non e' stato
+        /// mostrato), per chi deve pianificare lavori alla sua chiusura.
+        /// </returns>
+        public TimeSpan Show(string title, string info, uint infoFlags, uint timeoutMs,
+                             UIElement? iconAnchor = null, ImageSource? userIcon = null,
+                             Action<uint>? feedback = null)
         {
             // Un fumetto senza testo non ha nulla da dire: alcune applicazioni
             // inviano NIF_INFO con stringhe vuote solo per cancellare quello
@@ -77,7 +101,7 @@ namespace Win7Taskbar.Controls
             if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(info))
             {
                 Hide();
-                return;
+                return TimeSpan.Zero;
             }
 
             Hide();
@@ -123,13 +147,16 @@ namespace Win7Taskbar.Controls
                 _iconAnchorElement = anchoredToIcon ? (FrameworkElement)effectiveAnchor : null;
                 StartAnchorWatch();
 
-                _balloon.Show(title, info, infoFlags, timeoutMs);
+                TimeSpan shown = _balloon.Show(title, info, infoFlags, timeoutMs,
+                                               userIcon, feedback);
                 _popup.IsOpen = true;
+                return shown;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"balloon: fumetto non mostrato: {ex.Message}");
                 Hide();
+                return TimeSpan.Zero;
             }
         }
 
@@ -286,8 +313,9 @@ namespace Win7Taskbar.Controls
                 }
 
                 // Bordo destro del fumetto: x + popupWidth; la punta e' a
-                // (x + popupWidth - TipOffsetFromRightEdge). Vogliamo la punta al
-                // centro dell'icona: x + popupWidth - 23.5 = targetWidth/2.
+                // (x + popupWidth - TipOffsetFromRightEdge). Vogliamo la punta
+                // al centro dell'icona:
+                //   x + popupWidth - 14 = targetWidth / 2.
                 double x = targetSize.Width / 2.0 - popupSize.Width
                            + TipOffsetFromRightEdge;
 

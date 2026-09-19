@@ -1420,5 +1420,81 @@ namespace Win7Taskbar.Interop
                 return null;
             }
         }
+
+        // -----------------------------------------------------------------
+        //  Fumetti di notifica: durata di sistema, suono e risposta all'app
+        // -----------------------------------------------------------------
+
+        /* v1.21.39: tre API di sistema usate dai fumetti, tutte nello
+         * spirito di RetroBar/ManagedShell e della documentazione
+         * NOTIFYICONDATA:
+         *
+         *  - SPI_GETMESSAGEDURATION: da Vista in poi uTimeout e' deprecato
+         *    e la durata visibile segue l'impostazione di accessibilita'
+         *    del sistema ("Notification display times are now based on
+         *    system accessibility settings"). ManagedShell legge proprio
+         *    questo valore quando l'app non chiede una durata valida.
+         *  - PlaySound con l'alias "SystemNotification": il suono che
+         *    Windows 7 (e RetroBar, e l'updater di Open-Shell) associano
+         *    all'apertura del fumetto, salvo NIIF_NOSOUND.
+         *  - SendNotifyMessage: recapita i codici NIN_BALLOON* alla
+         *    finestra proprietaria senza bloccarsi se l'applicazione e'
+         *    appesa; e' il canale documentato con cui la shell dice
+         *    all'app "il tuo fumetto e' stato mostrato / chiuso / scaduto
+         *    / cliccato". */
+
+        private const uint SPI_GETMESSAGEDURATION = 0x200E;
+
+        [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW",
+                   SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SystemParametersInfo(uint uiAction, uint uiParam,
+                                                        ref uint pvParam, uint fWinIni);
+
+        /// <summary>
+        /// Durata standard dei messaggi di notifica del sistema, in secondi
+        /// (impostazione di accessibilita'; di norma 5). 0 se non disponibile.
+        /// </summary>
+        public static uint GetMessageDurationSeconds()
+        {
+            uint seconds = 0;
+            try
+            {
+                SystemParametersInfo(SPI_GETMESSAGEDURATION, 0, ref seconds, 0);
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
+            return seconds;
+        }
+
+        // SND_ASYNC | SND_NODEFAULT | SND_APPLICATION | SND_ALIAS
+        private const uint SND_NOTIFY_FLAGS = 0x0001 | 0x0002 | 0x0080 | 0x10000;
+
+        [DllImport("winmm.dll", EntryPoint = "PlaySoundW", SetLastError = true,
+                   CharSet = CharSet.Unicode)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool PlaySound(string? pszSound, IntPtr hmod, uint fdwSound);
+
+        /// <summary>Suona l'evento di sistema "Notification" (alias).</summary>
+        public static void PlayNotificationSound()
+        {
+            try
+            {
+                PlaySound("SystemNotification", IntPtr.Zero, SND_NOTIFY_FLAGS);
+            }
+            catch (Exception)
+            {
+                // winmm assente o schema audio senza l'evento: il fumetto
+                // resta semplicemente silenzioso.
+            }
+        }
+
+        [DllImport("user32.dll", EntryPoint = "SendNotifyMessageW",
+                   SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SendNotifyMessage(IntPtr hWnd, uint msg,
+                                                    IntPtr wParam, IntPtr lParam);
     }
 }

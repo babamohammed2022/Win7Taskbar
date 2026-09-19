@@ -138,7 +138,13 @@ Copyright Cairo Shell contributors. Apache License 2.0. Source of the
 notification-area enumeration algorithm (`native/src/ExplorerTrayReader.cpp`)
 and of the immersive-shell interop shape used before the ExplorerPatcher
 adaptation. C++ code written from scratch; from the C# source only the
-sequence of system calls and the COM identifiers were taken.
+sequence of system calls and the COM identifiers were taken. Since v1.21.39
+it is also the behavioural reference for the balloon notifications
+(`NotificationBalloon` icon fallbacks and timeout rules,
+`NotifyIcon.SendMessage` NIN_BALLOON* feedback with the version-4
+wParam/lParam layout, the promotion of overflow icons while a balloon is
+shown): original C# code in `src/Win7Taskbar/Controls/NotifyBalloon.xaml.cs`,
+`Controls/BalloonHost.cs` and `TaskbarWindow.xaml.cs`, derived algorithm.
 
 ### Aero Tray (Windhawk mod)
 

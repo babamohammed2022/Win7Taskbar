@@ -1,4 +1,4 @@
-﻿<!--
+<!--
     Fumetto di notifica stile Windows 7.
 
     Viene mostrato quando un'applicazione chiama Shell_NotifyIconW con il flag
@@ -23,14 +23,19 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              MaxWidth="380">
 
-    <ContentControl Style="{DynamicResource NotifyBalloon}">
+    <!-- v1.21.39: MouseLeftButtonUp sul corpo = click dell'utente sul fumetto
+         (NIN_BALLOONUSERCLICK all'applicazione + chiusura, come in RetroBar).
+         L'icona non ha piu' i binding RelativeSource: vive in un Popup staccato
+         dall'albero della finestra e viene assegnata direttamente dal
+         code-behind (SetIcon), insieme alle proprieta' di dipendenza che il
+         trigger del tema legge. -->
+    <ContentControl Style="{DynamicResource NotifyBalloon}"
+                    MouseLeftButtonUp="Balloon_MouseLeftButtonUp">
         <StackPanel Orientation="Vertical">
             <DockPanel>
                 <Image x:Name="BalloonIcon"
                        DockPanel.Dock="Left"
-                       Style="{DynamicResource NotifyBalloonIcon}"
-                       Source="{Binding IconSource, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                       Visibility="{Binding IconVisibility, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                       Style="{DynamicResource NotifyBalloonIcon}" />
 
                 <Button x:Name="CloseButton"
                         DockPanel.Dock="Right"

@@ -75,6 +75,20 @@ namespace Win7Taskbar.Models
 
         public uint IconRevision { get; set; }
 
+        /// <summary>
+        /// uCallbackMessage registrato dall'applicazione con NIF_MESSAGE: la
+        /// finestra proprietaria ci riceve gli eventi dell'icona e i codici
+        /// NIN_BALLOON* del fumetto (v1.21.39). 0 = non registrato.
+        /// </summary>
+        public uint CallbackMessage { get; set; }
+
+        /// <summary>
+        /// Versione dell'interfaccia richiesta con NIM_SETVERSION (0/3/4):
+        /// da NOTIFYICON_VERSION_4 in poi wParam/lParam dei messaggi di
+        /// callback cambiano disposizione (v1.21.39).
+        /// </summary>
+        public uint Version { get; set; }
+
         private void SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
         {
             if (Equals(field, value))
@@ -104,6 +118,61 @@ namespace Win7Taskbar.Models
             AllIcons = new ObservableCollection<TrayIconModel>();
         }
 
+        /* v1.21.39 - PROMOZIONE DA FUMETTO (parita' Windows 7 / RetroBar).
+         *
+         * In Windows 7 un'icona che sta nell'overflow e genera una notifica
+         * viene mostrata temporaneamente nell'area di notifica per la durata
+         * del fumetto, cosi' la puntina ha un'icona vera da indicare (e' lo
+         * stato "Only show notifications" della documentazione Microsoft:
+         * "The icon is hidden, but if the program triggers a notification
+         * balloon, it's displayed on the taskbar"). RetroBar fa esattamente
+         * questo: NotificationArea_NotificationBalloonShown imposta
+         * IsPinned=true e lo ripristina con un timer (timeout + 500 ms).
+         *
+         * Qui la promozione NON scrive IsPinned (che e' collegato al core e
+         * alle preferenze salvate dell'utente): vive in un insieme a parte
+         * che ComputeDesired consulta, cosi' i refresh periodici non la
+         * annullano e alla scadenza l'icona torna dov'era senza effetti
+         * collaterali. */
+        private readonly HashSet<TrayIconModel> _balloonPromoted =
+            new(ReferenceComparer.Instance);
+
+        /// <summary>
+        /// Mostra temporaneamente in barra un'icona di overflow per ancorarci
+        /// il suo fumetto. Non fa nulla per icone gia' in barra o nascoste
+        /// dall'applicazione (NIS_HIDDEN).
+        /// </summary>
+        public void PromoteForBalloon(TrayIconModel? icon)
+        {
+            if (icon == null || icon.IsHidden || icon.IsPinned)
+            {
+                return;
+            }
+            if (_balloonPromoted.Add(icon))
+            {
+                Resort();
+            }
+        }
+
+        /// <summary>Annulla la promozione di un'icona (fine del fumetto).</summary>
+        public void UnpromoteFromBalloon(TrayIconModel? icon)
+        {
+            if (icon != null && _balloonPromoted.Remove(icon))
+            {
+                Resort();
+            }
+        }
+
+        /// <summary>Rimuove tutte le promozioni (chiusura della barra).</summary>
+        public void ClearBalloonPromotions()
+        {
+            if (_balloonPromoted.Count > 0)
+            {
+                _balloonPromoted.Clear();
+                Resort();
+            }
+        }
+
         /// <summary>Icone mostrate direttamente nella barra.</summary>
         public ObservableCollection<TrayIconModel> PinnedIcons { get; }
 
@@ -124,6 +193,14 @@ namespace Win7Taskbar.Models
         /// </remarks>
         public void Resort()
         {
+            /* v1.21.39: un'icona promossa che nel frattempo e' sparita dal
+             * modello (applicazione chiusa) non ha piu' ragione di restare
+             * nell'insieme delle promozioni. */
+            if (_balloonPromoted.Count > 0)
+            {
+                _balloonPromoted.RemoveWhere(icon => !AllIcons.Contains(icon));
+            }
+
             ApplyView(PinnedIcons, ComputeDesired(pinned: true));
             ApplyView(UnpinnedIcons, ComputeDesired(pinned: false));
 
@@ -141,7 +218,10 @@ namespace Win7Taskbar.Models
                     // NIS_HIDDEN: l'applicazione stessa chiede di non mostrarla.
                     continue;
                 }
-                if (icon.IsPinned == pinned)
+                /* v1.21.39: un'icona promossa da un fumetto conta come
+                 * appuntata per la durata della promozione (vedi sopra). */
+                bool effectivePinned = icon.IsPinned || _balloonPromoted.Contains(icon);
+                if (effectivePinned == pinned)
                 {
                     desired.Add(icon);
                 }

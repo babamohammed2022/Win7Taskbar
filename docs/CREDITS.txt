@@ -79,6 +79,19 @@ EXPLICIT STATEMENT ABOUT THE SOURCE CODE
     (horizontal/vertical offset and PlacementMode). Same logic as the
     converters with the same name in RetroBar/Converters/. Apache 2.0.
 
+  * src/Win7Taskbar/Controls/NotifyBalloon.xaml.cs, Controls/BalloonHost.cs,
+    TaskbarWindow.xaml.cs  (balloon notifications, v1.21.39)
+    Anchoring the balloon to the icon that generated it; promoting an
+    overflow icon to the bar for the balloon's duration plus 500 ms
+    (RetroBar NotifyIconList: "used to promote unpinned icons to show when
+    the tray is collapsed"); showing a missed balloon once the icon's
+    container is generated (RetroBar MissedNotifications); icon fallbacks
+    and timeout from the system message duration, "SystemNotification"
+    sound unless NIIF_NOSOUND, and the NIN_BALLOONSHOW/HIDE/TIMEOUT/
+    USERCLICK feedback with the NOTIFYICON_VERSION_4 wParam/lParam layout
+    (ManagedShell NotificationBalloon / NotifyIcon.SendMessage).
+    Original code, derived algorithms. Apache 2.0.
+
   * native/src/FlyoutLauncher.cpp  (second path: Aero Clock fallback)
     Opening the system calendar (Aero Clock). It follows the logic of
     RetroBar/Utilities/ClockFlyoutLauncher.cs: creating the COM object with
