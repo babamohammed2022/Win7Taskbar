@@ -4,7 +4,8 @@
                     xmlns:controls="clr-namespace:RetroBar.Controls;assembly=RetroBar"
                     xmlns:retroconv="clr-namespace:RetroBar.Converters;assembly=RetroBar"
                     xmlns:retrosettings="clr-namespace:RetroBar.Utilities;assembly=RetroBar"
-                    xmlns:bundle="clr-namespace:Win7Taskbar.Utilities;assembly=Win7Taskbar">
+                    xmlns:bundle="clr-namespace:Win7Taskbar.Utilities;assembly=Win7Taskbar"
+                    xmlns:conv="clr-namespace:Win7Taskbar.Converters">
 
     <!-- 1.21.5: ";assembly=Win7Taskbar" above is REQUIRED, do not remove it.
          Without the assembly qualifier, XamlReader.Load cannot resolve this
@@ -675,6 +676,10 @@
     <system:Double x:Key="GlobalFontSize">12</system:Double>
 
     <retroconv:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+    <!-- v1.21.47: percentuale di una lunghezza (Converters/WindowStackConverter):
+         serve alle tessere di hover di tray e overflow per adeguarsi alla
+         dimensione reale della cella icona invece di usare misure fisse. -->
+    <conv:WidthRatioConverter x:Key="WidthRatio" />
 
     <Style TargetType="ToolTip"
            x:Key="{x:Type ToolTip}"
@@ -1739,15 +1744,19 @@
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 IsHitTestVisible="False">
-                            <!-- Exactly 2% narrower/shorter than the original
-                                 tray-hover tile (98%), still centred on exactly
-                                 the same icon geometry; do not compound this
-                                 scale on later visual adjustments. -->
+                            <!-- v1.21.47: la tessera di hover SI ADEGUA ALLA
+                                 DIMENSIONE DELL'ICONA: larghezza/altezza e
+                                 centratura sono legate (WidthRatioConverter)
+                                 alla cella reale del ContentPresenter, cosi'
+                                 seguono l'icona a ogni DPI/scala, e sono il
+                                 2.5% piu' piccole della misura fissa della
+                                 1.21.46 (29.4x39.2 -> 28.665x38.22 con icona
+                                 16 e margini noti della cella). -->
                             <Image x:Name="HoverTileImg"
-                                   Width="29.4"
-                                   Height="39.2"
-                                   Canvas.Left="-14.7"
-                                   Canvas.Top="-19.6"
+                                   Width="{Binding ActualWidth, ElementName=Content, Converter={StaticResource WidthRatio}, ConverterParameter=1.1466}"
+                                   Height="{Binding ActualHeight, ElementName=Content, Converter={StaticResource WidthRatio}, ConverterParameter=1.82}"
+                                   Canvas.Left="{Binding ActualWidth, ElementName=Content, Converter={StaticResource WidthRatio}, ConverterParameter=-0.5733}"
+                                   Canvas.Top="{Binding ActualHeight, ElementName=Content, Converter={StaticResource WidthRatio}, ConverterParameter=-0.91}"
                                    Stretch="Fill"
                                    SnapsToDevicePixels="True"
                                    Source="{DynamicResource TrayTileHoverImage}"
@@ -1923,8 +1932,16 @@
                                         BorderThickness="1"
                                         CornerRadius="2">
                                     <Border.Resources>
-                                        <!-- Popup icons: Win7 blue selection (like the
-                                             real Windows 7 overflow panel) -->
+                                        <!-- Popup icons: v1.21.47 - HOVER COME
+                                             LA SYSTEM TRAY, non piu' il
+                                             riquadro azzurro (#6EA5D2): la
+                                             stessa tessera vetro
+                                             TrayTileHoverImage/Pressed delle
+                                             icone in barra, adeguata alla
+                                             cella dell'icona (97.5% della
+                                             cella, cioe' -2.5% rispetto al
+                                             bordo hover precedente) e
+                                             centrata sul glifo. -->
                                         <Style x:Key="PopupNotifyIcon"
                                                TargetType="{x:Type controls:NotifyIcon}">
                                             <Setter Property="Template">
@@ -1936,7 +1953,36 @@
                                                                 BorderBrush="Transparent"
                                                                 BorderThickness="1"
                                                                 CornerRadius="2">
-                                                            <ContentPresenter Margin="8,7,4,6" />
+                                                            <Grid>
+                                                            <!-- v1.21.47: stessa
+                                                                 tessera di hover
+                                                                 della system tray,
+                                                                 legata alla cella
+                                                                 dell'icona (x0.975)
+                                                                 e centrata sul
+                                                                 glifo; il Canvas a
+                                                                 dimensione zero non
+                                                                 partecipa al
+                                                                 layout. -->
+                                                            <Canvas x:Name="HoverCanvas"
+                                                                    Width="0"
+                                                                    Height="0"
+                                                                    HorizontalAlignment="Center"
+                                                                    VerticalAlignment="Center"
+                                                                    IsHitTestVisible="False">
+                                                                <Image x:Name="HoverTileImg"
+                                                                       Width="{Binding ActualWidth, ElementName=Content, Converter={StaticResource WidthRatio}, ConverterParameter=0.975}"
+                                                                       Height="{Binding ActualHeight, ElementName=Content, Converter={StaticResource WidthRatio}, ConverterParameter=0.975}"
+                                                                       Canvas.Left="{Binding ActualWidth, ElementName=Content, Converter={StaticResource WidthRatio}, ConverterParameter=-0.4875}"
+                                                                       Canvas.Top="{Binding ActualHeight, ElementName=Content, Converter={StaticResource WidthRatio}, ConverterParameter=-0.4875}"
+                                                                       Stretch="Fill"
+                                                                       SnapsToDevicePixels="True"
+                                                                       Source="{DynamicResource TrayTileHoverImage}"
+                                                                       Opacity="0" />
+                                                            </Canvas>
+                                                            <ContentPresenter Margin="8,7,4,6"
+                                                                              x:Name="Content" />
+                                                            </Grid>
                                                         </Border>
                                                         <ToggleButton x:Name="PinToggle"
                                                                       Width="9"
@@ -1997,14 +2043,17 @@
                                                         </ToggleButton>
                                                         </Grid>
                                                         <ControlTemplate.Triggers>
+                                                            <!-- v1.21.47: niente
+                                                                 piu' fondo/bordo
+                                                                 azzurri: si
+                                                                 accende la
+                                                                 tessera vetro
+                                                                 della tray. -->
                                                             <Trigger Property="IsMouseOver"
                                                                      Value="True">
-                                                                <Setter TargetName="HoverFrame"
-                                                                        Property="Background"
-                                                                        Value="#266EA5D2" />
-                                                                <Setter TargetName="HoverFrame"
-                                                                        Property="BorderBrush"
-                                                                        Value="#666EA5D2" />
+                                                                <Setter TargetName="HoverTileImg"
+                                                                        Property="Opacity"
+                                                                        Value="1" />
                                                                 <Setter TargetName="PinToggle"
                                                                         Property="Opacity"
                                                                         Value="0.9" />
