@@ -1547,6 +1547,17 @@ void TrayService::OnWatcherMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 }
 
+/* ------------------------------------------------------------------ */
+/*  v3.10.1 - Battery legacy-key hardening (forward decls).
+ *  Le funzioni sono definite piu' in basso, nel blocco dedicato ai
+ *  riquadri di sistema, ma Stop() e ThreadMain() - che le chiamano -
+ *  vivono sopra e hanno bisogno di vederle. */
+static void EnsureWin32BatteryFlyoutValue();
+static void RestoreWin32BatteryFlyoutValue();
+static void RecoverBatteryFlyoutKeyFromBackup();
+static void InstallBatteryKeyCrashGuard();
+static void OnBatteryKeySessionEnding();
+
 void TrayService::Stop() {
     if (!m_running.load()) {
         return;
@@ -1830,6 +1841,10 @@ void TrayService::ThreadMain() {
      * esiste ancora. Lo leggiamo PRIMA di qualsiasi altra cosa per
      * ripristinare subito la chiave legacy al suo valore precedente. */
     RecoverBatteryFlyoutKeyFromBackup();
+    /* v3.10.1: filtro eccezioni di ultima istanza: best-effort restore
+     * della chiave batteria anche in caso di crash prima del prossimo
+     * avvio. */
+    InstallBatteryKeyCrashGuard();
 
     if (!CreateWindows()) {
         m_running.store(false);
@@ -1862,16 +1877,6 @@ void TrayService::ThreadMain() {
  * gestita che risale da un window procedure termina il processo che ospita
  * la finestra. Tutto il corpo vive in TrayWndProcInner; qui si cattura
  * qualsiasi cosa e si delega al comportamento di default. */
-/* Defined further down with the transient legacy-key helpers it belongs to;
- * the retry timer below re-asserts it before delivering another click. */
-static void EnsureWin32BatteryFlyoutValue();
-/* v3.10.1 hardening: anche in chiusura pulita forziamo il restore, cosi'
- * uno shutdown regolare mentre un clic-batteria e' pendente non lascia
- * UseWin32BatteryFlyout=1 nel registro. */
-static void RestoreWin32BatteryFlyoutValue();
-static void RecoverBatteryFlyoutKeyFromBackup();
-static void WriteBatteryFlyoutBackup(bool exists, DWORD value);
-static void DeleteBatteryFlyoutBackup();
 
 LRESULT CALLBACK TrayService::TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     try {
@@ -2027,6 +2032,25 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
             self.CheckPowerStatusAndRefresh(false);
             return 0;
         }
+    }
+
+    /* v3.10.1 hardening: WM_QUERYENDSESSION/WM_ENDSESSION sono l'unico
+     * punto in cui Windows ci avvisa in modo sincrono che logoff/shutdown
+     * e' imminente (con un budget di ~5s per processo). Ripristiniamo
+     * subito la chiave batteria, non aspettiamo il pump dei messaggi
+     * che il GetMessage successivo potrebbe non vedere mai. WM_ENDSESSION
+     * con wParam=TRUE conferma che la sessione sta effettivamente
+     * finendo (ENDSESSION_CLOSEAPP e' il caso che ci interessa per
+     * l'app in esecuzione). */
+    if (msg == WM_QUERYENDSESSION
+        || (msg == WM_ENDSESSION && wParam != 0)) {
+        /* wParam==TRUE a WM_ENDSESSION = la sessione sta realmente
+         * finendo (logoff/shutdown). wParam==0 = un'altra app ha
+         * annullato: non facciamo nulla, un eventuale Ensure pendente
+         * riusera' il file di backup al prossimo clic. */
+        OnBatteryKeySessionEnding();
+        /* Lasciamo passare il messaggio a DefWindowProc: non neghiamo
+         * MAI la chiusura della sessione. */
     }
 
     if (self.m_taskbarCreatedMsg != 0 && msg == self.m_taskbarCreatedMsg) {
@@ -4251,7 +4275,17 @@ bool TrayService::TryWindhawkNetFlyoutClick(uint64_t ownerHwnd, uint32_t uid) {
  * Il frontend la scrive quando le preferenze cambiano; qui si ripete al
  * momento del clic perche' la shell puo' leggerla proprio mentre apre il
  * riquadro (un'installazione recente o un reset delle impostazioni non
- * devono portare l'utente al riquadro moderno). */
+ * devono portare l'utente al riquadro moderno).
+ *
+ * v3.10.1 TODO (blast-radius): si e' valutata la chiave per-utente
+ *   HKCU\Control Panel\Quick Actions\Control Center\QuickActionsStateCapture
+ * scoperta da valinet come meccanismo piu' circoscritto per ottenere
+ * lo stesso effetto; non viene adottata in questa PR perche' cambiare
+ * chiave cambia il comportamento funzionale del routing del clic e va
+ * verificata sulla build 26100 dell'utente prima di rilasciarla. Le
+ * difese qui (restore in Stop/WM_ENDSESSION/UnhandledExceptionFilter e
+ * file di backup con recovery al boot) riducono drasticamente il blast
+ * radius della chiave attuale. */
 /* v1.4 - LA CHIAVE LEGACY E' TRANSITORIA. Il valore UseWin32BatteryFlyout
  * viene scritto SOLO attorno al tentativo di apertura (prima del clic, poi
  * ripristinato al valore precedente quando il tentativo finisce, in un
@@ -4260,6 +4294,92 @@ bool TrayService::TryWindhawkNetFlyoutClick(uint64_t ownerHwnd, uint32_t uid) {
  * senza toccarlo realmente" da parte di un processo che NON vive dentro
  * explorer.exe: la lettura che conta e' quella di explorer, quindi il
  * valore deve essere vero nel registro per l'istante del clic. */
+/* v3.10.1 - Crash-time restore della chiave batteria.
+ *
+ * Due best-effort path addizionali al restore on-stop / on-next-start:
+ *
+ *  1. SetUnhandledExceptionFilter: chiamato per AV, stack overflow,
+ *     C++ terminate, ecc. Windows lascia ~1 secondo prima di terminare
+ *     il processo: facciamo un restore sincrono minimale (solo Win32
+ *     API, nessuna allocazione C++ perche' l'heap potrebbe essere
+ *     corrotto) e poi passiamo al filtro precedente.
+ *  2. WM_ENDSESSION / WM_QUERYENDSESSION: il wndproc chiama
+ *     OnBatteryKeySessionEnding() non appena Windows avvisa che
+ *     logoff/shutdown e' imminente (budget ~5 s), prima che il pump
+ *     possa uscire senza eseguire Stop().
+ *
+ * Entrambi sono migliori di "aspetta il prossimo avvio" ma sono
+ * best-effort: il file di backup e il restore-on-boot restano la rete
+ * di sicurezza finale. */
+
+static LPTOP_LEVEL_EXCEPTION_FILTER g_prevBatteryCrashFilter = nullptr;
+static volatile LONG g_batteryCrashFilterInstalled = 0;
+
+/* v3.10.1: i tre stati della chiave batteria sono definiti QUI, prima di
+ * ogni helper che li usa (BestEffortRestoreBatteryKeyNoAlloc, crash
+ * filter, OnBatteryKeySessionEnding), cosi' sono visibili nel punto
+ * d'uso. */
+static bool g_batteryKeyTouched = false;
+static DWORD g_batteryKeyPrevValue = 0;
+static bool g_batteryKeyPrevExists = false;
+static std::wstring BatteryBackupFilePath();
+
+static void BestEffortRestoreBatteryKeyNoAlloc() {
+    /* Restore minimale, no allocazioni C++, no std::string, no lock.
+     * Il registro e' sempre raggiungibile via KERNELBASE e non dipende
+     * dallo stato dell'heap del processo. */
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
+                      0, KEY_SET_VALUE, &key) != ERROR_SUCCESS || key == nullptr) {
+        return;
+    }
+    /* Se il flag in-process dice che abbiamo toccato la chiave,
+     * ripristiniamo usando i valori salvati nelle globali statiche
+     * (scritte da EnsureWin32BatteryFlyoutValue prima di toccare il
+     * registro). Se siamo in un crash dove quelle globali sono
+     * corrotte, il file di backup sul disco verra' usato al prossimo
+     * avvio. */
+    if (g_batteryKeyTouched) {
+        if (g_batteryKeyPrevExists) {
+            RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
+                           reinterpret_cast<const BYTE*>(&g_batteryKeyPrevValue),
+                           sizeof(g_batteryKeyPrevValue));
+        } else {
+            RegDeleteValueW(key, L"UseWin32BatteryFlyout");
+        }
+    }
+    RegCloseKey(key);
+}
+
+static LONG WINAPI BatteryKeyCrashFilter(EXCEPTION_POINTERS* ex) {
+    BestEffortRestoreBatteryKeyNoAlloc();
+    if (g_prevBatteryCrashFilter != nullptr
+        && g_prevBatteryCrashFilter != &BatteryKeyCrashFilter) {
+        return g_prevBatteryCrashFilter(ex);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+static void InstallBatteryKeyCrashGuard() {
+    if (InterlockedCompareExchange(&g_batteryCrashFilterInstalled, 1, 0) != 0) {
+        return;   /* gia' installato */
+    }
+    g_prevBatteryCrashFilter = SetUnhandledExceptionFilter(&BatteryKeyCrashFilter);
+}
+
+static void OnBatteryKeySessionEnding() {
+    /* Notifica di logoff/shutdown da Windows: ripristiniamo subito. */
+    BestEffortRestoreBatteryKeyNoAlloc();
+    /* Buttiamo anche il file di backup se il restore in-process e'
+     * riuscito (a questo punto il registro e' coerente). Se questo
+     * stesso DeleteFile fallisce perche' il filesystem e' in freeze,
+     * il file resta e RecoverFromBackup al prossimo avvio si
+     * ritrovera' il valore originale gia' presente - nel qual caso
+     * riscrive lo stesso valore (nessun danno). */
+    DeleteFileW(BatteryBackupFilePath().c_str());
+}
+
 /* File di backup: prevExists(1 byte) + prevValue(4 byte LE). */
 
 static std::wstring BatteryBackupFilePath() {
@@ -4348,10 +4468,6 @@ static void RecoverBatteryFlyoutKeyFromBackup() {
     }
     DeleteFileW(path.c_str());
 }
-
-static bool g_batteryKeyTouched = false;
-static DWORD g_batteryKeyPrevValue = 0;
-static bool g_batteryKeyPrevExists = false;
 
 static void EnsureWin32BatteryFlyoutValue() {
     if (g_batteryKeyTouched) {
