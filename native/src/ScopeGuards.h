@@ -91,6 +91,36 @@ private:
     bool& m_flag;
 };
 
+// v1.21.51: owns one WinEvent hook installed with SetWinEventHook and
+// removes it with UnhookWinEvent at scope end. A hook that outlives the
+// object that installed it keeps receiving events forever (and, with
+// WINEVENT_OUTOFCONTEXT, the delivering thread keeps marshalling them),
+// so no early return, exception or maintenance edit may leak one. The
+// guard is move-free and self-contained like the rest of this toolbox.
+class UniqueWinEventHook {
+public:
+    UniqueWinEventHook() noexcept = default;
+    explicit UniqueWinEventHook(HWINEVENTHOOK hook) noexcept : m_hook(hook) {}
+    ~UniqueWinEventHook() noexcept { reset(); }
+    UniqueWinEventHook(const UniqueWinEventHook&) = delete;
+    UniqueWinEventHook& operator=(const UniqueWinEventHook&) = delete;
+
+    // Replaces the owned hook: the previous one (if any) is unhooked
+    // FIRST, so a failed re-install leaves nothing dangling behind.
+    void reset(HWINEVENTHOOK hook = nullptr) noexcept {
+        if (m_hook != nullptr) {
+            UnhookWinEvent(m_hook);
+        }
+        m_hook = hook;
+    }
+
+    bool valid() const noexcept { return m_hook != nullptr; }
+    HWINEVENTHOOK get() const noexcept { return m_hook; }
+
+private:
+    HWINEVENTHOOK m_hook = nullptr;
+};
+
 // Owns a DC obtained with GetDC and returns it with ReleaseDC at scope
 // end. Pass hwnd == nullptr for the screen DC. Not for GetWindowDC and
 // not for BeginPaint DCs (those pair with EndPaint).

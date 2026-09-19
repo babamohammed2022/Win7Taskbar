@@ -22,6 +22,16 @@
 
 namespace w7t {
 
+namespace {
+/* v1.21.51: classe della finestra overlay della mod Windhawk "Aero Flip
+ * 3D Recreation" (CreateOverlayWindow in mods/aero-flip3d-recreation.wh.cpp,
+ * ramensoftware/windhawk-mods): e' il contratto pubblico della mod, il
+ * solo modo documentato di riconoscere il suo switcher. Il controller
+ * ("Flip3DControllerWndClass") e' una finestra message-only (HWND_MESSAGE)
+ * e non compare mai a schermo: non serve sorvegliarla. */
+constexpr wchar_t kFlip3dOverlayClass[] = L"Flip3DOverlayWndClass";
+} /* namespace */
+
 AppBarService& AppBarService::Instance() {
     static AppBarService instance;
     return instance;
@@ -97,7 +107,17 @@ int32_t AppBarService::Register(HWND hwnd, int32_t edge, int32_t sizePx) {
     m_size       = sizePx;
 
     RECT reserved = {};
-    return SetPos(hwnd, edge, sizePx, &reserved);
+    const int32_t positioned = SetPos(hwnd, edge, sizePx, &reserved);
+
+    /* v1.21.51: con la barra registrata parte anche la sorveglianza
+     * dell'overlay della mod Flip 3D (vedere il blocco commentato in
+     * AppBarService.h). Si installa solo a registrazione riuscita: senza
+     * una nostra finestra la guardia non ha nulla da proteggere. */
+    if (positioned == W7T_OK) {
+        StartFlipWatch();
+    }
+
+    return positioned;
 }
 
 int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out) {
@@ -263,6 +283,18 @@ bool AppBarService::HandleCallback(uint32_t wParam, int32_t lParam) {
         return false;
     }
 
+    /* v1.21.51 - rete di sicurezza su OGNI notifica della shell: se la
+     * guardia Flip 3D risulta ancora attiva ma l'overlay della mod non
+     * esiste piu' (eventi persi per un thread bloccato, una mod aggiornata
+     * a meta' animazione, qualunque caso non previsto), qui la barra torna
+     * interagibile. La barra non puo' MAI restare disabilitata: il costo
+     * e' un IsWindow+IsWindowVisible ogni tanto, sempre fuori dal path
+     * caldo della barra. */
+    if (m_flipGuardActive.load(std::memory_order_acquire) &&
+        !FlipGuardOverlayAlive()) {
+        ReleaseFlip3dGuard();
+    }
+
     /* Notifiche ABN_* del protocollo AppBar.
      *
      * Il messaggio di callback era registrato ma MAI gestito: la shell
@@ -281,7 +313,13 @@ bool AppBarService::HandleCallback(uint32_t wParam, int32_t lParam) {
 
         case ABN_WINDOWARRANGE:
             /* Prima che la shell disponga le finestre (lParam TRUE) la barra
-             * si toglie di mezzo; a disposizione finita (FALSE) torna. */
+             * si toglie di mezzo; a disposizione finita (FALSE) torna.
+             * v1.21.51: con la guardia Flip 3D attiva la barra resta
+             * visibile e inerte qualunque cosa disponga la shell:
+             * l'animazione della mod possiede lo schermo. */
+            if (m_flipGuardActive.load(std::memory_order_acquire)) {
+                return true;
+            }
             ShowWindow(m_hwnd, lParam ? SW_HIDE : SW_SHOW);
             return true;
 
@@ -294,8 +332,47 @@ bool AppBarService::HandleCallback(uint32_t wParam, int32_t lParam) {
              * E' l'unico segnale affidabile per questo caso: un video che
              * va fullscreen resta nella stessa HWND gia' in primo piano
              * (il browser), quindi non scatta EVENT_SYSTEM_FOREGROUND e non
-             * si puo' rilevare da li'. */
-            ShowWindow(m_hwnd, lParam ? SW_HIDE : SW_SHOW);
+             * si puo' rilevare da li'.
+             *
+             * v1.21.51 - L'OVERLAY DELLA MOD FLIP 3D NON E' UNA APP
+             * FULLSCREEN AI FINI DELLA BARRA: la mod Windhawk "Aero Flip
+             * 3D Recreation" apre il suo switcher proprio con una finestra
+             * popup topmost a tutto schermo (classe Flip3DOverlayWndClass,
+             * vedere AppBarService.h), e questa notifica arrivava con
+             * lParam TRUE per tutta la durata dell'animazione: la barra si
+             * nascondeva e "spariva" finche' la mod restava aperta. Se il
+             * fullscreen e' l'overlay della mod, la guardia Flip 3D prende
+             * il posto del vecchio ShowWindow(SW_HIDE): barra VISIBILE
+             * sopra l'overlay e NON interagibile finche' l'animazione dura,
+             * come la taskbar vera di Vista/7 durante il Flip 3D. Per le
+             * app fullscreen vere (video, giochi) resta il comportamento
+             * storico. */
+            if (lParam) {
+                /* L'hook su EVENT_OBJECT_SHOW potrebbe non essere ancora
+                 * arrivato quando la shell ci avvisa: si riconosce
+                 * l'overlay dal primo piano o, in ripiego, per classe. */
+                HWND candidate = GetForegroundWindow();
+                if (!LooksLikeFlip3dOverlay(candidate)) {
+                    candidate = FindWindowW(kFlip3dOverlayClass, nullptr);
+                    if (candidate != nullptr && !IsWindowVisible(candidate)) {
+                        candidate = nullptr;
+                    }
+                }
+                if (candidate != nullptr) {
+                    EngageFlip3dGuard(candidate);
+                    return true;   /* niente SW_HIDE: la barra resta visibile */
+                }
+                ShowWindow(m_hwnd, SW_HIDE);
+            } else {
+                if (m_flipGuardActive.load(std::memory_order_acquire)) {
+                    /* La mod ha chiuso: la barra torna interagibile. E'
+                     * gia' visibile (non ci siamo mai nascosti), quindi
+                     * niente ShowWindow. */
+                    ReleaseFlip3dGuard();
+                    return true;
+                }
+                ShowWindow(m_hwnd, SW_SHOW);
+            }
             return true;
 
         case ABN_STATECHANGE:
@@ -310,6 +387,14 @@ int32_t AppBarService::Unregister(HWND hwnd) {
     if (!m_registered) {
         return W7T_OK;
     }
+
+    /* v1.21.51: prima di mollare la finestra la guardia Flip 3D si
+     * scioglie (la barra torna interagibile PRIMA che la registrazione
+     * sparisca) e gli hook si staccano con le loro guardie RAII: nessun
+     * WinEvent hook puo' sopravvivere alla barra che sorvegliava. Vale
+     * anche per il ciclo unregister/register del riavvio di Explorer. */
+    ReleaseFlip3dGuard();
+    StopFlipWatch();
 
     APPBARDATA abd = {};
     abd.cbSize = sizeof(abd);
@@ -641,6 +726,302 @@ int32_t AppBarService::GetPrimaryWorkArea(RECT* out) {
         return W7T_ERR_APPBAR;
     }
     return W7T_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  v1.21.51 - Guardia "Aero Flip 3D Recreation" (mod Windhawk)        */
+/*                                                                     */
+/*  IL PROBLEMA: la mod apre il suo switcher con un popup TOPMOST a    */
+/*  tutto schermo sul monitor primario (classe Flip3DOverlayWndClass)  */
+/*  e ce lo lascia per tutta l'animazione. Per il protocollo AppBar    */
+/*  quella e' un'app a schermo intero: la shell invia                  */
+/*  ABN_FULLSCREENAPP(lParam TRUE) e il vecchio gestore nascondeva la  */
+/*  barra con ShowWindow(SW_HIDE): la taskbar spariva appena si        */
+/*  premeva Win+Tab con la mod installata.                             */
+/*                                                                     */
+/*  LA SOLUZIONE (richiesta dell'utente): durante l'animazione la      */
+/*  barra deve restare PRESENTE ma NON INTERAGIBILE, e tornare         */
+/*  normale alla fine. Riconoscimento: la classe dell'overlay e' il    */
+/*  contratto pubblico della mod (CreateOverlayWindow,                 */
+/*  mods/aero-flip3d-recreation.wh.cpp di ramensoftware/windhawk-mods  */
+/*  - codice consultato per questa modifica). Segnali di sistema,      */
+/*  tutti API documentate Microsoft:                                   */
+/*    - EVENT_OBJECT_SHOW dell'overlay           -> ingaggio guardia;  */
+/*    - EVENT_OBJECT_DESTROY / HIDE dell'overlay -> rilascio (la mod   */
+/*      distrugge l'overlay in SafeDestroyOverlayWindow, oppure lo     */
+/*      nasconde nel ripiego);                                         */
+/*    - EVENT_SYSTEM_FOREGROUND: la mod porta l'overlay in primo piano */
+/*      DOPO averlo alzato in cima alla fascia topmost                 */
+/*      (ActivateFlip3DImpl: SetWindowPos(HWND_TOPMOST) ->             */
+/*      SetForegroundWindow): e' il momento in cui si riafferma la     */
+/*      barra SOPRA l'overlay; e' anche la rete di sicurezza se il     */
+/*      primo piano torna altrove;                                     */
+/*    - ABN_FULLSCREENAPP stesso: riconosciuta l'overlay, niente       */
+/*      SW_HIDE; alla chiusura (lParam FALSE) rilascio.                */
+/*  Ogni transizione e' protetta: mutex ricorsivo (le chiamate         */
+/*  finestra rientrano nel WndProc della barra), stato scritto PRIMA   */
+/*  delle chiamate che rientrano, try/catch nei callback (niente puo'  */
+/*  uscire da un WinEventProc) e hook in guardie RAII.                 */
+/* ------------------------------------------------------------------ */
+
+bool AppBarService::LooksLikeFlip3dOverlay(HWND hwnd) {
+    if (hwnd == nullptr || !IsWindow(hwnd)) {
+        return false;
+    }
+    wchar_t cls[64] = {};
+    if (GetClassNameW(hwnd, cls, 64) == 0) {
+        return false;
+    }
+    /* Le classi di finestra Win32 non distinguono maiuscole/minuscole. */
+    return _wcsicmp(cls, kFlip3dOverlayClass) == 0;
+}
+
+void CALLBACK AppBarService::FlipWatchProc(HWINEVENTHOOK, DWORD event,
+                                           HWND hwnd, LONG idObject,
+                                           LONG idChild, DWORD, DWORD) {
+    /* Barriera assoluta: da un WinEventProc non esce nulla. Il callback
+     * arriva sul thread che ha registrato l'hook e che pompa i messaggi,
+     * cioe' il thread UI del frontend WPF che ha eseguito ABM_NEW (MSDN,
+     * SetWinEventHook: "The client thread that calls SetWinEventHook must
+     * have a message loop in order to receive events" e "the event is
+     * delivered on the same thread that called SetWinEventHook"): le
+     * chiamate finestra che seguono avvengono quindi dal thread che
+     * possiede la barra. */
+    try {
+        if (idObject != OBJID_WINDOW || idChild != 0) {
+            return;
+        }
+
+        AppBarService& self = Instance();
+
+        switch (event) {
+            case EVENT_OBJECT_SHOW:
+                /* L'unico punto d'ingresso della guardia: la classe e' il
+                 * contratto della mod. Ogni altra finestra mostrata nel
+                 * sistema passa di qui ed e' ignorata con un solo
+                 * GetClassNameW (lo stesso costo del HideWatcherProc). */
+                if (hwnd != nullptr && LooksLikeFlip3dOverlay(hwnd)) {
+                    self.EngageFlip3dGuard(hwnd);
+                }
+                break;
+
+            case EVENT_OBJECT_HIDE:
+            case EVENT_OBJECT_DESTROY: {
+                /* Fine dell'animazione. Si rilascia SOLO se l'evento e'
+                 * della finestra overlay registrata: gli eventi
+                 * HIDE/DESTROY di tutte le altre finestre del sistema
+                 * passano senza toccare lo stato. Il controllo atomico
+                 * tiene il path caldo (ogni finestra del sistema che
+                 * chiude) fuori dal mutex. */
+                if (!self.m_flipGuardActive.load(std::memory_order_acquire)) {
+                    break;
+                }
+                bool mine = false;
+                {
+                    std::lock_guard<std::recursive_mutex> lk(self.m_flipMutex);
+                    mine = hwnd == self.m_flipOverlay;
+                }
+                if (mine) {
+                    self.ReleaseFlip3dGuard();
+                }
+                break;
+            }
+
+            case EVENT_SYSTEM_FOREGROUND: {
+                if (!self.m_flipGuardActive.load(std::memory_order_acquire)) {
+                    break;
+                }
+                std::lock_guard<std::recursive_mutex> lk(self.m_flipMutex);
+                if (hwnd != nullptr && hwnd == self.m_flipOverlay) {
+                    /* L'overlay e' arrivato in primo piano: la mod lo ha
+                     * appena alzato in cima alla fascia topmost, quindi
+                     * ORA si riafferma la barra sopra di lui (farlo
+                     * prima della sua SetWindowPos sarebbe inutile). */
+                    self.ReassertBarOverFlipOverlay();
+                } else if (!self.FlipGuardOverlayAliveLocked()) {
+                    /* Il primo piano e' tornato a un'altra finestra e
+                     * l'overlay non c'e' piu': rete di sicurezza. */
+                    self.ReleaseFlip3dGuard();
+                } else {
+                    /* Sessione ancora aperta con un'altra finestra in
+                     * primo piano: la barra resta al suo posto, sopra. */
+                    self.ReassertBarOverFlipOverlay();
+                }
+                break;
+            }
+
+            default:
+                break;
+        }
+    } catch (...) {
+        /* mai propagare fuori da un callback di sistema */
+    }
+}
+
+void AppBarService::StartFlipWatch() {
+    std::lock_guard<std::recursive_mutex> lk(m_flipMutex);
+    /* Un solo intervallo per i tre segnali di stato della finestra:
+     * EVENT_OBJECT_DESTROY (0x8001), EVENT_OBJECT_SHOW (0x8002) e
+     * EVENT_OBJECT_HIDE (0x8003) sono contigui, quindi UN hook copre
+     * distruzione, comparsa e ripiego-nascondi dell'overlay. Il secondo
+     * hook e' solo il cambio di primo piano. RAII: se SetWinEventHook
+     * fallisse (ritorna nullptr) la guardia resta vuota e la barra si
+     * comporta come ha sempre fatto: mai un hook a meta'. */
+    if (!m_flipStateHook.valid()) {
+        m_flipStateHook.reset(SetWinEventHook(
+            EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE,
+            nullptr, FlipWatchProc, 0, 0, WINEVENT_OUTOFCONTEXT));
+    }
+    if (!m_flipForegroundHook.valid()) {
+        m_flipForegroundHook.reset(SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+            nullptr, FlipWatchProc, 0, 0, WINEVENT_OUTOFCONTEXT));
+    }
+
+    /* Se la mod fosse GIA' aperta (avvio della barra durante
+     * un'animazione, oppure ri-registrazione dopo un riavvio di
+     * Explorer) l'evento SHOW l'abbiamo perso: la protezione parte
+     * subito, senza aspettare la prossima animazione. */
+    HWND existing = FindWindowW(kFlip3dOverlayClass, nullptr);
+    if (existing != nullptr && IsWindowVisible(existing)) {
+        EngageFlip3dGuard(existing);
+    }
+}
+
+void AppBarService::StopFlipWatch() {
+    std::lock_guard<std::recursive_mutex> lk(m_flipMutex);
+    /* RAII: reset() sgancia gli hook solo se erano davvero installati. */
+    m_flipStateHook.reset();
+    m_flipForegroundHook.reset();
+}
+
+void AppBarService::EngageFlip3dGuard(HWND overlay) {
+    HWND bar = nullptr;
+    {
+        std::lock_guard<std::recursive_mutex> lk(m_flipMutex);
+        if (overlay == nullptr || !IsWindow(overlay)) {
+            return;
+        }
+        if (!m_registered || m_hwnd == nullptr || !IsWindow(m_hwnd)) {
+            return;
+        }
+        const bool already = m_flipGuardActive.load(std::memory_order_acquire);
+        /* Lo stato cambia PRIMA delle chiamate che possono rientrare
+         * (SetWindowPos -> WM_WINDOWPOSCHANGED -> WndProc della barra ->
+         * AppBarNotify -> HandleCallback): rientrando, la guardia deve
+         * gia' risultare attiva e coerente. */
+        m_flipOverlay = overlay;
+        m_flipGuardActive.store(true, std::memory_order_release);
+        bar = m_hwnd;
+
+        if (!already) {
+            try {
+                AppendCoreLog(L"appbar: mod Flip 3D aperta, barra visibile "
+                              L"ma non interagibile finche' l'animazione dura");
+            } catch (...) {
+                /* la diagnostica non e' mai un requisito */
+            }
+        }
+    }
+
+    try {
+        /* 1) PRESENTE: se qualcosa ci avesse gia' nascosti (la
+         *    ABN_FULLSCREENAPP vinta in corsa con l'hook), si torna
+         *    visibili SENZA rubare il primo piano all'overlay. */
+        if (!IsWindowVisible(bar)) {
+            ShowWindow(bar, SW_SHOWNOACTIVATE);
+        }
+
+        /* 2) SOPRA l'overlay: barra e overlay stanno entrambi nella
+         *    fascia topmost; HWND_TOPMOST ci riporta in testa
+         *    (MSDN, SetWindowPos). SWP_NOACTIVATE: il primo piano resta
+         *    all'overlay, che e' la finestra che comanda. */
+        SetWindowPos(bar, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+        /* 3) NON INTERAGIBILE: EnableWindow(FALSE) toglie mouse e
+         *    tastiera alla finestra (MSDN: "the window does not receive
+         *    input such as mouse clicks and key presses") e la fa
+         *    saltare del tutto dall'hit-test (MSDN, WindowFromPoint:
+         *    "does not retrieve a handle to a hidden or disabled window,
+         *    even if the point is within the window"): clic e rotellina
+         *    sulla fascia della barra cadono sull'overlay della mod, che
+         *    continua a rispondere (navigazione con la rotellina sopra
+         *    tutta la fascia). La barra resta disegnata: e' esattamente
+         *    "presente ma non interagibile". Il sistema invia anche
+         *    WM_CANCELMODE (MSDN, EnableWindow): un eventuale
+         *    trascinamento d'icona in corso si chiude in modo pulito. */
+        if (IsWindowEnabled(bar)) {
+            EnableWindow(bar, FALSE);
+        }
+
+        /* 4) Gli stati hover di WPF (tessera della tray, spillo) non
+         *    riceveranno piu' messaggi mouse finche' la finestra e'
+         *    disabilitata: un WM_MOUSELEAVE sintetico spegne subito
+         *    l'hover rimasto acceso, cosi' la barra appare ferma e
+         *    neutra per tutta l'animazione. */
+        PostMessageW(bar, WM_MOUSELEAVE, 0, 0);
+    } catch (...) {
+        /* Qualsiasi cosa sia andata storto, la guardia si scioglie: una
+         * barra interattiva e' sempre meglio di una barra disabilitata
+         * a meta'. */
+        ReleaseFlip3dGuard();
+    }
+}
+
+void AppBarService::ReleaseFlip3dGuard() {
+    HWND bar = nullptr;
+    {
+        std::lock_guard<std::recursive_mutex> lk(m_flipMutex);
+        if (!m_flipGuardActive.load(std::memory_order_acquire)) {
+            return;   /* idempotente: rilasciare due volte non fa nulla */
+        }
+        m_flipGuardActive.store(false, std::memory_order_release);
+        m_flipOverlay = nullptr;
+        bar = m_hwnd;
+        try {
+            AppendCoreLog(L"appbar: Flip 3D chiuso, barra di nuovo "
+                          L"interagibile");
+        } catch (...) {
+            /* la diagnostica non e' mai un requisito */
+        }
+    }
+
+    try {
+        if (bar != nullptr && IsWindow(bar)) {
+            /* Prima l'input, poi lo z-order: la barra torna pienamente
+             * interagibile e resta in testa alla fascia topmost, pronta
+             * per la prossima animazione o per il normale uso. */
+            EnableWindow(bar, TRUE);
+            SetWindowPos(bar, HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    } catch (...) {
+        /* La guardia e' gia' spenta e lo stato e' coerente: ogni segnale
+         * successivo (foreground, ABN, hook) riprova l'EnableWindow. */
+    }
+}
+
+void AppBarService::ReassertBarOverFlipOverlay() {
+    /* Contratto: chiamata con m_flipMutex gia' presa. Niente logica di
+     * stato qui, solo la geometria: la barra torna in testa alla fascia
+     * topmost senza attivazione (il primo piano resta all'overlay). */
+    if (m_hwnd == nullptr || !IsWindow(m_hwnd)) {
+        return;
+    }
+    SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+bool AppBarService::FlipGuardOverlayAlive() {
+    std::lock_guard<std::recursive_mutex> lk(m_flipMutex);
+    return FlipGuardOverlayAliveLocked();
+}
+
+bool AppBarService::FlipGuardOverlayAliveLocked() const {
+    return m_flipOverlay != nullptr &&
+           IsWindow(m_flipOverlay) &&
+           IsWindowVisible(m_flipOverlay);
 }
 
 } /* namespace w7t */

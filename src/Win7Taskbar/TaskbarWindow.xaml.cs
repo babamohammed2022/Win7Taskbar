@@ -7663,28 +7663,47 @@ namespace Win7Taskbar
                 return;
             }
 
-            IntPtr hwnd = _hwndSource?.Handle ?? IntPtr.Zero;
-            if (hwnd == IntPtr.Zero)
+            /* v1.21.50: il click sulla lente non deve mai abbattere la
+             * barra: init, PointToScreen e Show sono dentro un try/catch
+             * (un P/Invoke fallito o un'eccezione del nativo restano nel
+             * log, la barra continua a vivere). */
+            try
             {
-                return;
-            }
-
-            if (!_appSearchInit)
-            {
-                _appSearchInit = _bridge.AppSearchInit(hwnd, _searchIconPixels,
-                                                       _searchIconW, _searchIconH);
-                if (!_appSearchInit)
+                IntPtr hwnd = _hwndSource?.Handle ?? IntPtr.Zero;
+                if (hwnd == IntPtr.Zero)
                 {
                     return;
                 }
-            }
 
-            Point tl = StartButton.PointToScreen(new Point(0, 0));
-            /* v1.21.30: la ricerca usa la skin del tema attivo
-             * (0 Win7 blu, 1 Win8.1 metro viola; v1.21.42: 2 Aero Basic,
-             * che per il nativo non e' 1 e quindi resta sul blu Win7). */
-            _bridge.AppSearchShow((int)tl.X, (int)tl.Y,
-                RetroBar.Utilities.Settings.Instance.ThemeSelection);
+                if (!_appSearchInit)
+                {
+                    _appSearchInit = _bridge.AppSearchInit(hwnd, _searchIconPixels,
+                                                           _searchIconW, _searchIconH);
+                    if (!_appSearchInit)
+                    {
+                        return;
+                    }
+                }
+
+                Point tl = StartButton.PointToScreen(new Point(0, 0));
+                /* v1.21.30: la ricerca usa la skin del tema attivo
+                 * (0 Win7 blu traslucido, 1 Win8.1 metro viola).
+                 * v1.21.50: 2 Aero Basic = STESSA ricerca Win7 ma OPACA
+                 * (kSkinWin7Basic nel nativo: colori Win7, alpha 255). */
+                _bridge.AppSearchShow((int)tl.X, (int)tl.Y,
+                    RetroBar.Utilities.Settings.Instance.ThemeSelection);
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    _bridge.Log($"ricerca: apertura fallita: {ex.Message}");
+                }
+                catch
+                {
+                    /* il log non e' mai un requisito */
+                }
+            }
         }
 
         /// <summary>v3.3: Proprietà = vera finestra Win32 nel core nativo
