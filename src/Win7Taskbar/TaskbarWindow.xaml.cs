@@ -2208,9 +2208,16 @@ namespace Win7Taskbar
                          * all'avvio (vedi ThemeLoader.ReapplyNow). Se non
                          * riesce, resta il tema precedente e il messaggio nel
                          * log dice che serve un riavvio: nessuna barra rotta. */
-                        string appliedSkin = (AppliedThemeSelection ==
-                                              RetroBar.Utilities.TaskbarThemeIds.Windows81)
-                                                 ? "Windows 8.1" : "Windows 7";
+                        /* v1.21.42: tre skin (Windows 7, Windows 8.1 e
+                         * Windows 7 Aero Basic, id 2). */
+                        string appliedSkin = AppliedThemeSelection switch
+                        {
+                            RetroBar.Utilities.TaskbarThemeIds.Windows81 =>
+                                "Windows 8.1",
+                            RetroBar.Utilities.TaskbarThemeIds.Windows7AeroBasic =>
+                                "Windows 7 Aero Basic",
+                            _ => "Windows 7",
+                        };
                         string themeSwapResult = ThemeLoader.ReapplyNow();
                         _bridge.Log("proprieta': skin " + appliedSkin + " -> " +
                                     themeSwapResult);
@@ -7628,7 +7635,8 @@ namespace Win7Taskbar
 
             Point tl = StartButton.PointToScreen(new Point(0, 0));
             /* v1.21.30: la ricerca usa la skin del tema attivo
-             * (0 Win7 blu, 1 Win8.1 metro viola). */
+             * (0 Win7 blu, 1 Win8.1 metro viola; v1.21.42: 2 Aero Basic,
+             * che per il nativo non e' 1 e quindi resta sul blu Win7). */
             _bridge.AppSearchShow((int)tl.X, (int)tl.Y,
                 RetroBar.Utilities.Settings.Instance.ThemeSelection);
         }

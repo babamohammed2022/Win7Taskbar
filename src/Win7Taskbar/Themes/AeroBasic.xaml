@@ -1,0 +1,119 @@
+<!--
+    Win7Taskbar - skin "Windows 7 Aero Basic" (v1.21.42)
+    Copyright (c) 2026 Win7Taskbar contributors
+    Licensed under the GNU General Public License
+    version 3 or later (see the LICENSE file).
+
+    Il tema e' derivato da RetroBar (https://github.com/dremin/RetroBar),
+    Copyright (c) dremin, Apache License 2.0. Vedere CREDITS.txt.
+
+    COME FUNZIONA
+    =============
+    Questo dizionario NON e' un tema completo: ThemeLoader.Build() lo
+    mergia per ULTIMO - dopo il tema Windows7.xaml e dopo Overrides.xaml -
+    solo quando la skin scelta e' TaskbarThemeIds.Windows7AeroBasic
+    (id 2). Fra dizionari mergiati vince quello aggiunto per ultimo (la
+    precedenza vale per StaticResource e DynamicResource, come documenta
+    Microsoft in "Merged resource dictionaries"), quindi le chiavi qui
+    sotto sostituiscono quelle omonime del tema Windows 7 e TUTTO il
+    resto - template, pulsanti, tray, orologio, separatori, misure,
+    animazioni - resta esattamente quello di Themes/Windows7.xaml, che
+    non viene toccato.
+
+    COSA SOSTITUISCE
+    =================
+    Solo lo sfondo della barra. Nel tema Windows 7 lo sfondo e' vetro
+    Aero: il template "Taskbar" sovrappone (1) la texture win7taskbar.png
+    600x40 con i riflessi diagonali e (2) un gradiente bianco/nero quasi
+    invisibile con Opacity 0.35 che lascia trasparire il desktop, sopra
+    una finestra trasparente. Qui quelle risorse diventano una superficie
+    OPACA grigio-azzurra chiara, senza vetro, senza blur, senza riflessi
+    e senza trasparenze: i colori misurati dalla reference, dall'alto verso
+    il basso, sono
+
+        #9FBDCF  bordo superiore (sottilissimo)
+        #BEDDF1  highlight alto (stretto)
+        #B2CEE3  prima transizione
+        #B4D3E7  superficie principale alta
+        #B2D0E8  transizione principale
+        #B2D0EA  colore dominante (la maggior parte della barra)
+
+    MappingMode resta RelativeToBoundingBox (default): il gradiente segue
+    l'altezza reale della barra a qualsiasi DPI, come la texture che
+    sostituisce.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Layer 1 del template Taskbar (barra orizzontale): al posto della
+         ImageBrush con la texture vetro win7taskbar.png. -->
+    <LinearGradientBrush x:Key="Win7_TaskbarTextureBrush"
+                         StartPoint="0,0"
+                         EndPoint="0,1">
+        <GradientStop Color="#FF9FBDCF" Offset="0.00" />
+        <GradientStop Color="#FFBEDDF1" Offset="0.04" />
+        <GradientStop Color="#FFB2CEE3" Offset="0.12" />
+        <GradientStop Color="#FFB4D3E7" Offset="0.24" />
+        <GradientStop Color="#FFB2D0E8" Offset="0.36" />
+        <GradientStop Color="#FFB2D0EA" Offset="0.48" />
+        <GradientStop Color="#FFB2D0EA" Offset="1.00" />
+    </LinearGradientBrush>
+
+    <!-- Stesso gradiente ruotato per la barra verticale (dock a sinistra
+         o a destra): e' il brush che il DataTrigger Orientation=Vertical
+         del template Taskbar mette sul layer 1. -->
+    <LinearGradientBrush x:Key="Win7_Win7_TaskbarTextureBrushVertical"
+                         StartPoint="0,0"
+                         EndPoint="1,0">
+        <GradientStop Color="#FF9FBDCF" Offset="0.00" />
+        <GradientStop Color="#FFBEDDF1" Offset="0.04" />
+        <GradientStop Color="#FFB2CEE3" Offset="0.12" />
+        <GradientStop Color="#FFB4D3E7" Offset="0.24" />
+        <GradientStop Color="#FFB2D0E8" Offset="0.36" />
+        <GradientStop Color="#FFB2D0EA" Offset="0.48" />
+        <GradientStop Color="#FFB2D0EA" Offset="1.00" />
+    </LinearGradientBrush>
+
+    <!-- Chiavi storiche del tema Windows 7 (le prime due ImageBrush sulla
+         PNG taskbarbackground): nessun template le referenzia piu', ma sono
+         definite dalla stessa texture vetro, quindi vengono sostituite pure
+         loro: sotto questa skin non deve restare raggiungibile nessuna
+         risorsa di vetro. -->
+    <LinearGradientBrush x:Key="TaskbarTextureBrush"
+                         StartPoint="0,0"
+                         EndPoint="0,1">
+        <GradientStop Color="#FF9FBDCF" Offset="0.00" />
+        <GradientStop Color="#FFBEDDF1" Offset="0.04" />
+        <GradientStop Color="#FFB2CEE3" Offset="0.12" />
+        <GradientStop Color="#FFB4D3E7" Offset="0.24" />
+        <GradientStop Color="#FFB2D0E8" Offset="0.36" />
+        <GradientStop Color="#FFB2D0EA" Offset="0.48" />
+        <GradientStop Color="#FFB2D0EA" Offset="1.00" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Win7_TaskbarTextureBrushVertical"
+                         StartPoint="0,0"
+                         EndPoint="1,0">
+        <GradientStop Color="#FF9FBDCF" Offset="0.00" />
+        <GradientStop Color="#FFBEDDF1" Offset="0.04" />
+        <GradientStop Color="#FFB2CEE3" Offset="0.12" />
+        <GradientStop Color="#FFB4D3E7" Offset="0.24" />
+        <GradientStop Color="#FFB2D0E8" Offset="0.36" />
+        <GradientStop Color="#FFB2D0EA" Offset="0.48" />
+        <GradientStop Color="#FFB2D0EA" Offset="1.00" />
+    </LinearGradientBrush>
+
+    <!-- Layer 2 del template Taskbar (Opacity 0.35): nel tema Windows 7 e'
+         il gradiente "ultra-trasparente" che lascia vedere il desktop
+         attraverso il vetro. Con Aero Basic non deve aggiungere nulla:
+         trasparente, e la barra resta interamente opaca. -->
+    <SolidColorBrush x:Key="TaskbarBackground" Color="Transparent" />
+    <SolidColorBrush x:Key="TaskbarVerticalBackground" Color="Transparent" />
+
+    <!-- Sfondo della finestra barra: nel tema Windows 7 e' Transparent
+         (il vetro e' disegnato dai layer); qui e' il colore dominante
+         della reference, cosi' nessun pixel della barra puo' restare
+         trasparente nemmeno ai bordi del template. -->
+    <SolidColorBrush x:Key="TaskbarWindowBackground" Color="#FFB2D0EA" />
+
+</ResourceDictionary>

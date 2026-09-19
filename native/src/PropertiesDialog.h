@@ -43,7 +43,7 @@ struct PropsApplyMsg {
     int32_t flyoutColorMode;       // 0 = system colour, 1 = custom colour
     int32_t flyoutColorRgb;        // 0x00RRGGBB of the custom colour
     int32_t connectionPrivacyMode; // 0 = normal, 1 = privacy
-    int32_t themeSelection;        // 0 = Windows 7, 1 = Windows 8.1
+    int32_t themeSelection;        // 0 = Windows 7, 1 = Windows 8.1, 2 = Windows 7 Aero Basic
     /* v1.21.37 - "avvio automatico con Windows" della scheda Informazioni.
      * Ultimo campo, AGGIUNTO IN CODA come tutti gli altri: il ricevente lo
      * legge solo se il pacchetto contiene davvero 80 byte (cbData). L'effetto
@@ -110,7 +110,7 @@ private:
     int32_t m_flyoutColorMode = 0;     /* 0 = system colour */
     int32_t m_flyoutColorRgb = 0x0078D7;   /* chosen custom colour */
     int32_t m_connectionPrivacyMode = 0;
-    int32_t m_themeSelection = 0;      /* Windows 7 (8.1 not available) */
+    int32_t m_themeSelection = 0;      /* Windows 7 (default e ripiego) */
     /* v1.21.37: stato corrente dell'avvio automatico (letto dal registro dal
      * gestito prima di aprire il dialogo, come fa RetroBar in LoadAutoStart). */
     int32_t m_autoStart = 0;

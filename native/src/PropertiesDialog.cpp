@@ -263,15 +263,20 @@ void ShowTabPage(HWND hwnd, int page) {
 /* v1.21.7 - Skins available in THIS version of the program.
  *
  * The index is the one stored in the configuration: 0 = Windows 7,
- * 1 = Windows 8.1. Both are implemented now: the Windows 8.1 theme file
- * (Themes/Windows8.1.xaml) ships with the program and its Start button uses
- * the two sprites embedded in GraphicalResourceBundle
- * (startwin81flag / startwin81flagscaled). Windows 7 stays the default and
- * the fallback for anything unknown.
+ * 1 = Windows 8.1, 2 = Windows 7 Aero Basic (v1.21.42). All three are
+ * implemented: the Windows 8.1 theme file (Themes/Windows8.1.xaml) ships
+ * with the program and its Start button uses the two sprites embedded in
+ * GraphicalResourceBundle (startwin81flag / startwin81flagscaled);
+ * Windows 7 Aero Basic reuses the untouched Windows 7 theme with the
+ * managed-side AeroBasic.xaml background overrides (opaque light
+ * gray-blue, no glass). Windows 7 stays the default and the fallback for
+ * anything unknown.
  *
  * A single function for the judgement, so the dropdown and SendApply cannot
  * diverge. */
-constexpr bool ThemeIsAvailable(int32_t themeId) { return themeId == 0 || themeId == 1; }
+constexpr bool ThemeIsAvailable(int32_t themeId) {
+    return themeId == 0 || themeId == 1 || themeId == 2;
+}
 
 /* v1.21.7 - Colour picker of the extra settings tab.
  *
@@ -554,10 +559,10 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         m_flyoutColorRgb = static_cast<int32_t>(
             static_cast<uint32_t>(flyoutColorRgb) & 0x00FFFFFFu);
         m_connectionPrivacyMode = (connectionPrivacyMode == 1) ? 1 : 0;
-        /* Windows 8.1 is not available in this version: the only usable skin
-         * stays Windows 7, and the stored value is brought back to 0 when the
-         * user opens and confirms the Properties. */
-        m_themeSelection = (themeSelection == 1 && ThemeIsAvailable(1)) ? 1 : 0;
+        /* v1.21.42: tre skin (0 = Windows 7, 1 = Windows 8.1, 2 = Windows 7
+         * Aero Basic). Un valore sconosciuto torna al ripiego Windows 7;
+         * ogni id disponibile viene accettato cosi' com'e'. */
+        m_themeSelection = ThemeIsAvailable(themeSelection) ? themeSelection : 0;
         /* v1.21.37: stato dell'avvio automatico letto dal registro dal gestito
          * prima di aprire il dialogo (come LoadAutoStart di RetroBar). */
         m_autoStart = autoStart ? 1 : 0;
@@ -1091,14 +1096,16 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             ComboBox_SetCurSel(hPv, self->m_connectionPrivacyMode == 1 ? 1 : 0);
         }
 
-        /* Skin: Windows 7 (available) and Windows 8.1 (not implemented yet).
-         * The missing skin stays spelled out, so the user knows the value
-         * exists but cannot be used: choosing it cannot lead to an invented
-         * theme, the selection falls back to Windows 7 (see WM_COMMAND). */
+        /* Skins: Windows 7 (0), Windows 8.1 (1) and Windows 7 Aero Basic (2,
+         * v1.21.42 - the Windows 7 skin with the opaque light gray-blue
+         * taskbar background). L'ordine delle voci E' l'indice salvato in
+         * configurazione: SendApply rilegge CB_GETCURSEL e lo passa da
+         * ThemeIsAvailable(), che scarta cio' che non esiste. */
         {
             HWND hTh = GetDlgItem(hwnd, IDC_CMB_EX_THEME);
-            ComboBox_AddString(hTh, X.themeWin7);       /* 0 */
-            ComboBox_AddString(hTh, X.themeWin81);      /* 1, non disponibile */
+            ComboBox_AddString(hTh, X.themeWin7);        /* 0 */
+            ComboBox_AddString(hTh, X.themeWin81);       /* 1 */
+            ComboBox_AddString(hTh, X.themeAeroBasic);   /* 2 */
             ComboBox_SetCurSel(hTh, ThemeIsAvailable(self->m_themeSelection)
                                         ? self->m_themeSelection : 0);
         }

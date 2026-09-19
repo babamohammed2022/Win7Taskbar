@@ -88,6 +88,13 @@ namespace Win7Taskbar
         private const string OverridesUri =
             "pack://application:,,,/Win7Taskbar;component/Themes/Overrides.xaml";
 
+        /* v1.21.42: sfondo opaco grigio-azzurro della skin "Windows 7 Aero
+         * Basic". E' un dizionario di soli pennelli, compilato nell'assembly
+         * come Overrides.xaml (non un file di tema su disco): il tema resta
+         * Themes/Windows7.xaml, intatto. */
+        private const string AeroBasicUri =
+            "pack://application:,,,/Win7Taskbar;component/Themes/AeroBasic.xaml";
+
         private static readonly XNamespace Presentation =
             "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
 
@@ -110,6 +117,35 @@ namespace Win7Taskbar
             {
                 Source = new Uri(OverridesUri, UriKind.Absolute)
             });
+
+            /* v1.21.42 - skin "Windows 7 Aero Basic" (id 2): il file del
+             * tema e' lo stesso Windows7.xaml (nessuna modifica al tema
+             * Aero esistente); qui viene mergiato PER ULTIMO il piccolo
+             * dizionario AeroBasic.xaml, che sostituisce soltanto i
+             * pennelli dello sfondo vetroso con la superficie opaca
+             * grigio-azzurra della reference. Fra dizionari mergiati vince
+             * l'ultimo aggiunto (la stessa precedenza di cui vive
+             * Overrides.xaml), quindi le sue chiavi hanno la meglio su
+             * tema e overrides; con le altre skin questo blocco non viene
+             * eseguito e nulla cambia. */
+            if (IsAeroBasicSelected())
+            {
+                root.MergedDictionaries.Add(new ResourceDictionary
+                {
+                    Source = new Uri(AeroBasicUri, UriKind.Absolute)
+                });
+
+                try
+                {
+                    DiagnosticLogger.Write("THEME",
+                        "skin Aero Basic: sfondo opaco applicato sopra il " +
+                        "tema Windows 7 (AeroBasic.xaml mergiato per ultimo)");
+                }
+                catch
+                {
+                    /* la diagnostica non e' mai un requisito */
+                }
+            }
 
             // v2.21: SuperbarButton eredita da TaskButton, ma il BasedOn
             // non puo' stare nel BAML (StaticResource irrisolvibile al
@@ -163,6 +199,26 @@ namespace Win7Taskbar
                 return RetroBar.Utilities.TaskbarThemeIds.Normalize(
                            RetroBar.Utilities.Settings.Instance.ThemeSelection)
                        == RetroBar.Utilities.TaskbarThemeIds.Windows81;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// v1.21.42 - true quando la skin scelta in Proprieta' e' la
+        /// "Windows 7 Aero Basic": stessa prudenza di IsWindows81Selected,
+        /// una configurazione non leggibile lascia il ripiego (skin
+        /// Windows 7 Aero, senza il dizionario degli sfondi opachi).
+        /// </summary>
+        private static bool IsAeroBasicSelected()
+        {
+            try
+            {
+                return RetroBar.Utilities.TaskbarThemeIds.Normalize(
+                           RetroBar.Utilities.Settings.Instance.ThemeSelection)
+                       == RetroBar.Utilities.TaskbarThemeIds.Windows7AeroBasic;
             }
             catch
             {
@@ -312,6 +368,11 @@ namespace Win7Taskbar
         public static string ThemeFileNameFor(int themeId) => themeId switch
         {
             RetroBar.Utilities.TaskbarThemeIds.Windows81 => "Windows8.1.xaml",
+            /* v1.21.42: la skin Aero Basic NON ha un file tema proprio:
+             * riusa Windows7.xaml tale e quale (stesso layout, stessi
+             * pulsanti, stessa tray) e ci mergia sopra il dizionario
+             * AeroBasic.xaml con i soli sfondi opachi (vedi Build). */
+            RetroBar.Utilities.TaskbarThemeIds.Windows7AeroBasic => "Windows7.xaml",
             _ => "Windows7.xaml",
         };
 
