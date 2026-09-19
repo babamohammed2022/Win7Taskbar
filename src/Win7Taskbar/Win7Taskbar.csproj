@@ -337,9 +337,25 @@
          re-enabled on overlay close (multiple recovery paths, recursive
          mutex, try/catch in every callback and appbar export). Real
          fullscreen apps keep the historical hide/show behaviour. -->
-    <Version>1.0.0-alpha</Version>
-    <AssemblyVersion>1.7.0.0</AssemblyVersion>
-    <FileVersion>1.7.0.0</FileVersion>
+    <!-- 1.1.0-alpha: startup-defect reduction. The native core now travels
+         INSIDE the executable as an embedded fallback copy
+         (Interop/NativeCore.cs): at startup the file next to the exe is
+         compared with it and, when missing, different or unloadable, the
+         embedded copy is restored (next to the exe, or
+         %LOCALAPPDATA%\Win7Taskbar\core when that folder is not writable)
+         and preloaded with its full path before the first P/Invoke - so the
+         classic "Win7TaskbarCore.dll non e' stata trovata" no longer stops
+         a package that lost the file. The optional W7TInject.dll is healed
+         the same way; W7T_PREFER_LOCAL_CORE=1 keeps the local file
+         authoritative for native development. MSVC builds of the core link
+         the CRT statically (no vcruntime140.dll dependency on clean
+         machines); the packaging script verifies the embedded fallback is
+         present in the published assembly. The assembly version moves to
+         1.1.0.0 so a startup crash recorded by an older build no longer
+         forces this one into safe mode. -->
+    <Version>1.1.0-alpha</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
   
     <!-- v2.57: application icon (the classic Windows 7 flag in a single azure
          blue). Setting ApplicationIcon gives the executable the icon and, in
