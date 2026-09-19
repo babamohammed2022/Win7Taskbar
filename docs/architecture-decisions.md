@@ -83,6 +83,19 @@ outer frame images and close button, following RetroBar's ownership model.
 DWM supports the layered popup; using a non-layered popup is not a DWM
 requirement.
 
+The frame and the live surface must be described in the same unit. The Aero
+frame is a 9-slice with 17/38/19-unit slices around a 202x109 aperture, and the
+frame template reserves exactly those bands around its `ContentPresenter`;
+`NativePreviewFrame` therefore asks the core for the frame bitmap in the frame
+element's **layout units** (the brush's `Stretch.Fill` scales border and
+aperture together on whatever monitor the popup opens). Asking for it at the
+element's device size instead keeps the slices whole screen pixels while the
+aperture follows the popup - 18.7/41.8/20.9 px at 125% under the 10% high-DPI
+enlargement - and leaves an unpainted strip inside the border. The destination
+rectangle handed to DWM is measured in physical pixels and rounded outward, so
+it can never be smaller than the aperture the frame painted.
+`native/tools/check-preview-geometry.py` checks both halves of that agreement.
+
 A short-lived, static `Graphics.CopyFromScreen` capture may provide soft glass
 behind the **outer chrome only**. `TaskPreviewPopup` clips that blurred image to
 the top, left, right and bottom frame bands of every preview item. Above it, the
