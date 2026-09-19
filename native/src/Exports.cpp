@@ -1051,17 +1051,30 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
 
 extern "C" W7T_API int32_t W7T_CALL W7T_AppSearchInit(uint64_t ownerTaskbar,
         const uint32_t* argbPixels, int32_t iconW, int32_t iconH) {
-    return g_appSearch.Create(GetModuleHandleW(nullptr),
-                              reinterpret_cast<HWND>(ownerTaskbar),
-                              argbPixels, iconW, iconH) ? 1 : 0;
+    /* v1.21.50: mai propagare oltre il confine extern "C" (la Create
+     * alloca bitmap, icone e un thread di scansione: una qualsiasi
+     * eccezione diventa "ricerca non disponibile", non un crash). */
+    try {
+        return g_appSearch.Create(GetModuleHandleW(nullptr),
+                                  reinterpret_cast<HWND>(ownerTaskbar),
+                                  argbPixels, iconW, iconH) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
 }
 
 /* v1.21.30: the managed side passes the active theme (0 Win7, 1 Win8.1)
- * so the search window repaints with the matching skin on every open. */
+ * so the search window repaints with the matching skin on every open.
+ * v1.21.50: 2 = "Windows 7 Aero Basic": same Win7 skin, fully opaque
+ * mask (no glass), see kSkinWin7Basic in AppSearchWindow.cpp. The two
+ * calls are inside a barrier: an exception must never cross the
+ * extern "C" edge (Show can join the scan thread and allocate). */
 extern "C" W7T_API void W7T_CALL W7T_AppSearchShow(int32_t x, int32_t y,
         int32_t theme) {
-    g_appSearch.SetTheme(theme);
-    g_appSearch.Show(x, y);
+    try {
+        g_appSearch.SetTheme(theme);
+        g_appSearch.Show(x, y);
+    } catch (...) { /* mai propagare */ }
 }
 
 extern "C" W7T_API void W7T_CALL W7T_AppSearchHide(void) {

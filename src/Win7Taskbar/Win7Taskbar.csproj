@@ -310,7 +310,21 @@
          standard C++ try/catch (the SEH macros are no-ops on MinGW), and
          the topmost-promotion hook/timer is now idempotent, which fixes
          the visible flash of the "Toolbars" submenu on open/close. -->
-    <Version>1.21.49-alpha</Version>
+    <!-- 1.21.50-alpha: system-tray hover tile retuned (user request): the
+         glass hover tile on the notification-area icons is 2.2% smaller
+         (0.978: 28.6944x38.2592 -> 28.0631232x37.4174976, vertical short
+         tile 26.352 -> 25.772256) and shifted further LEFT by 2.5% of its
+         width from the icon-centred position. Implemented as an implicit
+         NotifyIcon style override in Themes/Overrides.xaml, so BOTH theme
+         files (Windows7.xaml / Windows8.1.xaml) stay byte-identical.
+         App search + "Windows 7 Aero Basic" skin: the search window now
+         takes a dedicated opaque Win7 skin (theme id 2, kSkinWin7Basic:
+         every Win7 colour, alpha 255/255 instead of 222->242, no desktop
+         showing through), instead of reusing the translucent Win7 one.
+         Hardening: AppSearchWindow::OnPaint and the RenderScene fonts are
+         RAII-managed (ScopeGuards.h), and the app-search entry points
+         (native exports + managed OpenAppSearch) got try/catch barriers. -->
+    <Version>1.21.50-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

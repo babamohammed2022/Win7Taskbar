@@ -30,9 +30,15 @@ public:
     void Hide();
     bool IsVisible() const { return m_hWnd != nullptr && IsWindowVisible(m_hWnd); }
     /* v1.21.30: 0 = Windows 7 (blu traslucido), 1 = Windows 8.1 metro
-     * (viola fisso, opaco, geometrico). */
+     * (viola fisso, opaco, geometrico).
+     * v1.21.50: 2 = "Windows 7 Aero Basic": la ricerca resta IDENTICA alla
+     * skin Windows 7 (stessi colori, stessi gradienti, stesse cornici,
+     * stessa scrollbar) ma la finestra e' COMPLETAMENTE OPACA: il gradiente
+     * di alpha della skin Win7 (222 -> 242) diventa 255/255, quindi niente
+     * desktop che traspare dal vetro. Qualunque altro valore resta il
+     * ripiego storico, la skin Windows 7. */
     void SetTheme(int32_t theme) {
-        m_theme = (theme == 1) ? 1 : 0;
+        m_theme = (theme == 1 || theme == 2) ? theme : 0;
         if (m_hWnd != nullptr) InvalidateRect(m_hWnd, nullptr, TRUE);
     }
 private:

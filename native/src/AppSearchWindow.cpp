@@ -16,6 +16,7 @@
 #include "FlyoutLauncher.h"
 #include "SehGuard.h"
 #include "Common.h"
+#include "ScopeGuards.h"   /* v1.21.50: guardie RAII per GDI (font, bitmap, DC) */
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <shellapi.h>
@@ -88,6 +89,36 @@ constexpr SearchSkin kSkinMetro = {
     RGB(0x46, 0x26, 0x68), RGB(0xB9, 0x9A, 0xDB),
     RGB(0x7E, 0x4E, 0x9E),
 };
+
+/* v1.21.50: "Windows 7 Aero Basic" (tema 2) = la skin Windows 7 SENZA il
+ * vetro: ogni colore, gradiente e cornice e' identico a kSkinWin7; cambia
+ * SOLO la maschera di alpha, che da 222->242 (il desktop traspare un po')
+ * diventa 255/255: la finestra layered e' completamente opaca, come la
+ * superficie della barra di questa skin (niente trasparenze da nessuna
+ * parte). Nessun ramo del rendering va toccato: tutti gli if m_theme == 1
+ * separano la skin metro dal percorso Win7, e il tema 2 deve seguire
+ * esattamente il percorso Win7. */
+constexpr SearchSkin kSkinWin7Basic = {
+    255, 255,
+    RGB(0x86, 0xAE, 0xD6), RGB(0x57, 0x8B, 0xBE),
+    RGB(0xFF, 0xFF, 0xFF), RGB(0xE8, 0xF2, 0xFB),
+    RGB(0xC6, 0xDC, 0xF1),
+    RGB(0x9C, 0xC4, 0xEC), RGB(0x7F, 0xB0, 0xE2),
+    RGB(0xD9, 0xEA, 0xFA),
+    RGB(0x6F, 0xA0, 0xD4),
+    RGB(0xFF, 0xFF, 0xFF), RGB(0x4E, 0x6E, 0x92), RGB(0x1E, 0x1E, 0x1E),
+    RGB(0xA8, 0xC6, 0xE4), RGB(0xEC, 0xF4, 0xFC),
+    RGB(0x33, 0x99, 0xFF),
+};
+
+/* v1.21.50: la skin della ricerca per id tema. 0 e ogni valore ignoto
+ * restano la skin Windows 7 (il ripiego storico), 1 la metro 8.1,
+ * 2 la Windows 7 opaca dell'Aero Basic. */
+inline const SearchSkin& SkinForTheme(int32_t theme) {
+    if (theme == 1) return kSkinMetro;
+    if (theme == 2) return kSkinWin7Basic;
+    return kSkinWin7;
+}
 
 /* v1.21.30 metro - GDI+ caricato a runtime con lo STESSO approccio degli
  * altri componenti (gdiplus.dll + GetProcAddress, nessun nuovo link): gli
@@ -1337,7 +1368,9 @@ void AppSearchWindow::ShowPropertiesOfSelected() {
 void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
                                     int W, int H, bool mask) {
     std::lock_guard<std::mutex> lk(m_scanMutex);
-    const SearchSkin& sk = (m_theme == 1) ? kSkinMetro : kSkinWin7;
+    /* v1.21.50: la skin arriva da SkinForTheme (0 Win7 traslucido,
+     * 1 metro 8.1, 2 Win7 opaco dell'Aero Basic). */
+    const SearchSkin& sk = SkinForTheme(m_theme);
     auto grayAt = [&](int y) -> int {
         return sk.alphaTop + (sk.alphaBottom - sk.alphaTop) * y / (H > 1 ? H - 1 : 1);
     };
@@ -1423,10 +1456,17 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
     }
     SetBkMode(hdc, TRANSPARENT);
 
-    HFONT font     = MakeFont(Px(13), false);
-    HFONT fontBold = MakeFont(Px(12), true);
-    HFONT fontMatch = MakeFont(Px(13), true);   /* grassetto stessa taglia */
-    HFONT oldFont  = static_cast<HFONT>(SelectObject(hdc, font));
+    /* v1.21.50: i tre font della scena vivono in guardie RAII
+     * (UniqueGdiObject + SelectGuard di ScopeGuards.h, gli stessi usati
+     * dal pannello di overflow): una qualsiasi eccezione nel corpo della
+     * funzione (le allocazioni dei vettori DPI in Polygon/GradientFill,
+     * Lower/substr dei nomi in DrawNameWithMatch...) non puo' piu'
+     * lasciare un font selezionato nella DC o tre HFONT in fuga nel
+     * processo ad ogni ridisegno. */
+    UniqueGdiObject font(MakeFont(Px(13), false));
+    UniqueGdiObject fontBold(MakeFont(Px(12), true));
+    UniqueGdiObject fontMatch(MakeFont(Px(13), true));   /* grassetto stessa taglia */
+    SelectGuard fontSel(hdc, font);
 
     const bool best = HasBestOf(m_query, m_filtered.size());
 
@@ -1578,7 +1618,9 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         if (app.iconLarge) drawIcon(14, yy + 3, app.iconLarge, 32, 32);
         else if (app.iconSmall) drawIcon(22, yy + 11, app.iconSmall, 16, 16);
         RECT tr{ 56, yy, kLeftWidth - 14, yy + kRowHeight };
-        DrawNameWithMatch(hdc, app.name, m_query, &tr, font, fontMatch, m_dpi);
+        DrawNameWithMatch(hdc, app.name, m_query, &tr,
+                          static_cast<HFONT>(font.get()),
+                          static_cast<HFONT>(fontMatch.get()), m_dpi);
     }
     if (m_filtered.empty() && !m_query.empty()) {
         SetTextColor(hdc, col(sk.textDim));
@@ -1812,10 +1854,9 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         SelectObject(hdc, obx);
     }
 
-    SelectObject(hdc, oldFont);
-    DeleteObject(font);
-    DeleteObject(fontBold);
-    DeleteObject(fontMatch);
+    /* v1.21.50: la selezione del font e la sua distruzione sono RAII
+     * (fontSel e font/fontBold/fontMatch): qui non resta piu' nulla da
+     * ripristinare a mano, qualsiasi sia stata la via d'uscita. */
 }
 
 /* ---------------- composizione layered ---------------- */
@@ -1823,28 +1864,40 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
 void AppSearchWindow::OnPaint(HDC hdcWindow) {
     (void)hdcWindow;
     RECT rc{};
-    GetClientRect(m_hWnd, &rc);
+    if (!GetClientRect(m_hWnd, &rc)) return;
     const int W = rc.right, H = rc.bottom;      /* pixel reali */
     if (W <= 0 || H <= 0) return;
     /* v2.60: la scena si disegna in unita' logiche (96 dpi), i buffer
      * sono della taglia reale del monitor. */
     const int lw = Dip(W), lh = Dip(H);
 
+    /* v1.21.50: TUTTI gli oggetti GDI di questa funzione sono RAII
+     * (ScopeGuards.h): le due DIB 32bpp in UniqueGdiObject, le due memory
+     * DC in MemDcGuard, la DC dello schermo in WindowDcGuard e le due
+     * selezioni in SelectGuard. L'ordine di distruzione (il contrario
+     * della dichiarazione) e' esattamente la sequenza di rilascio che il
+     * codice faceva a mano: prima si deseleziona, poi si chiudono le DC,
+     * poi si cancellano le bitmap e infine si restituisce la DC dello
+     * schermo. Cosi' nessuna via d'uscita (nemmeno un'eccezione dalle due
+     * RenderScene: allocazioni dei vettori, Lower/substr dei nomi) puo'
+     * lasciare una DC aperta o una bitmap in fuga. */
     void* colorBits = nullptr;
     void* maskBits = nullptr;
-    HBITMAP colorBmp = MakeDib32(W, H, &colorBits);
-    HBITMAP maskBmp = MakeDib32(W, H, &maskBits);
-    if (!colorBmp || !maskBmp || !colorBits || !maskBits) {
-        if (colorBmp) DeleteObject(colorBmp);
-        if (maskBmp) DeleteObject(maskBmp);
+    UniqueGdiObject colorBmp(MakeDib32(W, H, &colorBits));
+    UniqueGdiObject maskBmp(MakeDib32(W, H, &maskBits));
+    if (!colorBmp.valid() || !maskBmp.valid() ||
+        colorBits == nullptr || maskBits == nullptr) {
         return;
     }
 
-    HDC screen = GetDC(nullptr);
-    HDC dcC = CreateCompatibleDC(screen);
-    HDC dcM = CreateCompatibleDC(screen);
-    HBITMAP obC = static_cast<HBITMAP>(SelectObject(dcC, colorBmp));
-    HBITMAP obM = static_cast<HBITMAP>(SelectObject(dcM, maskBmp));
+    WindowDcGuard screen(nullptr, GetDC(nullptr));
+    if (!screen.valid()) return;
+    MemDcGuard dcC(screen);
+    MemDcGuard dcM(screen);
+    if (!dcC.valid() || !dcM.valid()) return;
+    SelectGuard selC(dcC, colorBmp);
+    SelectGuard selM(dcM, maskBmp);
+    if (selC.old() == nullptr || selM.old() == nullptr) return;
 
     RenderScene(dcC, static_cast<uint32_t*>(colorBits), lw, lh, false);
     RenderScene(dcM, static_cast<uint32_t*>(maskBits), lw, lh, true);
@@ -1872,14 +1925,6 @@ void AppSearchWindow::OnPaint(HDC hdcWindow) {
     bf.SourceConstantAlpha = 255;
     UpdateLayeredWindow(m_hWnd, screen, nullptr, &sz, dcC, &ptSrc,
                         0, &bf, ULW_ALPHA);
-
-    SelectObject(dcC, obC);
-    SelectObject(dcM, obM);
-    DeleteDC(dcC);
-    DeleteDC(dcM);
-    ReleaseDC(nullptr, screen);
-    DeleteObject(colorBmp);
-    DeleteObject(maskBmp);
 }
 
 /* ---------------- messaggi ---------------- */
