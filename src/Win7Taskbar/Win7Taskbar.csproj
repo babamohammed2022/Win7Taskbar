@@ -324,7 +324,20 @@
          Hardening: AppSearchWindow::OnPaint and the RenderScene fonts are
          RAII-managed (ScopeGuards.h), and the app-search entry points
          (native exports + managed OpenAppSearch) got try/catch barriers. -->
-    <Version>1.21.50-alpha</Version>
+    <!-- 1.21.51-alpha: Windhawk mod compatibility, "Aero Flip 3D
+         Recreation". The mod's switcher is a fullscreen topmost popup
+         (class Flip3DOverlayWndClass), so the shell flagged it as a
+         fullscreen app and our ABN_FULLSCREENAPP handler hid the taskbar
+         for the whole animation (Win+Tab made it disappear). New Flip 3D
+         guard in AppBarService: two WinEvent hooks (RAII, UniqueWinEventHook
+         in ScopeGuards.h) watch the overlay's SHOW / HIDE / DESTROY and
+         foreground changes; while the overlay is up the taskbar stays
+         VISIBLE above it and non-interactive (EnableWindow(FALSE): input
+         falls through to the mod, which keeps responding), then it is
+         re-enabled on overlay close (multiple recovery paths, recursive
+         mutex, try/catch in every callback and appbar export). Real
+         fullscreen apps keep the historical hide/show behaviour. -->
+    <Version>1.21.51-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

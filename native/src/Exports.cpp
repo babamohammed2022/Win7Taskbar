@@ -343,7 +343,15 @@ extern "C" W7T_API int32_t W7T_CALL W7T_GetLastBalloon(W7T_BalloonInfo* out) {
 /* ------------------------------------------------------------------ */
 
 extern "C" W7T_API int32_t W7T_CALL W7T_AppBarRegister(uint64_t hwnd, int32_t edge, int32_t sizePx) {
-    return AppBarService::Instance().Register(ToHwnd(hwnd), edge, sizePx);
+    /* v1.21.51: barriera sul confine extern "C" (stessa ragione delle
+     * ricerche app): la Register installa anche la sorveglianza Flip 3D,
+     * e niente puo' attraversare il confine nativo/managed come
+     * eccezione C++. */
+    try {
+        return AppBarService::Instance().Register(ToHwnd(hwnd), edge, sizePx);
+    } catch (...) {
+        return W7T_ERR_APPBAR;
+    }
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_AppBarSetPos(uint64_t hwnd, int32_t edge, int32_t sizePx,
@@ -362,7 +370,13 @@ extern "C" W7T_API int32_t W7T_CALL W7T_AppBarSetPos(uint64_t hwnd, int32_t edge
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_AppBarUnregister(uint64_t hwnd) {
-    return AppBarService::Instance().Unregister(ToHwnd(hwnd));
+    /* v1.21.51: barriera come la Register: anche la Unregister scioglie
+     * la guardia Flip 3D e stacca gli hook. */
+    try {
+        return AppBarService::Instance().Unregister(ToHwnd(hwnd));
+    } catch (...) {
+        return W7T_ERR_APPBAR;
+    }
 }
 
 /* v3.4: superfici per il protocollo AppBar completo (flusso di
@@ -378,7 +392,14 @@ extern "C" W7T_API int32_t W7T_CALL W7T_AppBarIsRegistered(void) {
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_AppBarNotify(uint32_t wParam, int32_t lParam) {
-    return AppBarService::Instance().HandleCallback(wParam, lParam) ? 1 : 0;
+    /* v1.21.51: barriera come la Register. La HandleCallback ora muove
+     * finestre, input e guardia Flip 3D: mai lasciare che un'eccezione
+     * risalga il WndProc gestito. */
+    try {
+        return AppBarService::Instance().HandleCallback(wParam, lParam) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_AppBarWindowPosChanged(uint64_t hwnd) {
