@@ -1,5 +1,5 @@
 <!--
-    Win7Taskbar - skin "Windows 7 Aero Basic" (v1.21.42)
+    Win7Taskbar - skin "Windows 7 Aero Basic" (v1.21.42, ritoccata v1.21.43)
     Copyright (c) 2026 Win7Taskbar contributors
     Licensed under the GNU General Public License
     version 3 or later (see the LICENSE file).
@@ -28,19 +28,32 @@
     invisibile con Opacity 0.35 che lascia trasparire il desktop, sopra
     una finestra trasparente. Qui quelle risorse diventano una superficie
     OPACA grigio-azzurra chiara, senza vetro, senza blur, senza riflessi
-    e senza trasparenze: i colori misurati dalla reference, dall'alto verso
-    il basso, sono
+    e senza trasparenze.
 
-        #9FBDCF  bordo superiore (sottilissimo)
-        #BEDDF1  highlight alto (stretto)
-        #B2CEE3  prima transizione
-        #B4D3E7  superficie principale alta
-        #B2D0E8  transizione principale
-        #B2D0EA  colore dominante (la maggior parte della barra)
+    v1.21.43 - GRADIENTE CONTINUO A BASSA SATURAZIONE.
+    La prima stesura (v1.21.42) usava i colori misurati dalla reference
+    tal quali (#9FBDCF, #BEDDF1, #B2CEE3, #B4D3E7, #B2D0E8, #B2D0EA) e
+    teneva l'ultima meta' della barra su un unico valore: su hardware
+    reale la barra risultava troppo blu/too cyan e quasi uniforme. La
+    palette viene quindi DESATURATA verso il grigio di luminanza (mix al
+    45% verso il grigio del colore misurato, piu' un leggerissimo
+    rialzo): il cromatismo del colore dominante scende da 56 a ~31
+    unita', cioe' "grigio chiaro con una tinta blu appena percettibile",
+    come chiede la reference vista a occhio. In caso di conflitto fra i
+    numeri misurati e l'aspetto, vince l'aspetto.
 
-    MappingMode resta RelativeToBoundingBox (default): il gradiente segue
-    l'altezza reale della barra a qualsiasi DPI, come la texture che
-    sostituisce.
+    Il gradiente e' UN'UNICA interpolazione continua, senza bande:
+      0.000  bordo superiore: sottilissimo (sotto il pixel a 40 px),
+             mai una striscia visibile;
+      0.055  highlight alto: morbido, largo ~2 px, sfuma gia' a 0.13;
+      0.13-0.42  transizione grigio-azzurra dolce, senza scalini;
+      0.60-1.00  superficie principale: NON un riempimento piatto, ma
+             una deriva continua di ~6 unita' RGB verso il fondo,
+             visibile al confronto pixel per pixel e invisibile
+             a occhio (niente bande, niente tinta piatta).
+    MappingMode resta RelativeToBoundingBox (default): il gradiente
+    segue l'altezza reale della barra a qualsiasi DPI, come la texture
+    che sostituisce.
 -->
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
@@ -50,13 +63,15 @@
     <LinearGradientBrush x:Key="Win7_TaskbarTextureBrush"
                          StartPoint="0,0"
                          EndPoint="0,1">
-        <GradientStop Color="#FF9FBDCF" Offset="0.00" />
-        <GradientStop Color="#FFBEDDF1" Offset="0.04" />
-        <GradientStop Color="#FFB2CEE3" Offset="0.12" />
-        <GradientStop Color="#FFB4D3E7" Offset="0.24" />
-        <GradientStop Color="#FFB2D0E8" Offset="0.36" />
-        <GradientStop Color="#FFB2D0EA" Offset="0.48" />
-        <GradientStop Color="#FFB2D0EA" Offset="1.00" />
+        <GradientStop Color="#FFAEBFC9" Offset="0.000" />
+        <GradientStop Color="#FFC2D4E0" Offset="0.020" />
+        <GradientStop Color="#FFCEDFEA" Offset="0.055" />
+        <GradientStop Color="#FFC4D5E0" Offset="0.130" />
+        <GradientStop Color="#FFC0D0DB" Offset="0.260" />
+        <GradientStop Color="#FFC1D2DF" Offset="0.420" />
+        <GradientStop Color="#FFC1D2E0" Offset="0.600" />
+        <GradientStop Color="#FFBECEDC" Offset="0.820" />
+        <GradientStop Color="#FFBBCCDA" Offset="1.000" />
     </LinearGradientBrush>
 
     <!-- Stesso gradiente ruotato per la barra verticale (dock a sinistra
@@ -65,13 +80,15 @@
     <LinearGradientBrush x:Key="Win7_Win7_TaskbarTextureBrushVertical"
                          StartPoint="0,0"
                          EndPoint="1,0">
-        <GradientStop Color="#FF9FBDCF" Offset="0.00" />
-        <GradientStop Color="#FFBEDDF1" Offset="0.04" />
-        <GradientStop Color="#FFB2CEE3" Offset="0.12" />
-        <GradientStop Color="#FFB4D3E7" Offset="0.24" />
-        <GradientStop Color="#FFB2D0E8" Offset="0.36" />
-        <GradientStop Color="#FFB2D0EA" Offset="0.48" />
-        <GradientStop Color="#FFB2D0EA" Offset="1.00" />
+        <GradientStop Color="#FFAEBFC9" Offset="0.000" />
+        <GradientStop Color="#FFC2D4E0" Offset="0.020" />
+        <GradientStop Color="#FFCEDFEA" Offset="0.055" />
+        <GradientStop Color="#FFC4D5E0" Offset="0.130" />
+        <GradientStop Color="#FFC0D0DB" Offset="0.260" />
+        <GradientStop Color="#FFC1D2DF" Offset="0.420" />
+        <GradientStop Color="#FFC1D2E0" Offset="0.600" />
+        <GradientStop Color="#FFBECEDC" Offset="0.820" />
+        <GradientStop Color="#FFBBCCDA" Offset="1.000" />
     </LinearGradientBrush>
 
     <!-- Chiavi storiche del tema Windows 7 (le prime due ImageBrush sulla
@@ -82,25 +99,29 @@
     <LinearGradientBrush x:Key="TaskbarTextureBrush"
                          StartPoint="0,0"
                          EndPoint="0,1">
-        <GradientStop Color="#FF9FBDCF" Offset="0.00" />
-        <GradientStop Color="#FFBEDDF1" Offset="0.04" />
-        <GradientStop Color="#FFB2CEE3" Offset="0.12" />
-        <GradientStop Color="#FFB4D3E7" Offset="0.24" />
-        <GradientStop Color="#FFB2D0E8" Offset="0.36" />
-        <GradientStop Color="#FFB2D0EA" Offset="0.48" />
-        <GradientStop Color="#FFB2D0EA" Offset="1.00" />
+        <GradientStop Color="#FFAEBFC9" Offset="0.000" />
+        <GradientStop Color="#FFC2D4E0" Offset="0.020" />
+        <GradientStop Color="#FFCEDFEA" Offset="0.055" />
+        <GradientStop Color="#FFC4D5E0" Offset="0.130" />
+        <GradientStop Color="#FFC0D0DB" Offset="0.260" />
+        <GradientStop Color="#FFC1D2DF" Offset="0.420" />
+        <GradientStop Color="#FFC1D2E0" Offset="0.600" />
+        <GradientStop Color="#FFBECEDC" Offset="0.820" />
+        <GradientStop Color="#FFBBCCDA" Offset="1.000" />
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="Win7_TaskbarTextureBrushVertical"
                          StartPoint="0,0"
                          EndPoint="1,0">
-        <GradientStop Color="#FF9FBDCF" Offset="0.00" />
-        <GradientStop Color="#FFBEDDF1" Offset="0.04" />
-        <GradientStop Color="#FFB2CEE3" Offset="0.12" />
-        <GradientStop Color="#FFB4D3E7" Offset="0.24" />
-        <GradientStop Color="#FFB2D0E8" Offset="0.36" />
-        <GradientStop Color="#FFB2D0EA" Offset="0.48" />
-        <GradientStop Color="#FFB2D0EA" Offset="1.00" />
+        <GradientStop Color="#FFAEBFC9" Offset="0.000" />
+        <GradientStop Color="#FFC2D4E0" Offset="0.020" />
+        <GradientStop Color="#FFCEDFEA" Offset="0.055" />
+        <GradientStop Color="#FFC4D5E0" Offset="0.130" />
+        <GradientStop Color="#FFC0D0DB" Offset="0.260" />
+        <GradientStop Color="#FFC1D2DF" Offset="0.420" />
+        <GradientStop Color="#FFC1D2E0" Offset="0.600" />
+        <GradientStop Color="#FFBECEDC" Offset="0.820" />
+        <GradientStop Color="#FFBBCCDA" Offset="1.000" />
     </LinearGradientBrush>
 
     <!-- Layer 2 del template Taskbar (Opacity 0.35): nel tema Windows 7 e'
@@ -111,9 +132,9 @@
     <SolidColorBrush x:Key="TaskbarVerticalBackground" Color="Transparent" />
 
     <!-- Sfondo della finestra barra: nel tema Windows 7 e' Transparent
-         (il vetro e' disegnato dai layer); qui e' il colore dominante
-         della reference, cosi' nessun pixel della barra puo' restare
-         trasparente nemmeno ai bordi del template. -->
-    <SolidColorBrush x:Key="TaskbarWindowBackground" Color="#FFB2D0EA" />
+         (il vetro e' disegnato dai layer); qui e' il tono medio della
+         superficie principale desaturata, cosi' nessun pixel della barra
+         puo' restare trasparente nemmeno ai bordi del template. -->
+    <SolidColorBrush x:Key="TaskbarWindowBackground" Color="#FFC1D2E0" />
 
 </ResourceDictionary>
