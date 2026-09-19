@@ -4324,36 +4324,38 @@ static DWORD g_batteryKeyPrevValue = 0;
 static bool g_batteryKeyPrevExists = false;
 static std::wstring BatteryBackupFilePath();
 
-static void BestEffortRestoreBatteryKeyNoAlloc() {
+static BOOL BestEffortRestoreBatteryKeyNoAlloc() {
     /* Restore minimale, no allocazioni C++, no std::string, no lock.
-     * Il registro e' sempre raggiungibile via KERNELBASE e non dipende
-     * dallo stato dell'heap del processo. */
+     * Ritorna TRUE se il registro e' coerente col valore precedente
+     * (o se non c'era niente da ripristinare); il chiamante usa
+     * questo per decidere se e' sicuro cancellare il file di backup. */
+    if (!g_batteryKeyTouched) {
+        return TRUE;
+    }
     HKEY key = nullptr;
     if (RegOpenKeyExW(HKEY_CURRENT_USER,
                       L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
                       0, KEY_SET_VALUE, &key) != ERROR_SUCCESS || key == nullptr) {
-        return;
+        return FALSE;
     }
-    /* Se il flag in-process dice che abbiamo toccato la chiave,
-     * ripristiniamo usando i valori salvati nelle globali statiche
-     * (scritte da EnsureWin32BatteryFlyoutValue prima di toccare il
-     * registro). Se siamo in un crash dove quelle globali sono
-     * corrotte, il file di backup sul disco verra' usato al prossimo
-     * avvio. */
-    if (g_batteryKeyTouched) {
-        if (g_batteryKeyPrevExists) {
-            RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
+    LSTATUS s = ERROR_SUCCESS;
+    if (g_batteryKeyPrevExists) {
+        s = RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
                            reinterpret_cast<const BYTE*>(&g_batteryKeyPrevValue),
                            sizeof(g_batteryKeyPrevValue));
-        } else {
-            RegDeleteValueW(key, L"UseWin32BatteryFlyout");
-        }
+    } else {
+        s = RegDeleteValueW(key, L"UseWin32BatteryFlyout");
+        if (s == ERROR_FILE_NOT_FOUND) s = ERROR_SUCCESS;
     }
     RegCloseKey(key);
+    return (s == ERROR_SUCCESS) ? TRUE : FALSE;
 }
 
 static LONG WINAPI BatteryKeyCrashFilter(EXCEPTION_POINTERS* ex) {
-    BestEffortRestoreBatteryKeyNoAlloc();
+    /* Crash path: best effort only. Non cancelliamo il file di backup
+     * da qui (lo spazio di indirizzi e' potenzialmente corrotto); il
+     * boot successivo RecoverBatteryFlyoutKeyFromBackup lo pulira'. */
+    (void)BestEffortRestoreBatteryKeyNoAlloc();
     if (g_prevBatteryCrashFilter != nullptr
         && g_prevBatteryCrashFilter != &BatteryKeyCrashFilter) {
         return g_prevBatteryCrashFilter(ex);
@@ -4369,15 +4371,13 @@ static void InstallBatteryKeyCrashGuard() {
 }
 
 static void OnBatteryKeySessionEnding() {
-    /* Notifica di logoff/shutdown da Windows: ripristiniamo subito. */
-    BestEffortRestoreBatteryKeyNoAlloc();
-    /* Buttiamo anche il file di backup se il restore in-process e'
-     * riuscito (a questo punto il registro e' coerente). Se questo
-     * stesso DeleteFile fallisce perche' il filesystem e' in freeze,
-     * il file resta e RecoverFromBackup al prossimo avvio si
-     * ritrovera' il valore originale gia' presente - nel qual caso
-     * riscrive lo stesso valore (nessun danno). */
-    DeleteFileW(BatteryBackupFilePath().c_str());
+    /* Notifica di logoff/shutdown da Windows: ripristiniamo subito.
+     * Cancelliamo il file di backup SOLAMENTE se il restore del
+     * registro e' andato a buon fine: altrimenti teniamo il file per
+     * il recovery al prossimo avvio. */
+    if (BestEffortRestoreBatteryKeyNoAlloc()) {
+        DeleteFileW(BatteryBackupFilePath().c_str());
+    }
 }
 
 /* File di backup: prevExists(1 byte) + prevValue(4 byte LE). */
@@ -4413,8 +4413,13 @@ static void WriteBatteryFlyoutBackup(bool prevExists, DWORD prevValue) {
     buf[3] = static_cast<uint8_t>((prevValue >> 16) & 0xFFu);
     buf[4] = static_cast<uint8_t>((prevValue >> 24) & 0xFFu);
     DWORD written = 0;
-    WriteFile(h, buf, sizeof(buf), &written, nullptr);
+    BOOL okWrite = WriteFile(h, buf, sizeof(buf), &written, nullptr);
     CloseHandle(h);
+    if (!okWrite || written != sizeof(buf)) {
+        /* Scrittura fallita o incompleta: meglio NESSUN backup che un
+         * file corrotto che mentirebbe sul valore precedente. */
+        DeleteFileW(path.c_str());
+    }
 }
 
 static void DeleteBatteryFlyoutBackup() {
@@ -4463,10 +4468,13 @@ static void RecoverBatteryFlyoutKeyFromBackup() {
             RegDeleteValueW(key, L"UseWin32BatteryFlyout");
         }
         RegCloseKey(key);
+        /* Cancelliamo il backup solo DOPO un Reg* di successo. */
+        DeleteFileW(path.c_str());
         LogTagged(L"GATE",
                   L"batteria: recuperata chiave legacy da backup (terminazione anomala precedente)");
     }
-    DeleteFileW(path.c_str());
+    /* Se il restore e' fallito (key non apribile, ecc.), lasciamo il
+     * file sul disco: il prossimo avvio riprovera'. */
 }
 
 static void EnsureWin32BatteryFlyoutValue() {
@@ -4511,26 +4519,18 @@ static void RestoreWin32BatteryFlyoutValue() {
         return;
     }
     g_batteryKeyTouched = false;
-    HKEY key = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER,
-                      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
-                      0, KEY_SET_VALUE, &key) != ERROR_SUCCESS ||
-        key == nullptr) {
-        return;
-    }
-    if (g_batteryKeyPrevExists) {
-        RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
-                       reinterpret_cast<const BYTE*>(&g_batteryKeyPrevValue),
-                       sizeof(g_batteryKeyPrevValue));
+    /* Deleghiamo al BestEffort (stessa logica). Solo se restituisce
+     * successo cancelliamo il file di backup, come da review: uno
+     * scrittura/Reg* fallito non deve privarci dell'unica informazione
+     * di recovery. */
+    const BOOL ok = BestEffortRestoreBatteryKeyNoAlloc();
+    if (ok) {
+        DeleteBatteryFlyoutBackup();
+        LogTagged(L"GATE", L"batteria: chiave legacy ripristinata al valore precedente");
     } else {
-        RegDeleteValueW(key, L"UseWin32BatteryFlyout");
+        LogTagged(L"GATE",
+                  L"batteria: restore chiave fallito, tengo il backup per il prossimo avvio");
     }
-    RegCloseKey(key);
-    /* Solo DOPO che il registro e' stato ripristinato buttiamo il file di
-     * backup: l'ordine e' importante per non perdere la ripresa dopo un
-     * crash esattamente a meta' del restore. */
-    DeleteBatteryFlyoutBackup();
-    LogTagged(L"GATE", L"batteria: chiave legacy ripristinata al valore precedente");
 }
 
 /* Il clic standard su una voce VERA della tray, identico al forwarding in
