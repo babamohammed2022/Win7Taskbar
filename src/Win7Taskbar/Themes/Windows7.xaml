@@ -172,6 +172,27 @@
         <GradientStop Color="#04000000" Offset="1.0" />
     </LinearGradientBrush>
     <SolidColorBrush x:Key="TaskbarWindowBackground" Color="Transparent" />
+    <!-- v1.21.44 - AREA DI NOTIFICA PIU' SCURA DEL VETRO, come nella barra
+         vera di Windows 7: la fascia con tray e orologio poggia su un
+         vetro leggermente piu' scuro della meta' sinistra della barra
+         (Start e applicazioni). La chiave la usa il Border di overlay
+         (colonne 4-5, sotto le icone) dichiarato in TaskbarWindow.xaml.
+         v1.21.45 - FADE, non bordo netto: il pennello e' un gradiente
+         ORIZZONTALE che parte trasparente (la barra resta chiara fin
+         dentro la zona delle applicazioni) e sale dolcemente verso
+         l'ombra piena entro il primo terzo della fascia: chiaro...
+         scuro come una transizione leggera, mai "chiaro | scuro".
+         v1.21.45 - ombra ridotta di 7.41 punti percentuali rispetto alla
+         1.21.44 (alpha 16.1-19.2% -> 8.7-11.8%): la fascia resta
+         percettibile ma piu' discreta. Le skin che non definiscono la
+         chiave (Windows 8.1) non disegnano nulla. -->
+    <LinearGradientBrush x:Key="TrayAreaShade"
+                         StartPoint="0,0"
+                         EndPoint="1,0">
+        <GradientStop Color="#00000000" Offset="0.00" />
+        <GradientStop Color="#16000000" Offset="0.30" />
+        <GradientStop Color="#1E000000" Offset="1.00" />
+    </LinearGradientBrush>
     <SolidColorBrush x:Key="TaskbarTopBorder" Color="Transparent" />
     <SolidColorBrush x:Key="TaskbarTopInnerBorder" Color="Transparent" />
     <SolidColorBrush x:Key="TaskbarBottomInnerBorder" Color="Transparent" />
@@ -1718,15 +1739,27 @@
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 IsHitTestVisible="False">
-                            <!-- Exactly 2% narrower/shorter than the original
-                                 tray-hover tile (98%), still centred on exactly
-                                 the same icon geometry; do not compound this
-                                 scale on later visual adjustments. -->
+                            <!-- v1.21.49: la tessera di hover e' il 2.4%
+                                 piu' piccola della misura fissa della
+                                 1.21.46 (29.4x39.2 -> 28.6944x38.2592;
+                                 era -2.5% nella 1.21.48) e RESTA centrata
+                                 sulla stessa geometria dell'icona. Misure
+                                 COSTANTI derivate dalla dimensione
+                                 dell'icona (16 DIP nello stile NotifyIcon:
+                                 le unita' DIP scalano gia' da sole con DPI
+                                 e scala, quindi il bordo segue l'icona a
+                                 ogni fattore di visualizzazione): niente
+                                 binding e niente converter istanziati in
+                                 questo XAML caricato a runtime, dopo che
+                                 il converter della 1.21.47 ha fatto
+                                 fallire l'avvio su un installazione reale
+                                 ("Cannot create unknown type
+                                 WidthRatioConverter"). -->
                             <Image x:Name="HoverTileImg"
-                                   Width="29.4"
-                                   Height="39.2"
-                                   Canvas.Left="-14.7"
-                                   Canvas.Top="-19.6"
+                                   Width="28.6944"
+                                   Height="38.2592"
+                                   Canvas.Left="-14.3472"
+                                   Canvas.Top="-19.1296"
                                    Stretch="Fill"
                                    SnapsToDevicePixels="True"
                                    Source="{DynamicResource TrayTileHoverImage}"
@@ -1834,12 +1867,13 @@
                                 </BeginStoryboard>
                             </Trigger.ExitActions>
                         </Trigger>
-                        <!-- vertical: short hover (27px) centered on the icon;
-                             with Canvas.Top fixed at -20 the 27px box needs
+                        <!-- vertical: short hover centered on the icon;
+                             with Canvas.Top fixed at -20 the short box needs
                              re-centering by shifting the Canvas by +6.5 (13/2
-                             margin). Only plain properties in the Setters: the
-                             RetroBar XAML loader rejects attached properties
-                             in Setters. -->
+                             margin). v1.21.49: 27 -> 26.352, the same -2.4%
+                             applied to the horizontal tile. Only plain
+                             properties in the Setters: the RetroBar XAML
+                             loader rejects attached properties in Setters. -->
                         <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
                                      Value="Vertical">
                             <Setter TargetName="HoverCanvas"
@@ -1847,7 +1881,7 @@
                                     Value="0,13,0,0" />
                             <Setter TargetName="HoverTileImg"
                                     Property="Height"
-                                    Value="27" />
+                                    Value="26.352" />
                         </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -1902,8 +1936,16 @@
                                         BorderThickness="1"
                                         CornerRadius="2">
                                     <Border.Resources>
-                                        <!-- Popup icons: Win7 blue selection (like the
-                                             real Windows 7 overflow panel) -->
+                                        <!-- Popup icons: v1.21.47 - HOVER COME
+                                             LA SYSTEM TRAY, non piu' il
+                                             riquadro azzurro (#6EA5D2): la
+                                             stessa tessera vetro
+                                             TrayTileHoverImage/Pressed delle
+                                             icone in barra, adeguata alla
+                                             cella dell'icona (97.5% della
+                                             cella, cioe' -2.5% rispetto al
+                                             bordo hover precedente) e
+                                             centrata sul glifo. -->
                                         <Style x:Key="PopupNotifyIcon"
                                                TargetType="{x:Type controls:NotifyIcon}">
                                             <Setter Property="Template">
@@ -1915,7 +1957,52 @@
                                                                 BorderBrush="Transparent"
                                                                 BorderThickness="1"
                                                                 CornerRadius="2">
-                                                            <ContentPresenter Margin="8,7,4,6" />
+                                                            <Grid>
+                                                            <!-- v1.21.47: stessa
+                                                                 tessera di hover
+                                                                 della system tray,
+                                                                 centrata sul
+                                                                 glifo; il Canvas a
+                                                                 dimensione zero non
+                                                                 partecipa al
+                                                                 layout. v1.21.49:
+                                                                 misure costanti =
+                                                                 97.6% della cella
+                                                                 icona 16 px
+                                                                 (28x29 con i
+                                                                 margini 8,7,4,6),
+                                                                 cioe' il bordo
+                                                                 hover precedente
+                                                                 ridotto del 2.4%
+                                                                 (era 2.5%); niente
+                                                                 binding ne'
+                                                                 converter in
+                                                                 questo XAML
+                                                                 runtime. La STESSA
+                                                                 texture la disegna
+                                                                 ora anche il
+                                                                 pannello overflow
+                                                                 nativo Win32
+                                                                 (TrayOverflowWindow). -->
+                                                            <Canvas x:Name="HoverCanvas"
+                                                                    Width="0"
+                                                                    Height="0"
+                                                                    HorizontalAlignment="Center"
+                                                                    VerticalAlignment="Center"
+                                                                    IsHitTestVisible="False">
+                                                                <Image x:Name="HoverTileImg"
+                                                                       Width="27.328"
+                                                                       Height="28.304"
+                                                                       Canvas.Left="-13.664"
+                                                                       Canvas.Top="-14.152"
+                                                                       Stretch="Fill"
+                                                                       SnapsToDevicePixels="True"
+                                                                       Source="{DynamicResource TrayTileHoverImage}"
+                                                                       Opacity="0" />
+                                                            </Canvas>
+                                                            <ContentPresenter Margin="8,7,4,6"
+                                                                              x:Name="Content" />
+                                                            </Grid>
                                                         </Border>
                                                         <ToggleButton x:Name="PinToggle"
                                                                       Width="9"
@@ -1976,14 +2063,17 @@
                                                         </ToggleButton>
                                                         </Grid>
                                                         <ControlTemplate.Triggers>
+                                                            <!-- v1.21.47: niente
+                                                                 piu' fondo/bordo
+                                                                 azzurri: si
+                                                                 accende la
+                                                                 tessera vetro
+                                                                 della tray. -->
                                                             <Trigger Property="IsMouseOver"
                                                                      Value="True">
-                                                                <Setter TargetName="HoverFrame"
-                                                                        Property="Background"
-                                                                        Value="#266EA5D2" />
-                                                                <Setter TargetName="HoverFrame"
-                                                                        Property="BorderBrush"
-                                                                        Value="#666EA5D2" />
+                                                                <Setter TargetName="HoverTileImg"
+                                                                        Property="Opacity"
+                                                                        Value="1" />
                                                                 <Setter TargetName="PinToggle"
                                                                         Property="Opacity"
                                                                         Value="0.9" />
@@ -2638,8 +2728,15 @@
         <Setter Property="Margin"
                 Value="36,-0,0,0" />
         <Style.Triggers>
-            <DataTrigger Binding="{Binding Path=Icon}"
-                         Value="{x:Null}">
+            <!-- v1.21.39: the original trigger (RetroBar port) bound "Icon",
+                 a property of ManagedShell's NotificationBalloon that does
+                 not exist on our NotifyBalloon control: the binding failed,
+                 the trigger never fired and the 36 px icon indent stayed
+                 even when the balloon had no icon (the empty gap where the
+                 icon should have been). Bind the control's IconVisibility
+                 instead: no icon -> no indent, full text width. -->
+            <DataTrigger Binding="{Binding Path=IconVisibility, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type UserControl}}}"
+                         Value="Collapsed">
                 <DataTrigger.Setters>
                     <Setter Property="Margin"
                             Value="0" />

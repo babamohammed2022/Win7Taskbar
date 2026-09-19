@@ -222,6 +222,8 @@ struct ExtraStrings {
     const wchar_t* lblTheme;
     const wchar_t* themeWin7;
     const wchar_t* themeWin81;
+    /* v1.21.42: third skin. Product name, identical in every language. */
+    const wchar_t* themeAeroBasic;
     const wchar_t* lblIconOrder;
     const wchar_t* txtIconOrderHint;
 };

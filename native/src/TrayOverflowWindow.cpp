@@ -6,6 +6,7 @@
 #include "TrayService.h"
 #include "FlyoutLauncher.h"   /* ApplyAeroFlyoutStyle: bordi Aero */
 #include "ScopeGuards.h"      /* v3.7.2: RAII per DC/GDI */
+#include "OverflowTileAsset.inc"  /* v3.8: texture di hover della tray */
 #include <dwmapi.h>
 #include <shellapi.h>
 #include <wingdi.h>
@@ -71,6 +72,13 @@ void TrayOverflowWindow::Destroy() {
         if (e.icon) DestroyIcon(e.icon);
     }
     m_icons.clear();
+    /* v3.8: rilascia la texture di hover e azzera la bandierina: se il
+     * pannello viene ricreato la decodifica avviene di nuovo. */
+    if (m_hoverTile) {
+        DeleteObject(m_hoverTile);
+        m_hoverTile = nullptr;
+    }
+    m_hoverTileTried = false;
 }
 
 HICON TrayOverflowWindow::IconFromArgb(const ArgbBitmap& bmp) const {
@@ -118,6 +126,30 @@ void TrayOverflowWindow::UpdateMetrics() {
     m_pad     = MulDiv(kPadding,  static_cast<int>(m_dpi), 96);
     m_footerH = MulDiv(kFooterH,  static_cast<int>(m_dpi), 96);
     m_icon    = MulDiv(16,        static_cast<int>(m_dpi), 96);
+}
+
+/* v3.8 (1.21.49): decodifica UNA volta sola la texture di vetro della
+ * tray (stesso DecodeEmbeddedPng WIC degli asset batteria/ricerca/jump
+ * list, che non crasha mai: base64 corrotto o WIC assente -> false).
+ * Se qualcosa va storto m_hoverTile resta null e OnPaint ripiega sul
+ * rettangolo di selezione classico. */
+void TrayOverflowWindow::EnsureHoverTile() {
+    if (m_hoverTileTried) return;
+    m_hoverTileTried = true;
+    try {
+        std::vector<uint32_t> px;
+        int w = 0, h = 0;
+        if (DecodeEmbeddedPng(overflowtile::kTrayTileHover, px, w, h,
+                              false, 0) && !px.empty()) {
+            m_hoverTile = MakeHBitmapFromArgb(px, w, h);
+        }
+    } catch (...) {
+        if (m_hoverTile) { DeleteObject(m_hoverTile); m_hoverTile = nullptr; }
+    }
+    if (!m_hoverTile) {
+        AppendCoreLog(L"overflow: texture di hover non disponibile, "
+                      L"ripiego sul rettangolo classico");
+    }
 }
 
 void TrayOverflowWindow::RefreshIcons() {
@@ -342,15 +374,43 @@ void TrayOverflowWindow::OnPaint(HDC hdcWindow) {
         const int x = m_pad + col * m_cell;
         const int y = m_pad + row * m_cell;
 
-        // Selezione blu al passaggio del mouse, come il pannello vero di
-        // Windows 7 (tinta #6EA5D2 al 15% sul chiaro nel pannello WPF).
+        /* v3.8 (1.21.49): hover = la STESSA texture di vetro della system
+         * tray (TrayTileHoverImage nel tema), NON piu' il rettangolo
+         * azzurro disegnato a mano (#DCE9F5/#6EA5D2): richiesta esplicita
+         * dell'utente, il pannello nativo deve mostrare i bordi con la
+         * texture usata nella tray. La tessera e' il 97.6% della cella di
+         * hover (riduzione del 2.4% come per la tray) e resta centrata
+         * sul glifo. Se la texture non e' utilizzabile (decodifica
+         * fallita, AlphaBlend rifiutato) si ripiega sul rettangolo di
+         * selezione classico di Windows 7: mai un crash, mai un hover
+         * invisibile. */
         if (static_cast<int>(i) == m_hotIcon) {
             RECT cell{ x + 2, y + 2, x + m_cell - 2, y + m_cell - 2 };
-            UniqueGdiObject fill(CreateSolidBrush(RGB(0xDC, 0xE9, 0xF5)));
-            UniqueGdiObject edge(CreatePen(PS_SOLID, 1, RGB(0x6E, 0xA5, 0xD2)));
-            SelectGuard fillSel(hdc, fill);
-            SelectGuard edgeSel(hdc, edge);
-            RoundRect(hdc, cell.left, cell.top, cell.right, cell.bottom, 3, 3);
+            EnsureHoverTile();
+            bool tileDrawn = false;
+            if (m_hoverTile) {
+                const int rw = cell.right - cell.left;
+                const int rh = cell.bottom - cell.top;
+                const int tw = MulDiv(rw, 976, 1000);   /* -2.4% */
+                const int th = MulDiv(rh, 976, 1000);   /* -2.4% */
+                const int tx = cell.left + (rw - tw) / 2;
+                const int ty = cell.top  + (rh - th) / 2;
+                W7T_SEH_TRY {
+                    DrawBitmapScaled(hdc, m_hoverTile, tw, th, tx, ty);
+                    tileDrawn = true;
+                }
+                W7T_SEH_CATCH {
+                    tileDrawn = false;   /* disegno rifiutato: ripiego */
+                }
+                W7T_SEH_END
+            }
+            if (!tileDrawn) {
+                UniqueGdiObject fill(CreateSolidBrush(RGB(0xDC, 0xE9, 0xF5)));
+                UniqueGdiObject edge(CreatePen(PS_SOLID, 1, RGB(0x6E, 0xA5, 0xD2)));
+                SelectGuard fillSel(hdc, fill);
+                SelectGuard edgeSel(hdc, edge);
+                RoundRect(hdc, cell.left, cell.top, cell.right, cell.bottom, 3, 3);
+            }
         }
 
         if (m_icons[i].icon) {

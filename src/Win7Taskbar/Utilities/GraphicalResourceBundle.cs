@@ -5564,6 +5564,18 @@ namespace Win7Taskbar.Utilities
                     "cTsSwM4Atb4fKqi3tey2O4CXsNuwGysR21q2uy1wlCfGcXTuznQt4zACRJUBtN1u533PtpajZ2eizvf7faOu17WMwwiAlqPa7/fgbtC1jNtxKUkw2na7Aw+9" +
                     "reVscwZaShK+35+DeKhrGcbBsYiE2vn5OQ2bQdey6bpj2MtuE4/bupa+31QATvuXrn76+bVrMztx13VM1Ljv+56ImADiriNqxz+j5+ztd96d6MpLVz9Zbtmf" +
                     "jhA96T979qy/tF43/wDq7YjlJVFWRwAAAABJRU5ErkJggg==",
+                /* v1.21.44 - superficie della barra Aero Basic: il
+                 * gradiente desaturato continuo cotto in pixel
+                 * (128x40, dither ordinato +-1 contro il banding):
+                 * viaggia con lo stesso meccanismo ImageBrush/tile
+                 * della texture Aero, che sull'hardware reale
+                 * renderizza correttamente. */
+                ["aerobasictaskbar"] =
+                    "iVBORw0KGgoAAAANSUhEUgAAAIAAAAAoCAIAAAC5E2UfAAABO0lEQVR42u3WW1rCMBiE4X//O5KDNFUEbEuTqkCbpAU56DKcXcyFc/de53smiT01x1l1" +
+                    "mtcHgQLb9Lft8b47XQUKrM4/Tfzdp4dAge3i/b1/VMNNoMDWp++3w3VzvAgU2Mvh/Pp5WX9NAgVWQh/QKFBgDuqgLFBgBRSgJFBgRZecz2WIAgW2glpo" +
+                    "EChAgFS02fkoUGArXEYel1EUKECAXPjRhSRQgEd4dH4qQxYowDcUNaYSNQQGEGBy4Vx2o0CBAiiAAugsuAHOLlzKbhIoUAAFUACdhQL84wAryEOjQIEC" +
+                    "0AOEsWgn57NAgT0jRYsUWaBAAegBsIU9tpAECmyJFHukSAIFtkSKBimiQIECsAMssIUGW4gCBbZAihopBoECmyNFjRSDQIEC0ANgCxW20AsU2AwpKqTo" +
+                    "BQr+AOP9vlFzaodaAAAAAElFTkSuQmCC",
                 ["win7taskbar"] =
                     "iVBORw0KGgoAAAANSUhEUgAAAlgAAAAoCAYAAAAi24Q0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAACxMAAAsTAQCanBgAAAAZdEVY" +
                     "dFNvZnR3YXJlAFBhaW50Lk5FVCA1LjEuMTGKCBbOAAAAuGVYSWZJSSoACAAAAAUAGgEFAAEAAABKAAAAGwEFAAEAAABSAAAAKAEDAAEAAAACAAAAMQECABEA" +
@@ -5751,6 +5763,7 @@ namespace Win7Taskbar.Utilities
         public static BitmapImage? startwin7orbscaled => Get("startwin7orbscaled");
         public static BitmapImage? startwin81flag => Get("startwin81flag");
         public static BitmapImage? startwin81flagscaled => Get("startwin81flagscaled");
+        public static BitmapImage? aerobasictaskbar => Get("aerobasictaskbar");
         public static BitmapImage? taskbarbackground => Get("taskbarbackground");
         public static BitmapImage? top_center => Get("top_center");
         public static BitmapImage? top_left => Get("top_left");
