@@ -4829,7 +4829,7 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                 return FlyoutLauncher::InvokeFlyoutAt(FlyoutKind::Network,
                                                       FlyoutAction::Show, anchor);
 
-            case SystemIconKind::Battery:
+            case SystemIconKind::Battery: {
                 /* v2.63/v3.5 - IL RIQUADRO BATTERIA VERO DI WINDOWS 7, A
                  * TUTTI I COSTI. L'ordine dei tentativi, tutti dentro la
                  * stessa risposta al clic:
@@ -4865,9 +4865,8 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                     BatteryFlyout::Instance().ShowAt(anchor);
                     return W7T_OK;
                 }
-                /* "Windows 10/11": catena reale (identica a quella che
-                 * prima serviva la voce "Windows 7").
-                 * v1.0.0-alpha: tutta la catena reale (chiave registry,
+
+                /* v1.0.0-alpha: tutta la catena reale (chiave registry,
                  * enumerazione stobject.dll, UIA click, flyout watcher,
                  * BatteryFlyout::ShowAt) vive dentro un try/catch: un
                  * problema in uno qualunque di questi stadi (UIA non
@@ -4875,6 +4874,7 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                  * lancia) non deve abbattere il thread del frontend WPF
                  * ne', peggio, il pump della tray. */
                 int32_t batteryRouteResult = W7T_OK;
+                bool batteryRouted = false;
                 try {
                     EnsureWin32BatteryFlyoutValue();
 
@@ -4885,10 +4885,6 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                         if (self != nullptr && IsWindow(self)
                             && !uiaEntry
                             && OwnerModuleIs(self, L"stobject.dll")) {
-                            /* La pressione era stata assorbita dal routing
-                             * (il rilascio decide qui): il clic vero va
-                             * completo, DOWN + UP, altrimenti la tray di
-                             * Windows non lo riconosce. */
                             ForwardStandardTrayClick(self, callbackMessage,
                                                      uid, version,
                                                      W7T_TRAY_CLICK_LEFT_DOWN,
@@ -4897,19 +4893,16 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                                                      uid, version,
                                                      W7T_TRAY_CLICK_LEFT,
                                                      x, y);
-                            /* Il riquadro Win32 che Windows apre parte
-                             * dall'ancora della tray VERA (spesso l'origine
-                             * dello schermo): il watcher lo riaggancia
-                             * sopra la NOstra icona. */
                             StartFlyoutWatcher(TrayIconKey{ ownerHwnd, uid });
                             LogTagged(L"GATE",
                                       L"batteria: clic standard sull'icona vera (stobject.dll)");
-                            return W7T_OK;
+                            batteryRouteResult = W7T_OK;
+                            batteryRouted = true;
                         }
                     }
 
                     /* 2. un'altra batteria vera nel modello. */
-                    {
+                    if (!batteryRouted) {
                         uint64_t fwdOwner = 0;
                         uint32_t fwdUid = 0, fwdCb = 0, fwdVer = 0;
                         if (FindRealStobjectIcon(&fwdOwner, &fwdUid,
@@ -4927,46 +4920,48 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                             StartFlyoutWatcher(TrayIconKey{ ownerHwnd, uid });
                             LogTagged(L"GATE",
                                       L"batteria: clic inoltrato all'icona vera (stobject.dll)");
-                            return W7T_OK;
+                            batteryRouteResult = W7T_OK;
+                            batteryRouted = true;
                         }
                     }
 
-                    /* 3. pulsante batteria della tray di Windows 11. Se lo
-                     * snapshot UIA e' vuoto in questo momento (oscilla fra
-                     * 0 e 3 icone), NON si rinuncia: riprova col timer
-                     * (StartBatteryUiARetry) e solo dopo 5 tentativi parte
-                     * il ricreato. Il riquadro che la shell apre, con la
-                     * chiave UseWin32BatteryFlyout, e' quello Win32 di
-                     * Windows 7: e' il reindirizzamento richiesto. */
-                    const uint32_t shellBatteryUid =
-                        Win11TrayReader::Instance().UidOfKind(SystemIconKind::Battery);
-                    if (shellBatteryUid != 0) {
-                        if (Win11TrayReader::Instance().RequestClick(shellBatteryUid, false)) {
-                            StartBatteryOpenWatch(anchor);
-                            StartFlyoutWatcher(TrayIconKey{ ownerHwnd, uid });
+                    /* 3. pulsante batteria Win11 via UIA. */
+                    if (!batteryRouted) {
+                        const uint32_t shellBatteryUid =
+                            Win11TrayReader::Instance().UidOfKind(SystemIconKind::Battery);
+                        if (shellBatteryUid != 0) {
+                            if (Win11TrayReader::Instance().RequestClick(shellBatteryUid, false)) {
+                                StartBatteryOpenWatch(anchor);
+                                StartFlyoutWatcher(TrayIconKey{ ownerHwnd, uid });
+                                LogTagged(L"GATE",
+                                          L"batteria: clic sul pulsante vero della shell (UIA)");
+                                batteryRouteResult = W7T_OK;
+                                batteryRouted = true;
+                            } else {
+                                LogTagged(L"GATE",
+                                          L"batteria: pulsante shell non cliccabile, riprovo");
+                                StartBatteryUiARetry(anchor);
+                                batteryRouteResult = W7T_OK;
+                                batteryRouted = true;
+                            }
+                        } else {
                             LogTagged(L"GATE",
-                                      L"batteria: clic sul pulsante vero della shell (UIA)");
-                            return W7T_OK;
+                                      L"batteria: pulsante shell assente dallo snapshot, riprovo");
+                            StartBatteryUiARetry(anchor);
+                            batteryRouteResult = W7T_OK;
+                            batteryRouted = true;
                         }
-                        LogTagged(L"GATE",
-                                  L"batteria: pulsante shell non cliccabile, riprovo");
-                        StartBatteryUiARetry(anchor);
-                        return W7T_OK;
                     }
-                    LogTagged(L"GATE",
-                              L"batteria: pulsante shell assente dallo snapshot, riprovo");
-                    StartBatteryUiARetry(anchor);
-                    return W7T_OK;
-                    /* Niente di vero (o catena non riuscita): il ricreato. */
-                    BatteryFlyout::Instance().ShowAt(anchor);
-                    batteryRouteResult = W7T_OK;
-                } catch (const std::exception& e) {
-                    (void)e;
+
+                    /* 4. fallback: flyout ricreato. */
+                    if (!batteryRouted) {
+                        BatteryFlyout::Instance().ShowAt(anchor);
+                        batteryRouteResult = W7T_OK;
+                    }
+                } catch (const std::exception&) {
                     LogTagged(L"GATE",
                               L"batteria: eccezione C++ nell'instradamento reale, uso il ricreato");
-                    try {
-                        RestoreWin32BatteryFlyoutValue();
-                    } catch (...) { /* restore difensivo: non deve mai fallire */ }
+                    try { RestoreWin32BatteryFlyoutValue(); } catch (...) {}
                     try {
                         BatteryFlyout::Instance().ShowAt(anchor);
                         batteryRouteResult = W7T_OK;
@@ -4976,9 +4971,7 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                 } catch (...) {
                     LogTagged(L"GATE",
                               L"batteria: eccezione sconosciuta nell'instradamento reale, uso il ricreato");
-                    try {
-                        RestoreWin32BatteryFlyoutValue();
-                    } catch (...) {}
+                    try { RestoreWin32BatteryFlyoutValue(); } catch (...) {}
                     try {
                         BatteryFlyout::Instance().ShowAt(anchor);
                         batteryRouteResult = W7T_OK;
@@ -4987,6 +4980,7 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                     }
                 }
                 return batteryRouteResult;
+            }
 
             default:
                 break;
