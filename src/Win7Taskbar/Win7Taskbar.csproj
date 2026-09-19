@@ -310,7 +310,7 @@
          standard C++ try/catch (the SEH macros are no-ops on MinGW), and
          the topmost-promotion hook/timer is now idempotent, which fixes
          the visible flash of the "Toolbars" submenu on open/close. -->
-    <Version>1.21.44-alpha</Version>
+    <Version>1.21.45-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   

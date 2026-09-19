@@ -176,16 +176,22 @@
          vera di Windows 7: la fascia con tray e orologio poggia su un
          vetro leggermente piu' scuro della meta' sinistra della barra
          (Start e applicazioni). La chiave la usa il Border di overlay
-         (colonne 4-5, sotto le icone) dichiarato in TaskbarWindow.xaml;
-         l'ombra e' un nero al 16-19% di alpha, cioe' un annerimento del
-         15-20% del vetro sottostante. Le skin che non definiscono la
-         chiave (Windows 8.1) non disegnano nulla; Aero Basic la
-         overridinga a Transparent. -->
+         (colonne 4-5, sotto le icone) dichiarato in TaskbarWindow.xaml.
+         v1.21.45 - FADE, non bordo netto: il pennello e' un gradiente
+         ORIZZONTALE che parte trasparente (la barra resta chiara fin
+         dentro la zona delle applicazioni) e sale dolcemente verso
+         l'ombra piena entro il primo terzo della fascia: chiaro...
+         scuro come una transizione leggera, mai "chiaro | scuro".
+         v1.21.45 - ombra ridotta di 7.41 punti percentuali rispetto alla
+         1.21.44 (alpha 16.1-19.2% -> 8.7-11.8%): la fascia resta
+         percettibile ma piu' discreta. Le skin che non definiscono la
+         chiave (Windows 8.1) non disegnano nulla. -->
     <LinearGradientBrush x:Key="TrayAreaShade"
                          StartPoint="0,0"
-                         EndPoint="0,1">
-        <GradientStop Color="#29000000" Offset="0.0" />
-        <GradientStop Color="#31000000" Offset="1.0" />
+                         EndPoint="1,0">
+        <GradientStop Color="#00000000" Offset="0.00" />
+        <GradientStop Color="#16000000" Offset="0.30" />
+        <GradientStop Color="#1E000000" Offset="1.00" />
     </LinearGradientBrush>
     <SolidColorBrush x:Key="TaskbarTopBorder" Color="Transparent" />
     <SolidColorBrush x:Key="TaskbarTopInnerBorder" Color="Transparent" />

@@ -652,16 +652,19 @@
             </StackPanel>
 
             <!-- ============ Area di notifica ============ -->
-            <!-- v1.21.44: fascia piu' scura sotto l'area di notifica (tray
-                 + orologio), fedele al vetro Aero di Windows 7 (15-20%
-                 piu' scura della meta' sinistra della barra). E' un
+            <!-- v1.21.44 / v1.21.45: fascia piu' scura sotto l'area di
+                 notifica (tray + orologio), fedele al vetro Aero di
+                 Windows 7. v1.21.45: il pennello TrayAreaShade e' un
+                 FADE orizzontale (trasparente -> ombra piena entro il
+                 primo terzo della fascia, ombra ridotta di 7.41 punti
+                 rispetto alla 1.21.44), quindi il passaggio chiaro ->
+                 scuro e' una transizione leggera, mai un bordo netto;
+                 vale per Windows 7 e per Aero Basic (che eredita la
+                 chiave), non per la 8.1 che non la definisce. E' un
                  OVERLAY: primo figlio in markup fra quelli delle colonne
                  4-5, quindi disegnato SOTTO icone e orologio; con
                  IsHitTestVisible=False tutti i comportamenti del mouse
-                 restano identici. La disegnano solo le skin che
-                 definiscono la chiave TrayAreaShade (Windows 7): la
-                 8.1 non la definisce e Aero Basic la overridinga a
-                 Transparent. -->
+                 restano identici. -->
             <Border Grid.Column="4"
                     Grid.ColumnSpan="2"
                     Background="{DynamicResource TrayAreaShade}"

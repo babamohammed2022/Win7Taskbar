@@ -124,10 +124,13 @@
          restare trasparente nemmeno ai bordi del template. -->
     <SolidColorBrush x:Key="TaskbarWindowBackground" Color="#FFC1D2E0" />
 
-    <!-- v1.21.44: la banda scura dell'area di notifica introdotta nel tema
-         Windows 7 (chiave TrayAreaShade) qui resta SPENTA: la skin Aero
-         Basic continua a essere solo la superficie chiara misurata sulla
-         reference, senza ombre aggiunte. -->
-    <SolidColorBrush x:Key="TrayAreaShade" Color="Transparent" />
+    <!-- v1.21.45: la fascia scura con fade dell'area di notifica
+         (chiave TrayAreaShade del tema Windows 7) vale ANCHE qui: la
+         barra Aero Basic non deve essere un unico gradiente uniforme,
+         e l'area di notifica deve leggere leggermente piu' scura della
+         parte sinistra, con la stessa transizione morbida. Non
+         ridefinendo la chiave, questo dizionario eredita il pennello
+         del tema Windows 7 (fra dizionari mergiati una chiave assente
+         qui continua a risolversi in quello sottostante). -->
 
 </ResourceDictionary>
