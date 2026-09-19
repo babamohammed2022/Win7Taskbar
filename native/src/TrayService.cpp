@@ -1547,10 +1547,26 @@ void TrayService::OnWatcherMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 }
 
+/* ------------------------------------------------------------------ */
+/*  v3.10.1 - Battery legacy-key hardening (forward decls).
+ *  Le funzioni sono definite piu' in basso, nel blocco dedicato ai
+ *  riquadri di sistema, ma Stop() e ThreadMain() - che le chiamano -
+ *  vivono sopra e hanno bisogno di vederle. */
+static void EnsureWin32BatteryFlyoutValue();
+static void RestoreWin32BatteryFlyoutValue();
+static void RecoverBatteryFlyoutKeyFromBackup();
+static void InstallBatteryKeyCrashGuard();
+static void OnBatteryKeySessionEnding();
+
 void TrayService::Stop() {
     if (!m_running.load()) {
         return;
     }
+    /* v3.10.1 hardening: ripristina sempre la chiave legacy UseWin32BatteryFlyout
+     * in chiusura pulita, cosi' uno shutdown regolare mentre un clic-batteria
+     * e' ancora in volo (timer/UIA/watch) non lascia la chiave a 1. */
+    RestoreWin32BatteryFlyoutValue();
+
     /* v2.37 punto 15: interruzione cooperativa. Prima si chiede alle
      * letture della toolbar di Explorer di fermarsi (la passata in corso
      * cede al pulsante successivo), poi si spegne il flag e si invia
@@ -1820,6 +1836,16 @@ void TrayService::DestroyWindows() {
 void TrayService::ThreadMain() {
     m_threadId = GetCurrentThreadId();
 
+    /* v3.10.1 hardening: se il run precedente e' terminato in modo
+     * anomalo mentre un clic-batteria era pendente, il file di backup
+     * esiste ancora. Lo leggiamo PRIMA di qualsiasi altra cosa per
+     * ripristinare subito la chiave legacy al suo valore precedente. */
+    RecoverBatteryFlyoutKeyFromBackup();
+    /* v3.10.1: filtro eccezioni di ultima istanza: best-effort restore
+     * della chiave batteria anche in caso di crash prima del prossimo
+     * avvio. */
+    InstallBatteryKeyCrashGuard();
+
     if (!CreateWindows()) {
         m_running.store(false);
         DestroyWindows();
@@ -1851,9 +1877,6 @@ void TrayService::ThreadMain() {
  * gestita che risale da un window procedure termina il processo che ospita
  * la finestra. Tutto il corpo vive in TrayWndProcInner; qui si cattura
  * qualsiasi cosa e si delega al comportamento di default. */
-/* Defined further down with the transient legacy-key helpers it belongs to;
- * the retry timer below re-asserts it before delivering another click. */
-static void EnsureWin32BatteryFlyoutValue();
 
 LRESULT CALLBACK TrayService::TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     try {
@@ -2011,6 +2034,25 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
         }
     }
 
+    /* v3.10.1 hardening: WM_QUERYENDSESSION/WM_ENDSESSION sono l'unico
+     * punto in cui Windows ci avvisa in modo sincrono che logoff/shutdown
+     * e' imminente (con un budget di ~5s per processo). Ripristiniamo
+     * subito la chiave batteria, non aspettiamo il pump dei messaggi
+     * che il GetMessage successivo potrebbe non vedere mai. WM_ENDSESSION
+     * con wParam=TRUE conferma che la sessione sta effettivamente
+     * finendo (ENDSESSION_CLOSEAPP e' il caso che ci interessa per
+     * l'app in esecuzione). */
+    if (msg == WM_QUERYENDSESSION
+        || (msg == WM_ENDSESSION && wParam != 0)) {
+        /* wParam==TRUE a WM_ENDSESSION = la sessione sta realmente
+         * finendo (logoff/shutdown). wParam==0 = un'altra app ha
+         * annullato: non facciamo nulla, un eventuale Ensure pendente
+         * riusera' il file di backup al prossimo clic. */
+        OnBatteryKeySessionEnding();
+        /* Lasciamo passare il messaggio a DefWindowProc: non neghiamo
+         * MAI la chiusura della sessione. */
+    }
+
     if (self.m_taskbarCreatedMsg != 0 && msg == self.m_taskbarCreatedMsg) {
         /* Explorer (ri)avviato: le sue toolbar sono nuove. Si alza la
          * bandierina e si fa tutto tra poco su questo thread: il wndproc
@@ -2137,7 +2179,21 @@ LRESULT TrayService::HandleCopyData(HWND, const COPYDATASTRUCT* cds) {
                           static_cast<unsigned long long>(nid.hWnd),
                           static_cast<unsigned>(nid.uID));
                 AppendCoreLog(line);
-                ApplyMessage(message, nid);
+                /* v1.0.0-alpha: WM_COPYDATA viene da qualunque processo
+                 * del desktop; un'eccezione C++ risalita da ApplyMessage
+                 * (lock, mappa icone, copia HICON tramite GDI+) non deve
+                 * MAI terminare il thread della tray di Explorer, che e'
+                 * quello che pumpa il wndproc Shell_TrayWnd. */
+                try {
+                    ApplyMessage(message, nid);
+                } catch (const std::exception& e) {
+                    (void)e;
+                    AppendCoreLog(L"copydata: ApplyMessage ha sollevato un'eccezione, pacchetto ignorato");
+                    return FALSE;
+                } catch (...) {
+                    AppendCoreLog(L"copydata: ApplyMessage ha sollevato un'eccezione sconosciuta, pacchetto ignorato");
+                    return FALSE;
+                }
                 return TRUE;
             }
         }
@@ -2188,7 +2244,16 @@ LRESULT TrayService::HandleCopyData(HWND, const COPYDATASTRUCT* cds) {
     if (cds->dwData <= 2) {
         NormalizedNid wineNid;
         if (NormalizeNidWine(bytes, cds->cbData, wineNid)) {
-            ApplyMessage(static_cast<uint32_t>(cds->dwData), wineNid);
+            try {
+                ApplyMessage(static_cast<uint32_t>(cds->dwData), wineNid);
+            } catch (const std::exception& e) {
+                (void)e;
+                AppendCoreLog(L"copydata-wine: ApplyMessage ha sollevato un'eccezione, pacchetto ignorato");
+                return FALSE;
+            } catch (...) {
+                AppendCoreLog(L"copydata-wine: eccezione sconosciuta, pacchetto ignorato");
+                return FALSE;
+            }
             return TRUE;
         }
     }
@@ -2245,8 +2310,13 @@ bool TrayService::NormalizeNidWine(const uint8_t* data, size_t size, NormalizedN
     /* Wine non puo' passare un HICON: gli handle non attraversano i
      * processi. Accoda invece i pixel dell'icona subito dopo la struttura,
      * in formato BGRA gia' pronto, seguiti dalla maschera 1bpp che qui non
-     * serve (il canale alfa e' gia' corretto). */
-    if ((nid.uFlags & NIF_ICON) && nid.iconWidth > 0 && nid.iconHeight > 0) {
+     * serve (il canale alfa e' gia' corretto).
+     * v3.10.1 hardening: clamp width/height a 4096 (stesso limite di
+     * BitmapSane) PRIMA del prodotto w*h*4, cosi' il calcolo di pixelBytes
+     * non puo' wrappare neanche su size_t a 32 bit e una lettura fuori
+     * dal buffer e' impossibile per costruzione. */
+    if ((nid.uFlags & NIF_ICON) && nid.iconWidth > 0 && nid.iconHeight > 0
+        && nid.iconWidth <= 4096 && nid.iconHeight <= 4096) {
         const size_t pixelBytes =
             static_cast<size_t>(nid.iconWidth) *
             static_cast<size_t>(nid.iconHeight) * 4u;
@@ -3484,9 +3554,6 @@ void TrayService::StartBatteryOpenWatch(const RECT& anchor) {
     SetTimer(m_trayWnd, kTimerBatteryFallback, 1200, nullptr);
 }
 
-/* Defined further down next to the legacy-key helpers it belongs to. */
-static void RestoreWin32BatteryFlyoutValue();
-
 void TrayService::FinishBatteryOpenWatch() {
     if (m_trayWnd != nullptr) {
         KillTimer(m_trayWnd, kTimerBatteryFallback);
@@ -4231,7 +4298,17 @@ bool TrayService::TryWindhawkNetFlyoutClick(uint64_t ownerHwnd, uint32_t uid) {
  * Il frontend la scrive quando le preferenze cambiano; qui si ripete al
  * momento del clic perche' la shell puo' leggerla proprio mentre apre il
  * riquadro (un'installazione recente o un reset delle impostazioni non
- * devono portare l'utente al riquadro moderno). */
+ * devono portare l'utente al riquadro moderno).
+ *
+ * v3.10.1 TODO (blast-radius): si e' valutata la chiave per-utente
+ *   HKCU\Control Panel\Quick Actions\Control Center\QuickActionsStateCapture
+ * scoperta da valinet come meccanismo piu' circoscritto per ottenere
+ * lo stesso effetto; non viene adottata in questa PR perche' cambiare
+ * chiave cambia il comportamento funzionale del routing del clic e va
+ * verificata sulla build 26100 dell'utente prima di rilasciarla. Le
+ * difese qui (restore in Stop/WM_ENDSESSION/UnhandledExceptionFilter e
+ * file di backup con recovery al boot) riducono drasticamente il blast
+ * radius della chiave attuale. */
 /* v1.4 - LA CHIAVE LEGACY E' TRANSITORIA. Il valore UseWin32BatteryFlyout
  * viene scritto SOLO attorno al tentativo di apertura (prima del clic, poi
  * ripristinato al valore precedente quando il tentativo finisce, in un
@@ -4240,9 +4317,188 @@ bool TrayService::TryWindhawkNetFlyoutClick(uint64_t ownerHwnd, uint32_t uid) {
  * senza toccarlo realmente" da parte di un processo che NON vive dentro
  * explorer.exe: la lettura che conta e' quella di explorer, quindi il
  * valore deve essere vero nel registro per l'istante del clic. */
+/* v3.10.1 - Crash-time restore della chiave batteria.
+ *
+ * Due best-effort path addizionali al restore on-stop / on-next-start:
+ *
+ *  1. SetUnhandledExceptionFilter: chiamato per AV, stack overflow,
+ *     C++ terminate, ecc. Windows lascia ~1 secondo prima di terminare
+ *     il processo: facciamo un restore sincrono minimale (solo Win32
+ *     API, nessuna allocazione C++ perche' l'heap potrebbe essere
+ *     corrotto) e poi passiamo al filtro precedente.
+ *  2. WM_ENDSESSION / WM_QUERYENDSESSION: il wndproc chiama
+ *     OnBatteryKeySessionEnding() non appena Windows avvisa che
+ *     logoff/shutdown e' imminente (budget ~5 s), prima che il pump
+ *     possa uscire senza eseguire Stop().
+ *
+ * Entrambi sono migliori di "aspetta il prossimo avvio" ma sono
+ * best-effort: il file di backup e il restore-on-boot restano la rete
+ * di sicurezza finale. */
+
+static LPTOP_LEVEL_EXCEPTION_FILTER g_prevBatteryCrashFilter = nullptr;
+static volatile LONG g_batteryCrashFilterInstalled = 0;
+
+/* v3.10.1: i tre stati della chiave batteria sono definiti QUI, prima di
+ * ogni helper che li usa (BestEffortRestoreBatteryKeyNoAlloc, crash
+ * filter, OnBatteryKeySessionEnding), cosi' sono visibili nel punto
+ * d'uso. */
 static bool g_batteryKeyTouched = false;
 static DWORD g_batteryKeyPrevValue = 0;
 static bool g_batteryKeyPrevExists = false;
+static std::wstring BatteryBackupFilePath();
+
+static BOOL BestEffortRestoreBatteryKeyNoAlloc() {
+    /* Restore minimale, no allocazioni C++, no std::string, no lock.
+     * Ritorna TRUE se il registro e' coerente col valore precedente
+     * (o se non c'era niente da ripristinare); il chiamante usa
+     * questo per decidere se e' sicuro cancellare il file di backup. */
+    if (!g_batteryKeyTouched) {
+        return TRUE;
+    }
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
+                      0, KEY_SET_VALUE, &key) != ERROR_SUCCESS || key == nullptr) {
+        return FALSE;
+    }
+    LSTATUS s = ERROR_SUCCESS;
+    if (g_batteryKeyPrevExists) {
+        s = RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
+                           reinterpret_cast<const BYTE*>(&g_batteryKeyPrevValue),
+                           sizeof(g_batteryKeyPrevValue));
+    } else {
+        s = RegDeleteValueW(key, L"UseWin32BatteryFlyout");
+        if (s == ERROR_FILE_NOT_FOUND) s = ERROR_SUCCESS;
+    }
+    RegCloseKey(key);
+    return (s == ERROR_SUCCESS) ? TRUE : FALSE;
+}
+
+static LONG WINAPI BatteryKeyCrashFilter(EXCEPTION_POINTERS* ex) {
+    /* Crash path: best effort only. Non cancelliamo il file di backup
+     * da qui (lo spazio di indirizzi e' potenzialmente corrotto); il
+     * boot successivo RecoverBatteryFlyoutKeyFromBackup lo pulira'. */
+    (void)BestEffortRestoreBatteryKeyNoAlloc();
+    if (g_prevBatteryCrashFilter != nullptr
+        && g_prevBatteryCrashFilter != &BatteryKeyCrashFilter) {
+        return g_prevBatteryCrashFilter(ex);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+static void InstallBatteryKeyCrashGuard() {
+    if (InterlockedCompareExchange(&g_batteryCrashFilterInstalled, 1, 0) != 0) {
+        return;   /* gia' installato */
+    }
+    g_prevBatteryCrashFilter = SetUnhandledExceptionFilter(&BatteryKeyCrashFilter);
+}
+
+static void OnBatteryKeySessionEnding() {
+    /* Notifica di logoff/shutdown da Windows: ripristiniamo subito.
+     * Cancelliamo il file di backup SOLAMENTE se il restore del
+     * registro e' andato a buon fine: altrimenti teniamo il file per
+     * il recovery al prossimo avvio. */
+    if (BestEffortRestoreBatteryKeyNoAlloc()) {
+        DeleteFileW(BatteryBackupFilePath().c_str());
+    }
+}
+
+/* File di backup: prevExists(1 byte) + prevValue(4 byte LE). */
+
+static std::wstring BatteryBackupFilePath() {
+    wchar_t localAppData[MAX_PATH] = {};
+    DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH) {
+        /* Fallback minimale. */
+        return L"C:\\Win7Taskbar-battery-backup.dat";
+    }
+    return std::wstring(localAppData) + L"\\Win7Taskbar\\battery-key-backup.dat";
+}
+
+static void WriteBatteryFlyoutBackup(bool prevExists, DWORD prevValue) {
+    const std::wstring path = BatteryBackupFilePath();
+    /* Assicura che la cartella esista. */
+    {
+        const size_t slash = path.find_last_of(L'\\');
+        if (slash != std::wstring::npos) {
+            CreateDirectoryW(path.substr(0, slash).c_str(), nullptr);
+        }
+    }
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    uint8_t buf[1 + 4];
+    buf[0] = prevExists ? 1u : 0u;
+    buf[1] = static_cast<uint8_t>(prevValue & 0xFFu);
+    buf[2] = static_cast<uint8_t>((prevValue >> 8) & 0xFFu);
+    buf[3] = static_cast<uint8_t>((prevValue >> 16) & 0xFFu);
+    buf[4] = static_cast<uint8_t>((prevValue >> 24) & 0xFFu);
+    DWORD written = 0;
+    BOOL okWrite = WriteFile(h, buf, sizeof(buf), &written, nullptr);
+    CloseHandle(h);
+    if (!okWrite || written != sizeof(buf)) {
+        /* Scrittura fallita o incompleta: meglio NESSUN backup che un
+         * file corrotto che mentirebbe sul valore precedente. */
+        DeleteFileW(path.c_str());
+    }
+}
+
+static void DeleteBatteryFlyoutBackup() {
+    DeleteFileW(BatteryBackupFilePath().c_str());
+}
+
+/* Chiamata all'avvio (ThreadMain): se il file di backup esiste, il run
+ * precedente e' terminato in modo anomalo mentre un clic-batteria era
+ * pendente. Ripristiniamo la chiave al valore precedente e poi buttiamo
+ * il file. */
+static void RecoverBatteryFlyoutKeyFromBackup() {
+    const std::wstring path = BatteryBackupFilePath();
+    if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        return;
+    }
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                           nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    uint8_t buf[1 + 4] = {};
+    DWORD readN = 0;
+    const bool ok = ReadFile(h, buf, sizeof(buf), &readN, nullptr) == TRUE
+                 && readN == sizeof(buf);
+    CloseHandle(h);
+    if (!ok) {
+        DeleteFileW(path.c_str());
+        return;
+    }
+    const bool prevExists = (buf[0] != 0);
+    const DWORD prevValue = static_cast<DWORD>(buf[1])
+                         | (static_cast<DWORD>(buf[2]) << 8)
+                         | (static_cast<DWORD>(buf[3]) << 16)
+                         | (static_cast<DWORD>(buf[4]) << 24);
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
+            0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE,
+            nullptr, &key, nullptr) == ERROR_SUCCESS && key != nullptr) {
+        if (prevExists) {
+            RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
+                           reinterpret_cast<const BYTE*>(&prevValue),
+                           sizeof(prevValue));
+        } else {
+            RegDeleteValueW(key, L"UseWin32BatteryFlyout");
+        }
+        RegCloseKey(key);
+        /* Cancelliamo il backup solo DOPO un Reg* di successo. */
+        DeleteFileW(path.c_str());
+        LogTagged(L"GATE",
+                  L"batteria: recuperata chiave legacy da backup (terminazione anomala precedente)");
+    }
+    /* Se il restore e' fallito (key non apribile, ecc.), lasciamo il
+     * file sul disco: il prossimo avvio riprovera'. */
+}
 
 static void EnsureWin32BatteryFlyoutValue() {
     if (g_batteryKeyTouched) {
@@ -4267,6 +4523,11 @@ static void EnsureWin32BatteryFlyoutValue() {
     g_batteryKeyPrevExists = (read == ERROR_SUCCESS);
     g_batteryKeyPrevValue = (read == ERROR_SUCCESS) ? value : 0;
     if (read != ERROR_SUCCESS || value != 1) {
+        /* v3.10.1 hardening: PRIMA scriviamo il file di backup, POI
+         * impostiamo la chiave. In caso di crash/kill fra RegSetValue e
+         * Restore, il prossimo avvio RecoverBatteryFlyoutKeyFromBackup
+         * ripristinera' il valore precedente. */
+        WriteBatteryFlyoutBackup(g_batteryKeyPrevExists, g_batteryKeyPrevValue);
         const DWORD one = 1;
         RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
                        reinterpret_cast<const BYTE*>(&one), sizeof(one));
@@ -4281,22 +4542,18 @@ static void RestoreWin32BatteryFlyoutValue() {
         return;
     }
     g_batteryKeyTouched = false;
-    HKEY key = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER,
-                      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
-                      0, KEY_SET_VALUE, &key) != ERROR_SUCCESS ||
-        key == nullptr) {
-        return;
-    }
-    if (g_batteryKeyPrevExists) {
-        RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
-                       reinterpret_cast<const BYTE*>(&g_batteryKeyPrevValue),
-                       sizeof(g_batteryKeyPrevValue));
+    /* Deleghiamo al BestEffort (stessa logica). Solo se restituisce
+     * successo cancelliamo il file di backup, come da review: uno
+     * scrittura/Reg* fallito non deve privarci dell'unica informazione
+     * di recovery. */
+    const BOOL ok = BestEffortRestoreBatteryKeyNoAlloc();
+    if (ok) {
+        DeleteBatteryFlyoutBackup();
+        LogTagged(L"GATE", L"batteria: chiave legacy ripristinata al valore precedente");
     } else {
-        RegDeleteValueW(key, L"UseWin32BatteryFlyout");
+        LogTagged(L"GATE",
+                  L"batteria: restore chiave fallito, tengo il backup per il prossimo avvio");
     }
-    RegCloseKey(key);
-    LogTagged(L"GATE", L"batteria: chiave legacy ripristinata al valore precedente");
 }
 
 /* Il clic standard su una voce VERA della tray, identico al forwarding in
@@ -4572,7 +4829,7 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                 return FlyoutLauncher::InvokeFlyoutAt(FlyoutKind::Network,
                                                       FlyoutAction::Show, anchor);
 
-            case SystemIconKind::Battery:
+            case SystemIconKind::Battery: {
                 /* v2.63/v3.5 - IL RIQUADRO BATTERIA VERO DI WINDOWS 7, A
                  * TUTTI I COSTI. L'ordine dei tentativi, tutti dentro la
                  * stessa risposta al clic:
@@ -4608,10 +4865,18 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                     BatteryFlyout::Instance().ShowAt(anchor);
                     return W7T_OK;
                 }
-                /* "Windows 10/11": catena reale (identica a quella che
-                 * prima serviva la voce "Windows 7"). */
-                {
-EnsureWin32BatteryFlyoutValue();
+
+                /* v1.0.0-alpha: tutta la catena reale (chiave registry,
+                 * enumerazione stobject.dll, UIA click, flyout watcher,
+                 * BatteryFlyout::ShowAt) vive dentro un try/catch: un
+                 * problema in uno qualunque di questi stadi (UIA non
+                 * registrato, lettura di processo fallita, COM che
+                 * lancia) non deve abbattere il thread del frontend WPF
+                 * ne', peggio, il pump della tray. */
+                int32_t batteryRouteResult = W7T_OK;
+                bool batteryRouted = false;
+                try {
+                    EnsureWin32BatteryFlyoutValue();
 
                     /* 1. l'icona cliccata E' la batteria vera. */
                     {
@@ -4620,10 +4885,6 @@ EnsureWin32BatteryFlyoutValue();
                         if (self != nullptr && IsWindow(self)
                             && !uiaEntry
                             && OwnerModuleIs(self, L"stobject.dll")) {
-                            /* La pressione era stata assorbita dal routing
-                             * (il rilascio decide qui): il clic vero va
-                             * completo, DOWN + UP, altrimenti la tray di
-                             * Windows non lo riconosce. */
                             ForwardStandardTrayClick(self, callbackMessage,
                                                      uid, version,
                                                      W7T_TRAY_CLICK_LEFT_DOWN,
@@ -4632,19 +4893,16 @@ EnsureWin32BatteryFlyoutValue();
                                                      uid, version,
                                                      W7T_TRAY_CLICK_LEFT,
                                                      x, y);
-                            /* Il riquadro Win32 che Windows apre parte
-                             * dall'ancora della tray VERA (spesso l'origine
-                             * dello schermo): il watcher lo riaggancia
-                             * sopra la NOstra icona. */
                             StartFlyoutWatcher(TrayIconKey{ ownerHwnd, uid });
                             LogTagged(L"GATE",
                                       L"batteria: clic standard sull'icona vera (stobject.dll)");
-                            return W7T_OK;
+                            batteryRouteResult = W7T_OK;
+                            batteryRouted = true;
                         }
                     }
 
                     /* 2. un'altra batteria vera nel modello. */
-                    {
+                    if (!batteryRouted) {
                         uint64_t fwdOwner = 0;
                         uint32_t fwdUid = 0, fwdCb = 0, fwdVer = 0;
                         if (FindRealStobjectIcon(&fwdOwner, &fwdUid,
@@ -4662,40 +4920,67 @@ EnsureWin32BatteryFlyoutValue();
                             StartFlyoutWatcher(TrayIconKey{ ownerHwnd, uid });
                             LogTagged(L"GATE",
                                       L"batteria: clic inoltrato all'icona vera (stobject.dll)");
-                            return W7T_OK;
+                            batteryRouteResult = W7T_OK;
+                            batteryRouted = true;
                         }
                     }
 
-                    /* 3. pulsante batteria della tray di Windows 11. Se lo
-                     * snapshot UIA e' vuoto in questo momento (oscilla fra
-                     * 0 e 3 icone), NON si rinuncia: riprova col timer
-                     * (StartBatteryUiARetry) e solo dopo 5 tentativi parte
-                     * il ricreato. Il riquadro che la shell apre, con la
-                     * chiave UseWin32BatteryFlyout, e' quello Win32 di
-                     * Windows 7: e' il reindirizzamento richiesto. */
-                    const uint32_t shellBatteryUid =
-                        Win11TrayReader::Instance().UidOfKind(SystemIconKind::Battery);
-                    if (shellBatteryUid != 0) {
-                        if (Win11TrayReader::Instance().RequestClick(shellBatteryUid, false)) {
-                            StartBatteryOpenWatch(anchor);
-                            StartFlyoutWatcher(TrayIconKey{ ownerHwnd, uid });
+                    /* 3. pulsante batteria Win11 via UIA. */
+                    if (!batteryRouted) {
+                        const uint32_t shellBatteryUid =
+                            Win11TrayReader::Instance().UidOfKind(SystemIconKind::Battery);
+                        if (shellBatteryUid != 0) {
+                            if (Win11TrayReader::Instance().RequestClick(shellBatteryUid, false)) {
+                                StartBatteryOpenWatch(anchor);
+                                StartFlyoutWatcher(TrayIconKey{ ownerHwnd, uid });
+                                LogTagged(L"GATE",
+                                          L"batteria: clic sul pulsante vero della shell (UIA)");
+                                batteryRouteResult = W7T_OK;
+                                batteryRouted = true;
+                            } else {
+                                LogTagged(L"GATE",
+                                          L"batteria: pulsante shell non cliccabile, riprovo");
+                                StartBatteryUiARetry(anchor);
+                                batteryRouteResult = W7T_OK;
+                                batteryRouted = true;
+                            }
+                        } else {
                             LogTagged(L"GATE",
-                                      L"batteria: clic sul pulsante vero della shell (UIA)");
-                            return W7T_OK;
+                                      L"batteria: pulsante shell assente dallo snapshot, riprovo");
+                            StartBatteryUiARetry(anchor);
+                            batteryRouteResult = W7T_OK;
+                            batteryRouted = true;
                         }
-                        LogTagged(L"GATE",
-                                  L"batteria: pulsante shell non cliccabile, riprovo");
-                        StartBatteryUiARetry(anchor);
-                        return W7T_OK;
                     }
+
+                    /* 4. fallback: flyout ricreato. */
+                    if (!batteryRouted) {
+                        BatteryFlyout::Instance().ShowAt(anchor);
+                        batteryRouteResult = W7T_OK;
+                    }
+                } catch (const std::exception&) {
                     LogTagged(L"GATE",
-                              L"batteria: pulsante shell assente dallo snapshot, riprovo");
-                    StartBatteryUiARetry(anchor);
-                    return W7T_OK;
+                              L"batteria: eccezione C++ nell'instradamento reale, uso il ricreato");
+                    try { RestoreWin32BatteryFlyoutValue(); } catch (...) {}
+                    try {
+                        BatteryFlyout::Instance().ShowAt(anchor);
+                        batteryRouteResult = W7T_OK;
+                    } catch (...) {
+                        batteryRouteResult = W7T_ERR_NOT_FOUND;
+                    }
+                } catch (...) {
+                    LogTagged(L"GATE",
+                              L"batteria: eccezione sconosciuta nell'instradamento reale, uso il ricreato");
+                    try { RestoreWin32BatteryFlyoutValue(); } catch (...) {}
+                    try {
+                        BatteryFlyout::Instance().ShowAt(anchor);
+                        batteryRouteResult = W7T_OK;
+                    } catch (...) {
+                        batteryRouteResult = W7T_ERR_NOT_FOUND;
+                    }
                 }
-                /* Niente di vero (o catena non riuscita): il ricreato. */
-                BatteryFlyout::Instance().ShowAt(anchor);
-                return W7T_OK;
+                return batteryRouteResult;
+            }
 
             default:
                 break;
