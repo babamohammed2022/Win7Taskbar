@@ -124,13 +124,32 @@
          restare trasparente nemmeno ai bordi del template. -->
     <SolidColorBrush x:Key="TaskbarWindowBackground" Color="#FFC1D2E0" />
 
-    <!-- v1.21.45: la fascia scura con fade dell'area di notifica
-         (chiave TrayAreaShade del tema Windows 7) vale ANCHE qui: la
-         barra Aero Basic non deve essere un unico gradiente uniforme,
-         e l'area di notifica deve leggere leggermente piu' scura della
-         parte sinistra, con la stessa transizione morbida. Non
-         ridefinendo la chiave, questo dizionario eredita il pennello
-         del tema Windows 7 (fra dizionari mergiati una chiave assente
-         qui continua a risolversi in quello sottostante). -->
+    <!-- v1.21.45 / v1.21.46 - FASCIA SCURA DELL'AREA DI NOTIFICA, VERSIONE
+         AERO BASIC. Con il fade leggero ereditato dal tema Windows 7
+         (alpha 8.6-11.8%) la superficie chiara restava troppo chiara per
+         il testo BIANCO di orologio e tray: poco leggibile. Qui la chiave
+         TrayAreaShade viene RIDEFINITA (fra dizionari mergiati vince
+         l'ultimo aggiunto, quindi questa definizione copre quella del
+         tema solo per la skin Aero Basic; il tema Windows 7 resta
+         intatto con il suo fade leggero): stesso effetto fade -
+         trasparente a sinistra, ombra piena verso destra, mai un bordo
+         netto - ma con molta piu' scurita', senza esagerare.
+         Come da documentazione Microsoft di LinearGradientBrush
+         (System.Windows.Media), il pennello interpola i GradientStop -
+         colore E alpha - lungo StartPoint/EndPoint, e la curva del fade
+         si sagoma con stop intermedi: qui la salita e' ease-out (dolce
+         all'inizio, piena entro meta' fascia, poi quasi piatta con una
+         crescita minima). Alpha massima ~44%: sulla superficie chiara
+         (luminanza ~207) la fascia scende a luminanza ~116-124, cioe'
+         un contrasto col testo bianco di circa 4.0-4.7:1, leggibile
+         senza diventare una banda nera. -->
+    <LinearGradientBrush x:Key="TrayAreaShade"
+                         StartPoint="0,0"
+                         EndPoint="1,0">
+        <GradientStop Color="#00000000" Offset="0.00" />
+        <GradientStop Color="#4D000000" Offset="0.25" />
+        <GradientStop Color="#66000000" Offset="0.55" />
+        <GradientStop Color="#70000000" Offset="1.00" />
+    </LinearGradientBrush>
 
 </ResourceDictionary>
