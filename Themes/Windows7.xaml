@@ -172,6 +172,21 @@
         <GradientStop Color="#04000000" Offset="1.0" />
     </LinearGradientBrush>
     <SolidColorBrush x:Key="TaskbarWindowBackground" Color="Transparent" />
+    <!-- v1.21.44 - AREA DI NOTIFICA PIU' SCURA DEL VETRO, come nella barra
+         vera di Windows 7: la fascia con tray e orologio poggia su un
+         vetro leggermente piu' scuro della meta' sinistra della barra
+         (Start e applicazioni). La chiave la usa il Border di overlay
+         (colonne 4-5, sotto le icone) dichiarato in TaskbarWindow.xaml;
+         l'ombra e' un nero al 16-19% di alpha, cioe' un annerimento del
+         15-20% del vetro sottostante. Le skin che non definiscono la
+         chiave (Windows 8.1) non disegnano nulla; Aero Basic la
+         overridinga a Transparent. -->
+    <LinearGradientBrush x:Key="TrayAreaShade"
+                         StartPoint="0,0"
+                         EndPoint="0,1">
+        <GradientStop Color="#29000000" Offset="0.0" />
+        <GradientStop Color="#31000000" Offset="1.0" />
+    </LinearGradientBrush>
     <SolidColorBrush x:Key="TaskbarTopBorder" Color="Transparent" />
     <SolidColorBrush x:Key="TaskbarTopInnerBorder" Color="Transparent" />
     <SolidColorBrush x:Key="TaskbarBottomInnerBorder" Color="Transparent" />
