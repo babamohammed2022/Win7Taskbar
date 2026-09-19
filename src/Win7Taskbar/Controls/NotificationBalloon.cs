@@ -88,8 +88,13 @@ namespace Win7Taskbar.Controls
     /// Una notifica a fumetto, con il segno di "gestita" di ManagedShell: chi la
     /// mostra a video imposta <see cref="Handled"/>, e solo una notifica non
     /// gestita entra nelle <c>MissedNotifications</c> della sua icona.
+    ///
+    /// E' public perche' <c>TrayIconModel</c> (public) espone la lista delle
+    /// missed: un tipo meno accessibile del membro che lo usa non compila
+    /// (CS0053). Il resto del meccanismo - coda, evento, IBalloonSurface -
+    /// resta interno all'assembly.
     /// </summary>
-    internal sealed class NotificationBalloon
+    public sealed class NotificationBalloon
     {
         public NotificationBalloon(BalloonNotification data, TrayIconModel? model)
         {
