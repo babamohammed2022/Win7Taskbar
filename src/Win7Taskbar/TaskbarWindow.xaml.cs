@@ -3914,11 +3914,16 @@ namespace Win7Taskbar
                 {
                     /* One frozen brush per rendered frame: the rectangle is
                      * repainted on every layout pass and must not rebuild its
-                     * brush then. Fill maps the bitmap - rendered at this
-                     * element's own device size and DPI - onto the frame 1:1,
-                     * so the corners are not resampled. The reference check
-                     * works because the cache hands back the same frozen
-                     * bitmap until the size or the accent changes. */
+                     * brush then. The bitmap is in this element's layout units
+                     * (see NativePreviewFrame), so Fill stretches border and
+                     * aperture together with the popup: the 17/38/19 slices
+                     * land exactly on the 17/38/19-unit cell the live surface
+                     * is given, at any display scaling. HighQuality keeps the
+                     * border crisp while the compositor scales it up on a
+                     * display above 100% (the 10% enlargement of the popup).
+                     * The reference check works because the cache hands back
+                     * the same frozen bitmap until the size or the accent
+                     * changes. */
                     if (!ReferenceEquals((frameRect.Fill as ImageBrush)?.ImageSource,
                                          rendered))
                     {
@@ -3929,6 +3934,9 @@ namespace Win7Taskbar
                         brush.Freeze();
                         frameRect.Fill = brush;
                     }
+
+                    RenderOptions.SetBitmapScalingMode(
+                        frameRect, BitmapScalingMode.HighQuality);
 
                     frameRect.Visibility = Visibility.Visible;
                     if (accentLayer != null)

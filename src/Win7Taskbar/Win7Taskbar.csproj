@@ -353,9 +353,20 @@
          present in the published assembly. The assembly version moves to
          1.1.0.0 so a startup crash recorded by an older build no longer
          forces this one into safe mode. -->
-    <Version>1.1.0-alpha</Version>
-    <AssemblyVersion>1.1.0.0</AssemblyVersion>
-    <FileVersion>1.1.0.0</FileVersion>
+    <!-- 1.1.1-alpha: the live preview always fills its frame. The native
+         9-slice frame is now rendered in the frame's layout units instead of
+         its screen size (Utilities/NativePreviewFrame.cs), so its 17/38/19
+         slices land exactly on the 17/38/19-unit aperture the template
+         reserves for the DWM surface at every display scaling; before, on a
+         125% display the surface stopped 1.7 px short of the border on the
+         sides and 3.8 px under the title band, leaving an empty strip inside
+         the frame. The destination rectangle handed to DWM is rounded outward
+         for the same reason (a half-pixel edge could leave a transparent
+         strip). native/tools/check-preview-geometry.py covers the geometry at
+         100/125/150/175/200%. -->
+    <Version>1.1.1-alpha</Version>
+    <AssemblyVersion>1.1.1.0</AssemblyVersion>
+    <FileVersion>1.1.1.0</FileVersion>
   
     <!-- v2.57: application icon (the classic Windows 7 flag in a single azure
          blue). Setting ApplicationIcon gives the executable the icon and, in

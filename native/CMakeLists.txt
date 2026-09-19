@@ -104,6 +104,16 @@ if(Python3_Interpreter_FOUND)
     add_custom_command(TARGET Win7TaskbarCore POST_BUILD
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-exports.py $<TARGET_FILE:Win7TaskbarCore>
         COMMENT "Check exported functions in binary" VERBATIM)
+    # v1.1.1: the 9-slice constants in src/AeroThumbnailFrame.h, the slice PNGs
+    # in Resources/ and the bands of the XAML frame template describe ONE
+    # border, and the live thumbnail has to fill its aperture at every display
+    # scaling. A frame bitmap rendered in device pixels instead of the layout's
+    # own unit left an empty strip inside the border on a 125% display, which
+    # no compiler can catch: check-preview-geometry.py reads the four sources
+    # and the numbers behind them.
+    add_custom_command(TARGET Win7TaskbarCore POST_BUILD
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/run-check.py" check-preview-geometry.py $<TARGET_FILE:Win7TaskbarCore>
+        COMMENT "Check preview frame geometry against the frontend" VERBATIM)
 endif()
 add_library(W7TInject SHARED src/InjectHook.cpp)
 set_target_properties(W7TInject PROPERTIES PREFIX "" OUTPUT_NAME "W7TInject")
