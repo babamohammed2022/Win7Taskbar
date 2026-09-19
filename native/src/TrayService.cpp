@@ -2179,7 +2179,21 @@ LRESULT TrayService::HandleCopyData(HWND, const COPYDATASTRUCT* cds) {
                           static_cast<unsigned long long>(nid.hWnd),
                           static_cast<unsigned>(nid.uID));
                 AppendCoreLog(line);
-                ApplyMessage(message, nid);
+                /* v1.0.0-alpha: WM_COPYDATA viene da qualunque processo
+                 * del desktop; un'eccezione C++ risalita da ApplyMessage
+                 * (lock, mappa icone, copia HICON tramite GDI+) non deve
+                 * MAI terminare il thread della tray di Explorer, che e'
+                 * quello che pumpa il wndproc Shell_TrayWnd. */
+                try {
+                    ApplyMessage(message, nid);
+                } catch (const std::exception& e) {
+                    (void)e;
+                    AppendCoreLog(L"copydata: ApplyMessage ha sollevato un'eccezione, pacchetto ignorato");
+                    return FALSE;
+                } catch (...) {
+                    AppendCoreLog(L"copydata: ApplyMessage ha sollevato un'eccezione sconosciuta, pacchetto ignorato");
+                    return FALSE;
+                }
                 return TRUE;
             }
         }
@@ -2230,7 +2244,16 @@ LRESULT TrayService::HandleCopyData(HWND, const COPYDATASTRUCT* cds) {
     if (cds->dwData <= 2) {
         NormalizedNid wineNid;
         if (NormalizeNidWine(bytes, cds->cbData, wineNid)) {
-            ApplyMessage(static_cast<uint32_t>(cds->dwData), wineNid);
+            try {
+                ApplyMessage(static_cast<uint32_t>(cds->dwData), wineNid);
+            } catch (const std::exception& e) {
+                (void)e;
+                AppendCoreLog(L"copydata-wine: ApplyMessage ha sollevato un'eccezione, pacchetto ignorato");
+                return FALSE;
+            } catch (...) {
+                AppendCoreLog(L"copydata-wine: eccezione sconosciuta, pacchetto ignorato");
+                return FALSE;
+            }
             return TRUE;
         }
     }
@@ -4843,9 +4866,17 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                     return W7T_OK;
                 }
                 /* "Windows 10/11": catena reale (identica a quella che
-                 * prima serviva la voce "Windows 7"). */
-                {
-EnsureWin32BatteryFlyoutValue();
+                 * prima serviva la voce "Windows 7").
+                 * v1.0.0-alpha: tutta la catena reale (chiave registry,
+                 * enumerazione stobject.dll, UIA click, flyout watcher,
+                 * BatteryFlyout::ShowAt) vive dentro un try/catch: un
+                 * problema in uno qualunque di questi stadi (UIA non
+                 * registrato, lettura di processo fallita, COM che
+                 * lancia) non deve abbattere il thread del frontend WPF
+                 * ne', peggio, il pump della tray. */
+                int32_t batteryRouteResult = W7T_OK;
+                try {
+                    EnsureWin32BatteryFlyoutValue();
 
                     /* 1. l'icona cliccata E' la batteria vera. */
                     {
@@ -4926,10 +4957,36 @@ EnsureWin32BatteryFlyoutValue();
                               L"batteria: pulsante shell assente dallo snapshot, riprovo");
                     StartBatteryUiARetry(anchor);
                     return W7T_OK;
+                    /* Niente di vero (o catena non riuscita): il ricreato. */
+                    BatteryFlyout::Instance().ShowAt(anchor);
+                    batteryRouteResult = W7T_OK;
+                } catch (const std::exception& e) {
+                    (void)e;
+                    LogTagged(L"GATE",
+                              L"batteria: eccezione C++ nell'instradamento reale, uso il ricreato");
+                    try {
+                        RestoreWin32BatteryFlyoutValue();
+                    } catch (...) { /* restore difensivo: non deve mai fallire */ }
+                    try {
+                        BatteryFlyout::Instance().ShowAt(anchor);
+                        batteryRouteResult = W7T_OK;
+                    } catch (...) {
+                        batteryRouteResult = W7T_ERR_NOT_FOUND;
+                    }
+                } catch (...) {
+                    LogTagged(L"GATE",
+                              L"batteria: eccezione sconosciuta nell'instradamento reale, uso il ricreato");
+                    try {
+                        RestoreWin32BatteryFlyoutValue();
+                    } catch (...) {}
+                    try {
+                        BatteryFlyout::Instance().ShowAt(anchor);
+                        batteryRouteResult = W7T_OK;
+                    } catch (...) {
+                        batteryRouteResult = W7T_ERR_NOT_FOUND;
+                    }
                 }
-                /* Niente di vero (o catena non riuscita): il ricreato. */
-                BatteryFlyout::Instance().ShowAt(anchor);
-                return W7T_OK;
+                return batteryRouteResult;
 
             default:
                 break;

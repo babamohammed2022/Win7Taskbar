@@ -337,7 +337,7 @@
          re-enabled on overlay close (multiple recovery paths, recursive
          mutex, try/catch in every callback and appbar export). Real
          fullscreen apps keep the historical hide/show behaviour. -->
-    <Version>1.21.51-alpha</Version>
+    <Version>1.0.0-alpha</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
   
