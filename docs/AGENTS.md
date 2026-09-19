@@ -31,3 +31,35 @@ These rules apply for human and AI contributors.
    - Generated assets (`native/src/TrayIconAssets.inc`, `native/src/BatteryAssets.inc`)
      are produced from the sources in `assets/icon-sources/` by
      `compilation files/icons_to_base64.py`. Never hand-edit the `.inc` files.
+7. **Release Phrase Template**
+
+   Every release must always include a paragraph following this exact structure.
+   Section headers stay fixed; the description under each one must be written
+   fresh for that release (do not copy old version numbers, feature names, or
+   claims — describe the current state of the build being released).
+
+   ## Installation and Setup
+   Describe how to run the self-contained package on Windows 10/11 x64
+   (e.g. what to extract, what must stay alongside the executable, and that
+   no .NET installation is required).
+
+   ## Application Management
+   Describe how to close the running program.
+
+   ## Feature Status
+   Summarize which features are fully supported and which are currently
+   disabled or limited in this release.
+
+   ## Core DLL Auto-Repair
+   If this release includes self-healing/auto-repair mechanisms for native
+   DLLs, describe how they behave (what triggers repair, where backups are
+   stored). Omit this section if not applicable to the release.
+
+   ## Dependency Removal
+   If this release changes external runtime dependencies (e.g. removes or
+   adds a requirement on Visual C++ runtime libraries), describe the change.
+   Omit this section if nothing changed.
+
+   ## Diagnostics and Bug Reporting
+   Describe how startup errors are surfaced and where to find logs to
+   attach when reporting an issue.
