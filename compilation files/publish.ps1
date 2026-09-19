@@ -232,6 +232,27 @@ foreach ($folder in @('Themes', 'Resources', 'Languages')) {
     if (-not (Test-Path (Join-Path $out $folder))) { Fail "$folder\ is missing from the package" }
 }
 
+# The managed assembly must carry the embedded fallback copy of the native
+# core: NativeCore restores Win7TaskbarCore.dll from it at startup when the
+# file next to the executable is missing, different or unloadable (partial
+# ZIP extraction, executable copied alone, antivirus quarantine). The name
+# below is the LogicalName of the EmbeddedResource in Win7Taskbar.csproj and
+# the constant in NativeCore.cs - keep the three places in sync. The check
+# reads the manifest of the published assembly, so a frontend built without
+# the embedded resource fails here instead of shipping a package that can no
+# longer repair itself. Skipped for the experimental -SingleFile layout,
+# where Win7Taskbar.dll lives inside the bundle (like the runtime DLLs the
+# loop above already requires as loose files).
+if (-not $SingleFile) {
+    $managedAssembly = Join-Path $out 'Win7Taskbar.dll'
+    if (-not (Test-Path $managedAssembly)) { Fail 'Win7Taskbar.dll is missing from the package' }
+    $managedText = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($managedAssembly))
+    if (-not $managedText.Contains('Win7Taskbar.Win7TaskbarCore.dll')) {
+        Fail 'Win7Taskbar.dll does not embed the native-core fallback copy (see the EmbeddedResource items in Win7Taskbar.csproj): the package could not repair a missing Win7TaskbarCore.dll'
+    }
+    Write-Host '    embedded native-core fallback present in Win7Taskbar.dll' -ForegroundColor Green
+}
+
 # v1.21.18: the native core carries the revision it was compiled from (CMake
 # stamp: -DW7T_BUILD_STAMP, or the checkout's HEAD when that is not given).
 # If the checkout has a git revision, the packaged DLL must contain it: a

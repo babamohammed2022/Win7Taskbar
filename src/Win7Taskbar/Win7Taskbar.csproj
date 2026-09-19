@@ -337,9 +337,25 @@
          re-enabled on overlay close (multiple recovery paths, recursive
          mutex, try/catch in every callback and appbar export). Real
          fullscreen apps keep the historical hide/show behaviour. -->
-    <Version>1.0.0-alpha</Version>
-    <AssemblyVersion>1.7.0.0</AssemblyVersion>
-    <FileVersion>1.7.0.0</FileVersion>
+    <!-- 1.1.0-alpha: startup-defect reduction. The native core now travels
+         INSIDE the executable as an embedded fallback copy
+         (Interop/NativeCore.cs): at startup the file next to the exe is
+         compared with it and, when missing, different or unloadable, the
+         embedded copy is restored (next to the exe, or
+         %LOCALAPPDATA%\Win7Taskbar\core when that folder is not writable)
+         and preloaded with its full path before the first P/Invoke - so the
+         classic "Win7TaskbarCore.dll non e' stata trovata" no longer stops
+         a package that lost the file. The optional W7TInject.dll is healed
+         the same way; W7T_PREFER_LOCAL_CORE=1 keeps the local file
+         authoritative for native development. MSVC builds of the core link
+         the CRT statically (no vcruntime140.dll dependency on clean
+         machines); the packaging script verifies the embedded fallback is
+         present in the published assembly. The assembly version moves to
+         1.1.0.0 so a startup crash recorded by an older build no longer
+         forces this one into safe mode. -->
+    <Version>1.1.0-alpha</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
   
     <!-- v2.57: application icon (the classic Windows 7 flag in a single azure
          blue). Setting ApplicationIcon gives the executable the icon and, in
@@ -366,7 +382,12 @@
          folder-shaped self-contained package is the one published.
          To try the single-file variant: -p:PublishSingleFile=true
          (the WPF native libraries then need IncludeNativeLibrariesForSelfExtract,
-         and the content folders must still ship next to the executable). -->
+         and the content folders must still ship next to the executable).
+         The embedded fallback in this project file also covers single-file
+         builds for the native core itself: NativeCore restores
+         Win7TaskbarCore.dll from the embedded copy (folder of the executable,
+         or %LOCALAPPDATA% when it is not writable) and preloads it before the
+         first P/Invoke. -->
     <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
 
@@ -413,6 +434,37 @@
     <Content Include="Themes\Windows8.1.xaml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+  </ItemGroup>
+
+  <!--
+    Embedded fallback copy of the native core.
+
+    The native core is loaded with plain DllImport("Win7TaskbarCore.dll"),
+    so Windows looks for that file next to the executable. A package where
+    the file went missing anyway (partial ZIP extraction, executable copied
+    alone during an update, launch from inside the ZIP viewer, antivirus
+    quarantine) used to stop at startup with a fatal error.
+
+    Since dist/Win7TaskbarCore.dll is versioned in the repository and the
+    packaging scripts always build it from the same tree as the executable,
+    it can also be EMBEDDED here. At startup NativeCore compares the file
+    next to the executable with this embedded copy and, when the file is
+    missing, different or unloadable, writes the embedded copy back and
+    loads it explicitly. The resource names are read by NativeCore.cs and
+    verified by publish.ps1 (the package check looks for the core resource
+    name inside the published Win7Taskbar.dll): keep the three places in
+    sync. W7TInject.dll is optional (its absence only degrades the frozen
+    clock flyout) and is embedded with the same mechanism when present.
+  -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll')">
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll">
+      <LogicalName>Win7Taskbar.Win7TaskbarCore.dll</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\dist\W7TInject.dll')">
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\dist\W7TInject.dll">
+      <LogicalName>Win7Taskbar.W7TInject.dll</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!--

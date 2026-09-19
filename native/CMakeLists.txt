@@ -14,6 +14,17 @@ project(Win7TaskbarCore VERSION 1.7.0 DESCRIPTION "Win7Taskbar native backend" L
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Self-sufficiency: link the CRT statically in every configuration. A DLL
+# built with the CMake default (/MD) silently depends on vcruntime140.dll,
+# vcruntime140_1.dll and msvcp140.dll, which a clean Windows 10/11 machine
+# does not ship: LoadLibraryW then fails and the app reports the native core
+# as "not found" even though the file sits right next to the executable.
+# The core owns its CRT state (flat C exports, every buffer owned by the
+# caller), so not sharing the CRT with the host process is safe here. The
+# MinGW branch below already links -static for the same reason.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 if(NOT WIN32)
     message(FATAL_ERROR
         "Win7TaskbarCore can only be built for Windows. On Linux use the MinGW-w64 "
