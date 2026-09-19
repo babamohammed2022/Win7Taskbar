@@ -115,6 +115,26 @@ in between.
 The MSBuild target `CopyNativeCoreOnPublish` copies `dist/Win7TaskbarCore.dll` next to the
 published binary and fails the build if step 1 was skipped.
 
+### Native core self-repair
+
+Because the same `dist/Win7TaskbarCore.dll` is embedded in `Win7Taskbar.dll`,
+`Interop/NativeCore.cs` can restore it at startup: when the file next to the executable
+is missing (partial ZIP extraction, executable copied alone, launch from inside the ZIP
+viewer), belongs to another build, or cannot be loaded, the embedded copy is written back
+(next to the executable, or `%LOCALAPPDATA%\Win7Taskbar\core` when that folder is not
+writable) and preloaded with its full path, so every later `DllImport` resolves to it.
+The optional `W7TInject.dll` is healed the same way; the native code loads it by bare
+name, which resolves to an already-loaded module.
+
+The embedded copy must always be the DLL that ships next to the executable: both come
+from the same `dist/` file in the same build, so the pairing holds by construction. The
+packaging script verifies the embedded resource is really present in the published
+assembly. The resource names appear in three places that must stay in sync:
+`Win7Taskbar.csproj` (`LogicalName`), `NativeCore.cs` (`EmbeddedCoreName`) and
+`compilation files/publish.ps1` (package check). Set `W7T_PREFER_LOCAL_CORE=1` to make
+the file next to the executable win even when it differs from the embedded copy (native
+core development and debugging).
+
 ---
 
 ## 3. How the theme is loaded

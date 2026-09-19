@@ -86,6 +86,14 @@ namespace Win7Taskbar.Interop
         /// un messaggio leggibile: il P/Invoke non restituisce semplicemente
         /// "falso", puo' esplodere in modi diversi a seconda di cosa manca, e
         /// ognuno di quei modi ha una causa e una soluzione diverse.
+        ///
+        /// Prima del primo P/Invoke passa dal bootstrap di
+        /// <see cref="NativeCore.EnsureLoaded"/>: verifica la DLL accanto
+        /// all'eseguibile e, se manca, e' diversa dalla copia incorporata
+        /// oppure non si lascia caricare, ripristina la copia che viaggia
+        /// DENTRO l'eseguibile e la carica col percorso completo. Il
+        /// DllNotFoundException del blocco try e' quindi l'ultimo ripiego,
+        /// non la norma.
         /// </summary>
         public bool TryInitialize(out string? error)
         {
@@ -96,6 +104,8 @@ namespace Win7Taskbar.Interop
                 return true;
             }
 
+            NativeCoreStatus coreStatus = NativeCore.EnsureLoaded();
+
             int result;
             try
             {
@@ -105,21 +115,24 @@ namespace Win7Taskbar.Interop
             {
                 error = "Win7TaskbarCore.dll non è stata trovata.\n\n" +
                         "Deve stare nella stessa cartella di Win7Taskbar.exe. " +
-                        "Se hai estratto lo ZIP, verifica di aver mantenuto tutti i file.";
+                        "Se hai estratto lo ZIP, verifica di aver mantenuto tutti i file.\n\n" +
+                        NativeCore.DescribeRecoveryAttempt();
                 return false;
             }
             catch (BadImageFormatException)
             {
                 error = "Win7TaskbarCore.dll non è compatibile con questo processo.\n\n" +
                         "L'eseguibile è a 64 bit: serve la DLL nativa x64 nella stessa " +
-                        "cartella. Un antivirus o un file corrotto possono causarlo.";
+                        "cartella. Un antivirus o un file corrotto possono causarlo.\n\n" +
+                        NativeCore.DescribeRecoveryAttempt();
                 return false;
             }
             catch (EntryPointNotFoundException ex)
             {
                 error = "La DLL nativa è di una versione diversa dall'eseguibile " +
                         $"(manca {ex.Message.Split('\n')[0]}).\n\n" +
-                        "Sostituisci entrambi i file con quelli dello stesso pacchetto.";
+                        "Sostituisci entrambi i file con quelli dello stesso pacchetto.\n\n" +
+                        NativeCore.DescribeRecoveryAttempt();
                 return false;
             }
             catch (Exception ex)
@@ -135,6 +148,16 @@ namespace Win7Taskbar.Interop
             }
 
             _initialized = true;
+
+            if (coreStatus.Repaired)
+            {
+                // Il riparo e' un evento raro e merita una riga nel rapporto
+                // di avvio: se riappare a ogni avvio c'e' qualcosa (di solito
+                // un antivirus) che continua a togliere la DLL.
+                StartupGuard.Note("core-nativo: la DLL e' stata ripristinata dalla copia " +
+                                  "incorporata (" + (coreStatus.RepairReason ?? "motivo non registrato") +
+                                  ") -> " + coreStatus.LoadedPath);
+            }
 
             // Il timer di pompaggio gira per tutta la vita del programma: una
             // eccezione qui dentro, non gestita, terminerebbe il processo a

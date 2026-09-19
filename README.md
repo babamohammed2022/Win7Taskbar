@@ -48,6 +48,18 @@ To install this software, the subsequent steps need to be followed:
 3. Run `Win7Taskbar.exe`.
 4. To exit, right-click the clock → **Properties** → **Close Win7Taskbar**.
 
+## Troubleshooting
+
+**"Win7TaskbarCore.dll non è stata trovata" / "Win7TaskbarCore.dll was not found"**
+
+The native core normally lives next to `Win7Taskbar.exe`, but the executable also carries an internal copy: on start it checks the file beside it and, when the file is missing, belongs to another version, or cannot be loaded, it restores the internal copy by itself (next to the executable, or in `%LOCALAPPDATA%\Win7Taskbar\core` when that folder is not writable) and keeps running.
+
+If the message still appears, the automatic repair was blocked too. The usual causes are:
+
+* an antivirus quarantining the native DLL — add `Win7Taskbar` to its exclusions and extract the package again;
+* an incomplete extraction — extract the whole ZIP, keeping every file together;
+* launching the executable from inside the ZIP viewer — extract first, then run.
+
 ## Current status
 
 Win7Taskbar is still under development. Some features are incomplete or recreated, particularly parts of the notification area and system UI on Windows 11. Window thumbnail previews use a direct DWM surface with the existing image border and close button, without a coloured backing panel. Jump Lists are incomplete and temporarily disabled; their managed/native implementation remains in the source tree for completion. The right-click menu is unchanged.
