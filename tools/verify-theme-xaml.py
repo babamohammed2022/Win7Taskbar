@@ -77,6 +77,20 @@ def scan(path: Path) -> list[str]:
     def walk(element, scopes: list[set[str]], scope_names: dict[int, list[str]]):
         tag = local(element.tag)
 
+        # v1.21.48: un ELEMENTO istanziato da un clr-namespace SENZA
+        # ';assembly=' (es. <conv:MioConverter/>) non si risolve nello XAML
+        # caricato a runtime con XamlReader.Load: e' il crash reale della
+        # 1.21.47 ("Cannot create unknown type WidthRatioConverter").
+        # Gli x:Static restano esclusi: quelli li valida/qualifica il
+        # ThemeLoader prima del parse.
+        if element.tag.startswith("{clr-namespace:"):
+            ns = element.tag[1:element.tag.index("}")]
+            if ";assembly=" not in ns:
+                problems.append(
+                    f"elemento <{tag}> istanziato da '{ns}' senza "
+                    f"';assembly=: non risolvibile nel tema caricato a "
+                    f"runtime (classe di crash della v1.21.47)")
+
         if tag not in TEXT_VALUE_TAGS:
             if element.text and element.text.strip():
                 problems.append(f"testo dove serve un elemento: "
