@@ -2477,7 +2477,27 @@ namespace Win7Taskbar
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+        /* v1.21.49: l'hook dei messaggi non deve MAI lanciare. Un'eccezione
+         * che esce da un hook di HwndSource butta giu' il processo senza
+         * appello (la stessa famiglia di crash segnalata per la 1.21.47):
+         * ogni guasto dentro un gestore viene annotato nella diagnostica e
+         * il messaggio viene trattato come non gestito. La barra resta viva. */
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            try
+            {
+                return WndProcCore(hwnd, msg, wParam, lParam, ref handled);
+            }
+            catch (Exception ex)
+            {
+                StartupGuard.Note(
+                    $"WndProc: eccezione ignorata sul messaggio 0x{msg:X4}: " +
+                    $"{ex.GetType().Name}: {ex.Message}");
+                return IntPtr.Zero;
+            }
+        }
+
+        private IntPtr WndProcCore(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             const int WM_DISPLAYCHANGE = 0x007E;
             const int WM_DWMCOLORIZATIONCOLORCHANGED = 0x0320;
@@ -5357,10 +5377,24 @@ namespace Win7Taskbar
 
             if (OverflowToggle != null)
             {
-                Point tl = OverflowToggle.PointToScreen(new Point(0, 0));
-                Point br = OverflowToggle.PointToScreen(
-                    new Point(OverflowToggle.ActualWidth, OverflowToggle.ActualHeight));
-                _bridge.OverflowShow((int)tl.X, (int)tl.Y, (int)br.X, (int)br.Y);
+                /* v1.21.49: una Show nativa fallita (PointToScreen senza
+                 * sorgente di presentazione, eccezione del bridge) non deve
+                 * uccidere il clic della freccetta: si annota e si lascia
+                 * decidere al controllo di visibilita' qui sotto, che apre
+                 * il pannello WPF di riserva. */
+                try
+                {
+                    Point tl = OverflowToggle.PointToScreen(new Point(0, 0));
+                    Point br = OverflowToggle.PointToScreen(
+                        new Point(OverflowToggle.ActualWidth, OverflowToggle.ActualHeight));
+                    _bridge.OverflowShow((int)tl.X, (int)tl.Y, (int)br.X, (int)br.Y);
+                }
+                catch (Exception ex)
+                {
+                    StartupGuard.Note(
+                        "overflow: Show nativa fallita: " +
+                        ex.GetType().Name + ": " + ex.Message);
+                }
             }
 
             if (_overflowShellFlyout)
@@ -5430,8 +5464,20 @@ namespace Win7Taskbar
                 OverflowPopup.IsOpen = false;
             }
 
-            _bridge.OverflowHide();
-            StopOverflowOutsideClose();
+            /* v1.21.49: la chiusura non deve mai lanciare: se la Hide nativa
+             * o lo sgancio del outside-close falliscono si annota e si va
+             * avanti (la freccetta e' gia' tornata su). */
+            try
+            {
+                _bridge.OverflowHide();
+                StopOverflowOutsideClose();
+            }
+            catch (Exception ex)
+            {
+                StartupGuard.Note(
+                    "overflow: eccezione ignorata nella chiusura del pannello: " +
+                    ex.GetType().Name + ": " + ex.Message);
+            }
         }
 
         /// <summary>Come StartOverflowOutsideClose ma col rettangolo della

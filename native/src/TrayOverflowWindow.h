@@ -57,6 +57,15 @@ private:
     HWND   m_hWnd = nullptr;
     int    m_hotIcon = -1;      // icona sotto il cursore (hover Win7)
 
+    /* v3.8 (1.21.49): texture di hover = la STESSA tessera di vetro che la
+     * system tray accende sotto le icone (OverflowTileAsset.inc, estratta
+     * dal bundle C#). Decodificata UNA volta al primo uso; se non e'
+     * disponibile OnPaint ripiega sul rettangolo azzurro classico: la
+     * texture e' un miglioramento, mai un punto di crash. */
+    HBITMAP m_hoverTile = nullptr;
+    bool    m_hoverTileTried = false;
+    void    EnsureHoverTile();
+
     // v3.2: misure scalate col DPI (GetDpiForWindow): i numeri fissi dei
     // commenti restano i valori a 96 DPI, qui arrivano moltiplicati.
     UINT   m_dpi = 96;
