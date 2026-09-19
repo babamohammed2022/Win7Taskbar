@@ -1,9 +1,12 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Win7Taskbar.Interop;
 
 namespace Win7Taskbar.Controls
 {
@@ -54,10 +57,21 @@ namespace Win7Taskbar.Controls
         private DispatcherTimer? _anchorWatch;
 
         /// <summary>
-        /// Ogni quanto si ricontrolla che l'ancora dell'icona valga ancora.
+        /// Ogni quanto si ricontrolla la posizione del fumetto (v1.21.40:
+        /// il watch vale per TUTTI i fumetti, anche quelli ancorati all'area
+        /// di notifica: verifica l'ancora e, se il popup non sta dove deve,
+        /// lo riporta a posto con SetWindowPos).
         /// </summary>
         private static readonly TimeSpan AnchorWatchInterval =
             TimeSpan.FromMilliseconds(400);
+
+        /// <summary>
+        /// Tolleranza (px fisici) fra la posizione calcolata e quella reale
+        /// del popup prima di intervenire con SetWindowPos: arrotondamenti
+        /// di un pixel fra il piazzamento WPF e il nostro calcolo sono
+        /// normali e non vanno corretti.
+        /// </summary>
+        private const int PositionTolerancePx = 2;
 
         /// <param name="anchor">
         /// Elemento di ripiego per il posizionamento: di norma l'area di
@@ -116,11 +130,15 @@ namespace Win7Taskbar.Controls
                 _balloon.Closed += (_, _) => Hide();
 
                 /* v3.7: l'ancora e' l'icona che ha generato la notifica, se
-                 * esiste; altrimenti l'area di notifica (ripiego d'origine). */
+                 * esiste; altrimenti l'area di notifica (ripiego d'origine).
+                 * v1.21.40: la validita' dell'ancora include il collegamento
+                 * a una PresentationSource: un contenitore appena ricreato
+                 * puo' superare IsLoaded/IsVisible un istante prima di
+                 * essere scollegato, e un Popup aperto su un target non
+                 * presentato finisce parcheggiato a (0,0) dello schermo -
+                 * il "fumetto in alto a sinistra" della 1.21.39. */
                 bool anchoredToIcon = iconAnchor is FrameworkElement element
-                                      && element.IsLoaded
-                                      && element.IsVisible
-                                      && element.ActualWidth > 0;
+                                      && IsAnchorStillValid(element);
                 UIElement effectiveAnchor = anchoredToIcon ? iconAnchor! : _anchor;
 
                 _popup = new Popup
@@ -141,15 +159,33 @@ namespace Win7Taskbar.Controls
                     PopupAnimation = PopupAnimation.Fade
                 };
 
-                /* v3.7.2: sorveglianza dell'ancora: se l'icona finisce in
-                 * overflow o viene rimossa mentre il fumetto e' visibile, il
-                 * fumetto torna ad ancorarsi all'area di notifica. */
+                /* v3.7.2 / v1.21.40: sorveglianza continua. Se l'icona
+                 * finisce in overflow o viene rimossa mentre il fumetto e'
+                 * visibile, il fumetto torna ad ancorarsi all'area di
+                 * notifica; in piu' - per QUALSIASI fumetto - ogni giro
+                 * verifica dove il popup sta davvero e lo forza nella
+                 * posizione giusta (vedi EnforceScreenPosition). */
                 _iconAnchorElement = anchoredToIcon ? (FrameworkElement)effectiveAnchor : null;
                 StartAnchorWatch();
 
                 TimeSpan shown = _balloon.Show(title, info, infoFlags, timeoutMs,
                                                userIcon, feedback);
                 _popup.IsOpen = true;
+
+                /* v1.21.40: prima verifica immediata (dopo la passata di
+                 * layout che misura il popup): se WPF ha piazzato il fumetto
+                 * altrove - incluso l'angolo (0,0) quando il target non e'
+                 * presentabile - viene riportato a posto subito, senza
+                 * aspettare il primo giro del watch. */
+                Popup openedPopup = _popup;
+                _popup.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (ReferenceEquals(_popup, openedPopup))
+                    {
+                        EnforceScreenPosition();
+                    }
+                }), DispatcherPriority.Loaded);
+
                 return shown;
             }
             catch (Exception ex)
@@ -186,20 +222,18 @@ namespace Win7Taskbar.Controls
         }
 
         // ---------------------------------------------------------------
-        //  v3.7.2 - Sorveglianza dell'ancora dell'icona
+        //  v3.7.2 / v1.21.40 - Sorveglianza dell'ancora e della posizione
         // ---------------------------------------------------------------
 
         /// <summary>
-        /// Avvia il controllo periodico dell'icona a cui il fumetto e'
-        /// ancorato. Senza ancora (ripiego sulla tray) non serve.
+        /// Avvia il controllo periodico del fumetto aperto. Da v1.21.40
+        /// gira per TUTTI i fumetti (non solo quelli ancorati a un'icona):
+        /// oltre alla validita' dell'ancora verifica la posizione reale del
+        /// popup sullo schermo e la corregge quando WPF lo ha piazzato male.
         /// </summary>
         private void StartAnchorWatch()
         {
             StopAnchorWatch();
-            if (_iconAnchorElement == null)
-            {
-                return;
-            }
 
             _anchorWatch = new DispatcherTimer(DispatcherPriority.Background)
             {
@@ -207,25 +241,26 @@ namespace Win7Taskbar.Controls
             };
             _anchorWatch.Tick += (_, _) =>
             {
-                if (_popup == null || _iconAnchorElement == null)
+                if (_popup == null)
                 {
                     StopAnchorWatch();
                     return;
                 }
 
-                if (IsAnchorStillValid(_iconAnchorElement))
+                if (_iconAnchorElement != null &&
+                    !IsAnchorStillValid(_iconAnchorElement))
                 {
-                    return;
+                    /* L'icona non sta piu' in barra (mandata in overflow,
+                     * spostata, disattivata o rimossa): continuando ad
+                     * ancorare a lei il fumetto punterebbe un punto
+                     * sbagliato. Lo si ri-ancora all'area di notifica; il
+                     * watch RESTA ATTIVO per la verifica di posizione. */
+                    Debug.WriteLine("balloon: ancora non piu' valida, " +
+                                    "ri-ancoraggio all'area di notifica");
+                    RetargetToTrayAnchor();
                 }
 
-                /* L'icona non sta piu' in barra (mandata in overflow,
-                 * spostata, disattivata o rimossa): continuando ad
-                 * ancorare a lei il fumetto punterebbe un punto
-                 * sbagliato. Lo si ri-ancora all'area di notifica. */
-                Debug.WriteLine("balloon: ancora non piu' valida, " +
-                                "ri-ancoraggio all'area di notifica");
-                StopAnchorWatch();
-                RetargetToTrayAnchor();
+                EnforceScreenPosition();
             };
             _anchorWatch.Start();
         }
@@ -243,10 +278,12 @@ namespace Win7Taskbar.Controls
         }
 
         /// <summary>
-        /// Verifica che l'elemento dell'icona sia ancora un'ancora
-        /// utilizzabile: caricato, visibile, largo e collegato a una
-        /// finestra vera (PointToScreen alza un'eccezione se l'elemento
-        /// non e' piu' presentato da nessuna finestra).
+        /// Verifica che l'elemento sia ancora un'ancora utilizzabile:
+        /// caricato, visibile, largo e - v1.21.40 - collegato a una
+        /// PresentationSource viva. Un Popup il cui PlacementTarget non e'
+        /// presentato da nessuna finestra non ha coordinate in cui stare e
+        /// WPF lo parcheggia nell'angolo (0,0) dello schermo; PointToScreen
+        /// da solo non basta per accorgersene in ogni fase del ciclo.
         /// </summary>
         private static bool IsAnchorStillValid(FrameworkElement element)
         {
@@ -254,6 +291,11 @@ namespace Win7Taskbar.Controls
             {
                 if (!element.IsLoaded || !element.IsVisible ||
                     element.ActualWidth <= 0)
+                {
+                    return false;
+                }
+
+                if (PresentationSource.FromVisual(element) == null)
                 {
                     return false;
                 }
@@ -267,10 +309,163 @@ namespace Win7Taskbar.Controls
             }
         }
 
+        // ---------------------------------------------------------------
+        //  v1.21.40 - Posizione forzata (Win32)
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// Verifica dove il popup sta DAVVERO e, se non e' dove dovrebbe,
+        /// lo sposta con SetWindowPos.
+        ///
+        /// Perche' serve: il piazzamento di WPF (PlacementMode.Custom) e'
+        /// corretto finche' il PlacementTarget resta presentabile per tutta
+        /// la vita del popup; quando il contenitore dell'icona viene
+        /// scollegato (icone promosse/rigenerate dai refresh della tray) il
+        /// popup perde le coordinate e finisce in alto a sinistra. Il
+        /// calcolo qui sotto non dipende da WPF: prende le coordinate
+        /// schermo dell'ancora (o dell'area di notifica), la misura del
+        /// fumetto e il work area del monitor, e impone il risultato.
+        /// </summary>
+        private void EnforceScreenPosition()
+        {
+            try
+            {
+                if (_popup == null || _balloon == null || !_popup.IsOpen)
+                {
+                    return;
+                }
+
+                /* HWND del PopupRoot: la finestra vera del fumetto. */
+                if (PresentationSource.FromVisual(_balloon) is not HwndSource source
+                    || source.Handle == IntPtr.Zero)
+                {
+                    return;
+                }
+
+                if (!TryComputeDesiredPosition(out int left, out int top))
+                {
+                    return;
+                }
+
+                if (!NativeMethods.GetWindowRect(source.Handle,
+                                                 out NativeMethods.RECT actual))
+                {
+                    return;
+                }
+
+                if (Math.Abs(actual.Left - left) <= PositionTolerancePx &&
+                    Math.Abs(actual.Top - top) <= PositionTolerancePx)
+                {
+                    return;
+                }
+
+                Debug.WriteLine($"balloon: posizione forzata da " +
+                                $"({actual.Left},{actual.Top}) a ({left},{top})");
+                NativeMethods.SetWindowPos(source.Handle, IntPtr.Zero,
+                                           left, top, 0, 0,
+                                           NativeMethods.SWP_NOSIZE |
+                                           NativeMethods.SWP_NOZORDER |
+                                           NativeMethods.SWP_NOACTIVATE);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"balloon: verifica posizione fallita: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Posizione schermo (pixel fisici) che il fumetto deve occupare:
+        /// punta centrata sull'icona quando l'ancora e' un'icona valida,
+        /// altrimenti bordo destro allineato all'area di notifica - le
+        /// stesse geometrie dei callback di piazzamento, ricalcolate in
+        /// modo indipendente da WPF e chiuse dentro il work area del
+        /// monitor dell'ancora.
+        /// </summary>
+        private bool TryComputeDesiredPosition(out int left, out int top)
+        {
+            left = 0;
+            top = 0;
+
+            if (_balloon == null || _balloon.ActualWidth <= 0 ||
+                _balloon.ActualHeight <= 0)
+            {
+                return false;
+            }
+
+            bool onIcon = _iconAnchorElement != null &&
+                          IsAnchorStillValid(_iconAnchorElement);
+            if (_anchor is not FrameworkElement trayAnchor)
+            {
+                return false;
+            }
+
+            FrameworkElement anchor = onIcon ? _iconAnchorElement! : trayAnchor;
+            if (!onIcon && !IsAnchorStillValid(anchor))
+            {
+                return false;
+            }
+
+            /* PointToScreen restituisce pixel fisici, lo stesso spazio di
+             * GetWindowRect/SetWindowPos (lo usano gia' le anteprime DWM). */
+            Point a0 = anchor.PointToScreen(new Point(0, 0));
+            Point a1 = anchor.PointToScreen(
+                new Point(anchor.ActualWidth, anchor.ActualHeight));
+
+            DpiScale dpi = VisualTreeHelper.GetDpi(_balloon);
+            double w = _balloon.ActualWidth * dpi.DpiScaleX;
+            double h = _balloon.ActualHeight * dpi.DpiScaleY;
+            double gap = (onIcon ? IconAnchorGap : 0) * dpi.DpiScaleY;
+
+            double x = onIcon
+                ? (a0.X + a1.X) / 2.0 - (w - TipOffsetFromRightEdge * dpi.DpiScaleX)
+                : a1.X - w;
+            double y = a0.Y - h - gap;   // sopra l'ancora
+
+            /* Work area del monitor dell'ancora: decide il ribaltamento
+             * sotto la barra (barra in alto) e il clamp finale. */
+            var pt = new NativeMethods.POINT { x = (int)a0.X, y = (int)a0.Y };
+            IntPtr monitor = NativeMethods.MonitorFromPoint(
+                pt, NativeMethods.MONITOR_DEFAULTTONEAREST);
+            var mi = new NativeMethods.MONITORINFO
+            {
+                cbSize = Marshal.SizeOf<NativeMethods.MONITORINFO>()
+            };
+            if (monitor != IntPtr.Zero && NativeMethods.GetMonitorInfoW(monitor, ref mi))
+            {
+                if (y < mi.rcWork.Top)
+                {
+                    y = a1.Y + gap;      // niente spazio sopra: sotto l'ancora
+                }
+                if (x + w > mi.rcWork.Right)
+                {
+                    x = mi.rcWork.Right - w;
+                }
+                if (x < mi.rcWork.Left)
+                {
+                    x = mi.rcWork.Left;
+                }
+                if (y + h > mi.rcWork.Bottom)
+                {
+                    y = mi.rcWork.Bottom - h;
+                }
+                if (y < mi.rcWork.Top)
+                {
+                    y = mi.rcWork.Top;
+                }
+            }
+
+            left = (int)Math.Round(x);
+            top = (int)Math.Round(y);
+            return true;
+        }
+
         /// <summary>
         /// Sposta il fumetto dall'icona (non piu' valida) all'area di
-        /// notifica: cambia il callback di posizionamento e il target; la
-        /// variazione del target fa ricalcolare subito il piazzamento a WPF.
+        /// notifica: cambia il callback di posizionamento e il target.
+        /// v1.21.40: non ci si affida piu' al fatto che WPF ricalcoli il
+        /// piazzamento da solo (puo' non accadere se il popup era gia' in
+        /// uno stato anomalo): subito dopo questa chiamata il watch impone
+        /// la posizione con SetWindowPos.
         /// </summary>
         private void RetargetToTrayAnchor()
         {
