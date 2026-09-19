@@ -408,8 +408,29 @@ int32_t WindowManager::RefreshImpl() {
             GetWindowTextW(hwnd, title, W7T_MAX_TITLE);
             const uint32_t state = ComputeState(hwnd);
             const bool titleChanged = it->second.title != title;
+
+            /* v3.7: la finestra CabinetWClass del Pannello di controllo
+             * compare spesso con titolo e classe già corretti fin dalla
+             * creazione (EVENT_OBJECT_CREATE), ma AppUserModelID e
+             * RelaunchCommand vengono pubblicati da Explorer con un
+             * piccolo ritardo asincrono rispetto al titolo. Se a quel
+             * primo istante ComputeAppId non trova ancora la proprietà,
+             * la finestra resta erroneamente identificata come Explorer
+             * per sempre, perché qui sotto si ricalcolava l'identità SOLO
+             * quando cambiava il titolo (che a quel punto non cambia più).
+             * Per le finestre explorer.exe si ricontrolla quindi ad ogni
+             * refresh finché non si stabilizza su un'identità diversa da
+             * quella "grezza" di Explorer, così l'icona/il raggruppamento
+             * "Pannello di controllo" arriva anche quando il titolo era
+             * già corretto al primo giro. */
+            const bool isExplorerHost =
+                it->second.exePath.size() >= 12 &&
+                _wcsicmp(it->second.exePath.c_str() +
+                             it->second.exePath.size() - 12,
+                         L"explorer.exe") == 0;
+
             bool identityChanged = false;
-            if (titleChanged) {
+            if (titleChanged || isExplorerHost) {
                 const std::wstring appId =
                     ComputeAppId(hwnd, it->second.pid, it->second.exePath);
                 if (it->second.appId != appId) {
