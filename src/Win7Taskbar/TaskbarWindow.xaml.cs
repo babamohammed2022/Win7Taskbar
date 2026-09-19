@@ -1561,6 +1561,27 @@ namespace Win7Taskbar
 
         private Controls.BalloonHost? _balloonHost;
 
+        /// <summary>
+        /// v1.21.41: notifiche balloon TEMPORANEAMENTE DISATTIVATE.
+        ///
+        /// Su hardware reale i fumetti continuano a comparire in cima allo
+        /// schermo nonostante l'ancoraggio all'icona (v1.21.39) e il
+        /// correttore di posizione Win32 (v1.21.40): si disattiva la
+        /// visualizzazione finché il posizionamento non viene risolto.
+        /// L'intercettazione nativa resta attiva, quindi le applicazioni
+        /// che chiamano Shell_NotifyIcon con NIF_INFO non ottengono né il
+        /// nostro fumetto né quello di Windows (nessuna notifica a video,
+        /// nessun callback NIN_BALLOON*: è la stessa semantica di Windows
+        /// quando le notifiche dell'app sono disattivate). Tutto il resto
+        /// (promozione dell'icona, durata, suono, icone NIIF_USER,
+        /// feedback NIN) resta nel codice e torna attivo riportando questo
+        /// campo a true.
+        /// </summary>
+        // A static readonly field (not a const) on purpose: a compile-time
+        // constant would make the rest of OnBalloonReceived unreachable code
+        // (same pattern as TaskPreviewsEnabled).
+        private static readonly bool BalloonNotificationsEnabled = false;
+
         /* v1.21.39 - ANCORA DEL FUMETTO SULL'ICONA CHE LO GENERA.
          *
          * Difetti corretti (confronto: RetroBar/ManagedShell, ExplorerPatcher,
@@ -1590,6 +1611,14 @@ namespace Win7Taskbar
 
         private void OnBalloonReceived(object? sender, BalloonNotification balloon)
         {
+            /* v1.21.41: kill-switch dei fumetti (vedi BalloonNotificationsEnabled).
+             * Uscita prima di qualunque allocazione, promozione dell'icona o
+             * risoluzione dell'ancora: non viene mostrato né programmato nulla. */
+            if (!BalloonNotificationsEnabled)
+            {
+                return;
+            }
+
             _balloonHost ??= new Controls.BalloonHost(TrayArea);
             int seq = ++_balloonSeq;
 
