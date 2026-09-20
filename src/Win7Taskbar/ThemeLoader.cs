@@ -96,9 +96,9 @@ namespace Win7Taskbar
             "pack://application:,,,/Win7Taskbar;component/Themes/AeroBasic.xaml";
 
         /* Skin "Windows 8 Beta 8148" (id 3): dizionario compilato con le
-         * sole chiavi della beta (pulsante Start + vetro piu' marcato),
-         * mergiato per ultimo sopra il tema Windows 7 intatto, come
-         * AeroBasic.xaml. */
+         * sole chiavi della beta (pulsante Start, vetro piu' marcato e
+         * cornice delle anteprime rettangolare), mergiato per ultimo
+         * sopra il tema Windows 7 intatto, come AeroBasic.xaml. */
         private const string Win8Beta8148Uri =
             "pack://application:,,,/Win7Taskbar;component/Themes/Win8Beta8148.xaml";
 
@@ -156,8 +156,9 @@ namespace Win7Taskbar
 
             /* Skin "Windows 8 Beta 8148" (id 3): stesso schema dell'Aero
              * Basic (tema Windows7.xaml intatto + piccolo dizionario
-             * mergiato PER ULTIMO, con il pulsante Start della beta e il
-             * vetro piu' marcato a texture identiche); con le altre skin
+             * mergiato PER ULTIMO, con il pulsante Start della beta, il
+             * vetro piu' marcato a texture identiche e la cornice delle
+             * anteprime rettangolare); con le altre skin
              * questo blocco non viene eseguito e nulla cambia. Il merge e'
              * blindato dentro MergeWin8Beta8148Overrides (pre-validazione
              * degli sprite + try/catch): se l'asset manca o il parse
@@ -269,8 +270,9 @@ namespace Win7Taskbar
 
         /// <summary>
         /// Skin "Windows 8 Beta 8148" (id 3): mergia per ultimo il
-        /// dizionario Win8Beta8148.xaml (pulsante Start della beta + vetro
-        /// piu' marcato a texture identiche). Blindato in due strati:
+        /// dizionario Win8Beta8148.xaml (pulsante Start della beta, vetro
+        /// piu' marcato a texture identiche e cornice delle anteprime
+        /// rettangolare). Blindato in due strati:
         /// prima si pre-validano gli sprite nel bundle (chiavi presenti E
         /// decodificabili, come fa ValidateStaticMembers per il tema), poi
         /// il merge avviene dentro try/catch. Su qualunque problema si
@@ -305,9 +307,9 @@ namespace Win7Taskbar
                 try
                 {
                     DiagnosticLogger.Write("THEME",
-                        "skin 8 Beta 8148: pulsante Start della beta e vetro " +
-                        "rinforzato applicati sopra il tema Windows 7 " +
-                        "(Win8Beta8148.xaml mergiato per ultimo)");
+                        "skin 8 Beta 8148: pulsante Start della beta, vetro " +
+                        "rinforzato e anteprime rettangolari sopra il tema " +
+                        "Windows 7 (Win8Beta8148.xaml mergiato per ultimo)");
                 }
                 catch
                 {
