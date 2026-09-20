@@ -755,6 +755,13 @@ namespace Win7Taskbar.Interop
             try { NativeMethods.W7T_BatteryFlyoutSetLanguage(lang); } catch { }
         }
 
+        /// <summary>OPZIONE B: ripristino esplicito (idempotente) della
+        /// chiave legacy batteria, chiamato in chiusura pulita.</summary>
+        public void BatteryFlyoutRestoreLegacyKey()
+        {
+            try { NativeMethods.W7T_BatteryFlyoutRestoreLegacyKey(); } catch { }
+        }
+
         /// <summary>
         /// Importa le icone gia' presenti nell'area di notifica di Explorer.
         /// </summary>

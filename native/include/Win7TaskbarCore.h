@@ -539,6 +539,11 @@ W7T_API void W7T_CALL W7T_BatteryFlyoutShowAt(int32_t left, int32_t top,
         int32_t right, int32_t bottom);
 W7T_API void W7T_CALL W7T_BatteryFlyoutHide(void);
 W7T_API void W7T_CALL W7T_BatteryFlyoutSetLanguage(int32_t lang);
+/* OPZIONE B: ripristino esplicito della chiave legacy UseWin32BatteryFlyout
+ * (idempotente). Il gestito lo chiama in chiusura pulita; il restore vero
+ * e' comunque garantito anche da Stop, WM_ENDSESSION, crash filter e
+ * recovery al boot. */
+W7T_API void W7T_CALL W7T_BatteryFlyoutRestoreLegacyKey(void);
 
 /* ------------------------------------------------------------------ */
 /*  Lingua (v2.59)                                                    */

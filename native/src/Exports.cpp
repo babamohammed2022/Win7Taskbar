@@ -1244,6 +1244,15 @@ extern "C" W7T_API void W7T_CALL W7T_BatteryFlyoutSetLanguage(int32_t lang) {
     W7T_SEH_END
 }
 
+/* OPZIONE B: il gestito chiede esplicitamente il restore in chiusura
+ * pulita. Idempotente: senza tentativi pendenti e' un no-op. */
+extern "C" W7T_API void W7T_CALL W7T_BatteryFlyoutRestoreLegacyKey(void) {
+    W7T_SEH_TRY
+        TrayService::RestoreBatteryFlyoutKey();
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
 /* ------------------------------------------------------------------ */
 /* v2.36: flyout di rete Windows 7 (porting MIT della mod Windhawk    */
 /* "Windows 7 Network Flyout Recreation" v5.0.0).                     */
