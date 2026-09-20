@@ -29,16 +29,12 @@ public:
     void Show(int anchorX, int anchorY);
     void Hide();
     bool IsVisible() const { return m_hWnd != nullptr && IsWindowVisible(m_hWnd); }
-    /* v1.21.30: 0 = Windows 7 (blu traslucido), 1 = Windows 8.1 metro
-     * (viola fisso, opaco, geometrico).
-     * v1.21.50: 2 = "Windows 7 Aero Basic": la ricerca resta IDENTICA alla
-     * skin Windows 7 (stessi colori, stessi gradienti, stesse cornici,
-     * stessa scrollbar) ma la finestra e' COMPLETAMENTE OPACA: il gradiente
-     * di alpha della skin Win7 (222 -> 242) diventa 255/255, quindi niente
-     * desktop che traspare dal vetro. Qualunque altro valore resta il
-     * ripiego storico, la skin Windows 7. */
+    // Search appearance only; taskbar skin resources are not modified.
+    // 0: translucent Windows 7; 1: opaque Windows 8.1; 2: opaque Win7
+    // Aero Basic; 3: the same Windows 8.1 search with a 7.45%-transparent
+    // background for Windows 8 Beta 8148. Unknown IDs fall back to Win7.
     void SetTheme(int32_t theme) {
-        m_theme = (theme == 1 || theme == 2) ? theme : 0;
+        m_theme = (theme == 1 || theme == 2 || theme == 3) ? theme : 0;
         if (m_hWnd != nullptr) InvalidateRect(m_hWnd, nullptr, TRUE);
     }
 private:
