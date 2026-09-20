@@ -74,7 +74,6 @@ namespace Win7Taskbar.Controls
         private readonly StackPanel? _tile;
         private readonly DispatcherTimer _pollTimer;
         private uint _lastLangId;
-        private NativeMethods.W7TLangChangedCallback? _callbackKeepAlive;
 
         public InputLanguageBar()
         {

@@ -261,14 +261,18 @@ namespace Win7Taskbar.Utilities
 
                 /* Il live e' nostro: si ripristina lo stato originale esatto. */
                 bool restored;
+                string detail;
                 if (!data.Existed)
                 {
                     /* Non c'era: si rimuove del tutto, non si mette 0. */
                     restored = DeleteLiveValue(name);
+                    detail = " (removed)";
                 }
                 else if (data.OriginalKind == RegistryValueKind.DWord && data.Original.HasValue)
                 {
-                    restored = WriteLiveValue(name, data.Original.Value);
+                    int original = data.Original.Value;
+                    restored = WriteLiveValue(name, original);
+                    detail = " (" + original + ")";
                 }
                 else
                 {
@@ -285,8 +289,7 @@ namespace Win7Taskbar.Utilities
                 {
                     return false;   /* si ritenta alla prossima chiusura pulita */
                 }
-                DiagnosticLogger.Write("REGBACKUP", "restored " + name + " to original" +
-                    (!data.Existed ? " (removed)" : " (" + data.Original.Value + ")"));
+                DiagnosticLogger.Write("REGBACKUP", "restored " + name + " to original" + detail);
                 DeleteBackup(name);
                 return !HasBackup(name);
             }
