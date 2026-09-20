@@ -95,6 +95,13 @@ namespace Win7Taskbar
         private const string AeroBasicUri =
             "pack://application:,,,/Win7Taskbar;component/Themes/AeroBasic.xaml";
 
+        /* Skin "Windows 8 Beta 8148" (id 3): dizionario compilato con le
+         * sole chiavi della beta (pulsante Start + vetro piu' marcato),
+         * mergiato per ultimo sopra il tema Windows 7 intatto, come
+         * AeroBasic.xaml. */
+        private const string Win8Beta8148Uri =
+            "pack://application:,,,/Win7Taskbar;component/Themes/Win8Beta8148.xaml";
+
         private static readonly XNamespace Presentation =
             "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
 
@@ -145,6 +152,20 @@ namespace Win7Taskbar
                 {
                     /* la diagnostica non e' mai un requisito */
                 }
+            }
+
+            /* Skin "Windows 8 Beta 8148" (id 3): stesso schema dell'Aero
+             * Basic (tema Windows7.xaml intatto + piccolo dizionario
+             * mergiato PER ULTIMO, con il pulsante Start della beta e il
+             * vetro piu' marcato a texture identiche); con le altre skin
+             * questo blocco non viene eseguito e nulla cambia. Il merge e'
+             * blindato dentro MergeWin8Beta8148Overrides (pre-validazione
+             * degli sprite + try/catch): se l'asset manca o il parse
+             * fallisce, la skin ricade sul puro Windows 7 invece di
+             * rompere l'avvio. */
+            if (IsWin8Beta8148Selected())
+            {
+                MergeWin8Beta8148Overrides(root);
             }
 
             // v2.21: SuperbarButton eredita da TaskButton, ma il BasedOn
@@ -219,6 +240,114 @@ namespace Win7Taskbar
                 return RetroBar.Utilities.TaskbarThemeIds.Normalize(
                            RetroBar.Utilities.Settings.Instance.ThemeSelection)
                        == RetroBar.Utilities.TaskbarThemeIds.Windows7AeroBasic;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// True quando la skin scelta in Proprieta' e' la "Windows 8 Beta
+        /// 8148": stessa prudenza di IsWindows81Selected, una
+        /// configurazione non leggibile lascia il ripiego (skin Windows 7,
+        /// senza il dizionario della beta).
+        /// </summary>
+        private static bool IsWin8Beta8148Selected()
+        {
+            try
+            {
+                return RetroBar.Utilities.TaskbarThemeIds.Normalize(
+                           RetroBar.Utilities.Settings.Instance.ThemeSelection)
+                       == RetroBar.Utilities.TaskbarThemeIds.Windows8Beta8148;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Skin "Windows 8 Beta 8148" (id 3): mergia per ultimo il
+        /// dizionario Win8Beta8148.xaml (pulsante Start della beta + vetro
+        /// piu' marcato a texture identiche). Blindato in due strati:
+        /// prima si pre-validano gli sprite nel bundle (chiavi presenti E
+        /// decodificabili, come fa ValidateStaticMembers per il tema), poi
+        /// il merge avviene dentro try/catch. Su qualunque problema si
+        /// salta il dizionario e la skin resta il puro Windows 7 (orb e
+        /// vetro originali): mai una barra rotta per un asset cosmetico,
+        /// e il chiamante (Build/ReapplyNow) non deve gestire nulla.
+        /// </summary>
+        private static void MergeWin8Beta8148Overrides(ResourceDictionary root)
+        {
+            if (!Win8Beta8148SpritesAvailable())
+            {
+                try
+                {
+                    DiagnosticLogger.Write("THEME",
+                        "skin 8 Beta 8148: sprite non disponibili nel bundle, " +
+                        "ricado sul puro Windows 7 (Win8Beta8148.xaml saltato)");
+                }
+                catch
+                {
+                    /* la diagnostica non e' mai un requisito */
+                }
+                return;
+            }
+
+            try
+            {
+                root.MergedDictionaries.Add(new ResourceDictionary
+                {
+                    Source = new Uri(Win8Beta8148Uri, UriKind.Absolute)
+                });
+
+                try
+                {
+                    DiagnosticLogger.Write("THEME",
+                        "skin 8 Beta 8148: pulsante Start della beta e vetro " +
+                        "rinforzato applicati sopra il tema Windows 7 " +
+                        "(Win8Beta8148.xaml mergiato per ultimo)");
+                }
+                catch
+                {
+                    /* la diagnostica non e' mai un requisito */
+                }
+            }
+            catch (Exception ex)
+            {
+                /* Il dizionario non si e' mergiato (BAML mancante o parse
+                 * fallito): la skin resta il puro Windows 7. Si annota il
+                 * motivo in diagnostica e si prosegue: Build() non deve
+                 * mai lanciare per questo. */
+                try
+                {
+                    DiagnosticLogger.Write("THEME",
+                        "skin 8 Beta 8148: merge Win8Beta8148.xaml fallito " +
+                        "(" + ex.GetType().Name + ": " + ex.Message + "), " +
+                        "ricado sul puro Windows 7");
+                }
+                catch
+                {
+                    /* la diagnostica non e' mai un requisito */
+                }
+            }
+        }
+
+        /// <summary>
+        /// True se entrambi gli sprite della beta sono nel bundle grafico
+        /// e si decodificano (GraphicalResourceBundle.Get ritorna null in
+        /// entrambi i casi di errore, senza lanciare). Qualunque eccezione
+        /// imprevista vale false: meglio il ripiego Windows 7.
+        /// </summary>
+        private static bool Win8Beta8148SpritesAvailable()
+        {
+            try
+            {
+                return GraphicalResourceBundle.Keys.Contains("startwin8beta8148orb") &&
+                       GraphicalResourceBundle.Get("startwin8beta8148orb") != null &&
+                       GraphicalResourceBundle.Keys.Contains("startwin8beta8148orbscaled") &&
+                       GraphicalResourceBundle.Get("startwin8beta8148orbscaled") != null;
             }
             catch
             {
@@ -373,6 +502,11 @@ namespace Win7Taskbar
              * pulsanti, stessa tray) e ci mergia sopra il dizionario
              * AeroBasic.xaml con i soli sfondi opachi (vedi Build). */
             RetroBar.Utilities.TaskbarThemeIds.Windows7AeroBasic => "Windows7.xaml",
+            /* Skin "Windows 8 Beta 8148" (id 3): come l'Aero Basic, NON ha
+             * un file tema proprio - riusa Windows7.xaml e ci mergia sopra
+             * Win8Beta8148.xaml (pulsante Start della beta + vetro piu'
+             * marcato, vedi Build). */
+            RetroBar.Utilities.TaskbarThemeIds.Windows8Beta8148 => "Windows7.xaml",
             _ => "Windows7.xaml",
         };
 

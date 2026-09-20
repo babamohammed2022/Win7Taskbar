@@ -2170,13 +2170,16 @@ namespace Win7Taskbar
                          * riesce, resta il tema precedente e il messaggio nel
                          * log dice che serve un riavvio: nessuna barra rotta. */
                         /* v1.21.42: tre skin (Windows 7, Windows 8.1 e
-                         * Windows 7 Aero Basic, id 2). */
+                         * Windows 7 Aero Basic, id 2). Quarta skin:
+                         * Windows 8 Beta 8148, id 3. */
                         string appliedSkin = AppliedThemeSelection switch
                         {
                             RetroBar.Utilities.TaskbarThemeIds.Windows81 =>
                                 "Windows 8.1",
                             RetroBar.Utilities.TaskbarThemeIds.Windows7AeroBasic =>
                                 "Windows 7 Aero Basic",
+                            RetroBar.Utilities.TaskbarThemeIds.Windows8Beta8148 =>
+                                "Windows 8 Beta 8148",
                             _ => "Windows 7",
                         };
                         string themeSwapResult = ThemeLoader.ReapplyNow();
@@ -7592,7 +7595,13 @@ namespace Win7Taskbar
                         ? "personalizzato #" + colorRgb.ToString("X6")
                         : "sistema") +
                     " privacy=" + (privacyMode == 1 ? "on" : "off") +
-                    " tema=" + (st.ThemeSelection == 0 ? "Windows7" : "Windows8.1") +
+                    " tema=" + (st.ThemeSelection switch
+                    {
+                        RetroBar.Utilities.TaskbarThemeIds.Windows81 => "Windows8.1",
+                        RetroBar.Utilities.TaskbarThemeIds.Windows7AeroBasic => "Windows7AeroBasic",
+                        RetroBar.Utilities.TaskbarThemeIds.Windows8Beta8148 => "Windows8Beta8148",
+                        _ => "Windows7",
+                    }) +
                     " ordine-icone=" + st.TaskbarIconOrder.Count);
             }
             catch (Exception ex)

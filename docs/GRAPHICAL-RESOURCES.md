@@ -91,6 +91,8 @@ Non fanno parte del runtime e non vanno nel bundle.
 | `startwin7orbscaled` | `startwin7orbscaled.png` | `startwin7orbscaled.png` | PNG | Asset disponibile nel bundle; nessun riferimento diretto trovato | `startwin7orbscaled` |
 | `startwin81flag` | `startwin81flag.png` | `startwin81flag.png` | PNG | Bandierina Start skin Windows 8.1 (3 stati) | `startwin81flag` |
 | `startwin81flagscaled` | `startwin81flagscaled.png` | `startwin81flagscaled.png` | PNG | Bandierina Start skin Windows 8.1 (3 stati, alta risoluzione) | `startwin81flagscaled` |
+| `startwin8beta8148orb` | `Win8102StartOrb.png` | `Resources/Win8102StartOrb.png` (rimosso dal repository dopo l'embedding) | PNG | Pulsante Start skin Windows 8 Beta 8148 (3 stati 54x54, byte-identico all'originale) | `startwin8beta8148orb` |
+| `startwin8beta8148orbscaled` | generato in build | generato in build (Lanczos 2x su alpha premoltiplicato, mai committato) | PNG | Gemello 108x324 per il trigger IsScaled, come startwin7orbscaled | `startwin8beta8148orbscaled` |
 | `taskbarbackground` | `taskbarBackground.png` | `taskbarBackground.png` | PNG | Asset disponibile nel bundle; nessun riferimento diretto trovato | `taskbarbackground` |
 | `aerobasictaskbar` | `aeroBasicTaskbar.png` | `aeroBasicTaskbar.png` | PNG | Texture della barra Aero Basic (128x40, dither ordinato contro il banding); nessun riferimento diretto trovato nel tema | `aerobasictaskbar` |
 | `top_center` | `top_center.png` | `top_center.png` | PNG | Asset disponibile nel bundle; nessun riferimento diretto trovato | `top_center` |

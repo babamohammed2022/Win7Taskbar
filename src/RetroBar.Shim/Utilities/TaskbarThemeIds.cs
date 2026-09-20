@@ -10,11 +10,14 @@
 // having to know the names of the theme files. ThemeLoader (Win7Taskbar
 // project) resolves the file name.
 //
-// THREE SKINS ARE IMPLEMENTED: Windows 7 (id 0, the default and the safe
-// fallback), Windows 8.1 (id 1, v1.21.19) and Windows 7 Aero Basic (id 2,
+// FOUR SKINS ARE IMPLEMENTED: Windows 7 (id 0, the default and the safe
+// fallback), Windows 8.1 (id 1, v1.21.19), Windows 7 Aero Basic (id 2,
 // v1.21.42 - the Windows 7 skin with the Aero glass background replaced by
 // an opaque light gray-blue surface; it shares Themes/Windows7.xaml and adds
-// the Themes/AeroBasic.xaml override dictionary, see ThemeLoader).
+// the Themes/AeroBasic.xaml override dictionary, see ThemeLoader) and
+// Windows 8 Beta 8148 (id 3 - the untouched Windows 7 theme with the beta
+// Start-button sprite and slightly stronger glass, via the
+// Themes/Win8Beta8148.xaml override dictionary, see ThemeLoader).
 
 namespace RetroBar.Utilities
 {
@@ -39,6 +42,16 @@ namespace RetroBar.Utilities
         /// transparency, no reflections.</summary>
         public const int Windows7AeroBasic = 2;
 
+        /// <summary>Windows 8 Beta 8148 skin: implemented. The untouched
+        /// Windows 7 theme (same layout, buttons, tray, borders and
+        /// behavior - build 8148 was a Windows 8 beta still very close to
+        /// Windows 7) with the beta Start-button sprite (the bundle keys
+        /// startwin8beta8148orb / startwin8beta8148orbscaled) and the same
+        /// glass textures at slightly stronger intensity, via the
+        /// Themes/Win8Beta8148.xaml override dictionary merged last by
+        /// ThemeLoader only while this skin is selected.</summary>
+        public const int Windows8Beta8148 = 3;
+
         /// <summary>
         /// True if the given skin really exists in this version: this is the
         /// single judgement that keeps the Properties dropdown and the theme
@@ -47,7 +60,7 @@ namespace RetroBar.Utilities
         /// </summary>
         public static bool IsImplemented(int themeId) =>
             themeId == Windows7 || themeId == Windows81 ||
-            themeId == Windows7AeroBasic;
+            themeId == Windows7AeroBasic || themeId == Windows8Beta8148;
 
         /// <summary>Normalizes an id read from the configuration.</summary>
         public static int Normalize(int themeId) =>
