@@ -104,21 +104,37 @@ Everything the program touches in the registry, and nothing else:
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Win7Taskbar`.
   Written when the "Start automatically with Windows" checkbox is confirmed
   with OK/Apply, deleted when it is unchecked. Never touched otherwise.
-* **Persistent shell choices (kept after exit, NOT restored).**
+* **Reversible shell choices (original state preserved).**
   `HKCU\...\CurrentVersion\ImmersiveShell`: `UseWin32TrayClockExperience`
-  (1 = classic Aero clock) and `EnableMtcUvc` (0 = classic volume mixer).
+  (1 = classic Aero clock), `EnableMtcUvc` (0 = classic volume mixer) and
+  `UseWin32BatteryFlyout` (1 = real Windows 7 battery flyout).
+  Before Win7Taskbar modifies any of them for the first time, it records the
+  original state - whether the value existed and its original `DWORD` - under
+  its own key `HKCU\Software\Win7Taskbar\RegistryBackup`. The backup is taken
+  once and never overwritten: restarts, Apply/OK and switching between
+  "Windows 7" and "Windows 10/11" do not touch it.
+  On clean shutdown Win7Taskbar restores each value to its exact original
+  state (the original `DWORD`, or the value removed if it did not exist) and
+  then deletes the corresponding backup. As a safety guard, a value is
+  restored only if it still holds what Win7Taskbar last applied: changes made
+  by the user or another program while Win7Taskbar was active are never
+  silently overwritten (the restore is skipped and the backup kept).
+  If the program is killed or crashes, values and backup stay as they are;
+  the next clean shutdown restores the true original.
+* **Clock and volume (managed, restored on exit).**
   Written at startup and on every OK/Apply from the flyout choices, like
-  ExplorerPatcher does. They intentionally stay in the registry when the
-  program closes.
-* **Transient battery key (native-only, always restored).**
-  `HKCU\...\CurrentVersion\ImmersiveShell`: `UseWin32BatteryFlyout`.
-  Only the native core ever writes it, and only as `=1` around an attempt to
-  open the real Windows 7 battery flyout; the previous value is restored (or
-  the value deleted if it did not exist) when the attempt ends. The restore
-  also runs on tray stop, on clean shutdown, on session ending, in the crash
-  filter, and from the backup file at
+  ExplorerPatcher does. They stay in force while the program runs and are
+  handed back to their original state on clean exit (see above).
+* **Battery (native transient, managed backup copy).**
+  Only the native core ever writes `UseWin32BatteryFlyout`, and only as `=1`
+  around an attempt to open the real Windows 7 battery flyout; the previous
+  value is restored (or the value deleted if it did not exist) when the
+  attempt ends. That restore also runs on tray stop, on clean shutdown, on
+  session ending, in the crash filter, and from the backup file at
   `%LOCALAPPDATA%\Win7Taskbar\battery-key-backup.dat` if a previous run died
-  mid-attempt. The managed layer never writes this key.
+  mid-attempt. The managed layer never writes this value; it only keeps a
+  backup copy of the original in `RegistryBackup`, dropped at shutdown
+  without touching the live value.
 * **Legacy self-cleaning.**
   `HKCU\SOFTWARE\Win7Taskbar\TrayIconPrefs2` (tray icon preferences stored by
   older builds) is migrated into `trayicons.ini` and then removed.

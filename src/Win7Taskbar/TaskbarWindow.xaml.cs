@@ -416,9 +416,9 @@ namespace Win7Taskbar
                  *
                  * Questa e' la prima cosa che parla con il core: le quattro
                  * scelte salvate vengono pubblicate (W7T_SetFlyoutPreferences)
-                 * e le due chiavi ImmersiveShell persistenti allineate (la
-                 * batteria e' transitoria e resta in mano al nativo), cosi'
-                 * i clic sulle
+                 * e le due chiavi ImmersiveShell allineate (reversibili in
+                 * chiusura pulita; la batteria e' transitoria e resta in mano
+                 * al nativo), cosi' i clic sulle
                  * icone della tray aprono il riquadro scelto dall'utente e non
                  * quello imposto dal default. Vedi ApplyShellFlyoutPreferences:
                  * prima questa applicazione avveniva solo premendo Applica. */
@@ -1844,6 +1844,13 @@ namespace Win7Taskbar
                  * chiamata esplicita e idempotente chiude il cerchio anche
                  * se il servizio risultasse non avviato. */
                 _bridge.BatteryFlyoutRestoreLegacyKey();
+                /* Reversibilita' ImmersiveShell: in chiusura pulita si
+                 * restituiscono orologio e volume allo stato originale
+                 * precedente alla presa di controllo (i cambi fatti da altri
+                 * nel frattempo NON vengono sovrascritti) e si butta la copia
+                 * contabile della batteria. Idempotente, non lancia mai. */
+                _bridge.Log("REGBACKUP shutdown restore: " +
+                    Win7Taskbar.Utilities.ImmersiveShellBackup.RestoreAll());
                 _bridge.SetNativeTaskbarHidden(false);
 
                 _hwndSource?.RemoveHook(WndProc);
@@ -7453,13 +7460,14 @@ namespace Win7Taskbar
             return BicubicScaleBGRA(big, S, S, outSize, outSize);
         }
 
-        /* OPZIONE B: il livello gestito non scrive MAI la chiave ImmersiveShell
-         * "UseWin32BatteryFlyout". L'UNICO scrittore e' il core nativo, che la
-         * tiene TRANSITORIA: =1 solo attorno al tentativo di apertura del VERO
-         * riquadro batteria Win32, poi ripristinata al valore precedente (con
-         * restore anche in Stop, WM_ENDSESSION, crash filter e recovery al boot:
-         * vedi TrayService.cpp). Qui resta solo la chiamata di ripristino
-         * esplicito in ShutdownTaskbar. */
+        /* OPZIONE B + REVERSIBILITA': il livello gestito non scrive MAI il VALORE
+         * ImmersiveShell "UseWin32BatteryFlyout" (UNICO scrittore: il core
+         * nativo, transitorio - vedi TrayService.cpp). Si limita a: (1)
+         * fotografarne l'originale all'avvio nella NOSTRA area di backup
+         * (sola lettura del live), copia buttata in chiusura senza toccare
+         * il live; (2) chiedere al nativo il ripristino esplicito in
+         * ShutdownTaskbar. Orologio e volume invece sono scritti dal gestito
+         * e RESTITUITI all'originale in chiusura pulita (ImmersiveShellBackup). */
 
         /// <summary>
         /// v2.63 - Una chiave della shell, scritta in un posto solo.
@@ -7478,9 +7486,26 @@ namespace Win7Taskbar
         {
             try
             {
+                /* Reversibilita': prima di modificare un valore per la prima
+                 * volta se ne fotografa lo stato originale (una volta sola,
+                 * mai sovrascritto). Se il backup fallisce NON si scrive:
+                 * meglio il riquadro sbagliato che un originale perso. */
+                if (!Win7Taskbar.Utilities.ImmersiveShellBackup.EnsureBackup(name))
+                {
+                    _lastShellPrefsError = "backup of " + name + " failed: write skipped, original preserved";
+                    return;
+                }
                 using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
                     @"SOFTWARE\Microsoft\Windows\CurrentVersion\ImmersiveShell");
                 key?.SetValue(name, value, Microsoft.Win32.RegistryValueKind.DWord);
+                if (key != null)
+                {
+                    /* Si annota l'ultimo valore applicato da noi: al restore
+                     * serve per non sovrascrivere modifiche esterne. Best
+                     * effort: se fallisce, il restore salta prudente e TIENE
+                     * il backup (vedi ImmersiveShellBackup.RestoreOne). */
+                    Win7Taskbar.Utilities.ImmersiveShellBackup.RecordApplied(name, value);
+                }
                 _lastShellPrefsError = null;
             }
             catch (Exception ex)
@@ -7531,6 +7556,13 @@ namespace Win7Taskbar
                                  : (st.NetworkFlyoutMode == 2 ? 2 : 0);
                 bool volumeWin7  = st.UseClassicVolumeMixer;     /* tendina: "Windows 7" */
                 bool batteryWin7 = st.UseBatteryFlyout;          /* tendina: "Windows 7" */
+
+                /* Reversibilita': si fotografa anche l'originale della batteria
+                 * (sola LETTURA del live + scrittura nella NOSTRA area di
+                 * backup, mai del valore ImmersiveShell: il gestito continua
+                 * a non scriverlo, OPZIONE B). Best effort: la reversibilita'
+                 * vera della batteria resta quella transitoria del nativo. */
+                Win7Taskbar.Utilities.ImmersiveShellBackup.EnsureBackup("UseWin32BatteryFlyout");
 
                 WriteImmersiveShellValue("UseWin32TrayClockExperience", clockWin7 ? 1 : 0);
                 /* OPZIONE B: NESSUNA scrittura di UseWin32BatteryFlyout qui
