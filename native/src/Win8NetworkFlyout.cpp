@@ -318,8 +318,6 @@ static LONGLONG g_CharmsAnimStartQpc   = 0;
 static LONGLONG g_CharmsAnimQpcFreq    = 0;
 static UINT_PTR g_CharmsAnimTimer      = 0;
 static BOOL     g_CharmsBlockAnim      = FALSE;
-static BOOL     g_CharmsHasRgn         = FALSE;
-static int      g_CharmsLastClipPx     = -1;
 static BOOL     g_CharmsRefreshWhenIdle = FALSE;
 static BOOL     g_CharmsLBtnSawDown    = FALSE;
 static HANDLE   g_CharmsVsyncThread    = NULL;
@@ -3895,70 +3893,6 @@ static HICON CreateIconFromBase64PNG(const WCHAR* base64Str, int targetWidth = 0
     return hIcon;
 }
 
-static HICON CopyNetworkCenterIcon(int resourceId, int targetWidth, int targetHeight) {
-    HICON* source = nullptr;
-    int* cachedWidth = nullptr;
-    int* cachedHeight = nullptr;
-    const WCHAR* base64 = nullptr;
-    static int connectCachedW = 0, connectCachedH = 0;
-    static int homegroupCachedW = 0, homegroupCachedH = 0;
-    if (resourceId == 22) {
-        source = &g_hIconNetworkCenterConnect;
-        cachedWidth = &connectCachedW;
-        cachedHeight = &connectCachedH;
-        base64 = NETWORK_CENTER_CONNECT_ICON_BASE64;
-    } else if (resourceId == 27) {
-        source = &g_hIconNetworkCenterHomegroup;
-        cachedWidth = &homegroupCachedW;
-        cachedHeight = &homegroupCachedH;
-        base64 = NETWORK_CENTER_HOMEGROUP_ICON_BASE64;
-    } else {
-        return NULL;
-    }
-
-    int wantWidth  = (targetWidth  > 0) ? targetWidth  : 24;
-    int wantHeight = (targetHeight > 0) ? targetHeight : 24;
-
-    HICON copy = NULL;
-    EnterCriticalSection(&g_Ctx.csLock);
-    if (!*source || *cachedWidth != wantWidth || *cachedHeight != wantHeight) {
-        if (*source) {
-            DestroyIcon(*source);
-            *source = NULL;
-        }
-        *source = CreateIconFromBase64PNG(base64, wantWidth, wantHeight);
-        *cachedWidth = wantWidth;
-        *cachedHeight = wantHeight;
-    }
-    if (*source)
-        copy = CopyIcon(*source);
-    LeaveCriticalSection(&g_Ctx.csLock);
-    return copy;
-}
-
-static HICON CopyCachedBase64Icon(HICON* cache, int* cachedWidth,
-                                  int* cachedHeight, const WCHAR* base64,
-                                  int wantWidth, int wantHeight) {
-    if (!cache || !cachedWidth || !cachedHeight || !base64)
-        return NULL;
-
-    HICON copy = NULL;
-    EnterCriticalSection(&g_Ctx.csLock);
-    if (!*cache || *cachedWidth != wantWidth || *cachedHeight != wantHeight) {
-        if (*cache) {
-            DestroyIcon(*cache);
-            *cache = NULL;
-        }
-        *cache = CreateIconFromBase64PNG(base64, wantWidth, wantHeight);
-        *cachedWidth = wantWidth;
-        *cachedHeight = wantHeight;
-    }
-    if (*cache)
-        copy = CopyIcon(*cache);
-    LeaveCriticalSection(&g_Ctx.csLock);
-    return copy;
-}
-
 static void DrawTextWithWrap(HDC hdc, LPCWSTR text, int x, int y, int maxWidth, int lineHeight) {
     if (!text || text[0] == L'\0') return;
     int totalLen = lstrlenW(text);
@@ -4643,63 +4577,6 @@ static void PublishNetworkLocationCategory(int category, BOOL allowClear) {
     LeaveCriticalSection(&g_Ctx.csLock);
 }
 
-static HICON CopyNetworkLocationIconForDUI(int targetWidth, int targetHeight) {
-    NetworkStateSnapshot state;
-    CaptureNetworkState(&state);
-
-    bool hasConnectedNetwork = state.ethernetConnected != FALSE;
-    for (int i = 0; !hasConnectedNetwork && i < state.networkCount; ++i) {
-        if (state.networks[i].connState == CONN_STATE_CONNECTED)
-            hasConnectedNetwork = true;
-    }
-    if (!hasConnectedNetwork) {
-        if (!IsInternetConnected()) {
-            int wantW = targetWidth > 0 ? targetWidth : ScaleDpi(36);
-            int wantH = targetHeight > 0 ? targetHeight : ScaleDpi(36);
-            return CreateIconFromBase64PNG(NETLOC_PUBLIC_OFFLINE_ICON_BASE64, wantW, wantH);
-        }
-        hasConnectedNetwork = true;
-    }
-
-    int category = state.currentNetworkCategory;
-    if (!IsValidNetworkCategoryValue(category) &&
-        IsValidNetworkCategoryValue(state.lastReliableNetworkCategory)) {
-        DWORD now = GetTickCount();
-        if (now - state.lastReliableNetworkCategoryTick < 30000)
-            category = state.lastReliableNetworkCategory;
-    }
-
-    const WCHAR* png = NULL;
-    switch (category) {
-        case (int)NLM_NETWORK_CATEGORY_PRIVATE:              png = NETLOC_HOME_ICON_BASE64;   break;
-        case (int)NLM_NETWORK_CATEGORY_PUBLIC:               png = NETLOC_PUBLIC_ICON_BASE64; break;
-        case (int)NLM_NETWORK_CATEGORY_DOMAIN_AUTHENTICATED: png = NETLOC_WORK_ICON_BASE64;   break;
-        default:
-            png = NETLOC_PUBLIC_ICON_BASE64;
-            break;
-    }
-
-    int wantW = targetWidth  > 0 ? targetWidth  : ScaleDpi(48);
-    int wantH = targetHeight > 0 ? targetHeight : ScaleDpi(48);
-    HICON copy = NULL;
-    EnterCriticalSection(&g_Ctx.csLock);
-    if (!g_hIconNetLocDUI || g_iconNetLocDUIW != wantW ||
-        g_iconNetLocDUIH != wantH || g_iconNetLocDUICategory != category) {
-        if (g_hIconNetLocDUI) {
-            DestroyIcon(g_hIconNetLocDUI);
-            g_hIconNetLocDUI = NULL;
-        }
-        g_hIconNetLocDUI = CreateIconFromBase64PNG(png, wantW, wantH);
-        g_iconNetLocDUIW = wantW;
-        g_iconNetLocDUIH = wantH;
-        g_iconNetLocDUICategory = category;
-    }
-    if (g_hIconNetLocDUI)
-        copy = CopyIcon(g_hIconNetLocDUI);
-    LeaveCriticalSection(&g_Ctx.csLock);
-    return copy;
-}
-
 void SetKeyboardFocus(int index) {
     NetworkStateSnapshot state;
     CaptureNetworkState(&state);
@@ -5254,15 +5131,6 @@ static BOOL CharmsVsyncStart(HWND hwnd) {
     HANDLE h = CreateThread(NULL, 0, CharmsVsyncThreadProc, (LPVOID)(LONG_PTR)gen, 0, NULL);
     g_CharmsVsyncThread = h;
     return h != NULL;
-}
-
-// Clip the moving pane to the target monitor so a multi-monitor setup
-// doesn't briefly show the HWND on the display to the right.
-static void CharmsClearRgn(HWND hwnd) {
-    if (!g_CharmsHasRgn) return;
-    SetWindowRgn(hwnd, NULL, FALSE);
-    g_CharmsHasRgn = FALSE;
-    g_CharmsLastClipPx = -1;
 }
 
 static void CharmsEnsureLayered(HWND hwnd) {
@@ -8698,43 +8566,6 @@ static UINT GetDpiForScreenRect(const RECT* rc) {
     return 96;
 }
 
-// Cache netcenter.dll base+size for caller-module range checking (DrawTextW_Hook)
-static BYTE* g_netcenterBase = NULL;
-static BYTE* g_netcenterEnd  = NULL;
-
-// netcenter.dll is loaded on demand. Cache its range only when
-// SetXMLFromResource_Hook receives the known netcenter HMODULE, never from the
-// DrawTextW hook itself.
-
-static bool IsInNetCenter(void* ra) {
-    // DrawTextW is a very hot shell path. The hook is installed only after
-    // SetXMLFromResource_Hook has observed netcenter.dll and cached this range,
-    // so never probe the loader/module list from here on the miss path.
-    if (!ra || !(g_netcenterBase && g_netcenterEnd))
-        return false;
-    BYTE* address = static_cast<BYTE*>(ra);
-    return address >= g_netcenterBase && address < g_netcenterEnd;
-}
-
-// Resolves and caches netcenter.dll's base+size from a known-good HMODULE.
-// Call this from SetXMLFromResource_Hook (which always runs before the page
-// draws any text and already has the netcenter HMODULE in hand) instead of
-// letting every DrawTextW call in the process hit GetModuleHandleW's loader
-// lock + module-list walk.
-static void CacheNetCenterRange(HMODULE h) {
-    if (g_netcenterBase && g_netcenterEnd)
-        return;
-    if (!h)
-        return;
-
-    MODULEINFO mi{};
-    if (!GetModuleInformation(GetCurrentProcess(), h, &mi, sizeof(mi)))
-        return;
-
-    g_netcenterBase = (BYTE*)mi.lpBaseOfDll;
-    g_netcenterEnd  = g_netcenterBase + mi.SizeOfImage;
-}
-
 static bool InitPniduiInfo() {
     if (g_pniduiBase) return true;
 
@@ -10995,10 +10826,10 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                 COLORREF refreshHoverBorder = IsHighContrastActive() ? GetSysColor(COLOR_WINDOWFRAME) : (g_Settings.theme == 1) ? RGB(60, 60, 120) : RGB(174, 212, 243);
                 HBRUSH hBrBg = CreateSolidBrush(refreshHoverBg);
                 HPEN   hPenBorder = CreatePen(PS_SOLID, 1, refreshHoverBorder);
-                HPEN   hOldPen = (HPEN)SelectObject(hdc, hPenBorder);
+                HPEN   hOldHoverPen = (HPEN)SelectObject(hdc, hPenBorder);
                 HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hBrBg);
                 RoundRect(hdc, rcBtn.left, rcBtn.top, rcBtn.right, rcBtn.bottom, 4, 4);
-                SelectObject(hdc, hOldPen);
+                SelectObject(hdc, hOldHoverPen);
                 SelectObject(hdc, hOldBrush);
                 DeleteObject(hBrBg);
                 DeleteObject(hPenBorder);
@@ -11120,8 +10951,8 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
                 SelectClipRgn(hdc, hRgnClip);
                 DeleteObject(hRgnClip);
                 
-                int scrollbarOffset = (totalHeight > visibleHeight) ? ScaleDpi(16) : 0;
-                UpdateLayoutGeometry(scrollbarOffset);  
+                int listScrollbarOffset = (totalHeight > visibleHeight) ? ScaleDpi(16) : 0;
+                UpdateLayoutGeometry(listScrollbarOffset);  
                 
                 for (int i = 0; i < paintNetworkCount; i++) {
                     RECT rcRow;
@@ -11171,7 +11002,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
                             ? ((isSelected || isHovered) ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT))
                             : (g_Settings.theme == 1) ? GetTextColor() : RGB(0, 0, 0));
                         RECT rcStatus;
-                        rcStatus.right  = rcRow.right - 39 - scrollbarOffset;
+                        rcStatus.right  = rcRow.right - 39 - listScrollbarOffset;
                         rcStatus.left   = rcRow.left + 80;
                         rcStatus.top    = rcRow.top + 6 + ROW_TEXT_Y_OFFSET;
                         rcStatus.bottom = rcStatus.top + 18;
@@ -11192,7 +11023,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
                                   DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
                     }
                     
-                    DrawNativeSignalIcon(hdc, rcRow.right - 10 - scrollbarOffset, rcRow.top+2, item->signalQuality);    
+                    DrawNativeSignalIcon(hdc, rcRow.right - 10 - listScrollbarOffset, rcRow.top+2, item->signalQuality);    
                 }
                 SelectClipRgn(hdc, NULL);
             }

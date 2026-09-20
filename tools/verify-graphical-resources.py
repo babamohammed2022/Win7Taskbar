@@ -63,8 +63,10 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 ICO_SIGNATURE = b"\x00\x00\x01\x00"
 
 # v1.21.27: 52 chiavi originarie + bandierina Start Windows 8.1
-# (startwin81flag / startwin81flagscaled) = 54.
-EXPECTED_BUNDLE_COUNT = 55
+# (startwin81flag / startwin81flagscaled) = 54, + aerobasictaskbar = 55,
+# + pulsante Start Windows 8 Beta 8148 (startwin8beta8148orb /
+# startwin8beta8148orbscaled) = 57.
+EXPECTED_BUNDLE_COUNT = 57
 
 SKIP_DIR_NAMES = {
     ".git",

@@ -13,6 +13,10 @@ Checks:
 
 The last two checks are the ones that would have caught the v1.21.24 startup
 failure (a `<Setter TargetName="HoverTileImg">` whose element had lost its name).
+
+The compiled skin-override dictionaries (single copy, baked into BAML) get
+the same scan, without the twin-copy check: a malformed override would break
+the skin at startup just like a malformed runtime theme.
 """
 from __future__ import annotations
 
@@ -40,6 +44,15 @@ THEMES = [
      root / "src/Win7Taskbar/Themes/Windows7.xaml"),
     ("Windows 8.1", root / "Themes/Windows8.1.xaml",
      root / "src/Win7Taskbar/Themes/Windows8.1.xaml"),
+]
+
+# Compiled skin-override dictionaries: single copy each (baked into BAML by
+# the default WPF Page glob, no twin on disk). Overrides.xaml is NOT listed:
+# as compiled XAML it legitimately instantiates converters from unqualified
+# clr-namespaces, which the runtime-theme scan would flag.
+COMPILED_OVERRIDES = [
+    ("AeroBasic", root / "src/Win7Taskbar/Themes/AeroBasic.xaml"),
+    ("Win8Beta8148", root / "src/Win7Taskbar/Themes/Win8Beta8148.xaml"),
 ]
 
 
@@ -147,6 +160,20 @@ def main() -> int:
                       f"({root_copy.relative_to(root)} vs {src_copy.relative_to(root)})")
             else:
                 print(f"OK    {label}: le due copie del tema sono identiche")
+
+    for label, path in COMPILED_OVERRIDES:
+        if not path.is_file():
+            failed = True
+            print(f"ERRORE {label}: file mancante: {path.relative_to(root)}")
+            continue
+        problems = scan(path)
+        if problems:
+            failed = True
+            print(f"ERRORE {label}: {path.relative_to(root)}")
+            for problem in problems:
+                print(f"   - {problem}")
+        else:
+            print(f"OK    {label}: {path.relative_to(root)}")
 
     return 1 if failed else 0
 

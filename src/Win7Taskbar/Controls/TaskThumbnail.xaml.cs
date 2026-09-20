@@ -136,11 +136,13 @@ namespace Win7Taskbar.Controls
         ///     scale (fractional sizes at 125%/150%, and the popup's own
         ///     normalisation that keeps the previews at their 100%-DPI pixel
         ///     geometry);
-        ///   * each edge is rounded on its own and outward (v1.1.1), so the
-        ///     rectangle can never end up smaller than the aperture the frame
-        ///     painted: the frame's own border is drawn in the same units and
-        ///     covers the pixel the live surface may borrow (see the rounding
-        ///     comment below).
+        ///   * each edge is rounded on its own to the NEAREST device pixel -
+        ///     the same rule the XAML frame's edge snapping follows - so the
+        ///     rectangle lands exactly on the painted aperture instead of
+        ///     spilling ~1 px over its inner edge at fractional scales (a
+        ///     125% field report); exact halves still round outward, keeping
+        ///     the v1.1.1 guarantee that no transparent strip is ever left
+        ///     inside the border (see the rounding comment below).
         ///
         /// No value is guessed: when the layout is not ready yet the caller
         /// skips the update instead of painting the thumbnail at a wrong place.
@@ -180,27 +182,30 @@ namespace Win7Taskbar.Controls
                 Point bottomRight = PointToScreen(new Point(ActualWidth, ActualHeight));
                 Point clientOrigin = root.PointToScreen(new Point(0, 0));
 
-                /* v1.1.1: the live surface is rounded OUTWARD - left/top down,
-                 * right/bottom up - so the rectangle handed to DWM is never
-                 * smaller than the aperture the frame painted for it. The
-                 * frame's 17/38/19-DIP border and this rectangle are the same
-                 * geometry, but DWM wants whole pixels while the popup is
+                /* Nearest-pixel rounding, exact halves outward (refined after
+                 * a 125% field report: the v1.1.1 all-outward rule cured the
+                 * empty strip but let the live image spill ~1 px over the
+                 * frame's inner edge wherever the edges landed on fractions).
+                 * The frame's 17/38/19-DIP border and this rectangle are the
+                 * same geometry, but DWM wants whole pixels while the popup is
                  * normalised to the monitor scale (18.7 px borders at 125% +
                  * the 10% enlargement), so an edge can fall on a half pixel.
-                 * Rounding to nearest could then leave a sub-pixel strip of
-                 * popup with nothing painted in it, and a transparent strip in
-                 * a layered window shows the desktop through it: that is the
-                 * "empty edge" this rounding exists to prevent. The thumbnail
-                 * is composed above the window's own content (Microsoft: the
-                 * thumbnail is rendered into the destination window), so the
-                 * at most one extra pixel can only cover the innermost, fading
-                 * row of the border, never the frame itself. */
+                 * Plain rounding to nearest could then leave a sub-pixel strip
+                 * of popup with nothing painted in it on exact halves, and a
+                 * transparent strip in a layered window shows the desktop
+                 * through it: that is the "empty edge" this rounding exists to
+                 * prevent, which is why halves keep going outward (Left/Top
+                 * down, Right/Bottom up). The thumbnail is composed above the
+                 * window's own content (Microsoft: the thumbnail is rendered
+                 * into the destination window), so the at most one extra pixel
+                 * on a half can only cover the innermost, fading row of the
+                 * border, never the frame itself. */
                 rect = new NativeMethods.RECT
                 {
-                    Left = (int)Math.Floor(topLeft.X - clientOrigin.X),
-                    Top = (int)Math.Floor(topLeft.Y - clientOrigin.Y),
-                    Right = (int)Math.Ceiling(bottomRight.X - clientOrigin.X),
-                    Bottom = (int)Math.Ceiling(bottomRight.Y - clientOrigin.Y)
+                    Left = (int)Math.Ceiling(topLeft.X - clientOrigin.X - 0.5),
+                    Top = (int)Math.Ceiling(topLeft.Y - clientOrigin.Y - 0.5),
+                    Right = (int)Math.Floor(bottomRight.X - clientOrigin.X + 0.5),
+                    Bottom = (int)Math.Floor(bottomRight.Y - clientOrigin.Y + 0.5)
                 };
                 return rect.Right > rect.Left && rect.Bottom > rect.Top;
             }
