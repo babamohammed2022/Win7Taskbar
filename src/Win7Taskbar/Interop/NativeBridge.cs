@@ -26,11 +26,17 @@ namespace Win7Taskbar.Interop
 {
     /// <summary>
     /// Una notifica a fumetto inviata da un'applicazione con NIF_INFO.
+    ///
+    /// Il tipo e' public perche' Controls.NotificationBalloon (public, per via
+    /// di TrayIconModel.MissedNotifications) lo espone come Data: un tipo meno
+    /// accessibile del membro che lo usa non compila (CS0052/CS0051). Il
+    /// costruttore resta internal, quindi fuori dall'assembly il tipo si puo'
+    /// leggere ma non fabbricare: le istanze nascono solo qui, dal core.
     /// </summary>
-    internal readonly struct BalloonNotification
+    public readonly struct BalloonNotification
     {
-        public BalloonNotification(ulong ownerHwnd, uint uid, string title,
-                                   string text, uint infoFlags, uint timeout)
+        internal BalloonNotification(ulong ownerHwnd, uint uid, string title,
+                                     string text, uint infoFlags, uint timeout)
         {
             OwnerHwnd = ownerHwnd;
             Uid = uid;

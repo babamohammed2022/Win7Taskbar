@@ -27,7 +27,7 @@ using Win7Taskbar.Utilities;
 
 namespace Win7Taskbar
 {
-    public partial class TaskbarWindow : Window
+    public partial class TaskbarWindow : Window, Controls.IBalloonSurface
     {
         private readonly NativeBridge _bridge;
         private readonly TaskbarViewModel _viewModel;
@@ -1543,12 +1543,24 @@ namespace Win7Taskbar
                 Debug.WriteLine($"chiusura barra (risorse): {ex.Message}");
             }
 
-            /* v1.21.39: niente risoluzioni differite di fumetti dopo la
-             * chiusura, e nessuna icona lasciata promossa nel modello. */
-            _balloonSeq++;
-            _balloonHost?.Hide();
-            UnpromoteBalloonIcon();
-            _viewModel.NotificationArea.ClearBalloonPromotions();
+            /* v1.21.39 / coda RetroBar: niente risoluzioni differite di fumetti
+             * dopo la chiusura e nessuna icona lasciata promossa nel modello.
+             * La Dispose della coda ferma il timer di unpromote (TimerLease),
+             * svuota l'attesa e chiude il fumetto visibile. */
+            try
+            {
+                _balloonQueue?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"chiusura barra (coda fumetti): {ex.Message}");
+            }
+            finally
+            {
+                _balloonQueue = null;
+                _balloonHost = null;
+                _viewModel.NotificationArea.ClearBalloonPromotions();
+            }
             _globalMouseHook?.Dispose();
             _startMenuMonitor?.Dispose();
             _batteryMonitor?.Dispose();
@@ -1561,134 +1573,88 @@ namespace Win7Taskbar
 
         private Controls.BalloonHost? _balloonHost;
 
+        /* Il percorso dei fumetti e' quello di RetroBar/ManagedShell e vive in
+         * Controls/NotificationBalloon.cs: la notifica e' un oggetto con il segno
+         * Handled, a video ce n'e' uno solo, le altre aspettano in una coda
+         * FIFO limitata e l'icona in overflow viene promossa per la durata del
+         * fumetto. La coda viene creata al primo fumetto (serve TrayArea, che
+         * esiste solo dopo InitializeComponent) e smontata alla chiusura. */
+        private Controls.BalloonQueue? _balloonQueue;
+
         /// <summary>
-        /// v1.21.41: notifiche balloon TEMPORANEAMENTE DISATTIVATE.
-        ///
-        /// Su hardware reale i fumetti continuano a comparire in cima allo
-        /// schermo nonostante l'ancoraggio all'icona (v1.21.39) e il
-        /// correttore di posizione Win32 (v1.21.40): si disattiva la
-        /// visualizzazione finché il posizionamento non viene risolto.
-        /// L'intercettazione nativa resta attiva, quindi le applicazioni
-        /// che chiamano Shell_NotifyIcon con NIF_INFO non ottengono né il
-        /// nostro fumetto né quello di Windows (nessuna notifica a video,
-        /// nessun callback NIN_BALLOON*: è la stessa semantica di Windows
-        /// quando le notifiche dell'app sono disattivate). Tutto il resto
-        /// (promozione dell'icona, durata, suono, icone NIIF_USER,
-        /// feedback NIN) resta nel codice e torna attivo riportando questo
-        /// campo a true.
+        /// Una notifica dal core. Percorso primario: la coda stile RetroBar.
+        /// Ripiego: <see cref="ShowBalloonLegacy"/>, raggiunto solo se il
+        /// percorso primario solleva — la coda ha try/catch su ogni passo e le
+        /// risorse in RAII, quindi in pratica non succede.
         /// </summary>
-        // A static readonly field (not a const) on purpose: a compile-time
-        // constant would make the rest of OnBalloonReceived unreachable code
-        // (same pattern as TaskPreviewsEnabled).
-        private static readonly bool BalloonNotificationsEnabled = false;
-
-        /* v1.21.39 - ANCORA DEL FUMETTO SULL'ICONA CHE LO GENERA.
-         *
-         * Difetti corretti (confronto: RetroBar/ManagedShell, ExplorerPatcher,
-         * Open-Shell e la documentazione NOTIFYICONDATA di Microsoft):
-         *
-         *  1. l'icona in overflow non aveva un contenitore visibile e il
-         *     fumetto ripiegava sul bordo destro dell'intera area di
-         *     notifica ("troppo a destra"). In Windows 7 - e in RetroBar
-         *     (NotificationArea_NotificationBalloonShown: "used to promote
-         *     unpinned icons to show when the tray is collapsed") - l'icona
-         *     viene PROMOSSA temporaneamente in barra per la durata del
-         *     fumetto: la puntina ha cosi' un'icona vera da indicare;
-         *  2. l'icona appena aggiunta/promossa non ha ancora il contenitore
-         *     generato (succede nel passaggio di layout successivo a questo
-         *     pump di eventi): la risoluzione dell'ancora viene ripetuta una
-         *     volta alla prossima passata (DispatcherPriority.Loaded), come fa
-         *     RetroBar con le MissedNotifications mostrate al Loaded del
-         *     controllo icona;
-         *  3. la punta della freccia del tema sta a 14 px dal bordo destro
-         *     del fumetto, non a 23.5 (vedi BalloonHost.TipOffsetFromRightEdge).
-         *
-         * _balloonSeq invalida le risoluzioni differite quando nel frattempo
-         * e' arrivato un altro fumetto (o la barra si sta chiudendo). */
-        private int _balloonSeq;
-        private TrayIconModel? _balloonPromotedModel;
-        private DispatcherTimer? _balloonUnpromoteTimer;
-
         private void OnBalloonReceived(object? sender, BalloonNotification balloon)
         {
-            /* v1.21.41: kill-switch dei fumetti (vedi BalloonNotificationsEnabled).
-             * Uscita prima di qualunque allocazione, promozione dell'icona o
-             * risoluzione dell'ancora: non viene mostrato né programmato nulla. */
-            if (!BalloonNotificationsEnabled)
+            try
             {
-                return;
+                _balloonHost ??= new Controls.BalloonHost(TrayArea);
+
+                if (_balloonQueue == null)
+                {
+                    var queue = new Controls.BalloonQueue(this, _balloonHost);
+                    /* La barra mostra il fumetto, quindi marca la notifica come
+                     * gestita: e' il contratto Handled di ManagedShell, e finche'
+                     * la barra lo rispetta le MissedNotifications restano vuote. */
+                    queue.NotificationBalloonShown += (_, e) => e.Handled = true;
+                    _balloonQueue = queue;
+                }
+
+                if (_balloonQueue.Submit(balloon))
+                {
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.WriteException("BALLOON", ex, "dispatch");
             }
 
-            _balloonHost ??= new Controls.BalloonHost(TrayArea);
-            int seq = ++_balloonSeq;
+            ShowBalloonLegacy(balloon);
+        }
+
+        /// <summary>
+        /// Ripiego: il comportamento della v1.21.41, quando il percorso dei
+        /// fumetti era disattivato del tutto (niente nuvoletta). Da allora e'
+        /// stato sostituito dalla coda stile RetroBar e questo metodo resta
+        /// soltanto per il caso in cui quel percorso sollevi: la barra chiude
+        /// l'eventuale fumetto aperto e va avanti. Non deve mai sollevare a sua
+        /// volta, perche' e' l'ultimo punto della catena.
+        /// </summary>
+        private void ShowBalloonLegacy(BalloonNotification balloon)
+        {
+            try
+            {
+                _balloonHost?.Hide();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"balloon: ripiego non riuscito: {ex.Message}");
+            }
 
             try
             {
-                TrayIconModel? model = FindBalloonModel(balloon);
-
-                /* Icona nell'overflow: promossa in barra per la durata del
-                 * fumetto (parita' Windows 7 / RetroBar). NIS_HIDDEN resta
-                 * fuori: e' l'applicazione a chiedere che non si mostri. */
-                if (model != null && !model.IsHidden && !model.IsPinned)
-                {
-                    PromoteBalloonIcon(model);
-                }
-
-                UIElement? iconAnchor = ResolveBalloonAnchor(model);
-
-                if (model != null && !model.IsHidden && iconAnchor == null)
-                {
-                    /* Il contenitore non e' ancora stato generato (icona
-                     * appena aggiunta o appena promossa): si riprova dopo la
-                     * prossima passata di layout, invece di rinunciare
-                     * subito all'ancora. */
-                    Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        if (seq != _balloonSeq)
-                        {
-                            return;
-                        }
-                        try
-                        {
-                            ShowBalloonNow(balloon, model, ResolveBalloonAnchor(model));
-                        }
-                        catch (Exception)
-                        {
-                            _balloonHost?.Hide();
-                        }
-                    }), DispatcherPriority.Loaded);
-                    return;
-                }
-
-                ShowBalloonNow(balloon, model, iconAnchor);
+                DiagnosticLogger.Write("BALLOON",
+                    $"legacy fallback uid={balloon.Uid} hwnd={balloon.OwnerHwnd}");
             }
-            catch (Exception)
+            catch
             {
-                _balloonHost.Hide();
+                /* Il log e' best-effort: non c'e' nulla da proteggere oltre. */
             }
         }
 
-        /// <summary>
-        /// Trova nel modello l'icona che ha generato il fumetto: stessa
-        /// finestra proprietaria e stesso uid registrati con Shell_NotifyIcon.
-        /// </summary>
-        private TrayIconModel? FindBalloonModel(BalloonNotification balloon)
-        {
-            foreach (TrayIconModel m in _viewModel.NotificationArea.AllIcons)
-            {
-                if (m.OwnerHwnd == balloon.OwnerHwnd && m.Uid == balloon.Uid)
-                {
-                    return m;
-                }
-            }
-            return null;
-        }
+        // ---------------------------------------------------------------
+        //  IBalloonSurface: cio' che la coda puo' chiedere alla barra
+        // ---------------------------------------------------------------
 
         /// <summary>
         /// Contenitore visivo dell'icona, se esiste ed e' presentabile: e'
         /// l'ancora a cui il fumetto aggancia la puntina.
         /// </summary>
-        private UIElement? ResolveBalloonAnchor(TrayIconModel? model)
+        UIElement? Controls.IBalloonSurface.ResolveAnchor(TrayIconModel? model)
         {
             if (model == null || model.IsHidden)
             {
@@ -1707,47 +1673,56 @@ namespace Win7Taskbar
             return null;
         }
 
-        private void ShowBalloonNow(BalloonNotification balloon, TrayIconModel? model,
-                                    UIElement? iconAnchor)
+        /// <summary>
+        /// Trova nel modello l'icona che ha generato il fumetto: stessa finestra
+        /// proprietaria e stesso uid registrati con Shell_NotifyIcon.
+        /// </summary>
+        TrayIconModel? Controls.IBalloonSurface.FindModel(BalloonNotification balloon)
         {
-            if (_balloonHost == null)
+            foreach (TrayIconModel m in _viewModel.NotificationArea.AllIcons)
             {
-                return;
+                if (m.OwnerHwnd == balloon.OwnerHwnd && m.Uid == balloon.Uid)
+                {
+                    return m;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// NIIF_USER: Windows usa hBalloonIcon; quel handle vive nel processo
+        /// mittente e non arriva fin qui, quindi si applica il ripiego legacy
+        /// documentato (hIcon, cioe' l'icona che l'applicazione ha dato
+        /// all'icona di tray): e' lo stesso doppio ripiego di
+        /// ManagedShell.NotificationBalloon.
+        /// </summary>
+        ImageSource? Controls.IBalloonSurface.GetUserIcon(TrayIconModel? model)
+        {
+            if (model == null)
+            {
+                return null;
             }
 
-            /* NIIF_USER: Windows usa hBalloonIcon; quel handle vive nel
-             * processo mittente e non arriva fin qui, quindi si applica il
-             * ripiego legacy documentato (hIcon, cioe' l'icona che
-             * l'applicazione ha dato all'icona di tray): e' lo stesso
-             * doppio ripiego di ManagedShell.NotificationBalloon. */
-            ImageSource? userIcon = null;
-            if ((balloon.InfoFlags & 0xF) == 0x4 && model != null)
+            try
             {
-                userIcon = _bridge.GetTrayIcon(model.OwnerHwnd, model.Uid);
+                return _bridge.GetTrayIcon(model.OwnerHwnd, model.Uid);
             }
-
-            TimeSpan shown = _balloonHost.Show(
-                balloon.Title, balloon.Text, balloon.InfoFlags, balloon.Timeout,
-                iconAnchor, userIcon, BuildBalloonFeedback(model));
-
-            /* La promozione scade poco dopo il fumetto (RetroBar usa
-             * timeout + 500 ms "for the animation to complete"). */
-            if (shown > TimeSpan.Zero && model != null
-                && ReferenceEquals(_balloonPromotedModel, model))
+            catch (Exception ex)
             {
-                ScheduleBalloonUnpromote(shown);
+                DiagnosticLogger.WriteException("BALLOON", ex, "user-icon");
+                return null;
             }
         }
 
         /// <summary>
-        /// Callback che recapita all'applicazione i codici NIN_BALLOON* del
-        /// suo fumetto, con la disposizione wParam/lParam documentata in
+        /// Callback che recapita all'applicazione i codici NIN_BALLOON* del suo
+        /// fumetto, con la disposizione wParam/lParam documentata in
         /// NOTIFYICONDATA (da NOTIFYICON_VERSION_4 l'uid sta in HIWORD(lParam)
-        /// invece che in wParam): e' la semantica di ManagedShell.
-        /// Null se l'icona non ha registrato un messaggio di callback o non
-        /// ha una finestra proprietaria raggiungibile (voci importate).
+        /// invece che in wParam): e' la semantica di ManagedShell. Null se
+        /// l'icona non ha registrato un messaggio di callback o non ha una
+        /// finestra proprietaria raggiungibile (voci importate).
         /// </summary>
-        private static Action<uint>? BuildBalloonFeedback(TrayIconModel? model)
+        Action<uint>? Controls.IBalloonSurface.BuildFeedback(TrayIconModel? model)
         {
             if (model == null || model.OwnerHwnd == 0 || model.CallbackMessage == 0)
             {
@@ -1769,50 +1744,22 @@ namespace Win7Taskbar
             };
         }
 
-        private void PromoteBalloonIcon(TrayIconModel model)
+        void Controls.IBalloonSurface.Promote(TrayIconModel model)
+            => _viewModel.NotificationArea.PromoteForBalloon(model);
+
+        void Controls.IBalloonSurface.Unpromote(TrayIconModel model)
+            => _viewModel.NotificationArea.UnpromoteFromBalloon(model);
+
+        void Controls.IBalloonSurface.Log(string message)
         {
-            if (ReferenceEquals(_balloonPromotedModel, model))
+            try
             {
-                return;
+                DiagnosticLogger.Write("BALLOON", message);
             }
-
-            UnpromoteBalloonIcon();
-
-            _viewModel.NotificationArea.PromoteForBalloon(model);
-            _balloonPromotedModel = model;
-        }
-
-        private void UnpromoteBalloonIcon()
-        {
-            _balloonUnpromoteTimer?.Stop();
-            _balloonUnpromoteTimer = null;
-
-            if (_balloonPromotedModel != null)
+            catch
             {
-                _viewModel.NotificationArea.UnpromoteFromBalloon(_balloonPromotedModel);
-                _balloonPromotedModel = null;
+                /* Il log e' best-effort. */
             }
-        }
-
-        private void ScheduleBalloonUnpromote(TimeSpan shownFor)
-        {
-            TrayIconModel model = _balloonPromotedModel!;
-
-            _balloonUnpromoteTimer?.Stop();
-            var timer = new DispatcherTimer
-            {
-                Interval = shownFor + TimeSpan.FromMilliseconds(500)
-            };
-            timer.Tick += (_, _) =>
-            {
-                timer.Stop();
-                if (ReferenceEquals(_balloonPromotedModel, model))
-                {
-                    UnpromoteBalloonIcon();
-                }
-            };
-            _balloonUnpromoteTimer = timer;
-            timer.Start();
         }
 
         internal void ShutdownTaskbar()

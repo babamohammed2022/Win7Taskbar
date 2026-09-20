@@ -146,6 +146,17 @@ wParam/lParam layout, the promotion of overflow icons while a balloon is
 shown): original C# code in `src/Win7Taskbar/Controls/NotifyBalloon.xaml.cs`,
 `Controls/BalloonHost.cs` and `TaskbarWindow.xaml.cs`, derived algorithm.
 
+The balloon *pipeline* follows the same reference: a notification object with a
+`Handled` flag raised through an event, the per-icon `MissedNotifications`
+collection for a notification nobody showed, one visible balloon with the rest
+waiting, and the promotion of an overflow icon for the balloon's lifetime. Taken
+from `NotificationArea.handleBalloonData`, `NotifyIcon.TriggerNotificationBalloon`
+/ `NotifyIcon.MissedNotifications` and `NotificationBalloonEventArgs`; original
+C# code in `src/Win7Taskbar/Controls/NotificationBalloon.cs`, derived algorithm
+(the queue bound, the drop-oldest policy, the expiry of a pending notification
+and the RAII timer are this project's own, modelled on `CoreState::QueueEvent`
+and `Utilities/TimerLease.cs`).
+
 ### Aero Tray (Windhawk mod)
 
 Copyright aubymori (github.com/aubymori), GNU GPL-3.0 (license of the
