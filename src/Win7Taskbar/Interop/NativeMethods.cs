@@ -619,6 +619,11 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_BatteryFlyoutSetLanguage(int lang);
 
+        /// <summary>OPZIONE B: ripristino esplicito (idempotente) della
+        /// chiave legacy batteria, chiamato in chiusura pulita.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_BatteryFlyoutRestoreLegacyKey();
+
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_TrayImportExplorerIcons();
 

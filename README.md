@@ -96,6 +96,54 @@ Additional information and attribution details are available in the `docs` folde
 This software is not endorsed by, affiliated with, or sponsored by Microsoft Corporation.
 Windows and related trademarks are the property of Microsoft Corporation.
 
+## Registry keys
+
+Everything the program touches in the registry, and nothing else:
+
+* **Autostart (reversible, user-controlled).**
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Win7Taskbar`.
+  Written when the "Start automatically with Windows" checkbox is confirmed
+  with OK/Apply, deleted when it is unchecked. Never touched otherwise.
+* **Reversible shell choices (original state preserved).**
+  `HKCU\...\CurrentVersion\ImmersiveShell`: `UseWin32TrayClockExperience`
+  (1 = classic Aero clock), `EnableMtcUvc` (0 = classic volume mixer) and
+  `UseWin32BatteryFlyout` (1 = real Windows 7 battery flyout).
+  Before Win7Taskbar modifies any of them for the first time, it records the
+  original state - whether the value existed and its original `DWORD` - under
+  its own key `HKCU\Software\Win7Taskbar\RegistryBackup`. The backup is taken
+  once and never overwritten: restarts, Apply/OK and switching between
+  "Windows 7" and "Windows 10/11" do not touch it.
+  On clean shutdown Win7Taskbar restores each value to its exact original
+  state (the original `DWORD`, or the value removed if it did not exist) and
+  then deletes the corresponding backup. As a safety guard, a value is
+  restored only if it still holds what Win7Taskbar last applied: changes made
+  by the user or another program while Win7Taskbar was active are never
+  silently overwritten (the restore is skipped and the backup kept).
+  If the program is killed or crashes, values and backup stay as they are;
+  the next clean shutdown restores the true original.
+* **Clock and volume (managed, restored on exit).**
+  Written at startup and on every OK/Apply from the flyout choices, like
+  ExplorerPatcher does. They stay in force while the program runs and are
+  handed back to their original state on clean exit (see above).
+* **Battery (native transient, managed backup copy).**
+  Only the native core ever writes `UseWin32BatteryFlyout`, and only as `=1`
+  around an attempt to open the real Windows 7 battery flyout; the previous
+  value is restored (or the value deleted if it did not exist) when the
+  attempt ends. That restore also runs on tray stop, on clean shutdown, on
+  session ending, in the crash filter, and from the backup file at
+  `%LOCALAPPDATA%\Win7Taskbar\battery-key-backup.dat` if a previous run died
+  mid-attempt. The managed layer never writes this value; it only keeps a
+  backup copy of the original in `RegistryBackup`, dropped at shutdown
+  without touching the live value.
+* **Legacy self-cleaning.**
+  `HKCU\SOFTWARE\Win7Taskbar\TrayIconPrefs2` (tray icon preferences stored by
+  older builds) is migrated into `trayicons.ini` and then removed.
+* **Read-only.**
+  `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` (OS name/build for the
+  log header), `HKCR\Applications\...\SupportedTypes` (file extensions an
+  executable accepts, for task-button drop targets) and the Run key above
+  (to read the autostart state) are only ever read.
+
 ## License
 
 This software is licensed under **GNU GPL v3.0 or later**.

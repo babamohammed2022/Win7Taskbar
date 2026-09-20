@@ -1087,7 +1087,9 @@ extern "C" W7T_API int32_t W7T_CALL W7T_AppSearchInit(uint64_t ownerTaskbar,
 /* v1.21.30: the managed side passes the active theme (0 Win7, 1 Win8.1)
  * so the search window repaints with the matching skin on every open.
  * v1.21.50: 2 = "Windows 7 Aero Basic": same Win7 skin, fully opaque
- * mask (no glass), see kSkinWin7Basic in AppSearchWindow.cpp. The two
+ * mask (no glass), see kSkinWin7Basic in AppSearchWindow.cpp.
+ * 3 = "Windows 8 Beta 8148": SetTheme normalizes anything else to 0,
+ * so it gets the translucent Win7 skin, like the bar itself. The two
  * calls are inside a barrier: an exception must never cross the
  * extern "C" edge (Show can join the scan thread and allocate). */
 extern "C" W7T_API void W7T_CALL W7T_AppSearchShow(int32_t x, int32_t y,
@@ -1240,6 +1242,15 @@ extern "C" W7T_API void W7T_CALL W7T_BatteryFlyoutHide(void) {
 extern "C" W7T_API void W7T_CALL W7T_BatteryFlyoutSetLanguage(int32_t lang) {
     W7T_SEH_TRY
         w7t::BatteryFlyout::Instance().SetLanguage(lang);
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
+/* OPZIONE B: il gestito chiede esplicitamente il restore in chiusura
+ * pulita. Idempotente: senza tentativi pendenti e' un no-op. */
+extern "C" W7T_API void W7T_CALL W7T_BatteryFlyoutRestoreLegacyKey(void) {
+    W7T_SEH_TRY
+        TrayService::RestoreBatteryFlyoutKey();
     W7T_SEH_CATCH
     W7T_SEH_END
 }

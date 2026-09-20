@@ -416,7 +416,9 @@ namespace Win7Taskbar
                  *
                  * Questa e' la prima cosa che parla con il core: le quattro
                  * scelte salvate vengono pubblicate (W7T_SetFlyoutPreferences)
-                 * e le tre chiavi ImmersiveShell allineate, cosi' i clic sulle
+                 * e le due chiavi ImmersiveShell allineate (reversibili in
+                 * chiusura pulita; la batteria e' transitoria e resta in mano
+                 * al nativo), cosi' i clic sulle
                  * icone della tray aprono il riquadro scelto dall'utente e non
                  * quello imposto dal default. Vedi ApplyShellFlyoutPreferences:
                  * prima questa applicazione avveniva solo premendo Applica. */
@@ -1784,6 +1786,18 @@ namespace Win7Taskbar
                 }
 
                 _bridge.StopTray();
+                /* OPZIONE B: ripristino esplicito della chiave batteria in
+                 * chiusura pulita. StopTray lo fa gia' (Stop nativo), ma la
+                 * chiamata esplicita e idempotente chiude il cerchio anche
+                 * se il servizio risultasse non avviato. */
+                _bridge.BatteryFlyoutRestoreLegacyKey();
+                /* Reversibilita' ImmersiveShell: in chiusura pulita si
+                 * restituiscono orologio e volume allo stato originale
+                 * precedente alla presa di controllo (i cambi fatti da altri
+                 * nel frattempo NON vengono sovrascritti) e si butta la copia
+                 * contabile della batteria. Idempotente, non lancia mai. */
+                _bridge.Log("REGBACKUP shutdown restore: " +
+                    Win7Taskbar.Utilities.ImmersiveShellBackup.RestoreAll());
                 _bridge.SetNativeTaskbarHidden(false);
 
                 _hwndSource?.RemoveHook(WndProc);
@@ -2156,13 +2170,16 @@ namespace Win7Taskbar
                          * riesce, resta il tema precedente e il messaggio nel
                          * log dice che serve un riavvio: nessuna barra rotta. */
                         /* v1.21.42: tre skin (Windows 7, Windows 8.1 e
-                         * Windows 7 Aero Basic, id 2). */
+                         * Windows 7 Aero Basic, id 2). Quarta skin:
+                         * Windows 8 Beta 8148, id 3. */
                         string appliedSkin = AppliedThemeSelection switch
                         {
                             RetroBar.Utilities.TaskbarThemeIds.Windows81 =>
                                 "Windows 8.1",
                             RetroBar.Utilities.TaskbarThemeIds.Windows7AeroBasic =>
                                 "Windows 7 Aero Basic",
+                            RetroBar.Utilities.TaskbarThemeIds.Windows8Beta8148 =>
+                                "Windows 8 Beta 8148",
                             _ => "Windows 7",
                         };
                         string themeSwapResult = ThemeLoader.ReapplyNow();
@@ -5871,16 +5888,18 @@ namespace Win7Taskbar
             }
 
             // v2.42: flyout batteria con l'approccio di ExplorerPatcher.
-            // Invece di ricreare il flyout, si abilita il flyout Win32
-            // classico di Windows (chiave ImmersiveShell
-            // "UseWin32BatteryFlyout"=1, come la mod di riferimento) e si
-            // inoltra il clic all'icona originale: e' stobject ad aprire il
-            // VERO flyout Windows 7, gia' ancorato all'icona e gestito dal
+            // Invece di ricreare il flyout, il CORE NATIVO abilita
+            // TRANSITORIAMENTE il flyout Win32 classico di Windows (chiave
+            // ImmersiveShell "UseWin32BatteryFlyout"=1 solo attorno al
+            // tentativo, poi ripristinata al valore precedente) e il clic si
+            // inoltra all'icona originale: e' stobject ad aprire il VERO
+            // flyout Windows 7, gia' ancorato all'icona e gestito dal
             // sistema (chiusura sui clic esterni inclusa). Ripiego sul
             // flyout ricreato solo se l'inoltro non e' possibile.
+            // OPZIONE B: il gestito non scrive MAI la chiave, si limita a
+            // inoltrare il clic; il transitorio e' tutto del nativo.
             if (stFly.UseBatteryFlyout && IsOwnerModule(icon, "stobject.dll"))
             {
-                EnsureWin32BatteryFlyoutReg(true);
                 Point screenBat = element.PointToScreen(e.GetPosition(element));
                 _viewModel.SendTrayClick(icon, TrayClick.LeftDown,
                     (int)screenBat.X, (int)screenBat.Y);
@@ -7391,34 +7410,52 @@ namespace Win7Taskbar
             return BicubicScaleBGRA(big, S, S, outSize, outSize);
         }
 
-        /// <summary>v2.42: approccio ExplorerPatcher al flyout batteria: la
-        /// chiave ImmersiveShell "UseWin32BatteryFlyout" (DWORD) fa usare a
-        /// Windows il flyout Win32 classico (stile Windows 7) invece di
-        /// quello XAML. La scriviamo in HKCU quando l'opzione e' attiva e
-        /// la riportiamo a 0 quando viene disattivata.</summary>
-        internal static void EnsureWin32BatteryFlyoutReg(bool enable)
-            => WriteImmersiveShellValue("UseWin32BatteryFlyout", enable ? 1 : 0);
+        /* OPZIONE B + REVERSIBILITA': il livello gestito non scrive MAI il VALORE
+         * ImmersiveShell "UseWin32BatteryFlyout" (UNICO scrittore: il core
+         * nativo, transitorio - vedi TrayService.cpp). Si limita a: (1)
+         * fotografarne l'originale all'avvio nella NOSTRA area di backup
+         * (sola lettura del live), copia buttata in chiusura senza toccare
+         * il live; (2) chiedere al nativo il ripristino esplicito in
+         * ShutdownTaskbar. Orologio e volume invece sono scritti dal gestito
+         * e RESTITUITI all'originale in chiusura pulita (ImmersiveShellBackup). */
 
         /// <summary>
         /// v2.63 - Una chiave della shell, scritta in un posto solo.
         ///
-        /// Sono le stesse tre che usa ExplorerPatcher per far scegliere a
+        /// Due delle tre che usa ExplorerPatcher per far scegliere a
         /// Windows il riquadro di Windows 7 o quello moderno:
         ///   UseWin32TrayClockExperience  1 = orologio classico (Aero)
-        ///   UseWin32BatteryFlyout        1 = riquadro batteria Win32 di Win7
         ///   EnableMtcUvc                 0 = mixer volume classico
         /// Explorer le legge quando disegna i SUOI riquadri: scriverle tiene
-        /// d'accordo la barra nativa con la nostra scelta (e' anche il modo
-        /// in cui il clic sulla batteria ricreata puo' aprire il riquadro
-        /// VERO di Windows 7, come chiesto).
+        /// d'accordo la barra nativa con la nostra scelta. Sono PERSISTENTI:
+        /// restano nel registro anche dopo la chiusura del programma.
+        /// La terza (UseWin32BatteryFlyout) NON passa di qui: e'
+        /// TRANSITORIA e la scrive solo il core nativo (OPZIONE B).
         /// </summary>
         internal static void WriteImmersiveShellValue(string name, int value)
         {
             try
             {
+                /* Reversibilita': prima di modificare un valore per la prima
+                 * volta se ne fotografa lo stato originale (una volta sola,
+                 * mai sovrascritto). Se il backup fallisce NON si scrive:
+                 * meglio il riquadro sbagliato che un originale perso. */
+                if (!Win7Taskbar.Utilities.ImmersiveShellBackup.EnsureBackup(name))
+                {
+                    _lastShellPrefsError = "backup of " + name + " failed: write skipped, original preserved";
+                    return;
+                }
                 using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
                     @"SOFTWARE\Microsoft\Windows\CurrentVersion\ImmersiveShell");
                 key?.SetValue(name, value, Microsoft.Win32.RegistryValueKind.DWord);
+                if (key != null)
+                {
+                    /* Si annota l'ultimo valore applicato da noi: al restore
+                     * serve per non sovrascrivere modifiche esterne. Best
+                     * effort: se fallisce, il restore salta prudente e TIENE
+                     * il backup (vedi ImmersiveShellBackup.RestoreOne). */
+                    Win7Taskbar.Utilities.ImmersiveShellBackup.RecordApplied(name, value);
+                }
                 _lastShellPrefsError = null;
             }
             catch (Exception ex)
@@ -7442,8 +7479,10 @@ namespace Win7Taskbar
         ///
         /// Ora la lettura della configurazione produce QUESTA chiamata, una
         /// volta sola, all'avvio e a ogni applicazione. Le quattro decisioni
-        /// arrivano al core con W7T_SetFlyoutPreferences e le tre chiavi di
-        /// sistema vengono allineate: da qui in poi ogni percorso di apertura
+        /// arrivano al core con W7T_SetFlyoutPreferences e le due chiavi di
+        /// sistema persistenti vengono allineate (la batteria e' transitoria
+        /// e la gestisce solo il nativo): da qui in poi ogni percorso di
+        /// apertura
         /// (icone ricreate, menu della barra, clic sintetici) usa la stessa
         /// decisione, quindi la tendina "Windows 7" apre il riquadro di
         /// Windows 7 e quella "Windows 10/11" apre quello della shell.
@@ -7468,8 +7507,19 @@ namespace Win7Taskbar
                 bool volumeWin7  = st.UseClassicVolumeMixer;     /* tendina: "Windows 7" */
                 bool batteryWin7 = st.UseBatteryFlyout;          /* tendina: "Windows 7" */
 
+                /* Reversibilita': si fotografa anche l'originale della batteria
+                 * (sola LETTURA del live + scrittura nella NOSTRA area di
+                 * backup, mai del valore ImmersiveShell: il gestito continua
+                 * a non scriverlo, OPZIONE B). Best effort: la reversibilita'
+                 * vera della batteria resta quella transitoria del nativo. */
+                Win7Taskbar.Utilities.ImmersiveShellBackup.EnsureBackup("UseWin32BatteryFlyout");
+
                 WriteImmersiveShellValue("UseWin32TrayClockExperience", clockWin7 ? 1 : 0);
-                WriteImmersiveShellValue("UseWin32BatteryFlyout", batteryWin7 ? 1 : 0);
+                /* OPZIONE B: NESSUNA scrittura di UseWin32BatteryFlyout qui
+                 * (ne' all'avvio, ne' all'Applica/OK). La scelta batteria
+                 * viaggia solo verso il core con SetFlyoutPreferences: e' il
+                 * nativo ad alzare la chiave TRANSITORIAMENTE attorno al
+                 * tentativo di apertura del riquadro vero. */
                 WriteImmersiveShellValue("EnableMtcUvc", volumeWin7 ? 0 : 1);
 
                 _bridge.SetFlyoutPreferences(clockWin7, networkStyle, volumeWin7, batteryWin7);
@@ -7545,7 +7595,13 @@ namespace Win7Taskbar
                         ? "personalizzato #" + colorRgb.ToString("X6")
                         : "sistema") +
                     " privacy=" + (privacyMode == 1 ? "on" : "off") +
-                    " tema=" + (st.ThemeSelection == 0 ? "Windows7" : "Windows8.1") +
+                    " tema=" + (st.ThemeSelection switch
+                    {
+                        RetroBar.Utilities.TaskbarThemeIds.Windows81 => "Windows8.1",
+                        RetroBar.Utilities.TaskbarThemeIds.Windows7AeroBasic => "Windows7AeroBasic",
+                        RetroBar.Utilities.TaskbarThemeIds.Windows8Beta8148 => "Windows8Beta8148",
+                        _ => "Windows7",
+                    }) +
                     " ordine-icone=" + st.TaskbarIconOrder.Count);
             }
             catch (Exception ex)

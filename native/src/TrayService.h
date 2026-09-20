@@ -222,6 +222,11 @@ public:
     void SetWin7NetworkFlyout(bool ready);
     /* v3.8: stessa cosa per il riquadro di rete variante Windows 8. */
     void SetWin8NetworkFlyout(bool ready);
+    /* OPZIONE B: ripristino esplicito della chiave legacy batteria,
+     * chiamato dal livello gestito in chiusura pulita (oltre al restore
+     * gia' fatto da Stop). Idempotente: senza tentativi pendenti e'
+     * un no-op. */
+    static void RestoreBatteryFlyoutKey();
 
     /* Riordino del modello dal trascinamento del livello gestito: sposta
      * l'icona accanto a un'altra e muove il pulsante reale con

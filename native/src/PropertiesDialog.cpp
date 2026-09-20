@@ -139,28 +139,6 @@ enum CtrlId {
  * mano. Qui resta solo il disegno del dialogo.
  */
 
-/* v2.41: etichette delle opzioni orologio in TUTTE le lingue della mod.
- * L'opzione nativa si chiama ora "Windows 7"; quella ricreata "Tema
- * classico (ricreato)" (tradotte).
- * v2.59: l'indice e' quello dell'elenco unico (0=it ... 10=ar); fuori
- * elenco si risponde in inglese, come ovunque nel core. */
-struct ClockFlyoutLabels { const wchar_t* recreated; const wchar_t* native; };
-static ClockFlyoutLabels ClockLabels(int lang) {
-    switch (lang) {
-        case 1:  return { L"Classic theme (recreated)", L"Windows 7" };
-        case 2:  return { L"Tema clásico (recreado)", L"Windows 7" };
-        case 3:  return { L"Thème classique (recréé)", L"Windows 7" };
-        case 4:  return { L"Klassisches Thema (nachgebildet)", L"Windows 7" };
-        case 5:  return { L"Tema clássico (recriado)", L"Windows 7" };
-        case 6:  return { L"Motyw klasyczny (odtworzony)", L"Windows 7" };
-        case 7:  return { L"Классическая тема (воссоздано)", L"Windows 7" };
-        case 8:  return { L"クラシックテーマ（再現）", L"Windows 7" };
-        case 9:  return { L"经典主题（重制）", L"Windows 7" };
-        case 10: return { L"السمة الكلاسيكية (أُعيد إنشاؤها)", L"Windows 7" };
-        default: return { L"Classic theme (recreated)", L"Windows 7" };
-    }
-}
-
 HICON GetSystemIcon(int siid) {
     SHSTOCKICONINFO sii{};
     sii.cbSize = sizeof(sii);
@@ -263,19 +241,22 @@ void ShowTabPage(HWND hwnd, int page) {
 /* v1.21.7 - Skins available in THIS version of the program.
  *
  * The index is the one stored in the configuration: 0 = Windows 7,
- * 1 = Windows 8.1, 2 = Windows 7 Aero Basic (v1.21.42). All three are
- * implemented: the Windows 8.1 theme file (Themes/Windows8.1.xaml) ships
- * with the program and its Start button uses the two sprites embedded in
- * GraphicalResourceBundle (startwin81flag / startwin81flagscaled);
- * Windows 7 Aero Basic reuses the untouched Windows 7 theme with the
- * managed-side AeroBasic.xaml background overrides (opaque light
- * gray-blue, no glass). Windows 7 stays the default and the fallback for
+ * 1 = Windows 8.1, 2 = Windows 7 Aero Basic (v1.21.42), 3 = Windows 8
+ * Beta 8148. All four are implemented: the Windows 8.1 theme file
+ * (Themes/Windows8.1.xaml) ships with the program and its Start button
+ * uses the two sprites embedded in GraphicalResourceBundle
+ * (startwin81flag / startwin81flagscaled); Windows 7 Aero Basic reuses
+ * the untouched Windows 7 theme with the managed-side AeroBasic.xaml
+ * background overrides (opaque light gray-blue, no glass); Windows 8
+ * Beta 8148 reuses the untouched Windows 7 theme with the managed-side
+ * Win8Beta8148.xaml overrides (beta Start button sprite, slightly
+ * stronger glass). Windows 7 stays the default and the fallback for
  * anything unknown.
  *
  * A single function for the judgement, so the dropdown and SendApply cannot
  * diverge. */
 constexpr bool ThemeIsAvailable(int32_t themeId) {
-    return themeId == 0 || themeId == 1 || themeId == 2;
+    return themeId == 0 || themeId == 1 || themeId == 2 || themeId == 3;
 }
 
 /* v1.21.7 - Colour picker of the extra settings tab.
@@ -1096,9 +1077,11 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             ComboBox_SetCurSel(hPv, self->m_connectionPrivacyMode == 1 ? 1 : 0);
         }
 
-        /* Skins: Windows 7 (0), Windows 8.1 (1) and Windows 7 Aero Basic (2,
+        /* Skins: Windows 7 (0), Windows 8.1 (1), Windows 7 Aero Basic (2,
          * v1.21.42 - the Windows 7 skin with the opaque light gray-blue
-         * taskbar background). L'ordine delle voci E' l'indice salvato in
+         * taskbar background) and Windows 8 Beta 8148 (3 - the Windows 7
+         * skin with the beta Start button sprite and slightly stronger
+         * glass). L'ordine delle voci E' l'indice salvato in
          * configurazione: SendApply rilegge CB_GETCURSEL e lo passa da
          * ThemeIsAvailable(), che scarta cio' che non esiste. */
         {
@@ -1106,6 +1089,7 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
             ComboBox_AddString(hTh, X.themeWin7);        /* 0 */
             ComboBox_AddString(hTh, X.themeWin81);       /* 1 */
             ComboBox_AddString(hTh, X.themeAeroBasic);   /* 2 */
+            ComboBox_AddString(hTh, X.themeWin8Beta8148); /* 3 */
             ComboBox_SetCurSel(hTh, ThemeIsAvailable(self->m_themeSelection)
                                         ? self->m_themeSelection : 0);
         }

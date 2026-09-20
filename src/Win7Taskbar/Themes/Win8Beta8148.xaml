@@ -1,0 +1,383 @@
+<!--
+    Win7Taskbar - skin "Windows 8 Beta 8148" (id 3)
+    Copyright (c) 2026 Win7Taskbar contributors
+    Licensed under the GNU General Public License
+    version 3 or later (see the LICENSE file).
+
+    Il tema e' derivato da RetroBar (https://github.com/dremin/RetroBar),
+    Copyright (c) dremin, Apache License 2.0. Vedere CREDITS.txt.
+
+    COME FUNZIONA
+    =============
+    Questo dizionario NON e' un tema completo: ThemeLoader.Build() lo
+    mergia per ULTIMO - dopo il tema Windows7.xaml e dopo Overrides.xaml -
+    solo quando la skin scelta e' TaskbarThemeIds.Windows8Beta8148
+    (id 3). Fra dizionari mergiati vince quello aggiunto per ultimo (la
+    precedenza vale per StaticResource e DynamicResource, come documenta
+    Microsoft in "Merged resource dictionaries"), quindi le chiavi qui
+    sotto sostituiscono quelle omonime del tema Windows 7 e TUTTO il
+    resto - pulsanti, tray, orologio, bordi, separatori, misure,
+    animazioni - resta esattamente quello di
+    Themes/Windows7.xaml, che non viene toccato. E' lo stesso schema
+    della skin Aero Basic (AeroBasic.xaml): la build 8148 era una beta
+    di Windows 8 ancora vicinissima a Windows 7, quindi bordi e layout
+    restano Windows 7. L'unica eccezione e' la cornice dell'anteprima
+    live (punto 3 sotto): rettangolare come la 8.1, ma costruita con
+    le stesse identiche risorse della cornice Windows 7.
+
+    COSA SOSTITUISCE
+    =================
+    1) Il pulsante Start. Il template StartButton del tema Windows 7
+       ritaglia i tre stati (normale/hover/premuto) in terzi verticali
+       (Viewbox 0 / 0.3333 / 0.6666) dalle chiavi StartButtonImageLarge
+       e StartButtonImageLargeScaled (DynamicResource, quindi questa
+       ridefinizione vince). Lo sprite della beta - bandierina flat
+       su tassello scuro, 54x54 x3 come l'orb di Windows 7 - vive nel
+       bundle base64 (startwin8beta8148orb, byte-identico alla PNG
+       originale, rimossa dal repository dopo l'embedding) con il
+       gemello 108x324 per il trigger IsScaled
+       (startwin8beta8148orbscaled), come la coppia
+       startwin7orb/startwin7orbscaled.
+
+    2) Il vetro, un po' piu' marcato, a TEXTURE IDENTICHE: le ImageBrush
+       della texture Aero (Win7_TaskbarTextureBrush e varianti) NON
+       vengono toccate. Sale solo il layer del riflesso - il gradiente
+       bianco/nero quasi invisibile del tema (alpha 10/5/2/4 su 255) -
+       a circa il doppio (alpha 20/10/3/6): stesso vetro, riflessi piu'
+       presenti, sempre discreti. Sfondo finestra, shade dell'area di
+       notifica e bordi restano quelli di Windows 7.
+
+    3) La cornice dell'anteprima live. Stesse risorse della cornice
+       Windows 7 (TaskPreviewFrameVista in Overrides.xaml) - stesso
+       DwmPreviewAccentBrush, stessa maschera DwmPreviewBorderMaskImage,
+       stessa velatura fotografica al 18% da DwmPreviewBorderImage,
+       stessa griglia 38/*/19 x 17/*/17, stesso ContentPresenter,
+       stesso pulsante di chiusura (non ridefinito qui) - ma
+       RETTANGOLARE come la cornice 8.1 (Win81TaskPreviewFrameVista):
+       gli angoli non usano le fette d'angolo dell'asset (contengono
+       l'arco del vetro) bensi' la sua stessa ricetta - striscia presa
+       al centro della banda piu' striscia di 3 px delle colonne
+       esterne che porta il bordo luminoso dentro l'angolo - applicata
+       sia allo strato d'accento sia alla velatura. Niente rettangolo
+       nativo a 9 fette: quello ha gli angoli tondi, e senza quella
+       parte TaskbarWindow.ApplyNativePreviewFrame lascia in piedi
+       proprio questa cornice (stessa scelta della 8.1). La chiave ha
+       lo STESSO nome di Overrides.xaml e questo dizionario e' mergiato
+       DOPO: vince solo con questa skin, senza codice C# e senza shadow
+       nella radice (lo shadow serve alla 8.1 perche' il suo tema e'
+       mergiato PRIMA di Overrides).
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:bundle="clr-namespace:Win7Taskbar.Utilities">
+
+    <!-- Pulsante Start della beta: il template legge queste chiavi con
+         DynamicResource, quindi sotto questa skin mostra la bandierina
+         flat invece dell'orb di Windows 7. Le varianti Bottom/Top non
+         sono lette da nessun template (come nel tema 8.1), ma vengono
+         ridefinite per completezza: se un template futuro le leggesse,
+         non ricadrebbe sull'orb sbagliato. -->
+    <x:Static x:Key="StartButtonImageBottom"
+              Member="bundle:GraphicalResourceBundle.startwin8beta8148orb" />
+    <x:Static x:Key="StartButtonImageBottomScaled"
+              Member="bundle:GraphicalResourceBundle.startwin8beta8148orbscaled" />
+    <x:Static x:Key="StartButtonImageTop"
+              Member="bundle:GraphicalResourceBundle.startwin8beta8148orb" />
+    <x:Static x:Key="StartButtonImageTopScaled"
+              Member="bundle:GraphicalResourceBundle.startwin8beta8148orbscaled" />
+    <x:Static x:Key="StartButtonImageLarge"
+              Member="bundle:GraphicalResourceBundle.startwin8beta8148orb" />
+    <x:Static x:Key="StartButtonImageLargeScaled"
+              Member="bundle:GraphicalResourceBundle.startwin8beta8148orbscaled" />
+
+    <!-- Vetro piu' marcato, stesse texture: il riflesso bianco in alto
+         raddoppia quasi (alpha 10 -> 20, 5 -> 10) e il fondo scende un
+         filo (alpha 2 -> 3, 4 -> 6). Stessi stop e stessi endpoint del
+         tema Windows 7: cambia solo l'intensita'. -->
+    <LinearGradientBrush x:Key="TaskbarBackground"
+                         MappingMode="Absolute"
+                         StartPoint="0,0"
+                         EndPoint="0,40">
+        <GradientStop Color="#14FFFFFF" Offset="0.0" />
+        <GradientStop Color="#0AFFFFFF" Offset="0.08" />
+        <GradientStop Color="#03000000" Offset="0.5" />
+        <GradientStop Color="#06000000" Offset="1.0" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="TaskbarVerticalBackground"
+                         StartPoint="0,0"
+                         EndPoint="1,0">
+        <GradientStop Color="#14FFFFFF" Offset="0.0" />
+        <GradientStop Color="#0AFFFFFF" Offset="0.25" />
+        <GradientStop Color="#03000000" Offset="0.25" />
+        <GradientStop Color="#06000000" Offset="1.0" />
+    </LinearGradientBrush>
+
+    <!-- ================================================================
+         Cornice dell'anteprima live della beta: risorse di Windows 7
+         (accento + maschera + velatura al 18%, vedi punto 3
+         nell'intestazione), geometria rettangolare della 8.1 - spigoli a
+         90 gradi, perimetro continuo, chiaroscuro fotografico intatto.
+         Niente NativeAeroFrameRect (angoli tondi): senza quella parte il
+         codice lascia in piedi questa cornice XAML.
+         ================================================================ -->
+    <ControlTemplate x:Key="TaskPreviewFrameVista"
+                     TargetType="ContentControl">
+        <Grid SnapsToDevicePixels="True">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="38" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="19" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="17" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="17" />
+            </Grid.ColumnDefinitions>
+
+            <Grid x:Name="AccentSliceLayer"
+                  Grid.Row="0" Grid.RowSpan="3"
+                  Grid.Column="0" Grid.ColumnSpan="3">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="38" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="19" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="17" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="17" />
+                </Grid.ColumnDefinitions>
+
+                <Rectangle Grid.Row="0" Grid.Column="0"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="100,0,17,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+                <Rectangle Grid.Row="0" Grid.Column="0"
+                           Width="3" HorizontalAlignment="Left"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="0,0,3,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="0" Grid.Column="1"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="17,0,202,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="0" Grid.Column="2"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="119,0,17,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+                <Rectangle Grid.Row="0" Grid.Column="2"
+                           Width="3" HorizontalAlignment="Right"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="233,0,3,38"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="1" Grid.Column="0"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="0,38,17,109"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+                <Rectangle Grid.Row="1" Grid.Column="2"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="219,38,17,109"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="2" Grid.Column="0"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="100,147,17,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+                <Rectangle Grid.Row="2" Grid.Column="0"
+                           Width="3" HorizontalAlignment="Left"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="0,147,3,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="2" Grid.Column="1"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="17,147,202,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+
+                <Rectangle Grid.Row="2" Grid.Column="2"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="119,147,17,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+                <Rectangle Grid.Row="2" Grid.Column="2"
+                           Width="3" HorizontalAlignment="Right"
+                           Fill="{DynamicResource DwmPreviewAccentBrush}">
+                    <Rectangle.OpacityMask>
+                        <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderMaskImage}"
+                                    Viewbox="233,147,3,19"
+                                    ViewboxUnits="Absolute"
+                                    Stretch="Fill" />
+                    </Rectangle.OpacityMask>
+                </Rectangle>
+            </Grid>
+
+            <!-- La velatura fotografica di Windows 7 (stesso asset, stesso
+                 18%), riaffettata con la stessa geometria rettangolare:
+                 striscia centrale + 3 px di bordo luminoso anche qui,
+                 altrimenti l'arco delle fette d'angolo tornerebbe a
+                 vedersi sopra gli spigoli. -->
+            <Rectangle Grid.Row="0" Grid.Column="0" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="100,0,17,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="0" Opacity="0.18"
+                       Width="3" HorizontalAlignment="Left">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="0,0,3,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="1" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="17,0,202,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="2" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="119,0,17,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="0" Grid.Column="2" Opacity="0.18"
+                       Width="3" HorizontalAlignment="Right">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="233,0,3,38"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="1" Grid.Column="0" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="0,38,17,109"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="1" Grid.Column="2" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="219,38,17,109"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="0" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="100,147,17,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="0" Opacity="0.18"
+                       Width="3" HorizontalAlignment="Left">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="0,147,3,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="1" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="17,147,202,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="2" Opacity="0.18">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="119,147,17,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+            <Rectangle Grid.Row="2" Grid.Column="2" Opacity="0.18"
+                       Width="3" HorizontalAlignment="Right">
+                <Rectangle.Fill>
+                    <ImageBrush ImageSource="{DynamicResource DwmPreviewBorderImage}"
+                                Viewbox="233,147,3,19"
+                                ViewboxUnits="Absolute"
+                                Stretch="Fill" />
+                </Rectangle.Fill>
+            </Rectangle>
+
+            <ContentPresenter Grid.Row="1" Grid.Column="1"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch" />
+        </Grid>
+    </ControlTemplate>
+
+</ResourceDictionary>

@@ -43,7 +43,8 @@ struct PropsApplyMsg {
     int32_t flyoutColorMode;       // 0 = system colour, 1 = custom colour
     int32_t flyoutColorRgb;        // 0x00RRGGBB of the custom colour
     int32_t connectionPrivacyMode; // 0 = normal, 1 = privacy
-    int32_t themeSelection;        // 0 = Windows 7, 1 = Windows 8.1, 2 = Windows 7 Aero Basic
+    int32_t themeSelection;        // 0 = Windows 7, 1 = Windows 8.1,
+                               // 2 = Windows 7 Aero Basic, 3 = Windows 8 Beta 8148
     /* v1.21.37 - "avvio automatico con Windows" della scheda Informazioni.
      * Ultimo campo, AGGIUNTO IN CODA come tutti gli altri: il ricevente lo
      * legge solo se il pacchetto contiene davvero 80 byte (cbData). L'effetto

@@ -340,8 +340,8 @@ namespace RetroBar.Utilities
         }
 
         /// <summary>
-        /// v1.21.7: skin of the taskbar. 0 = Windows 7 (the only available one
-        /// and the default), 1 = Windows 8.1 (prepared, not implemented yet).
+        /// v1.21.7: skin of the taskbar. 0 = Windows 7 (the default),
+        /// 1 = Windows 8.1, 2 = Windows 7 Aero Basic, 3 = Windows 8 Beta 8148.
         ///
         /// A skin that is not implemented never becomes the stored value: no
         /// fake theme loaded by hand. See TaskbarThemeIds, which is the only

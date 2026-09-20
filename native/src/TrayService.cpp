@@ -1559,13 +1559,17 @@ static void InstallBatteryKeyCrashGuard();
 static void OnBatteryKeySessionEnding();
 
 void TrayService::Stop() {
+    /* OPZIONE B: ripristino INCONDIZIONATO della chiave legacy
+     * UseWin32BatteryFlyout, PRIMA del controllo su m_running: anche se il
+     * servizio risulta non avviato (Start fallita, Stop doppia, ...) una
+     * chiusura regolare mentre un clic-batteria e' ancora in volo
+     * (timer/UIA/watch) non deve mai lasciare la chiave a 1. Il core
+     * nativo e' l'UNICO scrittore di questa chiave: il livello gestito
+     * non la scrive mai. */
+    RestoreWin32BatteryFlyoutValue();
     if (!m_running.load()) {
         return;
     }
-    /* v3.10.1 hardening: ripristina sempre la chiave legacy UseWin32BatteryFlyout
-     * in chiusura pulita, cosi' uno shutdown regolare mentre un clic-batteria
-     * e' ancora in volo (timer/UIA/watch) non lascia la chiave a 1. */
-    RestoreWin32BatteryFlyoutValue();
 
     /* v2.37 punto 15: interruzione cooperativa. Prima si chiede alle
      * letture della toolbar di Explorer di fermarsi (la passata in corso
@@ -4316,7 +4320,11 @@ bool TrayService::TryWindhawkNetFlyoutClick(uint64_t ownerHwnd, uint32_t uid) {
  * piu' fedele attuazione possibile della richiesta "modifica in memoria
  * senza toccarlo realmente" da parte di un processo che NON vive dentro
  * explorer.exe: la lettura che conta e' quella di explorer, quindi il
- * valore deve essere vero nel registro per l'istante del clic. */
+ * valore deve essere vero nel registro per l'istante del clic.
+ * OPZIONE B: questo core nativo e' l'UNICO scrittore della chiave. Il
+ * livello gestito non la scrive mai: ne' all'avvio, ne' all'Applica/OK,
+ * ne' sul percorso dell'icona batteria vera (TaskbarWindow si limita a
+ * chiedere al nativo il ripristino esplicito in chiusura pulita). */
 /* v3.10.1 - Crash-time restore della chiave batteria.
  *
  * Due best-effort path addizionali al restore on-stop / on-next-start:
@@ -4554,6 +4562,14 @@ static void RestoreWin32BatteryFlyoutValue() {
         LogTagged(L"GATE",
                   L"batteria: restore chiave fallito, tengo il backup per il prossimo avvio");
     }
+}
+
+/* OPZIONE B: punto d'ingresso esplicito per il ripristino chiesto dal
+ * livello gestito in chiusura pulita (W7T_BatteryFlyoutRestoreLegacyKey).
+ * Lo stato (touched/prev/backup) e' tutto statico di questo file, quindi
+ * il metodo e' statico anche lui. */
+void TrayService::RestoreBatteryFlyoutKey() {
+    RestoreWin32BatteryFlyoutValue();
 }
 
 /* Il clic standard su una voce VERA della tray, identico al forwarding in
