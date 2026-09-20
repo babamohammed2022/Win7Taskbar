@@ -139,28 +139,6 @@ enum CtrlId {
  * mano. Qui resta solo il disegno del dialogo.
  */
 
-/* v2.41: etichette delle opzioni orologio in TUTTE le lingue della mod.
- * L'opzione nativa si chiama ora "Windows 7"; quella ricreata "Tema
- * classico (ricreato)" (tradotte).
- * v2.59: l'indice e' quello dell'elenco unico (0=it ... 10=ar); fuori
- * elenco si risponde in inglese, come ovunque nel core. */
-struct ClockFlyoutLabels { const wchar_t* recreated; const wchar_t* native; };
-static ClockFlyoutLabels ClockLabels(int lang) {
-    switch (lang) {
-        case 1:  return { L"Classic theme (recreated)", L"Windows 7" };
-        case 2:  return { L"Tema clásico (recreado)", L"Windows 7" };
-        case 3:  return { L"Thème classique (recréé)", L"Windows 7" };
-        case 4:  return { L"Klassisches Thema (nachgebildet)", L"Windows 7" };
-        case 5:  return { L"Tema clássico (recriado)", L"Windows 7" };
-        case 6:  return { L"Motyw klasyczny (odtworzony)", L"Windows 7" };
-        case 7:  return { L"Классическая тема (воссоздано)", L"Windows 7" };
-        case 8:  return { L"クラシックテーマ（再現）", L"Windows 7" };
-        case 9:  return { L"经典主题（重制）", L"Windows 7" };
-        case 10: return { L"السمة الكلاسيكية (أُعيد إنشاؤها)", L"Windows 7" };
-        default: return { L"Classic theme (recreated)", L"Windows 7" };
-    }
-}
-
 HICON GetSystemIcon(int siid) {
     SHSTOCKICONINFO sii{};
     sii.cbSize = sizeof(sii);

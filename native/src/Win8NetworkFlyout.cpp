@@ -287,8 +287,6 @@ static LONGLONG g_CharmsAnimStartQpc   = 0;
 static LONGLONG g_CharmsAnimQpcFreq    = 0;
 static UINT_PTR g_CharmsAnimTimer      = 0;
 static BOOL     g_CharmsBlockAnim      = FALSE;
-static BOOL     g_CharmsHasRgn         = FALSE;
-static int      g_CharmsLastClipPx     = -1;
 static BOOL     g_CharmsRefreshWhenIdle = FALSE;
 static BOOL     g_CharmsLBtnSawDown    = FALSE;
 static HANDLE   g_CharmsVsyncThread    = NULL;
@@ -4987,15 +4985,6 @@ static BOOL CharmsVsyncStart(HWND hwnd) {
     HANDLE h = CreateThread(NULL, 0, CharmsVsyncThreadProc, (LPVOID)(LONG_PTR)gen, 0, NULL);
     g_CharmsVsyncThread = h;
     return h != NULL;
-}
-
-// Clip the moving pane to the target monitor so a multi-monitor setup
-// doesn't briefly show the HWND on the display to the right.
-static void CharmsClearRgn(HWND hwnd) {
-    if (!g_CharmsHasRgn) return;
-    SetWindowRgn(hwnd, NULL, FALSE);
-    g_CharmsHasRgn = FALSE;
-    g_CharmsLastClipPx = -1;
 }
 
 static void CharmsEnsureLayered(HWND hwnd) {
