@@ -27,10 +27,11 @@
 // - la lingua dell'interfaccia arriva dall'app Win7Taskbar
 //   (w8compat::g_langCode, alimentata da W8NetSetLanguage al SettingsChanged).
 //
-// Il resto - riquadro laterale tipo Charms con animazione vsync, lista reti
-// con segnale in tempo reale, connessione/disconnessione con password,
-// Ethernet, categorie Home/Public/Work, privacy mode, tooltip, menu
-// contestuale, tema scuro, 11 lingue - e' IDENTICO alla mod originale.
+// La resa Charms integra i refinamenti visivi di AdmXP mantenendo le misure
+// compatte, le cinque barre, il DPI e le traduzioni di Win7Taskbar. Font,
+// glifi, controlli e sezioni conservano i percorsi precedenti come fallback.
+// La logica WLAN/NLM, le protezioni, la privacy, i menu e l'animazione vsync
+// restano quelli del porting; nessun hook del Pannello di controllo.
 // ==WindhawkMod==
 // @id             win8-network-flyout-recreation
 // @name           Windows 8x Network Flyout Recreation
@@ -216,6 +217,35 @@ static int  WINDOW_HEIGHT       = WINDOW_HEIGHT_BASE;
 // PositionWindowNearTray() and DrawCharmsStyleFlyout() below.
 static bool g_UseCharmsTestStyle = true;
 #define CHARMS_PANEL_WIDTH_BASE  346
+
+// AdmXP's visual refinements, with Win7Taskbar's COMPACT metrics. These are
+// the pre-existing sizes/spacings, not the larger reference layout. Keep the
+// current ScaleDpi/monitor handling and LOC strings; no indent settings here.
+#define CHARMS_FONT_TITLE_SIZE    28
+#define CHARMS_FONT_SECTION_SIZE  15
+#define CHARMS_FONT_BODY_SIZE     12
+#define CHARMS_MARGIN_X           24
+#define CHARMS_TOP_Y              20
+#define CHARMS_GAP_TITLE_LINK     56
+#define CHARMS_LINK_PAD_Y          8
+#define CHARMS_GAP_LINK_SECTION   48
+#define CHARMS_GAP_SECTION_ROWS   30
+#define CHARMS_GAP_ROW_SECTION    48
+#define CHARMS_ROW_CONNECTED_H    52
+#define CHARMS_GAP_TOGGLE_LIST    40
+#define CHARMS_ROW_NETWORK_H      36
+#define CHARMS_ROW_HOVER_TOP       6
+#define CHARMS_TOGGLE_W           44
+#define CHARMS_TOGGLE_H           20
+#define CHARMS_TOGGLE_THUMB_W     16
+#define CHARMS_EXP_CHECKBOX_SIZE  16
+#define CHARMS_PW_LABEL_GAP       24
+#define CHARMS_PW_EDIT_H          28
+#define CHARMS_PW_FIELD_GAP        6
+#define CHARMS_EXP_ROW_H          30
+#define CHARMS_EXP_BTN_W         104
+#define CHARMS_EXP_BTN_H          30
+#define CHARMS_EXP_BOTTOM_PAD     16
 #define CHARMS_BG_COLOR          RGB(31,0,104)
 #define CHARMS_KEY_COLOR         RGB(255,0,255)
 
@@ -269,6 +299,7 @@ static bool g_UseCharmsTestStyle = true;
 #define CHARMS_ANIM_TIMER_ID     1003
 #define CHARMS_FINISH_TIMER_ID   1004
 #define CHARMS_CLICKAWAY_TIMER_ID 1005
+#define WLAN_SCAN_REFRESH_TIMER_ID 1006
 #define CHARMS_ANIM_INTERVAL_MS  16
 #define CHARMS_ANIM_NONE         0
 #define CHARMS_ANIM_IN           1
@@ -479,6 +510,7 @@ void FreeGlobalFonts();
 void InitRefreshButtonRect(void);
 void RecalcArrowRect();
 void ApplyNativeControlsTheme();
+static void CharmsBindControlFonts(bool resetToStock);
 
 void FreeSystemIcons();
 void LoadSystemIcons();
@@ -2556,6 +2588,7 @@ void ApplyNativeControlsTheme() {
     if (g_hWndButtonConnect && IsWindow(g_hWndButtonConnect)) {
         SetWindowTheme(g_hWndButtonConnect, hc ? L"" : ((g_Settings.theme == 1) ? L"DarkMode_Explorer" : L"Explorer"), NULL);
     }
+    CharmsBindControlFonts(false);
 }
 
 HFONT g_hFontNormal    = NULL;
@@ -2576,6 +2609,30 @@ static HFONT g_hFontCharmsTitleAA   = NULL;
 static HFONT g_hFontCharmsSectionAA = NULL;
 static HFONT g_hFontCharmsNormalAA  = NULL;
 static HFONT g_hFontCharmsBoldAA    = NULL;
+
+// Optional AdmXP typography. The original fonts above remain independently
+// owned fallbacks (missing family, allocation failure, High Contrast). All
+// variants keep our old font heights, including the inline child controls.
+enum CharmsTextStyle {
+    CHARMS_TEXT_TITLE, CHARMS_TEXT_SECTION, CHARMS_TEXT_BODY,
+    CHARMS_TEXT_LINK, CHARMS_TEXT_LIGHT, CHARMS_TEXT_CONNECTED,
+    CHARMS_TEXT_COUNT
+};
+struct CharmsFontPair {
+    HFONT normal;
+    HFONT animated;
+};
+static CharmsFontPair g_CharmsFonts[CHARMS_TEXT_COUNT] = {};
+static HFONT g_hFontCharmsEthernet = NULL;
+static HFONT g_hFontCharmsTick = NULL;
+
+static HFONT CharmsStyleFont(CharmsTextStyle style, BOOL animating, HFONT fallback) {
+    if (IsHighContrastActive()) return fallback;
+    const CharmsFontPair& fonts = g_CharmsFonts[style];
+    HFONT font = animating ? fonts.animated : fonts.normal;
+    return font ? font : fallback;
+}
+
 WifiNetworkItem g_NetworkList[50];
 
 BOOL g_IsHoveringLink         = FALSE;
@@ -2733,9 +2790,16 @@ static BOOL  g_EthernetHasInternet = FALSE;
 static GUID  g_EthernetAdapterGuid = {0};
 static BOOL  g_HasEthernetAdapterGuid = FALSE;
 
+// Absence is only established by a successful WLAN enumeration. A service,
+// permission or driver failure must keep the old sections available instead
+// of hiding working connections (including our current-connection/NLM fallback).
+enum class WlanAdapterPresence { Unknown, Absent, Present };
+static WlanAdapterPresence g_WlanAdapterPresence = WlanAdapterPresence::Unknown;
+
 struct NetworkStateSnapshot {
     int networkCount;
     WifiNetworkItem networks[50];
+    WlanAdapterPresence wifiAdapterPresence;
     BOOL ethernetConnected;
     WCHAR ethernetNetworkName[64];
     BOOL ethernetHasInternet;
@@ -2765,6 +2829,7 @@ static void CaptureNetworkState(NetworkStateSnapshot* snapshot) {
     if (count > 0)
         CopyMemory(snapshot->networks, g_NetworkList,
                    sizeof(WifiNetworkItem) * count);
+    snapshot->wifiAdapterPresence = g_WlanAdapterPresence;
     snapshot->ethernetConnected = g_EthernetConnected;
     StringCchCopyW(snapshot->ethernetNetworkName,
                    ARRAYSIZE(snapshot->ethernetNetworkName),
@@ -2799,6 +2864,20 @@ static int FindConnectedNetworkRow(const NetworkStateSnapshot& state) {
         }
     }
     return -1;
+}
+
+struct CharmsSectionVisibility {
+    bool wifi;
+    bool connections;
+};
+
+static CharmsSectionVisibility GetCharmsSectionVisibility(const NetworkStateSnapshot& state) {
+    // Unknown/inconsistent detection: preserve the former full layout. In
+    // particular, never suppress rows recovered by the existing WLAN/NLM code.
+    const bool legacy = state.wifiAdapterPresence == WlanAdapterPresence::Unknown ||
+        (state.wifiAdapterPresence == WlanAdapterPresence::Absent && state.networkCount > 0);
+    return { legacy || state.wifiAdapterPresence == WlanAdapterPresence::Present,
+             legacy || state.ethernetConnected != FALSE };
 }
 
 static BOOL GetSelectedRowConnState(ConnectionState* outState) {
@@ -4728,6 +4807,61 @@ void FreeSystemIcons() {
     LeaveCriticalSection(&g_Ctx.csLock);
 }
 
+// CreateFont can succeed by silently substituting a different family. That
+// is unsafe for MDL2's private-use glyphs (not installed on every supported
+// Windows version) and defeats the typography fallback. Check the real face.
+static HFONT CreateCharmsFont(HDC hdc, int height, int weight, DWORD quality,
+                              const WCHAR* family) {
+    if (!hdc) return NULL;
+    HFONT font = CreateFontW(-ScaleDpi(height), 0, 0, 0, weight, 0, 0, 0,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, quality,
+        DEFAULT_PITCH | FF_DONTCARE, family);
+    if (!font) return NULL;
+    HGDIOBJ previous = SelectObject(hdc, font);
+    WCHAR face[LF_FACESIZE] = {};
+    const bool matched = previous && previous != HGDI_ERROR &&
+        GetTextFaceW(hdc, ARRAYSIZE(face), face) > 0 && _wcsicmp(face, family) == 0;
+    if (previous && previous != HGDI_ERROR) SelectObject(hdc, previous);
+    if (!matched) {
+        DeleteObject(font);
+        return NULL;
+    }
+    return font;
+}
+
+static void InitCharmsStyleFonts() {
+    struct FontSpec { int height; int weight; const WCHAR* family; };
+    static const FontSpec specs[CHARMS_TEXT_COUNT] = {
+        { CHARMS_FONT_TITLE_SIZE,   FW_THIN,   L"Segoe UI Semilight" },
+        { CHARMS_FONT_SECTION_SIZE, FW_NORMAL, L"Segoe UI Semilight" },
+        { CHARMS_FONT_BODY_SIZE,    FW_NORMAL, L"Segoe UI Semilight" },
+        { CHARMS_FONT_BODY_SIZE,    FW_THIN,   L"Segoe UI Semilight" },
+        { CHARMS_FONT_BODY_SIZE,    FW_LIGHT,  L"Segoe UI Semibold" },
+        { CHARMS_FONT_BODY_SIZE,    FW_LIGHT,  L"Segoe UI Semilight" }
+    };
+    HDC hdc = CreateCompatibleDC(NULL);
+    for (int i = 0; i < CHARMS_TEXT_COUNT; ++i) {
+        g_CharmsFonts[i].normal = CreateCharmsFont(hdc, specs[i].height,
+            specs[i].weight, CLEARTYPE_QUALITY, specs[i].family);
+        g_CharmsFonts[i].animated = CreateCharmsFont(hdc, specs[i].height,
+            specs[i].weight, ANTIALIASED_QUALITY, specs[i].family);
+        // Use either a complete pair or the old pair, never different faces
+        // while sliding and at rest if one of the allocations failed.
+        if (!g_CharmsFonts[i].normal || !g_CharmsFonts[i].animated) {
+            if (g_CharmsFonts[i].normal) DeleteObject(g_CharmsFonts[i].normal);
+            if (g_CharmsFonts[i].animated) DeleteObject(g_CharmsFonts[i].animated);
+            g_CharmsFonts[i] = {};
+        }
+    }
+    // The Ethernet glyph fits the existing two text lines (18 + 12), without
+    // changing the 52px row. The checkbox keeps its original 16px square.
+    g_hFontCharmsEthernet = CreateCharmsFont(hdc, 18 + CHARMS_FONT_BODY_SIZE,
+        FW_NORMAL, ANTIALIASED_QUALITY, L"Segoe MDL2 Assets");
+    g_hFontCharmsTick = CreateCharmsFont(hdc, CHARMS_EXP_CHECKBOX_SIZE,
+        FW_NORMAL, ANTIALIASED_QUALITY, L"Segoe MDL2 Assets");
+    if (hdc) DeleteDC(hdc);
+}
+
 void InitGlobalFonts() {
     FreeGlobalFonts(); 
     int sizeNormal = -ScaleDpi(12);
@@ -4746,9 +4880,21 @@ void InitGlobalFonts() {
     g_hFontCharmsSectionAA = CreateFontW(-ScaleDpi(15),0,0,0,FW_SEMIBOLD,0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI Light");
     g_hFontCharmsNormalAA  = CreateFontW(sizeNormal,0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
     g_hFontCharmsBoldAA    = CreateFontW(sizeNormal,0,0,0,FW_BOLD,  0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
+    InitCharmsStyleFonts();
+    CharmsBindControlFonts(false);
 }
 
 void FreeGlobalFonts() {
+    // Detach before deleting: the inline controls must not retain handles to
+    // an old style font. Binding follows font ownership, not a new DPI path.
+    CharmsBindControlFonts(true);
+    for (CharmsFontPair& fonts : g_CharmsFonts) {
+        if (fonts.normal) DeleteObject(fonts.normal);
+        if (fonts.animated) DeleteObject(fonts.animated);
+        fonts = {};
+    }
+    if (g_hFontCharmsEthernet) { DeleteObject(g_hFontCharmsEthernet); g_hFontCharmsEthernet = NULL; }
+    if (g_hFontCharmsTick) { DeleteObject(g_hFontCharmsTick); g_hFontCharmsTick = NULL; }
     if (g_hFontNormal)    { DeleteObject(g_hFontNormal);    g_hFontNormal    = NULL; }
     if (g_hFontBold)      { DeleteObject(g_hFontBold);      g_hFontBold      = NULL; }
     if (g_hFontUnderline) { DeleteObject(g_hFontUnderline); g_hFontUnderline = NULL; }
@@ -5659,10 +5805,9 @@ static DWORD SafeWlanOpenHandle(DWORD dwClientVersion, DWORD* pdwNegotiatedVersi
     }
 }
 
-/* Set when the pane opens and cleared by the first refresh that follows: the
- * "is the list empty?" check must run AFTER that refresh (the count read while
- * the pane is opening is still the previous one, because the refresh is
- * posted), and exactly once per opening. */
+/* Set by both show paths and consumed by the first idle refresh. Show the
+ * cached/fallback rows immediately, then request fresh WLAN results exactly
+ * once per opening, even if the fallback already supplied a connected row. */
 static BOOL g_ScanCheckPending = FALSE;
 
 static DWORD WlanGetProfileListInner(HANDLE hClient, const GUID* pInterfaceGuid, PWLAN_PROFILE_INFO_LIST* outList) {
@@ -5775,35 +5920,66 @@ static DWORD SafeWlanRegisterNotification(HANDLE hClient,
     }
 }
 
-/* One scan per opening, and never more often than one every 5 s: WlanScan
- * costs the radio. Same rule as the recreated Windows 7 flyout. */
-void TriggerWlanScanIfNeeded(void) {
-    static DWORD lastScanRequest = 0;
-    const DWORD now = GetTickCount();
-    if (lastScanRequest != 0 && now - lastScanRequest < 5000) {
-        return;
+// The callback only consumes ACM notifications. Keep the original subscription
+// when it works, but do not lose those notifications merely because ALL also
+// requests MSM (which requires location consent on recent Windows versions).
+// ACM-only does not grant access to SSIDs or bypass WLAN/location permissions.
+static DWORD RegisterWlanNotificationsWithFallback(
+    HANDLE hClient, WLAN_NOTIFICATION_CALLBACK callback, PVOID context) {
+    DWORD result = SafeWlanRegisterNotification(
+        hClient, WLAN_NOTIFICATION_SOURCE_ALL, TRUE, callback, context);
+    if (result == ERROR_ACCESS_DENIED) {
+        result = SafeWlanRegisterNotification(
+            hClient, WLAN_NOTIFICATION_SOURCE_ACM, TRUE, callback, context);
+        w7t::LogTagged(L"NET8", L"WLAN notifications: ALL denied, ACM-only result %lu",
+                       (unsigned long)result);
+    } else if (result != ERROR_SUCCESS) {
+        w7t::LogTagged(L"NET8", L"WLAN notification registration failed (%lu)",
+                       (unsigned long)result);
     }
-    lastScanRequest = now;
+    return result;
+}
+
+/* One scan per opening, and never more often than one every 5 s: WlanScan
+ * costs the radio. TRUE means at least one asynchronous scan was accepted;
+ * the caller then arms a one-shot refresh in case no notification arrives. */
+BOOL TriggerWlanScanIfNeeded(void) {
+    static DWORD lastScanRequest = 0;
+    static BOOL haveScanRequest = FALSE;
+    const DWORD now = GetTickCount();
+    if (haveScanRequest && now - lastScanRequest < 5000) {
+        return FALSE;
+    }
     HANDLE hClient = g_Ctx.hWlanClient;
     if (!hClient) {
         w7t::LogTagged(L"NET8", L"WLAN scan not requested: no WLAN client");
-        return;
+        return FALSE;
     }
     PWLAN_INTERFACE_INFO_LIST rawIfList = NULL;
-    if (SafeWlanEnumInterfaces(hClient, &rawIfList) != ERROR_SUCCESS || !rawIfList) {
-        w7t::LogTagged(L"NET8", L"WLAN scan: WlanEnumInterfaces failed");
-        return;
+    const DWORD enumResult = SafeWlanEnumInterfaces(hClient, &rawIfList);
+    if (enumResult != ERROR_SUCCESS || !rawIfList) {
+        w7t::LogTagged(L"NET8", L"WLAN scan: WlanEnumInterfaces failed (%lu)",
+                       (unsigned long)enumResult);
+        return FALSE;
     }
     // WlanEnumInterfaces transfers ownership to the caller. Keep it in the
     // same WlanFreeMemory-backed RAII type used by the refresh path: every
     // early return and every future exception now releases the list.
     WlanMemoryPtr<WLAN_INTERFACE_INFO_LIST> ifList(rawIfList);
+    if (ifList->dwNumberOfItems == 0) return FALSE;
+    // Do not throttle a later valid client merely because startup had no
+    // service/adapter. Failed scan attempts themselves are still throttled.
+    lastScanRequest = now;
+    haveScanRequest = TRUE;
+    BOOL scanRequested = FALSE;
     for (DWORD i = 0; i < ifList->dwNumberOfItems; i++) {
         const DWORD scanResult =
             SafeWlanScan(hClient, &ifList->InterfaceInfo[i].InterfaceGuid);
+        if (scanResult == ERROR_SUCCESS) scanRequested = TRUE;
         w7t::LogTagged(L"NET8", L"WLAN scan requested on interface %lu: %lu",
                        (unsigned long)i, (unsigned long)scanResult);
     }
+    return scanRequested;
 }
 
 /* v1.21.19: name of the network Windows itself says the machine is on.
@@ -5818,6 +5994,9 @@ static BOOL QueryNlmConnectedNetwork(WCHAR* outName, size_t nameCount,
 
 void RefreshWifiData(HANDLE hClient) {
     if (!hClient) {
+        EnterCriticalSection(&g_Ctx.csLock);
+        g_WlanAdapterPresence = WlanAdapterPresence::Unknown;
+        LeaveCriticalSection(&g_Ctx.csLock);
         w7t::LogTagged(L"NET8", L"network list not refreshed: no WLAN client");
         return;
     }
@@ -5825,15 +6004,16 @@ void RefreshWifiData(HANDLE hClient) {
     DWORD now = GetTickCount();
     PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
     const DWORD enumResult = SafeWlanEnumInterfaces(hClient, &pIfList);
-    if (enumResult != ERROR_SUCCESS) {
-        w7t::LogTagged(L"NET8", L"WlanEnumInterfaces failed (%lu)",
+    // Keep the existing guarded API/RAII path, including early failure.
+    WlanMemoryPtr<WLAN_INTERFACE_INFO_LIST> ifListOwner(pIfList);
+    if (enumResult != ERROR_SUCCESS || !pIfList) {
+        EnterCriticalSection(&g_Ctx.csLock);
+        g_WlanAdapterPresence = WlanAdapterPresence::Unknown;
+        LeaveCriticalSection(&g_Ctx.csLock);
+        w7t::LogTagged(L"NET8", L"WlanEnumInterfaces failed or returned no list (%lu)",
                        (unsigned long)enumResult);
         return;
     }
-    // The WLAN API allocates this list. Keep the raw pointer for the existing
-    // read-only loops, but transfer ownership immediately to an RAII guard so
-    // a future early return or C++ exception cannot leak it.
-    WlanMemoryPtr<WLAN_INTERFACE_INFO_LIST> ifListOwner(pIfList);
     
     int localWlanIfCount = 0;
     GUID localWlanIfGuids[16];
@@ -5844,6 +6024,8 @@ void RefreshWifiData(HANDLE hClient) {
     }
     EnterCriticalSection(&g_Ctx.csLock);
     g_WlanInterfaceCount = localWlanIfCount;
+    g_WlanAdapterPresence = localWlanIfCount > 0
+        ? WlanAdapterPresence::Present : WlanAdapterPresence::Absent;
     for (int i = 0; i < localWlanIfCount; i++)
         g_WlanInterfaceGuids[i] = localWlanIfGuids[i];
     LeaveCriticalSection(&g_Ctx.csLock);
@@ -6573,6 +6755,7 @@ void RefreshNetworkData(BOOL forceDetection = FALSE, INetworkListManager* pNLMOv
     } else {
         EnterCriticalSection(&g_Ctx.csLock);
         g_NetworkCount = 0;
+        g_WlanAdapterPresence = WlanAdapterPresence::Unknown;
         LeaveCriticalSection(&g_Ctx.csLock);
     }
     UpdateEthernetStatus(pNLMOverride, useOnlyOverride);
@@ -9157,6 +9340,23 @@ static BOOL g_CharmsConnectHover       = FALSE;
 static BOOL g_CharmsCancelHover        = FALSE;
 static HBRUSH g_hBrCharmsPwEdit        = NULL;
 
+static void CharmsBindControlFonts(bool resetToStock) {
+    HFONT stock = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+    HFONT editFont = resetToStock ? stock
+        : CharmsStyleFont(CHARMS_TEXT_BODY, FALSE, g_hFontNormal);
+    HFONT buttonFont = resetToStock ? stock
+        : CharmsStyleFont(CHARMS_TEXT_LIGHT, FALSE, g_hFontButton);
+    if (g_hWndCharmsPwEdit && IsWindow(g_hWndCharmsPwEdit))
+        SendMessageW(g_hWndCharmsPwEdit, WM_SETFONT,
+                     (WPARAM)(editFont ? editFont : stock), !resetToStock);
+    HWND buttons[] = { g_hWndCharmsConnectBtn, g_hWndCharmsCancelBtn };
+    for (HWND button : buttons) {
+        if (button && IsWindow(button))
+            SendMessageW(button, WM_SETFONT,
+                         (WPARAM)(buttonFont ? buttonFont : stock), !resetToStock);
+    }
+}
+
 // --- Windows accent color ---------------------------------------------------
 // Windows 8 painted its Charms bar with the user's personalization accent
 // color. When "Follow accent color" is enabled we do the same. Primary
@@ -9382,8 +9582,9 @@ static void CharmsFillHover(HDC hdc, const RECT* rc, int whitePercent) {
     }
 }
 
-static void DrawCharmsToggle(HDC hdc, int x, int y, BOOL on) {
-    int w = ScaleDpi(44), h = ScaleDpi(20);
+// Original rendering kept as the resource/theme fallback for the new track.
+static void DrawCharmsToggleLegacy(HDC hdc, int x, int y, BOOL on) {
+    int w = ScaleDpi(CHARMS_TOGGLE_W), h = ScaleDpi(CHARMS_TOGGLE_H);
 
     // Track مستطیلی (بدون گردی) - مطابق استایل ویندوز 8
     HBRUSH hBrTrack = CreateSolidBrush(on ? RGB(90,150,220) : CharmsPaneBg());
@@ -9395,7 +9596,7 @@ static void DrawCharmsToggle(HDC hdc, int x, int y, BOOL on) {
     DeleteObject(hBrTrack); DeleteObject(hPenTrack);
 
     // Knob مربعی/مستطیلی به جای دایره
-    int knobW = ScaleDpi(16), knobH = h - ScaleDpi(6);
+    int knobW = ScaleDpi(CHARMS_TOGGLE_THUMB_W), knobH = h - ScaleDpi(6);
     int knobX = on ? (x + w - knobW - ScaleDpi(3)) : (x + ScaleDpi(3));
     int knobY = y + ScaleDpi(3);
     HBRUSH hBrKnob = CreateSolidBrush(RGB(255,255,255));
@@ -9406,8 +9607,85 @@ static void DrawCharmsToggle(HDC hdc, int x, int y, BOOL on) {
     DeleteObject(hBrKnob);
 }
 
+// AdmXP's layered rectangular track, adapted to our 44x20 footprint and
+// 16px thumb. All brushes are acquired before painting; failure falls back
+// to the original renderer rather than leaving a partially drawn control.
+static COLORREF CharmsLighten(COLORREF color, int dr, int dg, int db) {
+    return RGB((std::min)(255, (int)GetRValue(color) + dr),
+               (std::min)(255, (int)GetGValue(color) + dg),
+               (std::min)(255, (int)GetBValue(color) + db));
+}
+
+static bool TryDrawCharmsToggle(HDC hdc, int x, int y, BOOL on) {
+    if (!hdc || IsHighContrastActive()) return false;
+    const int w = ScaleDpi(CHARMS_TOGGLE_W), h = ScaleDpi(CHARMS_TOGGLE_H);
+    const int thumbW = ScaleDpi(CHARMS_TOGGLE_THUMB_W);
+    const int ringInset = ScaleDpi(2), gapInset = ScaleDpi(1);
+    if (w - thumbW <= 2 * (ringInset + gapInset) ||
+        h <= 2 * (ringInset + gapInset)) return false;
+
+    const COLORREF bg = CharmsPaneBg();
+    HBRUSH brushes[] = {
+        CreateSolidBrush(CharmsLighten(bg, 9, 26, 42)),
+        CreateSolidBrush(bg),
+        CreateSolidBrush(on ? CharmsLighten(bg, 0, 10, 0)
+                            : CharmsLighten(bg, 26, 27, 29))
+    };
+    bool painted = false;
+    if (brushes[0] && brushes[1] && brushes[2]) {
+        RECT track = { x + (on ? 0 : thumbW), y,
+                       x + w - (on ? thumbW : 0), y + h };
+        RECT gap = track;
+        InflateRect(&gap, -ringInset, -ringInset);
+        RECT inner = gap;
+        InflateRect(&inner, -gapInset, -gapInset);
+        if (on) inner.right = track.right; else inner.left = track.left;
+        RECT thumb = { on ? x + w - thumbW : x, y,
+                       on ? x + w : x + thumbW, y + h };
+        painted = FillRect(hdc, &track, brushes[0]) &&
+            FillRect(hdc, &gap, brushes[1]) && FillRect(hdc, &inner, brushes[2]) &&
+            FillRect(hdc, &thumb, (HBRUSH)GetStockObject(WHITE_BRUSH));
+    }
+    for (HBRUSH brush : brushes) {
+        if (brush) DeleteObject(brush);
+    }
+    return painted;
+}
+
+static void DrawCharmsToggle(HDC hdc, int x, int y, BOOL on) {
+    if (!TryDrawCharmsToggle(hdc, x, y, on))
+        DrawCharmsToggleLegacy(hdc, x, y, on);
+}
+
+// Never display a replacement box or another font's private-use character.
+// Check both the face at creation and the actual glyph here. Too little room
+// also selects the old drawing/text-only row, not larger layout dimensions.
+static bool TryDrawCharmsGlyph(HDC hdc, HFONT font, WCHAR glyph, const RECT& bounds,
+                               COLORREF color) {
+    if (!hdc || !font || IsHighContrastActive() ||
+        bounds.right <= bounds.left || bounds.bottom <= bounds.top) return false;
+    HGDIOBJ previous = SelectObject(hdc, font);
+    if (!previous || previous == HGDI_ERROR) return false;
+    WORD index = 0xFFFF;
+    SIZE size = {};
+    bool painted = false;
+    if (GetGlyphIndicesW(hdc, &glyph, 1, &index, GGI_MARK_NONEXISTING_GLYPHS) != GDI_ERROR &&
+        index != 0xFFFF && index != 0 && GetTextExtentPoint32W(hdc, &glyph, 1, &size) &&
+        size.cx > 0 && size.cy > 0 && size.cx <= bounds.right - bounds.left &&
+        size.cy <= bounds.bottom - bounds.top) {
+        COLORREF oldColor = SetTextColor(hdc, color);
+        int oldMode = SetBkMode(hdc, TRANSPARENT);
+        painted = TextOutW(hdc, bounds.left + (bounds.right - bounds.left - size.cx) / 2,
+            bounds.top + (bounds.bottom - bounds.top - size.cy) / 2, &glyph, 1) != FALSE;
+        SetBkMode(hdc, oldMode);
+        SetTextColor(hdc, oldColor);
+    }
+    SelectObject(hdc, previous);
+    return painted;
+}
+
 static void DrawCharmsCheckbox(HDC hdc, int x, int y, BOOL checked) {
-    int box = ScaleDpi(16);
+    int box = ScaleDpi(CHARMS_EXP_CHECKBOX_SIZE);
     RECT rc = { x, y, x + box, y + box };
 
     // White filled square with a 1px outline, like the Windows 8 pane.
@@ -9416,8 +9694,10 @@ static void DrawCharmsCheckbox(HDC hdc, int x, int y, BOOL checked) {
     DeleteObject(hBrBox);
 
     if (checked) {
-        // Check glyph drawn in the pane colour so it reads against the white
-        // box at any DPI (a font glyph would need its own metrics pass).
+        if (TryDrawCharmsGlyph(hdc, g_hFontCharmsTick, 0xE8FB, rc, CharmsPaneBg()))
+            return;
+        // Original vector checkmark: no MDL2/font dependency on Windows 8.1,
+        // and still available if the glyph is missing or does not fit.
         HPEN hPen = CreatePen(PS_SOLID, ScaleDpi(2), CharmsPaneBg());
         HGDIOBJ oldPen = SelectObject(hdc, hPen);
         int x1 = x + box / 4;
@@ -9456,15 +9736,45 @@ static void DrawCharmsSignalIcon(HDC hdc, int x, int y, ULONG signalQuality) {
     int barW = ScaleDpi(3), gap = ScaleDpi(2), baseY = y + ScaleDpi(16);
     int bars = (signalQuality >= 75) ? 5 : (signalQuality >= 55) ? 4 :
                (signalQuality >= 35) ? 3 : (signalQuality >= 15) ? 2 : 1;
+    // Only the unlit colour comes from AdmXP: our five bars, thresholds,
+    // width/height and spacing remain exactly as before.
+    const COLORREF bg = CharmsPaneBg();
+    const COLORREF dimColor = (bg == CLR_INVALID || IsHighContrastActive())
+        ? RGB(110,165,225) : CharmsBlendWhite(bg, 45);
     for (int i = 0; i < 5; i++) {
         int barH = ScaleDpi(4) + i * ScaleDpi(3);
         BOOL lit = (i < bars);
-        HBRUSH hBr = CreateSolidBrush(lit ? RGB(255,255,255) : RGB(110,165,225));
+        HBRUSH hBr = CreateSolidBrush(lit ? RGB(255,255,255) : dimColor);
         RECT rc = { x + i * (barW + gap), baseY - barH, x + i * (barW + gap) + barW, baseY };
         FillRect(hdc, &rc, hBr);
         DeleteObject(hBr);
     }
 }
+
+static COLORREF CharmsConnectedTextColor() {
+    // Reference secondary text, with the former white text as the fallback
+    // for High Contrast or a custom background too close to the new shade.
+    const COLORREF secondary = RGB(194,209,222);
+    const COLORREF bg = CharmsPaneBg();
+    const int bgLuma = (299 * GetRValue(bg) + 587 * GetGValue(bg) + 114 * GetBValue(bg)) / 1000;
+    const int textLuma = (299 * 194 + 587 * 209 + 114 * 222) / 1000;
+    return IsHighContrastActive() || abs(bgLuma - textLuma) < 64
+        ? RGB(255,255,255) : secondary;
+}
+
+struct CharmsPaintDcGuard {
+    HDC hdc;
+    int saved;
+    HGDIOBJ oldFont;
+    explicit CharmsPaintDcGuard(HDC dc)
+        : hdc(dc), saved(SaveDC(dc)), oldFont(GetCurrentObject(dc, OBJ_FONT)) {}
+    ~CharmsPaintDcGuard() {
+        // A cached paint DC must not keep a style font selected when font
+        // resources are subsequently rebuilt/freed.
+        if (saved) RestoreDC(hdc, saved);
+        else if (oldFont) SelectObject(hdc, oldFont);
+    }
+};
 
 static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     RECT rcAll = { 0, 0, panelW, panelH };
@@ -9512,23 +9822,33 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     if (!hFontBody)     hFontBody     = g_hFontNormal;
     if (!hFontBodyBold) hFontBodyBold = g_hFontBold;
 
-    int margin = ScaleDpi(24);
-    int curY = ScaleDpi(20);
+    // Dedicated reference faces, but exactly our original heights. Keep the
+    // old choices above as the fallback for each individual text role.
+    HFONT hFontLink = CharmsStyleFont(CHARMS_TEXT_LINK, animating, hFontBody);
+    HFONT hFontLight = CharmsStyleFont(CHARMS_TEXT_LIGHT, animating, hFontBody);
+    HFONT hFontEthernet = CharmsStyleFont(CHARMS_TEXT_LIGHT, animating, hFontBodyBold);
+    HFONT hFontConnected = CharmsStyleFont(CHARMS_TEXT_CONNECTED, animating, hFontBody);
+    hFontTitle = CharmsStyleFont(CHARMS_TEXT_TITLE, animating, hFontTitle);
+    hFontSection = CharmsStyleFont(CHARMS_TEXT_SECTION, animating, hFontSection);
+    hFontBody = CharmsStyleFont(CHARMS_TEXT_BODY, animating, hFontBody);
+
+    int margin = ScaleDpi(CHARMS_MARGIN_X);
+    int curY = ScaleDpi(CHARMS_TOP_Y);
     int cx = margin + ox;
     int cxTitle = margin + oxTitle;
 
     SelectObject(hdc, hFontTitle);
     TextOutW(hdc, cxTitle, curY, LOC(STR_CHARMS_TITLE_NETWORKS),
              lstrlenW(LOC(STR_CHARMS_TITLE_NETWORKS)));
-    curY += ScaleDpi(56);
+    curY += ScaleDpi(CHARMS_GAP_TITLE_LINK);
 
     // Link: the hover state is a full-width lighter band (like every other
     // hit target in the pane), not an underline. The rect is measured from
     // the actual text extent so the click area matches what's drawn.
-    SelectObject(hdc, hFontBody);
+    SelectObject(hdc, hFontLink);
     const wchar_t* linkText = LOC(STR_CHARMS_VIEW_SETTINGS);
     SIZE linkSz; GetTextExtentPoint32W(hdc, linkText, lstrlenW(linkText), &linkSz);
-    int linkPadY = ScaleDpi(8);
+    int linkPadY = ScaleDpi(CHARMS_LINK_PAD_Y);
     if (g_IsHoveringLink) {
         RECT rcLinkHi = { ox, curY - linkPadY, panelW + ox, curY + linkSz.cy + linkPadY };
         HBRUSH hBrLinkHi = CreateSolidBrush(CharmsBlendWhite(CharmsPaneBg(), 16));
@@ -9537,95 +9857,128 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     }
     TextOutW(hdc, cx, curY, linkText, lstrlenW(linkText));
     SetRect(&g_rcCharmsLink, ox, curY - linkPadY, panelW + ox, curY + linkSz.cy + linkPadY);
-    curY += ScaleDpi(48);
+    curY += ScaleDpi(CHARMS_GAP_LINK_SECTION);
 
-    // Airplane mode section
-    SelectObject(hdc, hFontSection);
-    TextOutW(hdc, cx, curY, LOC(STR_CHARMS_AIRPLANE),
-             lstrlenW(LOC(STR_CHARMS_AIRPLANE)));
-    curY += ScaleDpi(30);
-    SelectObject(hdc, hFontBody);
-    {
-        const WCHAR* airplaneState =
-            g_CharmsAirplaneOn ? LOC(STR_CHARMS_ON) : LOC(STR_CHARMS_OFF);
-        TextOutW(hdc, cx, curY + ScaleDpi(3), airplaneState,
-                 lstrlenW(airplaneState));
-    }
-    {
-        int tx = panelW - margin - ScaleDpi(44) + ox, ty = curY;
-        DrawCharmsToggle(hdc, tx, ty, g_CharmsAirplaneOn);
-        SetRect(&g_rcCharmsAirplaneToggle, tx, ty, tx + ScaleDpi(44), ty + ScaleDpi(20));
-    }
-    curY += ScaleDpi(48);
-
-    // Connections section
     NetworkStateSnapshot paintState;
     CaptureNetworkState(&paintState);
-    /* v1.21.18: the row, not networks[0]: see FindConnectedNetworkRow(). */
+    const CharmsSectionVisibility sections = GetCharmsSectionVisibility(paintState);
+    // Still search the entire list for the legacy/uncertain-detection case.
     const int connectedRow = FindConnectedNetworkRow(paintState);
-    BOOL isWifiConnected = (connectedRow >= 0);
-    BOOL isAnyConnected = (paintState.ethernetConnected || isWifiConnected);
+    const BOOL isAnyConnected = paintState.ethernetConnected || connectedRow >= 0;
 
-    SelectObject(hdc, hFontSection);
-    TextOutW(hdc, cx, curY, LOC(STR_CHARMS_CONNECTIONS),
-             lstrlenW(LOC(STR_CHARMS_CONNECTIONS)));
-    curY += ScaleDpi(30);
-
-    if (isAnyConnected) {
-        WCHAR displayName[64] = {0};
-        if (paintState.ethernetConnected) {
-            /* v1.21.18: privacy mode covers the cable too. The Wi-Fi rows go
-             * through FormatDisplaySSID(), which masks them; the wired name
-             * used to be printed as it is, so one of the two connections
-             * ignored the setting the user had just turned on. Numbering and
-             * wording match the Windows 7-style header ("Rete 1"). */
-            if (g_Settings.privacyMode) {
-                StringCchPrintfW(displayName, ARRAYSIZE(displayName),
-                                 LOC(STR_NETWORK_PRIVACY_FMT), 1);
-            } else {
-                StringCchCopyW(displayName, ARRAYSIZE(displayName), paintState.ethernetNetworkName);
-                if (displayName[0] == L'\0')
-                    StringCchCopyW(displayName, ARRAYSIZE(displayName), L"Ethernet");
-            }
-        } else if (connectedRow >= 0) {
-            FormatDisplaySSID(paintState.networks[connectedRow], connectedRow,
-                              displayName, ARRAYSIZE(displayName));
+    // Airplane mode section
+    if (sections.wifi) {
+        SelectObject(hdc, hFontSection);
+        TextOutW(hdc, cx, curY, LOC(STR_CHARMS_AIRPLANE),
+                 lstrlenW(LOC(STR_CHARMS_AIRPLANE)));
+        curY += ScaleDpi(CHARMS_GAP_SECTION_ROWS);
+        SelectObject(hdc, hFontLight);
+        {
+            const WCHAR* airplaneState =
+                g_CharmsAirplaneOn ? LOC(STR_CHARMS_ON) : LOC(STR_CHARMS_OFF);
+            TextOutW(hdc, cx, curY + ScaleDpi(3), airplaneState,
+                     lstrlenW(airplaneState));
         }
-        SelectObject(hdc, hFontBodyBold);
-        TextOutW(hdc, cx, curY, displayName, lstrlenW(displayName));
-        SelectObject(hdc, hFontBody);
-        TextOutW(hdc, cx, curY + ScaleDpi(18), LOC(STR_CONNECTED_TEXT),
-                 lstrlenW(LOC(STR_CONNECTED_TEXT)));
-        curY += ScaleDpi(52);
+        {
+            int tx = panelW - margin - ScaleDpi(CHARMS_TOGGLE_W) + ox, ty = curY;
+            DrawCharmsToggle(hdc, tx, ty, g_CharmsAirplaneOn);
+            SetRect(&g_rcCharmsAirplaneToggle, tx, ty, tx + ScaleDpi(CHARMS_TOGGLE_W), ty + ScaleDpi(CHARMS_TOGGLE_H));
+        }
+        curY += ScaleDpi(CHARMS_GAP_ROW_SECTION);
     } else {
-        /* v1.21.18: nothing to show is a state, not an empty area. Windows 8
-         * prints one of these two lines, and an empty section reads as a
-         * broken pane. */
-        const WCHAR* stateText = (paintState.networkCount > 0)
-            ? LOC(STR_CONNECTIONS_AVAILABLE)
-            : LOC(STR_NO_CONNECTIONS);
+        SetRectEmpty(&g_rcCharmsAirplaneToggle);
+    }
+
+    // Connections section
+    if (sections.connections) {
+        SelectObject(hdc, hFontSection);
+        TextOutW(hdc, cx, curY, LOC(STR_CHARMS_CONNECTIONS),
+                 lstrlenW(LOC(STR_CHARMS_CONNECTIONS)));
+        curY += ScaleDpi(CHARMS_GAP_SECTION_ROWS);
+
+        if (isAnyConnected) {
+            WCHAR displayName[64] = {0};
+            if (paintState.ethernetConnected) {
+                /* v1.21.18: privacy mode covers the cable too. The Wi-Fi rows go
+                 * through FormatDisplaySSID(), which masks them; the wired name
+                 * used to be printed as it is, so one of the two connections
+                 * ignored the setting the user had just turned on. Numbering and
+                 * wording match the Windows 7-style header ("Rete 1"). */
+                if (g_Settings.privacyMode) {
+                    StringCchPrintfW(displayName, ARRAYSIZE(displayName),
+                                     LOC(STR_NETWORK_PRIVACY_FMT), 1);
+                } else {
+                    StringCchCopyW(displayName, ARRAYSIZE(displayName), paintState.ethernetNetworkName);
+                    if (displayName[0] == L'\0')
+                        StringCchCopyW(displayName, ARRAYSIZE(displayName), L"Ethernet");
+                }
+            } else if (connectedRow >= 0) {
+                FormatDisplaySSID(paintState.networks[connectedRow], connectedRow,
+                                  displayName, ARRAYSIZE(displayName));
+            }
+            int textX = cx;
+            const int iconSize = ScaleDpi(18 + CHARMS_FONT_BODY_SIZE);
+            const int iconGap = ScaleDpi(10);
+            const int textRight = panelW - margin + ox;
+            RECT iconRect = { cx, curY, cx + iconSize, curY + iconSize };
+            if (paintState.ethernetConnected && textRight - cx - iconSize - iconGap >= ScaleDpi(40) &&
+                TryDrawCharmsGlyph(hdc, g_hFontCharmsEthernet, 0xE839, iconRect, RGB(255,255,255))) {
+                textX += iconSize + iconGap;
+            }
+            // Missing/unusable glyph: textX stays at the old text-only origin.
+            // Long names are clipped within the existing margins, not allowed
+            // to push the icon or grow the pane. Privacy above is unchanged.
+            SelectObject(hdc, hFontEthernet);
+            RECT nameRect = { textX, curY, textRight, curY + ScaleDpi(18) };
+            DrawTextW(hdc, displayName, -1, &nameRect,
+                      DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            SelectObject(hdc, hFontConnected);
+            SetTextColor(hdc, CharmsConnectedTextColor());
+            TextOutW(hdc, textX, curY + ScaleDpi(18), LOC(STR_CONNECTED_TEXT),
+                     lstrlenW(LOC(STR_CONNECTED_TEXT)));
+            SetTextColor(hdc, RGB(255,255,255));
+            curY += ScaleDpi(CHARMS_ROW_CONNECTED_H);
+        } else {
+            /* v1.21.18: nothing to show is a state, not an empty area. Windows 8
+             * prints one of these two lines, and an empty section reads as a
+             * broken pane. */
+            const WCHAR* stateText = (paintState.networkCount > 0)
+                ? LOC(STR_CONNECTIONS_AVAILABLE)
+                : LOC(STR_NO_CONNECTIONS);
+            SelectObject(hdc, hFontBody);
+            TextOutW(hdc, cx, curY, stateText, lstrlenW(stateText));
+            curY += ScaleDpi(CHARMS_ROW_CONNECTED_H);
+        }
+    } else if (!sections.wifi) {
+        // No hardware/connection: retain our existing, localized empty-state
+        // hint instead of leaving an unexplained blank pane.
         SelectObject(hdc, hFontBody);
-        TextOutW(hdc, cx, curY, stateText, lstrlenW(stateText));
-        curY += ScaleDpi(52);
+        TextOutW(hdc, cx, curY, LOC(STR_NO_CONNECTIONS), lstrlenW(LOC(STR_NO_CONNECTIONS)));
     }
 
     // Wi-Fi section
-    SelectObject(hdc, hFontSection);
-    TextOutW(hdc, cx, curY, LOC(STR_CHARMS_WIFI),
-             lstrlenW(LOC(STR_CHARMS_WIFI)));
-    curY += ScaleDpi(30);
-    SelectObject(hdc, hFontBody);
-    {
-        const WCHAR* wifiState =
-            g_CharmsWifiRadioOn ? LOC(STR_CHARMS_ON) : LOC(STR_CHARMS_OFF);
-        TextOutW(hdc, cx, curY + ScaleDpi(3), wifiState, lstrlenW(wifiState));
+    if (sections.wifi) {
+        SelectObject(hdc, hFontSection);
+        TextOutW(hdc, cx, curY, LOC(STR_CHARMS_WIFI),
+                 lstrlenW(LOC(STR_CHARMS_WIFI)));
+        curY += ScaleDpi(CHARMS_GAP_SECTION_ROWS);
+        SelectObject(hdc, hFontLight);
+        {
+            const WCHAR* wifiState =
+                g_CharmsWifiRadioOn ? LOC(STR_CHARMS_ON) : LOC(STR_CHARMS_OFF);
+            TextOutW(hdc, cx, curY + ScaleDpi(3), wifiState, lstrlenW(wifiState));
+        }
+        {
+            int tx = panelW - margin - ScaleDpi(CHARMS_TOGGLE_W) + ox, ty = curY;
+            DrawCharmsToggle(hdc, tx, ty, g_CharmsWifiRadioOn);
+            SetRect(&g_rcCharmsWifiToggle, tx, ty, tx + ScaleDpi(CHARMS_TOGGLE_W), ty + ScaleDpi(CHARMS_TOGGLE_H));
+        }
+        curY += ScaleDpi(CHARMS_GAP_TOGGLE_LIST);
+    } else {
+        SetRectEmpty(&g_rcCharmsWifiToggle);
+        g_CharmsHoveredRow = g_CharmsExpandedRow = -1;
+        g_CharmsAutoConnectHover = FALSE;
     }
-    {
-        int tx = panelW - margin - ScaleDpi(44) + ox, ty = curY;
-        DrawCharmsToggle(hdc, tx, ty, g_CharmsWifiRadioOn);
-        SetRect(&g_rcCharmsWifiToggle, tx, ty, tx + ScaleDpi(44), ty + ScaleDpi(20));
-    }
-    curY += ScaleDpi(40);
 
     // Network list. This is the ONLY place row rects/count are (re)computed,
     // so hit-testing in WM_LBUTTONDOWN/WM_MOUSEMOVE always matches what was
@@ -9634,7 +9987,7 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     BOOL placedInlineControls = FALSE;
     g_CharmsExpandedConnected = FALSE;
     SetRectEmpty(&g_rcCharmsAutoConnect);
-    for (int i = 0; i < paintState.networkCount; i++) {
+    for (int i = 0; sections.wifi && i < paintState.networkCount; i++) {
         if (curY + ScaleDpi(30) > panelH) break;  // don't draw past the panel
         WCHAR displayName[64] = {0};
         FormatDisplaySSID(paintState.networks[i], i, displayName, ARRAYSIZE(displayName));
@@ -9644,25 +9997,34 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
         BOOL needsPassword = (paintState.networks[i].isSecured &&
                               !paintState.networks[i].hasProfile && !isConnected);
 
-        int rowTop = curY - ScaleDpi(6);
-        int blockH = ScaleDpi(36);
+        int rowTop = curY - ScaleDpi(CHARMS_ROW_HOVER_TOP);
+        int blockH = ScaleDpi(CHARMS_ROW_NETWORK_H);
         if (isExpanded) {
             // Height of the whole expanded block, so the highlight band can
             // be painted in one piece behind it (Windows 8 highlights the
             // row AND its expanded content as a single selection).
-            blockH = ScaleDpi(36);
+            blockH = ScaleDpi(CHARMS_ROW_NETWORK_H);
             if (needsPassword)
-                blockH += ScaleDpi(24) + ScaleDpi(34);   // label + field
+                blockH += ScaleDpi(CHARMS_PW_LABEL_GAP)
+                        + ScaleDpi(CHARMS_PW_EDIT_H + CHARMS_PW_FIELD_GAP); // label + field
             else
-                blockH += ScaleDpi(30);                  // checkbox row
-            blockH += ScaleDpi(30) + ScaleDpi(16);       // button row + bottom pad
+                blockH += ScaleDpi(CHARMS_EXP_ROW_H);     // checkbox row
+            blockH += ScaleDpi(CHARMS_EXP_BTN_H) + ScaleDpi(CHARMS_EXP_BOTTOM_PAD);
         }
+
+        // AdmXP: the entire expanded band is also a hit target. Clip the
+        // shared paint/hit rect to the actual pane, including while sliding;
+        // our collapsed row and expanded block keep their original heights.
+        RECT fullRow = { ox, rowTop, panelW + ox, rowTop + blockH };
+        RECT viewport = { px, 0, panelW, panelH };
+        RECT visibleRow = {};
+        IntersectRect(&visibleRow, &fullRow, &viewport);
 
         // Hover and selection use the same translucent-white blend as the
         // buttons, so every hit target in the pane reads as one family
         // instead of the old hardcoded blue.
         if (isExpanded || i == g_CharmsHoveredRow) {
-            RECT rcHi = { ox, rowTop, panelW + ox, rowTop + blockH };
+            RECT rcHi = visibleRow;
             /* v1.21.24: velo vero con GDI+ (con ricaduta opaca) invece del
              * riempimento calcolato sul colore del pannello. Il riquadro resta
              * dentro il pannello (la fascia di sinistra e' trasparente per
@@ -9672,28 +10034,35 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
             CharmsFillHover(hdc, &rcHi, isExpanded ? 22 : 14);
         }
 
-        // Name on the left, signal bars right-aligned at the pane margin.
-        SelectObject(hdc, hFontBody);
-        SetTextColor(hdc, RGB(255,255,255));
-        TextOutW(hdc, cx, curY, displayName, lstrlenW(displayName));
-        /* v1.21.22: la larghezza dell'icona la decide l'icona stessa (5 barre
-         * = 23 px a 100% DPI), cosi' resta incolonnata al margine del
-         * pannello anche se le misure cambiano. */
+        // Our five-bar footprint and right anchor stay unchanged. Reserve
+        // space for the localized status before drawing the name, so neither
+        // a long SSID nor the new font can overlap the status/signal icon.
         int barsX = panelW - margin - CharmsSignalIconWidth() + ox;
-        DrawCharmsSignalIcon(hdc, barsX, curY, paintState.networks[i].signalQuality);
-
-        // "Connected" sits just left of the signal bars, as in Windows 8.
+        int nameRight = barsX - ScaleDpi(10);
         if (isConnected) {
             const wchar_t* connText = LOC(STR_CONNECTED_TEXT);
-            SIZE connSz;
+            SelectObject(hdc, hFontConnected);
+            SIZE connSz = {};
             GetTextExtentPoint32W(hdc, connText, lstrlenW(connText), &connSz);
-            TextOutW(hdc, barsX - ScaleDpi(10) - connSz.cx, curY,
-                     connText, lstrlenW(connText));
+            const int available = (std::max)(0, nameRight - cx);
+            // Keep room for the name even with an unusually long translation.
+            const int statusW = (std::min)((int)connSz.cx, available / 2);
+            RECT statusRect = { nameRight - statusW, curY, nameRight, curY + ScaleDpi(18) };
+            SetTextColor(hdc, CharmsConnectedTextColor());
+            DrawTextW(hdc, connText, -1, &statusRect,
+                      DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            nameRight = statusRect.left - ScaleDpi(10);
         }
+        SelectObject(hdc, isConnected ? hFontLight : hFontBody);
+        SetTextColor(hdc, RGB(255,255,255));
+        RECT nameRect = { cx, curY, (std::max)(cx, nameRight), curY + ScaleDpi(18) };
+        DrawTextW(hdc, displayName, -1, &nameRect,
+                  DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        DrawCharmsSignalIcon(hdc, barsX, curY, paintState.networks[i].signalQuality);
 
-        SetRect(&g_rcCharmsRows[rowCount], ox, rowTop, panelW + ox, rowTop + ScaleDpi(36));
+        g_rcCharmsRows[rowCount] = visibleRow;
         rowCount++;
-        curY += ScaleDpi(36);
+        curY += ScaleDpi(CHARMS_ROW_NETWORK_H);
 
         if (isExpanded) {
             g_CharmsExpandedConnected = isConnected;
@@ -9705,9 +10074,9 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
                 SelectObject(hdc, hFontBody);
                 const wchar_t* pwLabel = LOC(STR_CHARMS_ENTER_KEY);
                 TextOutW(hdc, cx, curY, pwLabel, lstrlenW(pwLabel));
-                curY += ScaleDpi(24);
+                curY += ScaleDpi(CHARMS_PW_LABEL_GAP);
 
-                int editH = ScaleDpi(28);
+                int editH = ScaleDpi(CHARMS_PW_EDIT_H);
                 int editW = panelW - margin * 2;
                 if (g_hWndCharmsPwEdit) {
                     MoveWindow(g_hWndCharmsPwEdit, cx, curY, editW, editH, TRUE);
@@ -9719,7 +10088,8 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
                     HDC hdcEdit = GetDC(g_hWndCharmsPwEdit);
                     int lineH = ScaleDpi(14);
                     if (hdcEdit) {
-                        HGDIOBJ oldF = SelectObject(hdcEdit, g_hFontNormal);
+                        HFONT editFont = (HFONT)SendMessageW(g_hWndCharmsPwEdit, WM_GETFONT, 0, 0);
+                        HGDIOBJ oldF = SelectObject(hdcEdit, editFont ? editFont : g_hFontNormal);
                         TEXTMETRICW tm;
                         if (GetTextMetricsW(hdcEdit, &tm)) lineH = tm.tmHeight;
                         SelectObject(hdcEdit, oldF);
@@ -9735,7 +10105,7 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
                     ShowWindow(g_hWndCharmsPwEdit, SW_SHOW);
                     EnableWindow(g_hWndCharmsPwEdit, TRUE);
                 }
-                curY += editH + ScaleDpi(6);
+                curY += editH + ScaleDpi(CHARMS_PW_FIELD_GAP);
             } else {
                 if (g_hWndCharmsPwEdit) ShowWindow(g_hWndCharmsPwEdit, SW_HIDE);
 
@@ -9763,13 +10133,13 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
                 TextOutW(hdc, chkX + ScaleDpi(24), curY, chkText, lstrlenW(chkText));
                 SetRect(&g_rcCharmsAutoConnect, chkX, chkY,
                         chkX + ScaleDpi(24) + chkSz.cx, chkY + ScaleDpi(18));
-                curY += ScaleDpi(30);
+                curY += ScaleDpi(CHARMS_EXP_ROW_H);
             }
 
             // Buttons right-aligned at the pane margin, as in Windows 8.
             // Cancel is only offered while a key is being typed - for a
             // saved network the row itself toggles closed again.
-            int btnW = ScaleDpi(104), btnH = ScaleDpi(30);
+            int btnW = ScaleDpi(CHARMS_EXP_BTN_W), btnH = ScaleDpi(CHARMS_EXP_BTN_H);
             int btnX = panelW - margin - btnW + ox;
             if (g_hWndCharmsConnectBtn) {
                 SetWindowTextW(g_hWndCharmsConnectBtn,
@@ -9787,7 +10157,7 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
                     ShowWindow(g_hWndCharmsCancelBtn, SW_HIDE);
                 }
             }
-            curY += btnH + ScaleDpi(16);
+            curY += btnH + ScaleDpi(CHARMS_EXP_BOTTOM_PAD);
             placedInlineControls = TRUE;
         }
     }
@@ -9931,17 +10301,12 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             CheckConnectionTimeouts();
             UpdateLayoutGeometry();
             InvalidateRect(hwnd, NULL, FALSE);
-        } else if (wParam == 1003) {
-            /* v1.21.17: THE SHOT AFTER THE SCAN (from the recreated Windows 7
-             * flyout, v3.6). Opening with an empty list orders a WLAN scan: the
-             * results arrive a few seconds later, but nothing re-read the data
-             * when the periodic refresh timer was not running. One single shot
-             * after 4 s brings them into the list. */
-            KillTimer(hwnd, 1003);
-            RefreshNetworkData();
-            ClampScrollPos();
-            UpdateLayoutGeometry();
-            InvalidateRect(hwnd, NULL, TRUE);
+        } else if (wParam == WLAN_SCAN_REFRESH_TIMER_ID) {
+            // Independent of the animation timer, including its WM_TIMER
+            // fallback. Reuse the idle-aware refresh path rather than doing
+            // WLAN/NLM work in the middle of an opening/closing animation.
+            KillTimer(hwnd, WLAN_SCAN_REFRESH_TIMER_ID);
+            PostMessageW(hwnd, WM_REFRESH_DATA, FALSE, 0);
         } else if (wParam == CHARMS_ANIM_TIMER_ID) {
             InterlockedExchange(&g_CharmsTickPosted, 0);
             CharmsAnimTick(hwnd);
@@ -9988,8 +10353,7 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
         if (!g_RefreshTimer && g_Settings.refreshInterval > 0) {
             g_RefreshTimer = SetTimer(hwnd, 1000, g_Settings.refreshInterval, NULL);
         }
-        /* v1.21.17: the "is the list empty?" check must run AFTER the refresh
-         * this message posts (here the count is still the previous one). */
+        // Request fresh WLAN results once the opening animation is idle.
         g_ScanCheckPending = TRUE;
         PostMessageW(hwnd, WM_REFRESH_DATA, TRUE, 0);
         break;
@@ -10001,20 +10365,15 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             break;
         }
         RefreshNetworkData(/*forceDetection=*/(BOOL)wParam);
-        /* v1.21.17: diagnostics of the first refresh after opening and, when the
-         * list stayed empty, a scan order plus a guaranteed re-read after 4 s
-         * (timer 1003). This is the piece of the recreated Windows 7 flyout
-         * that makes the networks appear on a radio that had not scanned yet:
-         * without it the Windows 8 pane looked like it had no connections. */
+        // A cached list, including the NLM/current-connection fallback, is
+        // not proof that nearby networks have been scanned. Refresh once per
+        // opening regardless of that count; notifications deliver results,
+        // with a one-shot re-read if notification registration was unavailable.
         if (g_ScanCheckPending) {
             g_ScanCheckPending = FALSE;
-            int netCountNow = 0;
             EnterCriticalSection(&g_Ctx.csLock);
-            netCountNow = g_NetworkCount;
-            LeaveCriticalSection(&g_Ctx.csLock);
-            BOOL ethernetNow = FALSE;
-            EnterCriticalSection(&g_Ctx.csLock);
-            ethernetNow = g_EthernetConnected;
+            const int netCountNow = g_NetworkCount;
+            const BOOL ethernetNow = g_EthernetConnected;
             LeaveCriticalSection(&g_Ctx.csLock);
             w7t::LogTagged(L"NET8",
                            L"pane opened: %d network(s) listed, WLAN %s, cable %s, "
@@ -10024,30 +10383,25 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                            ethernetNow ? L"connected" : L"not connected",
                            g_AppLanguageIndex,
                            (unsigned)g_CurrentLocalePack->langId);
-            if (netCountNow == 0) {
-                /* An empty list has two possible causes: the radio has not
-                 * scanned yet, or there is no WLAN client at all (the service
-                 * was not ready when the module started - the log line above
-                 * says which). Ask for the client once more here, then order the
-                 * scan; the re-read at 4 s picks up whatever arrives. */
-                if (!g_Ctx.hWlanClient) {
-                    DWORD dwMaxClient = 2, dwCurVer = 0;
-                    const DWORD retryOpen =
-                        SafeWlanOpenHandle(dwMaxClient, &dwCurVer, &g_Ctx.hWlanClient);
-                    if (retryOpen == ERROR_SUCCESS) {
-                        SafeWlanRegisterNotification(g_Ctx.hWlanClient,
-                                                     WLAN_NOTIFICATION_SOURCE_ALL, TRUE,
-                                                     WlanNotificationCallback, &g_Ctx);
-                        w7t::LogTagged(L"NET8", L"WLAN client opened on the empty-list retry");
-                        PostMessageW(hwnd, WM_REFRESH_DATA, TRUE, 0);
-                    } else {
-                        g_Ctx.hWlanClient = NULL;
-                        w7t::LogTagged(L"NET8", L"WLAN client still unavailable on retry (%lu)",
-                                       (unsigned long)retryOpen);
-                    }
+            // Preserve the startup/service-not-ready recovery independently
+            // of how many rows the fallback happened to provide.
+            if (!g_Ctx.hWlanClient) {
+                DWORD dwMaxClient = 2, dwCurVer = 0;
+                const DWORD retryOpen =
+                    SafeWlanOpenHandle(dwMaxClient, &dwCurVer, &g_Ctx.hWlanClient);
+                if (retryOpen == ERROR_SUCCESS) {
+                    RegisterWlanNotificationsWithFallback(
+                        g_Ctx.hWlanClient, WlanNotificationCallback, &g_Ctx);
+                    w7t::LogTagged(L"NET8", L"WLAN client opened on the pane-open retry");
+                    PostMessageW(hwnd, WM_REFRESH_DATA, TRUE, 0);
+                } else {
+                    g_Ctx.hWlanClient = NULL;
+                    w7t::LogTagged(L"NET8", L"WLAN client still unavailable on retry (%lu)",
+                                   (unsigned long)retryOpen);
                 }
-                TriggerWlanScanIfNeeded();
-                SetTimer(hwnd, 1003, 4000, NULL);
+            }
+            if (TriggerWlanScanIfNeeded()) {
+                SetTimer(hwnd, WLAN_SCAN_REFRESH_TIMER_ID, 4000, NULL);
             }
         }
         ClampScrollPos();
@@ -10295,14 +10649,20 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
              * violation dentro il disegno. Quella la intercetta la guardia
              * SEH: un frame venuto male resta un frame saltato, invece di
              * far saltare il message pump di Explorer. */
-            W7T_SEH_TRY {
-                DrawCharmsStyleFlyout(hwnd, hdc, WINDOW_WIDTH, WINDOW_HEIGHT);
-                BitBlt(hdcReal, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, hdc, 0, 0, SRCCOPY);
+            {
+                // Outside the SEH frame: its longjmp skips destructors inside
+                // the painter. Restore the DC even on that path, and BEFORE
+                // restoring the bitmap below (SaveDC also saves its selection).
+                CharmsPaintDcGuard dcGuard(hdc);
+                W7T_SEH_TRY {
+                    DrawCharmsStyleFlyout(hwnd, hdc, WINDOW_WIDTH, WINDOW_HEIGHT);
+                    BitBlt(hdcReal, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, hdc, 0, 0, SRCCOPY);
+                }
+                W7T_SEH_CATCH {
+                    Wh_Log(L"FlyoutWndProc: eccezione hardware durante il disegno del pannello Charms, frame saltato");
+                }
+                W7T_SEH_END
             }
-            W7T_SEH_CATCH {
-                Wh_Log(L"FlyoutWndProc: eccezione hardware durante il disegno del pannello Charms, frame saltato");
-            }
-            W7T_SEH_END
             SelectObject(hdc, hOldBmp);
             EndPaint(hwnd, &ps);
             break;
@@ -11352,6 +11712,7 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
         if (g_CharmsAnimTimer) { KillTimer(hwnd, CHARMS_ANIM_TIMER_ID); g_CharmsAnimTimer = 0; }
         KillTimer(hwnd, CHARMS_FINISH_TIMER_ID);
         KillTimer(hwnd, CHARMS_CLICKAWAY_TIMER_ID);
+        KillTimer(hwnd, WLAN_SCAN_REFRESH_TIMER_ID);
         CharmsVsyncStop();
         g_CharmsAnimState = CHARMS_ANIM_NONE;
         g_CharmsBlockAnim = FALSE;
@@ -12119,9 +12480,8 @@ void ToggleFlyoutWindow() {
                 const DWORD openResult =
                     SafeWlanOpenHandle(dwMaxClient, &dwCurVer, &g_Ctx.hWlanClient);
                 if (openResult == ERROR_SUCCESS) {
-                    SafeWlanRegisterNotification(g_Ctx.hWlanClient,
-                                                 WLAN_NOTIFICATION_SOURCE_ALL, TRUE,
-                                                 WlanNotificationCallback, &g_Ctx);
+                    RegisterWlanNotificationsWithFallback(
+                        g_Ctx.hWlanClient, WlanNotificationCallback, &g_Ctx);
                     Wh_Log(L"WLAN handle opened lazily on first flyout show");
                 } else {
                     g_Ctx.hWlanClient = NULL;
@@ -12161,6 +12521,7 @@ void ToggleFlyoutWindow() {
             if (!g_RefreshTimer && g_Settings.refreshInterval > 0)
                 g_RefreshTimer = SetTimer(g_hWndFlyout, 1000, g_Settings.refreshInterval, NULL);
             SetForegroundWindow(g_hWndFlyout);
+            g_ScanCheckPending = TRUE;
             PostMessageW(g_hWndFlyout, WM_REFRESH_DATA, TRUE, 0);
         }
     }
@@ -12228,8 +12589,8 @@ DWORD WINAPI HotkeyThreadProc(LPVOID lpParam) {
         for (int attempt = 0; attempt < 2; attempt++) {
             DWORD wlanResult = SafeWlanOpenHandle(dwMaxClient, &dwCurVer, &ctx->hWlanClient);
             if (wlanResult == ERROR_SUCCESS) {
-                SafeWlanRegisterNotification(ctx->hWlanClient, WLAN_NOTIFICATION_SOURCE_ALL, TRUE,
-                                             WlanNotificationCallback, ctx);
+                RegisterWlanNotificationsWithFallback(
+                    ctx->hWlanClient, WlanNotificationCallback, ctx);
                 Wh_Log(L"WLAN handle opened on hotkey thread (attempt %d)", attempt + 1);
                 break;
             }
@@ -12497,6 +12858,7 @@ BOOL W8NetInit() {
     // practice, deadlocked the Control Panel page.
     ZeroMemory(&g_Ctx, sizeof(g_Ctx));
     InitializeCriticalSection(&g_Ctx.csLock);
+    g_WlanAdapterPresence = WlanAdapterPresence::Unknown;
     InitializeCriticalSection(&g_retrobarAnchorLock);
     g_retrobarAnchorLockInit = TRUE;
     InitializeCriticalSection(&g_toolbarCacheLock);

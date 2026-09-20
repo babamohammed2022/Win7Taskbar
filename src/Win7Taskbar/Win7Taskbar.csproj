@@ -364,9 +364,9 @@
          for the same reason (a half-pixel edge could leave a transparent
          strip). native/tools/check-preview-geometry.py covers the geometry at
          100/125/150/175/200%. -->
-    <Version>1.2.0-alpha</Version>
-    <AssemblyVersion>1.2.0.0</AssemblyVersion>
-    <FileVersion>1.2.0.0</FileVersion>
+    <Version>1.2.1</Version>
+    <AssemblyVersion>1.2.1.0</AssemblyVersion>
+    <FileVersion>1.2.1.0</FileVersion>
   
     <!-- v2.57: application icon (the classic Windows 7 flag in a single azure
          blue). Setting ApplicationIcon gives the executable the icon and, in

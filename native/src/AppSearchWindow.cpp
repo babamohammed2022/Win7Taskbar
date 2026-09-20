@@ -111,12 +111,26 @@ constexpr SearchSkin kSkinWin7Basic = {
     RGB(0x33, 0x99, 0xFF),
 };
 
-/* v1.21.50: la skin della ricerca per id tema. 0 e ogni valore ignoto
- * restano la skin Windows 7 (il ripiego storico), 1 la metro 8.1,
- * 2 la Windows 7 opaca dell'Aero Basic. */
+// The fourth taskbar skin reuses the Windows 8.1 SEARCH palette and
+// renderer, without changing any taskbar skin resources. Only its search
+// background becomes slightly translucent: 236/255 opacity = 7.45%
+// transparency. Text, icons, selection and edit controls keep their masks.
+constexpr SearchSkin kSkinWin8Beta = [] {
+    SearchSkin skin = kSkinMetro;
+    skin.alphaTop = skin.alphaBottom = 236;
+    return skin;
+}();
+
+constexpr bool IsMetroSearchTheme(int32_t theme) {
+    return theme == 1 || theme == 3;
+}
+
+// Unknown IDs retain the original Windows 7 fallback. Windows 8.1 itself
+// stays fully opaque; Aero Basic keeps its existing opaque Windows 7 look.
 inline const SearchSkin& SkinForTheme(int32_t theme) {
     if (theme == 1) return kSkinMetro;
     if (theme == 2) return kSkinWin7Basic;
+    if (theme == 3) return kSkinWin8Beta;
     return kSkinWin7;
 }
 
@@ -1368,9 +1382,9 @@ void AppSearchWindow::ShowPropertiesOfSelected() {
 void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
                                     int W, int H, bool mask) {
     std::lock_guard<std::mutex> lk(m_scanMutex);
-    /* v1.21.50: la skin arriva da SkinForTheme (0 Win7 traslucido,
-     * 1 metro 8.1, 2 Win7 opaco dell'Aero Basic). */
+    // Both Windows 8 variants share the same flat search rendering.
     const SearchSkin& sk = SkinForTheme(m_theme);
+    const bool metroStyle = IsMetroSearchTheme(m_theme);
     auto grayAt = [&](int y) -> int {
         return sk.alphaTop + (sk.alphaBottom - sk.alphaTop) * y / (H > 1 ? H - 1 : 1);
     };
@@ -1411,15 +1425,17 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
     };
 
 
-    // sfondo: la skin Win7 resta il gradiente blu traslucido di prima;
-    // la skin metro (8.1) e' UN UNICO viola piatto e opaco, disegnato con
-    // GDI+ (RAII + try/catch) e ripiego GDI se gdiplus non e' disponibile.
-    if (m_theme == 1) {
-        const DWORD bg = mask ? 0xFFFFFFFFu : ArgbOf(sk.bgTop);
+    // Reuse the flat Windows 8.1 background, including its GDI fallback.
+    // The mask stores opacity in RGB, not the GDI+ brush alpha: painting it
+    // white here would silently make the fourth skin opaque again.
+    if (metroStyle) {
+        const COLORREF bgColor = mask
+            ? RGB(sk.alphaTop, sk.alphaTop, sk.alphaTop) : sk.bgTop;
+        const DWORD bg = ArgbOf(bgColor);
         RECT full{ 0, 0, W, H };
         RECT fd = PxRect(full);
         if (!GdipFlatFill(hdc, fd, bg)) {
-            HBRUSH hb = CreateSolidBrush(col(sk.bgTop));
+            HBRUSH hb = CreateSolidBrush(bgColor);
             FillRect(hdc, &full, hb);
             DeleteObject(hb);
         }
@@ -1448,7 +1464,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
     }
     // bordo "Aero" disegnato dentro (1 px chiaro, opaco) solo su Win7:
     // la skin metro non ha cornici, e' puro colore piatto.
-    if (m_theme != 1) {
+    if (!metroStyle) {
         RECT b{ 0, 0, W, H };
         HBRUSH hb = CreateSolidBrush(col(sk.selEdge));
         FrameRect(hdc, &b, hb);
@@ -1500,7 +1516,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
      * try/catch dentro i helper); se GDI+ manca, o su Win7, si passa dal
      * percorso GDI di sempre. La skin Win7 non usa mai GDI+. */
     auto metroFill = [&](const RECT& r, COLORREF c) {
-        if (m_theme == 1 &&
+        if (metroStyle &&
             GdipFlatFill(hdc, PxRect(r), mask ? 0xFFFFFFFFu : ArgbOf(c))) {
             return;
         }
@@ -1509,7 +1525,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         DeleteObject(b);
     };
     auto metroFrame = [&](const RECT& r, COLORREF c) {
-        if (m_theme == 1 &&
+        if (metroStyle &&
             GdipFlatFrame(hdc, PxRect(r), mask ? 0xFFFFFFFFu : ArgbOf(c))) {
             return;
         }
@@ -1543,7 +1559,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         const AppEntry& app = m_allApps[m_filtered[0]];
         RECT selR{ 10, yCur, kLeftWidth - 10, yCur + 46 };
         if (m_selectedRow == 0) {
-            if (m_theme == 1) {
+            if (metroStyle) {
                 /* metro: un solo riempimento piatto GDI+, niente cornice */
                 metroFill(selR, sk.selTop);
             } else {
@@ -1603,7 +1619,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         const int yy = rowsTop + (row - first - m_scroll) * kRowHeight;
         RECT rowR{ 10, yy, kLeftWidth - 10, yy + kRowHeight };
         if (row == m_selectedRow) {
-            if (m_theme == 1) {
+            if (metroStyle) {
                 metroFill(rowR, sk.hover);   /* piatto GDI+, senza cornice */
             } else {
                 HBRUSH b = CreateSolidBrush(col(sk.hover));
@@ -1788,7 +1804,7 @@ void AppSearchWindow::RenderScene(HDC hdc, uint32_t* sceneBits,
         RECT mr{ editR.left + 4, eTop + 4, editR.left + 26, eTop + 26 };
         metroFill(mr, sk.hover);
     }
-    if (m_theme == 1) {
+    if (metroStyle) {
         /* v1.21.30 metro: lente piccola disegnata con GDI+ (RAII+try/catch);
          * se GDI+ manca si ricade sull'asset incorporato come su Win7. */
         const DWORD lc = mask ? 0xFFFFFFFFu : ArgbOf(sk.editEdge);
