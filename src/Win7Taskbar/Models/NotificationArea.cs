@@ -89,6 +89,18 @@ namespace Win7Taskbar.Models
         /// </summary>
         public uint Version { get; set; }
 
+        /// <summary>
+        /// Notifiche arrivate per questa icona che nessuno e' riuscito a
+        /// mostrare (ManagedShell: NotifyIcon.MissedNotifications, riempita da
+        /// TriggerNotificationBalloon quando l'evento non viene marcato come
+        /// gestito). Vive nel modello e non nel fumetto, cosi' sopravvive alla
+        /// singola nuvoletta: RetroBar le ripropone quando l'icona torna
+        /// visibile. Il tipo sta in Controls per non separarlo dalla coda che lo
+        /// produce e lo consuma.
+        /// </summary>
+        public ObservableCollection<Controls.NotificationBalloon> MissedNotifications { get; } =
+            new();
+
         private void SetField<T>(ref T field, T value, [CallerMemberName] string? name = null)
         {
             if (Equals(field, value))

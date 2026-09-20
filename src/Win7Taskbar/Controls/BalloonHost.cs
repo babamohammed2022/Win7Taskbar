@@ -127,7 +127,7 @@ namespace Win7Taskbar.Controls
             try
             {
                 _balloon = new NotifyBalloon();
-                _balloon.Closed += (_, _) => Hide();
+                _balloon.Closed += OnBalloonClosed;
 
                 /* v3.7: l'ancora e' l'icona che ha generato la notifica, se
                  * esiste; altrimenti l'area di notifica (ripiego d'origine).
@@ -219,6 +219,41 @@ namespace Win7Taskbar.Controls
             }
 
             _balloon = null;
+        }
+
+        /// <summary>
+        /// Il fumetto si e' chiuso da solo: timeout, "x", click sul corpo o
+        /// errore interno. Serve a chi tiene una coda (BalloonQueue) per sapere
+        /// quando mostrare la notifica successiva: NotifyBalloon.Closed nasce
+        /// dentro il Popup, staccato dall'albero della finestra, e da fuori non
+        /// e' raggiungibile.
+        ///
+        /// Una chiusura imposta dall'esterno con <see cref="Hide"/> NON lo alza:
+        /// in quel caso chi ha chiamato Hide sa gia' di aver chiuso e libera lo
+        /// slot da se' (vedi BalloonQueue.Advance/DiscardVisibleIf).
+        /// </summary>
+        public event EventHandler? Closed;
+
+        private void OnBalloonClosed(object? sender, EventArgs e)
+        {
+            Hide();
+
+            var handler = Closed;
+            if (handler == null)
+            {
+                return;
+            }
+
+            /* Il gestore appartiene a chi consuma la coda: se solleva, il
+             * fumetto e' comunque gia' chiuso e la barra resta in piedi. */
+            try
+            {
+                handler(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"balloon: gestore Closed ha sollevato: {ex.Message}");
+            }
         }
 
         // ---------------------------------------------------------------
