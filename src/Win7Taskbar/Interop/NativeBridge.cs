@@ -688,13 +688,13 @@ namespace Win7Taskbar.Interop
         }
 
         // ---------------------------------------------------------------
-        //  Jump List (sistema del gesto: clic sinistro + trascinamento
-        //  verso l'alto). Coordinate: PIXEL FISICI DELLO SCHERMO.
+        //  Jump List (clic sinistro sulla freccetta del pulsante).
+        //  Coordinate: PIXEL FISICI DELLO SCHERMO.
         //
         //  I metodi sono sottili di proposito: chi li chiama
-        //  (TaskbarWindow.JumpList.cs) e' il punto che conosce il gesto e
-        //  puo' annullarlo, quindi e' li' che ogni chiamata e' avvolta in
-        //  try/catch con log e CancelJumpList(). Qui non si convertono le
+        //  (TaskbarWindow.JumpList.cs) e' il punto che conosce l'interazione
+        //  e puo' annullarla, quindi e' li' che ogni chiamata e' avvolta in
+        //  try/catch con log e HideJumpList(). Qui non si convertono le
         //  eccezioni in nessun comportamento: si lasciano salire.
         //  L'unica eccezione e' JumpListHide, chiamato dai percorsi di
         //  pulizia: un secondo errore durante l'annullamento non deve

@@ -851,6 +851,28 @@ namespace Win7Taskbar.Interop
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool IsWindowVisible(IntPtr hWnd);
 
+        /// <summary>Win32 MSG, layout-compatible with the native one; only
+        /// what the jump list purge reads (hwnd/message).</summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MSG
+        {
+            public IntPtr hwnd;
+            public uint message;
+            public IntPtr wParam;
+            public IntPtr lParam;
+            public uint time;
+            public int ptX;
+            public int ptY;
+        }
+
+        /// <summary>PM_REMOVE peel of one filtered message, used to drop a
+        /// dismissal the previous jump list posted to the (reused) popup
+        /// window before this one opened.</summary>
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool PeekMessageW(out MSG lpMsg, IntPtr hWnd,
+            uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
         [DllImport("kernel32.dll")]
         public static extern uint GetCurrentProcessId();
 

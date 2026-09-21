@@ -1,38 +1,42 @@
-// Win7Taskbar - Windows 7 Jump List gesture subsystem
+// Win7Taskbar - Windows 7 Jump List subsystem (task-button arrow trigger)
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 //
-// STATUS: INCOMPLETE AND TEMPORARILY DISABLED. The call that arms this
-// subsystem is commented out in TaskButton_PreviewMouseDown. Keep this code
-// intact for completion; no Jump List can currently be opened by the user.
+// The Windows 7 Superbar opens a taskbar button's Jump List from the small
+// up-arrow the hovered button shows at its right edge: a LEFT click on that
+// arrow opens the list above the button. This file is the whole managed
+// side of that interaction; the arrow itself is drawn by the shared
+// TaskButtonContentTemplate (Themes/Overrides.xaml, x:Name="JumpListArrow")
+// and the popup is the native window of native/src/JumpListWindow.cpp.
 //
-// The Windows 7 Superbar opened a taskbar button's Jump List from the
-// left-button press + drag-up gesture (the right-click stays the plain
-// Windows 7 context menu, handled in TaskbarWindow.xaml.cs and not touched
-// here). This file is the whole interaction: a small state machine
+// The right-click of a taskbar button is NOT involved: it keeps the plain
+// Windows 7 context menu handled in TaskbarWindow.xaml.cs. The historical
+// left-button press + drag-up gesture is gone on purpose: it captured the
+// same press the icon reorder captures, and two gestures owning one press
+// is exactly the regression this subsystem must not introduce.
 //
-//     Idle -> PotentialDrag -> Opening -> Open
+// Flow of one interaction:
 //
-// armed on mouse-down over a task button. A movement smaller than the
-// SYSTEM drag threshold (SystemParameters.MinimumVerticalDragDistance: the
-// DPI-aware SM_CYDRAG value, converted to DIPs by WPF - no hard-coded
-// pixel) never consumes the click; a normal left click runs through the
-// button handlers exactly as before. Only an upward drag beyond the
-// threshold takes the gesture over:
+//   TaskButton_PreviewMouseDown (TaskbarWindow.xaml.cs)
+//        -> TryBeginJumpListArrowPress: the press is inside the arrow slot
+//           of the hovered button -> the press is CONSUMED (e.Handled), so
+//           the button neither activates nor arms a reorder; the button
+//           element captures the mouse so the release always comes back.
+//   window PreviewMouseLeftButtonUp
+//        -> JumpArrow_Release: released inside the arrow slot -> open;
+//           released anywhere else -> plain cancel (like a button drag-off).
+//   OpenJumpListForButton
+//        -> OpenJumpList: button rect in SCREEN PHYSICAL PIXELS, group data,
+//           live icon; the native side reads the REAL Shell jump list
+//           (identity resolution and list read live in JumpListWindow.cpp).
+//        -> JumpListMakeInteractive: the popup takes ordinary input (row
+//           clicks, Escape, click-outside dismissal) - the Windows 7 list
+//           persists until one of those, it is never a drag modal.
 //
-//   * the popup is built and shown by the native subsystem from the
-//     application's REAL Shell jump list data (identity resolution and the
-//     list read both live in native/src/JumpListWindow.cpp);
-//   * while the button is down, it keeps mouse capture (the same mechanism
-//     the tray drag uses) and forwards hover positions to the native popup;
-//   * the cursor may travel through the gap between button and popup; if
-//     it leaves the interaction area before release the gesture cancels;
-//   * releasing the left button transfers input to the native popup but
-//     never activates a row. The list persists until a separate item click,
-//     Escape, or a click anywhere outside it;
-//   * every failure (Shell/COM, popup creation, marshal) is logged through
-//     the project's DiagnosticLogger and ends the gesture in a controlled
-//     way: capture released, handlers detached, popup hidden. A failure
-//     here can never take the taskbar down.
+// Every failure (Shell/COM, popup creation, marshal, a core whose dist/ DLL
+// predates the interactive handoff) is logged through the project's
+// DiagnosticLogger under the JUMPLIST tag and ends in a controlled state:
+// capture released, hook stopped, popup hidden. A failure here can never
+// take the taskbar down.
 //
 // Coordinate spaces (this is where the DPI bugs live, so it is spelled
 // out): WPF element/window points are DEVICE-INDEPENDENT units.
@@ -46,11 +50,9 @@
 using System;
 using System.Linq;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Threading;
 using Win7Taskbar.Interop;
 using Win7Taskbar.Models;
 using Win7Taskbar.Utilities;
@@ -59,300 +61,516 @@ namespace Win7Taskbar
 {
     public partial class TaskbarWindow
     {
-        /// <summary>Gesture stages (the state machine of the subsystem).</summary>
-        private enum JumpListStage
+        /// <summary>Name of the arrow element in TaskButtonContentTemplate
+        /// (Themes/Overrides.xaml). The press detection hit-tests the
+        /// pointer against the live layout slot of this element, so no
+        /// coordinate of the arrow is duplicated in C#.</summary>
+        private const string JumpListArrowName = "JumpListArrow";
+
+        private FrameworkElement? _jumpButton;      // button the open list belongs to
+        private TaskGroup? _jumpGroup;
+        private FrameworkElement? _jumpArrowPress;  // button holding an un-released arrow press
+        private NativeMethods.RECT _jumpButtonRectPx;   // screen px, for the fallback exclusion
+        private GlobalMouseHook? _jumpDismissHook;  // click-outside on an older core
+        private bool _jumpDismissArmed;             // the hook is installed
+        private int _jumpOpenGen;                   // bumped by every open
+        private int _jumpDismissGen;                // gen the armed hook belongs to
+        private bool _jumpEnding;                   // re-entrancy guard (like tray drag)
+
+        /// <summary>The dismissal message the native popup posts to itself
+        /// when its low-level hook sees a click outside (WM_APP + 0x177):
+        /// keep in sync with kDismissOutsideMessage in
+        /// native/src/JumpListWindow.cpp.</summary>
+        private const uint JumpDismissMessage = 0x8000 + 0x177;
+
+        /// <summary>PM_REMOVE.</summary>
+        private const uint PeekRemove = 1;
+
+        /// <summary>True while the subsystem owns the pointer (an arrow
+        /// press not released yet) or its popup is on screen: the hover
+        /// preview, the button tooltip and the icon reorder stay away while
+        /// a jump list is open (two stacked flyovers are not the Windows 7
+        /// way). Existing call sites keep their meaning unchanged.</summary>
+        private bool IsJumpListGestureActive() =>
+            _jumpArrowPress != null || IsJumpListUp();
+
+        /// <summary>The native popup is on screen (probe in NativeBridge:
+        /// window class + visibility + process id, no native export).</summary>
+        private bool IsJumpListUp()
         {
-            Idle,
-            PotentialDrag,
-            Opening,
-            Open
+            try
+            {
+                return _bridge.IsJumpListPopupVisible();
+            }
+            catch (Exception ex)
+            {
+                // A broken probe must read as "no list", never throw into
+                // the hover/tooltip path that calls this on every enter.
+                System.Diagnostics.Debug.WriteLine(
+                    $"jump list visibility probe: {ex.Message}");
+                return false;
+            }
         }
 
-        private JumpListStage _jumpStage = JumpListStage.Idle;
-        private FrameworkElement? _jumpButton;
-        private TaskGroup? _jumpGroup;
-        private Point _jumpStartDip;          // window client DIPs; threshold only
-        private bool _jumpSuppressNextClick;  // a consumed drag must not activate
-        private bool _jumpEnding;             // re-entrancy guard (like tray drag)
-        // Generation token: the deferred teardown of a quiet release must
-        // never detach a subscription belonging to a LATER press on the
-        // same element (rapid re-clicks are legal). Every new press bumps it.
-        private int _jumpGeneration;
-
-        /// <summary>True while the gesture owns the pointer: the hover
-        /// preview and the button tooltip stay away while a jump list is
-        /// on screen (two stacked popups are not the Windows 7 way).</summary>
-        private bool IsJumpListGestureActive() => _jumpStage != JumpListStage.Idle;
-
         // ---------------------------------------------------------------
-        //  Entry points called from the button's existing handlers
-        //  (TaskbarWindow.xaml.cs) - the XAML wiring is unchanged.
+        //  The arrow trigger
         // ---------------------------------------------------------------
 
-        /// <summary>Left button pressed on a task button: arm the drag
-        /// detection. Nothing opens yet - Windows 7 never opens the jump
-        /// list on mouse-down.</summary>
-        private void BeginPotentialJumpListDrag(FrameworkElement element,
-                                                 MouseButtonEventArgs e)
+        /// <summary>Left button pressed on a task button: when the press
+        /// lands on the hovered button's jump list arrow, consume it and
+        /// arm the release. Returns true when the press was taken (the
+        /// caller must stop: no activation, no reorder, no other gesture).
+        /// Nothing opens here - Windows 7 opens the list on the click, and
+        /// a click is a press AND a release on the same target.</summary>
+        private bool TryBeginJumpListArrowPress(FrameworkElement element,
+                                                MouseButtonEventArgs e)
         {
             if (e.ChangedButton != MouseButton.Left)
             {
-                return;
+                return false;
             }
 
-            if (element.DataContext is not TaskGroup group)
-            {
-                return;
-            }
-
-            // A stale machine must never survive into a new press.
-            if (_jumpStage != JumpListStage.Idle)
-            {
-                CancelJumpList("stale gesture before a new press");
-            }
-
-            // Own the generation first: a deferred teardown queued by an
-            // earlier quiet release becomes inert the moment it notices the
-            // bump, so it cannot detach the subscriptions set up below.
-            _jumpGeneration++;
-
-            // If the previous press ended on a DIFFERENT button, drop its
-            // leftover capture handler (same-element re-arms are handled by
-            // the detach-then-attach below; the idempotent "-=" on the same
-            // element+handler would otherwise double-subscribe).
-            if (_jumpButton != null && !ReferenceEquals(_jumpButton, element))
-            {
-                _jumpButton.LostMouseCapture -= JumpList_LostCapture;
-            }
-
-            _jumpButton = element;
-            _jumpGroup = group;
-            _jumpStartDip = e.GetPosition(this);   // window client DIPs
-            _jumpStage = JumpListStage.PotentialDrag;
-            DiagnosticLogger.Write("JUMPLIST", "left-button gesture started");
-
-            // Capture NOW: with the button element captured, the window's
-            // tunneling Preview handlers keep seeing moves and the release
-            // even when the cursor is far above the bar - the same
-            // mechanism the tray drag uses (manual hit-test, no hooks).
-            // Each += is preceded by -=: re-arming twice in a row (a missed
-            // teardown after an exceptional release) must not stack
-            // duplicate handlers on the window.
+            Point press;
             try
             {
-                element.LostMouseCapture -= JumpList_LostCapture;
-                PreviewMouseMove -= JumpList_CapturedMouseMove;
-                PreviewMouseLeftButtonUp -= JumpList_CapturedMouseUp;
-                PreviewKeyDown -= JumpList_PreviewKeyDown;
-
-                element.CaptureMouse();
-                PreviewMouseMove += JumpList_CapturedMouseMove;
-                PreviewMouseLeftButtonUp += JumpList_CapturedMouseUp;
-                PreviewKeyDown += JumpList_PreviewKeyDown;
-                element.LostMouseCapture += JumpList_LostCapture;
+                press = e.GetPosition(element);
             }
             catch (Exception ex)
             {
-                LogJumpListFailure(ex, "capture");
-                CancelJumpList("capture failed");
+                LogJumpListFailure(ex, "arrow press position");
+                return false;
             }
-        }
 
-        /// <summary>Click fired by the button after a consumed drag must
-        /// not activate the group. Consumed once.</summary>
-        private bool ShouldSuppressClickAfterJumpList()
-        {
-            if (!_jumpSuppressNextClick)
+            // Cheap rejection before walking the visual tree: the arrow
+            // lives in the last ~14 DIP of the button's right edge.
+            if (element.ActualWidth <= 0 ||
+                press.X < element.ActualWidth - 30)
             {
                 return false;
             }
-            _jumpSuppressNextClick = false;
+
+            if (!IsJumpListArrowHit(element, press))
+            {
+                return false;
+            }
+
+            if (element.DataContext is not TaskGroup)
+            {
+                return false;
+            }
+
+            e.Handled = true;
+
+            // The arrow of the button whose list is already open closes it
+            // (the Windows 7 list is a toggle of the same affordance).
+            if (IsJumpListUp() && ReferenceEquals(_jumpButton, element))
+            {
+                HideJumpList("arrow pressed again on the same button");
+                return true;
+            }
+
+            // A stale press on another button must not survive.
+            if (_jumpArrowPress != null &&
+                !ReferenceEquals(_jumpArrowPress, element))
+            {
+                EndJumpListArrowPress();
+            }
+
+            _jumpArrowPress = element;
+            DiagnosticLogger.Write("JUMPLIST", "jump list arrow pressed");
+
+            // Capture so the release comes back to this button even when
+            // the cursor travels off it: the same mechanism the tray drag
+            // and the old gesture used (manual hit-test, no hooks).
+            try
+            {
+                element.LostMouseCapture -= JumpArrow_LostCapture;
+                PreviewMouseLeftButtonUp -= JumpArrow_Release;
+
+                element.CaptureMouse();
+                PreviewMouseLeftButtonUp += JumpArrow_Release;
+                element.LostMouseCapture += JumpArrow_LostCapture;
+            }
+            catch (Exception ex)
+            {
+                LogJumpListFailure(ex, "arrow capture");
+                EndJumpListArrowPress();
+            }
             return true;
         }
 
-        // ---------------------------------------------------------------
-        //  The gesture itself
-        // ---------------------------------------------------------------
-
-        private void JumpList_CapturedMouseMove(object sender, MouseEventArgs e)
+        /// <summary>The release that completes the arrow click opens the
+        /// list; a release outside the arrow slot is a plain cancelled
+        /// click (the press was consumed, nothing else fires).</summary>
+        private void JumpArrow_Release(object sender, MouseButtonEventArgs e)
         {
-            if (_jumpStage == JumpListStage.Idle || _jumpButton == null)
+            if (e.ChangedButton != MouseButton.Left || _jumpArrowPress == null)
             {
                 return;
             }
 
-            if (e.LeftButton != MouseButtonState.Pressed)
-            {
-                // The button went up without a preview-up (e.g. it was
-                // grabbed elsewhere): end the gesture, do not linger.
-                CancelJumpList("left button released elsewhere");
-                return;
-            }
+            FrameworkElement pressed = _jumpArrowPress;
+            EndJumpListArrowPress();
 
-            if (_jumpStage == JumpListStage.PotentialDrag)
-            {
-                if (!ShouldOpenJumpList(e.GetPosition(this)))
-                {
-                    return;
-                }
+            // The press was consumed: whatever this release is, it is not a
+            // click on the button underneath.
+            e.Handled = true;
 
-                _jumpStage = JumpListStage.Opening;
-                DiagnosticLogger.Write("JUMPLIST", "drag threshold reached");
-
-                if (!OpenJumpList())
-                {
-                    // Controlled failure (or no data worth showing): the
-                    // drag was consumed, the click must not fire, but no
-                    // popup exists - return to Idle quietly.
-                    _jumpStage = JumpListStage.Idle;
-                    ConsumeClickOnce();
-                    TearDownJumpListCapture();
-                    return;
-                }
-
-                _jumpStage = JumpListStage.Open;
-                return;
-            }
-
-            if (_jumpStage == JumpListStage.Open)
-            {
-                UpdateJumpListHover(e.GetPosition(this));
-            }
-        }
-
-        /// <summary>Drag threshold rule: vertical movement beyond the
-        /// SYSTEM drag distance, clearly upward-dominant (the threshold is
-        /// the DPI-aware SM_CYDRAG in DIPs; positions here are window
-        /// client DIPs, so the comparison is space-consistent).</summary>
-        private bool ShouldOpenJumpList(Point currentDip)
-        {
-            Vector moved = currentDip - _jumpStartDip;
-            return moved.Y < -SystemParameters.MinimumVerticalDragDistance &&
-                   Math.Abs(moved.Y) > Math.Abs(moved.X);
-        }
-
-        private void UpdateJumpListHover(Point windowDip)
-        {
+            Point release;
             try
             {
-                // window DIP -> screen physical pixels (PointToScreenSafe;
-                // no further scaling, see the note at the top of the file)
-                Point screen = PointToScreenSafe(windowDip);
-                bool inside = _bridge.JumpListSetHover(
-                    (int)Math.Round(screen.X), (int)Math.Round(screen.Y));
-                if (!inside)
+                release = e.GetPosition(pressed);
+            }
+            catch (Exception ex)
+            {
+                LogJumpListFailure(ex, "arrow release position");
+                return;
+            }
+
+            if (!IsJumpListArrowHit(pressed, release))
+            {
+                DiagnosticLogger.Write("JUMPLIST",
+                    "arrow press released off the arrow - cancelled");
+                return;
+            }
+
+            OpenJumpListForButton(pressed);
+        }
+
+        /// <summary>Capture ended by itself (alt-tab, a window taking
+        /// focus...): the armed press cannot complete; leave a clean state
+        /// behind.</summary>
+        private void JumpArrow_LostCapture(object sender, MouseEventArgs e)
+        {
+            if (_jumpArrowPress != null)
+            {
+                DiagnosticLogger.Write("JUMPLIST",
+                    "arrow press lost the mouse capture - cancelled");
+                EndJumpListArrowPress();
+            }
+        }
+
+        /// <summary>Detaches what TryBeginJumpListArrowPress wired. The
+        /// capture release is unconditional: it is the one state a failed
+        /// press must never leave behind.</summary>
+        private void EndJumpListArrowPress()
+        {
+            FrameworkElement? pressed = _jumpArrowPress;
+            _jumpArrowPress = null;
+            try
+            {
+                PreviewMouseLeftButtonUp -= JumpArrow_Release;
+                if (pressed != null)
                 {
-                    // Cancelled by leaving the area; the click stays
-                    // consumed for this press (a drag was performed).
-                    CancelJumpList("pointer left the interaction area");
+                    pressed.LostMouseCapture -= JumpArrow_LostCapture;
+                    if (pressed.IsMouseCaptured)
+                    {
+                        pressed.ReleaseMouseCapture();
+                    }
                 }
             }
             catch (Exception ex)
             {
-                LogJumpListFailure(ex, "hover update");
-                CancelJumpList("hover failed");
+                // Tearing down must not throw into the input pipeline; a
+                // capture that refuses to die is logged, not hidden.
+                DiagnosticLogger.WriteException("JUMPLIST", ex,
+                    "arrow capture teardown (the capture may need the next press)");
             }
         }
 
-        private void JumpList_CapturedMouseUp(object sender, MouseButtonEventArgs e)
+        // ---------------------------------------------------------------
+        //  Arrow geometry: the live layout slot of the template element
+        // ---------------------------------------------------------------
+
+        /// <summary>The arrow element of a button, wherever the content
+        /// template put it (a visual-tree walk by name: the template is
+        /// shared by the four button states and re-created with them, so a
+        /// cached reference would go stale).</summary>
+        private static FrameworkElement? FindJumpListArrow(DependencyObject root)
         {
-            if (e.ChangedButton != MouseButton.Left || _jumpStage == JumpListStage.Idle)
+            if (root is FrameworkElement self && self.Name == JumpListArrowName)
             {
-                return;
+                return self;
             }
 
-            if (_jumpStage == JumpListStage.Open)
+            int children = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < children; i++)
             {
-                KeepJumpListOpenAfterDrag();
-                return;
-            }
-
-            if (_jumpStage == JumpListStage.PotentialDrag)
-            {
-                // A click that never crossed the drag threshold: disarm
-                // silently. No "cancelled" line - the button handles the
-                // click itself and log noise on every click is forbidden.
-                //
-                // CRITICAL: the capture is NOT released here. ButtonBase is
-                // mid-release (its own up handler runs after this tunneling
-                // one), and yanking the capture before it sees the up would
-                // change normal-click behavior. The teardown is deferred
-                // to after this input event completes.
-                _jumpStage = JumpListStage.Idle;
-                PreviewMouseMove -= JumpList_CapturedMouseMove;
-                PreviewMouseLeftButtonUp -= JumpList_CapturedMouseUp;
-                PreviewKeyDown -= JumpList_PreviewKeyDown;
-                int releaseGen = _jumpGeneration;
-                FrameworkElement? closing = _jumpButton;
-                Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+                FrameworkElement? found =
+                    FindJumpListArrow(VisualTreeHelper.GetChild(root, i));
+                if (found != null)
                 {
-                    // By now the button's own up processing is done. Run
-                    // only while this release is still the current gesture
-                    // (a re-arm bumps the generation and owns the state).
-                    if (releaseGen != _jumpGeneration) return;
-                    if (!ReferenceEquals(_jumpButton, closing)) return;
-                    if (closing != null)
-                    {
-                        closing.LostMouseCapture -= JumpList_LostCapture;
-                        if (closing.IsMouseCaptured)
-                        {
-                            // Let go of a capture nothing else released.
-                            closing.ReleaseMouseCapture();
-                        }
-                    }
-                    _jumpButton = null;
-                    _jumpGroup = null;
-                }));
+                    return found;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>True when the point (in the button's own DIP space) is
+        /// inside the arrow's current layout slot. TransformToDescendant
+        /// follows whatever layout the template produced: no hard-coded
+        /// coordinate, and a button that moved or resized since the last
+        /// open is hit-tested where it is NOW.</summary>
+        private static bool IsJumpListArrowHit(FrameworkElement button,
+                                               Point pointInButton)
+        {
+            FrameworkElement? arrow = FindJumpListArrow(button);
+            if (arrow == null ||
+                arrow.Visibility != Visibility.Visible ||
+                arrow.ActualWidth <= 0 || arrow.ActualHeight <= 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                Point p = button.TransformToDescendant(arrow)
+                                .Transform(pointInButton);
+                return p.X >= 0 && p.Y >= 0 &&
+                       p.X <= arrow.ActualWidth && p.Y <= arrow.ActualHeight;
+            }
+            catch (Exception ex)
+            {
+                // A disconnected visual tree (template swap mid-press) is a
+                // "not on the arrow" answer, not an exception in the input
+                // pipeline.
+                System.Diagnostics.Debug.WriteLine(
+                    $"jump list arrow hit-test: {ex.Message}");
+                return false;
+            }
+        }
+
+        // ---------------------------------------------------------------
+        //  Opening
+        // ---------------------------------------------------------------
+
+        /// <summary>Opens the list of one button: remembers the anchor,
+        /// clears the other flyover of the same button (text tooltip and
+        /// hover preview), then hands the popup its ordinary input.</summary>
+        private void OpenJumpListForButton(FrameworkElement element)
+        {
+            _jumpButton = element;
+            _jumpGroup = element.DataContext as TaskGroup;
+            if (_jumpGroup == null)
+            {
+                _jumpButton = null;
                 return;
             }
 
-            // Opening failed mid-way: end quietly, the failure was already
-            // logged at its source.
-            CancelJumpList("gesture released without a list");
+            // A new open supersedes every dismissal decision taken for the
+            // list that was on screen a moment ago (see the purge below and
+            // the generation check of the click-outside hook).
+            _jumpOpenGen++;
+
+            if (_openButtonTip is { IsOpen: true })
+            {
+                try { _openButtonTip.IsOpen = false; } catch { }
+            }
+            _previewShowTimer?.Stop();
+            CloseTaskPreview();
+
+            if (!OpenJumpList())
+            {
+                // Controlled failure (or no data worth showing): logged at
+                // its source; nothing is left open and nothing is armed.
+                _jumpButton = null;
+                _jumpGroup = null;
+                return;
+            }
+
+            PurgeStaleJumpDismissals();
+            HandOverJumpListInput();
         }
 
-        /// <summary>The release that completed the upward drag never picks
-        /// a row. It releases WPF capture and turns the native popup into an
-        /// ordinary focused window. The list then remains visible until a
-        /// separate item click, Escape, or an outside click deactivates it.</summary>
-        private void KeepJumpListOpenAfterDrag()
+        /// <summary>The native popup window is a singleton the core reuses
+        /// for every open, and its click-outside hook posts the dismissal to
+        /// that window: a press that started on another button while the
+        /// previous list was up queued a dismissal for a list that no longer
+        /// exists, and the message would land on the list that opens now.
+        /// Peeling the filtered messages off THIS thread's queue (the popup
+        /// lives on the UI thread, the same one that opens it) right after
+        /// the open - and before the new hook is installed - removes exactly
+        /// those stale posts and nothing else.</summary>
+        private void PurgeStaleJumpDismissals()
         {
-            ConsumeClickOnce();
-            _jumpStage = JumpListStage.Idle;
+            try
+            {
+                IntPtr hwnd = _bridge.FindJumpListPopupWindow();
+                if (hwnd == IntPtr.Zero)
+                {
+                    return;
+                }
+                while (NativeMethods.PeekMessageW(out _, hwnd,
+                           JumpDismissMessage, JumpDismissMessage, PeekRemove))
+                {
+                    DiagnosticLogger.Write("JUMPLIST",
+                        "dropped a dismissal posted for the previous list");
+                }
+            }
+            catch (Exception ex)
+            {
+                // A failed purge is not a failure of the open: worst case
+                // the new list closes at once and the next open is clean.
+                LogJumpListFailure(ex, "dismissal purge");
+            }
+        }
+
+        /// <summary>The opened list is persistent, like Windows 7: it waits
+        /// for a row click, Escape or a click outside. The native core does
+        /// all three once it owns input (MakeInteractive); a core whose
+        /// dist/ DLL predates that export keeps rows and hover (its WndProc
+        /// answers them without the interactive bit) and gets the dismissal
+        /// from the same hook utility the clock flyout uses.</summary>
+        private void HandOverJumpListInput()
+        {
             try
             {
                 _bridge.JumpListMakeInteractive();
+                DisarmJumpDismissFallback();
                 DiagnosticLogger.Write("JUMPLIST",
-                    "drag released; popup remains open for ordinary input");
+                    "jump list open; the popup owns ordinary input");
+            }
+            catch (EntryPointNotFoundException)
+            {
+                DiagnosticLogger.Write("JUMPLIST",
+                    "core without W7T_JumpListMakeInteractive (dist/ older" +
+                    " than the sources): managed click-outside dismissal" +
+                    " armed instead");
+                ArmJumpDismissFallback();
             }
             catch (Exception ex)
             {
                 LogJumpListFailure(ex, "input handoff");
-                try { _bridge.JumpListHide(); } catch { }
+                HideJumpList("input handoff failed");
+            }
+        }
+
+        // ---------------------------------------------------------------
+        //  Click-outside fallback for a core older than the handoff
+        // ---------------------------------------------------------------
+
+        private void ArmJumpDismissFallback()
+        {
+            try
+            {
+                if (!_bridge.TryGetJumpListPopupRect(out NativeMethods.RECT r))
+                {
+                    return;   // nothing on screen: nothing to protect
+                }
+
+                _jumpDismissHook ??= new GlobalMouseHook();
+                _jumpDismissHook.MouseDownOutside -= JumpDismiss_OutsideClick;
+                _jumpDismissHook.MouseDownOutside += JumpDismiss_OutsideClick;
+                // A dismissal decided for THIS list only: an open that
+                // happens later bumps _jumpOpenGen and makes a callback
+                // still queued for the previous list inert.
+                _jumpDismissGen = _jumpOpenGen;
+
+                // Clicks on the popup and on the button that owns it are
+                // not "outside": the first activates rows (native WndProc),
+                // the second must stay able to toggle the list closed.
+                _jumpDismissHook.ExcludeRect = new Rect(
+                    r.Left, r.Top,
+                    Math.Max(0, r.Right - r.Left),
+                    Math.Max(0, r.Bottom - r.Top));
+                _jumpDismissHook.ExcludeRect2 = new Rect(
+                    _jumpButtonRectPx.Left, _jumpButtonRectPx.Top,
+                    Math.Max(0, _jumpButtonRectPx.Right - _jumpButtonRectPx.Left),
+                    Math.Max(0, _jumpButtonRectPx.Bottom - _jumpButtonRectPx.Top));
+
+                _jumpDismissHook.Stop();
+                _jumpDismissHook.Start();
+                _jumpDismissArmed = true;
+            }
+            catch (Exception ex)
+            {
+                LogJumpListFailure(ex, "dismiss fallback");
+            }
+        }
+
+        private void DisarmJumpDismissFallback()
+        {
+            try
+            {
+                if (_jumpDismissHook == null || !_jumpDismissArmed)
+                {
+                    return;
+                }
+                _jumpDismissArmed = false;
+                _jumpDismissHook.MouseDownOutside -= JumpDismiss_OutsideClick;
+                _jumpDismissHook.Stop();
+            }
+            catch (Exception ex)
+            {
+                LogJumpListFailure(ex, "dismiss fallback teardown");
+            }
+        }
+
+        private void JumpDismiss_OutsideClick(object? sender, Point screenPoint)
+        {
+            // The hook already marshals to the UI thread. An outside click
+            // while the popup is still up is a dismissal; when the native
+            // handoff is present this never runs (the native hook and the
+            // deactivation hide the popup first, and the probe below reads
+            // it from the window itself).
+            if (_jumpDismissGen != _jumpOpenGen)
+            {
+                return;   // decided for a list a newer open replaced
+            }
+            if (IsJumpListUp())
+            {
+                HideJumpList("click outside the list");
+            }
+        }
+
+        // ---------------------------------------------------------------
+        //  Teardown
+        // ---------------------------------------------------------------
+
+        /// <summary>Ends everything the subsystem may own: an armed press,
+        /// the dismissal hook, the native popup. Safe to call twice and
+        /// safe to call when nothing is open (the callers sit on group
+        /// removal, theme swap, reorder start and window close).</summary>
+        private void HideJumpList(string reason)
+        {
+            if (_jumpArrowPress == null && !_jumpDismissArmed &&
+                !IsJumpListUp())
+            {
+                return;   /* already finished */
+            }
+            if (_jumpEnding)
+            {
+                return;
+            }
+            _jumpEnding = true;
+            try
+            {
+                DiagnosticLogger.Write("JUMPLIST", $"jump list closed ({reason})");
+                EndJumpListArrowPress();
+                DisarmJumpDismissFallback();
+                _bridge.JumpListHide();
+                _jumpButton = null;
+                _jumpGroup = null;
             }
             finally
             {
-                TearDownJumpListCapture();
+                _jumpEnding = false;
             }
         }
 
-        private void JumpList_LostCapture(object sender, MouseEventArgs e)
+        private void LogJumpListFailure(Exception ex, string where)
         {
-            // Capture ended by itself (alt-tab, a window taking focus...):
-            // the gesture cannot continue; leave a clean state behind.
-            if (_jumpStage != JumpListStage.Idle)
+            DiagnosticLogger.WriteException("JUMPLIST", ex, $"failure in {where}");
+            try
             {
-                CancelJumpList("mouse capture lost");
+                // The native side writes its own "Shell/COM failure" lines
+                // with the HRESULT; a managed exception here is about the
+                // WPF/marshal layer of the interaction, so label it
+                // truthfully.
+                _bridge.Log($"JumpList: failure in {where}: " +
+                            $"{ex.GetType().Name}: {ex.Message}");
             }
-        }
-
-        private void JumpList_PreviewKeyDown(object sender, KeyEventArgs e)
-        {
-            if (_jumpStage == JumpListStage.Open && e.Key == Key.Escape)
-            {
-                e.Handled = true;
-                CancelJumpList("escape");
-            }
+            catch { /* logging is best effort */ }
         }
 
         // ---------------------------------------------------------------
@@ -366,7 +584,10 @@ namespace Win7Taskbar
         /// needs no second scale multiply - multiplying TransformToDevice
         /// on top of PointToScreen was the old double-scaling bug this
         /// subsystem removed). Returns false when the geometry cannot be
-        /// resolved (button not connected yet).</summary>
+        /// resolved (button not connected yet). The rectangle is also what
+        /// the popup is anchored to, so it is read at open time: a button
+        /// reordered since the last open anchors the list where it is
+        /// NOW.</summary>
         private bool TryGetButtonScreenRect(FrameworkElement element,
                                             out NativeMethods.RECT rectPx)
         {
@@ -422,6 +643,7 @@ namespace Win7Taskbar
                 {
                     return false;
                 }
+                _jumpButtonRectPx = rectPx;
 
                 TaskGroup group = _jumpGroup;
 
@@ -479,7 +701,7 @@ namespace Win7Taskbar
                 {
                     // The native side already logged the Shell/COM detail
                     // ([JUMPLIST] lines in log-core.txt); mirror it into
-                    // the managed diagnostics and stop the gesture.
+                    // the managed diagnostics and stop here.
                     DiagnosticLogger.Write("JUMPLIST",
                         $"Shell/COM failure opening the jump list (code {entries})");
                     _bridge.Log(
@@ -502,14 +724,6 @@ namespace Win7Taskbar
                 DiagnosticLogger.Write("JUMPLIST", "popup opened (coordinates" +
                     " in log-core.txt are screen physical pixels)");
 
-                // A jump list on screen replaces the hover previews of the
-                // button it belongs to (v2.53 rule: never two popups).
-                if (_openButtonTip is { IsOpen: true })
-                {
-                    try { _openButtonTip.IsOpen = false; } catch { }
-                }
-                CloseTaskPreview();
-
                 return true;
             }
             catch (Exception ex)
@@ -520,121 +734,15 @@ namespace Win7Taskbar
         }
 
         // ---------------------------------------------------------------
-        //  Teardown
+        //  Icon transport for the popup's application row: converts the
+        //  group's live icon (packaged apps included - never a placeholder
+        //  invented here) into the pixels the native row paints.
         // ---------------------------------------------------------------
 
-        /// <summary>Ends the gesture without activating anything: hide the
-        /// popup, release the capture, detach the handlers. Safe to call
-        /// twice (re-entrancy guard like the tray drag).</summary>
-        private void CancelJumpList(string reason)
-        {
-            if (_jumpStage == JumpListStage.Idle && _jumpButton == null)
-            {
-                return;   /* already finished */
-            }
-            if (_jumpEnding)
-            {
-                return;
-            }
-            _jumpEnding = true;
-            try
-            {
-                DiagnosticLogger.Write("JUMPLIST", $"popup cancelled ({reason})");
-                if (_jumpStage == JumpListStage.Open)
-                {
-                    ConsumeClickOnce();
-                }
-                _jumpStage = JumpListStage.Idle;
-                try { _bridge.JumpListHide(); } catch { }
-                TearDownJumpListCapture();
-            }
-            finally
-            {
-                _jumpEnding = false;
-            }
-        }
-
-        /// <summary>The drag consumed this press: the Click that the button
-        /// fires on release (with the capture this subsystem holds the
-        /// press and the release are the same element) must not activate
-        /// the group. Cleared by the next press as well, so a consumed flag
-        /// can never eat a later, genuine click.</summary>
-        private void ConsumeClickOnce()
-        {
-            _jumpSuppressNextClick = true;
-            Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
-            {
-                // Belt and braces: if no Click ever arrives (the release
-                // landed outside the button and capture semantics differed
-                // from expectations), the flag must not survive the frame.
-                if (_jumpStage == JumpListStage.Idle)
-                {
-                    _jumpSuppressNextClick = false;
-                }
-            }));
-        }
-
-        /// <summary>Detaches everything BeginPotentialJumpListDrag wired.
-        /// The capture release is unconditional: it is the one state a
-        /// failed gesture must never leave behind.</summary>
-        private void TearDownJumpListCapture()
-        {
-            try
-            {
-                PreviewMouseMove -= JumpList_CapturedMouseMove;
-                PreviewMouseLeftButtonUp -= JumpList_CapturedMouseUp;
-                PreviewKeyDown -= JumpList_PreviewKeyDown;
-                if (_jumpButton != null)
-                {
-                    _jumpButton.LostMouseCapture -= JumpList_LostCapture;
-                    if (_jumpButton.IsMouseCaptured)
-                    {
-                        _jumpButton.ReleaseMouseCapture();
-                    }
-                }
-                else
-                {
-                    ReleaseMouseCapture();
-                }
-            }
-            catch (Exception ex)
-            {
-                // Tearing down must not throw into the input pipeline;
-                // a capture that refuses to die is logged, not hidden.
-                DiagnosticLogger.WriteException("JUMPLIST", ex,
-                    "capture teardown (mouse capture may need the next press)");
-            }
-            finally
-            {
-                _jumpButton = null;
-                _jumpGroup = null;
-                _jumpEnding = false;
-            }
-        }
-
-        private void LogJumpListFailure(Exception ex, string where)
-        {
-            DiagnosticLogger.WriteException("JUMPLIST", ex, $"failure in {where}");
-            try
-            {
-                // The native side writes its own "Shell/COM failure" lines
-                // with the HRESULT; a managed exception here is about the
-                // WPF/marshal layer of the gesture, so label it truthfully.
-                _bridge.Log($"JumpList: gesture failure in {where}: " +
-                            $"{ex.GetType().Name}: {ex.Message}");
-            }
-            catch { /* logging is best effort */ }
-        }
-
-        // ---------------------------------------------------------------
-        //  Icon transport for the popup's application row (kept from the
-        //  v2.38 helper; it converts the group's live icon, packaged apps
-        //  included - never a placeholder invented here).
-        // ---------------------------------------------------------------
-
-        /// <summary>v2.38: converts an ImageSource into straight (not
+        /// <summary>Converts an ImageSource into straight (not
         /// premultiplied) top-down BGRA32 pixels, the format the native
-        /// MakeHBitmapFromArgb expects. Null when no icon is available.</summary>
+        /// MakeHBitmapFromArgb expects. Null when no icon is
+        /// available.</summary>
         private static uint[]? ExtractBgra32(ImageSource? source,
             out int width, out int height)
         {
