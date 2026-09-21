@@ -407,7 +407,14 @@ namespace Win7Taskbar
                 // rects della shell AL nativo e schedula il ricalcolo delle
                 // rects-per-icona (vedi HookIconRectReporting).
                 SizeChanged += (_, _) => { ReportShellRects(); ScheduleIconRectReport(); };
-                LocationChanged += (_, _) => { ReportShellRects(); ScheduleIconRectReport(); };
+                LocationChanged += (_, _) =>
+                {
+                    ReportShellRects();
+                    ScheduleIconRectReport();
+                    // v2.61: a bar that moved (edge change, monitor change)
+                    // left an open list anchored to where its button was.
+                    HideJumpList("taskbar moved");
+                };
             });
 
             RunStage("preferenze-riquadri", () =>
@@ -574,6 +581,19 @@ namespace Win7Taskbar
                     if (ReferenceEquals(g, _previewGroup))
                     {
                         CloseTaskPreview();
+                    }
+                    // v2.61: same rule for the jump list - a list whose
+                    // application left the taskbar has nothing left to
+                    // offer (its "close window" row would address a dead
+                    // HWND), so it goes with the group.
+                    if (ReferenceEquals(g, _jumpGroup))
+                    {
+                        HideJumpList("its group left the taskbar");
+                        // HideJumpList clears these when it runs; when the
+                        // list was already gone the anchor must not survive
+                        // the group either.
+                        _jumpButton = null;
+                        _jumpGroup = null;
                     }
                 }
             }
@@ -1129,6 +1149,11 @@ namespace Win7Taskbar
                 return;
             }
 
+            // v2.61: an icon that starts moving takes the open jump list
+            // with it - the list is anchored to the button it opened from,
+            // and a button under an OLE drag is no longer a stable anchor.
+            HideJumpList("icon reorder drag started");
+
             _reorderDragging = group;
             try
             {
@@ -1529,6 +1554,13 @@ namespace Win7Taskbar
             {
                 CancelStartWatchdog();
                 CloseTaskPreview();
+                // v2.61: the jump list popup and everything the subsystem
+                // owns (armed press, dismissal hook) die with the bar: the
+                // native popup is topmost and would outlive the window
+                // that anchored it.
+                HideJumpList("taskbar closing");
+                _jumpDismissHook?.Dispose();
+                _jumpDismissHook = null;
                 _previewShowTimer?.Dispose();
                 _previewShowTimer = null;
                 _previewWatchTimer?.Dispose();
@@ -2182,6 +2214,13 @@ namespace Win7Taskbar
                                 "Windows 8 Beta 8148",
                             _ => "Windows 7",
                         };
+                        // v2.61: a skin swap replaces Application.Resources
+                        // and with them the button templates (the jump list
+                        // arrow lives in one of them): a list anchored to a
+                        // button whose template is being swapped must not
+                        // survive the swap.
+                        HideJumpList("theme swapped");
+
                         string themeSwapResult = ThemeLoader.ReapplyNow();
                         _bridge.Log("proprieta': skin " + appliedSkin + " -> " +
                                     themeSwapResult);
@@ -2966,6 +3005,18 @@ namespace Win7Taskbar
                 return;
             }
 
+            // v2.61: the Windows 7 Jump List trigger is the LEFT click on
+            // the small up-arrow the hovered button shows at its right
+            // edge (TaskbarWindow.JumpList.cs + TaskButtonContentTemplate).
+            // When the press lands on the arrow it is consumed here, so
+            // the button neither activates nor arms the icon reorder; the
+            // right-click menu below is not involved at all.
+            if (sender is FrameworkElement arrowHost &&
+                TryBeginJumpListArrowPress(arrowHost, e))
+            {
+                return;
+            }
+
             _pressedWhileActive =
                 sender is FrameworkElement { DataContext: TaskGroup group } &&
                 group.IsActive;
@@ -2987,13 +3038,10 @@ namespace Win7Taskbar
                 _reorderPressPoint = e.GetPosition(this);
             }
 
-            // INCOMPLETE / TEMPORARILY DISABLED: keep the complete Jump List
-            // gesture implementation in TaskbarWindow.JumpList.cs, but do not
-            // arm it until its remaining behavior has been completed.
-            // if (sender is FrameworkElement fe)
-            // {
-            //     BeginPotentialJumpListDrag(fe, e);
-            // }
+            // v2.61: the Jump List entry point moved from the historical
+            // press + drag-up gesture (which captured the same press the
+            // reorder captures) to the left click on the hovered button's
+            // up-arrow; that is armed above and nowhere else.
 
             // v1.21.7: possible button reorder (extra settings -> icon
             // order). The gesture is the tray one: immediate capture, and the
@@ -3040,18 +3088,10 @@ namespace Win7Taskbar
 
         private void TaskButton_Click(object sender, RoutedEventArgs e)
         {
-            // A press + drag-up that opened (or attempted) the Jump List
-            // consumes this release: it must not activate the group. A
-            // normal click never sets the flag (see TaskbarWindow.JumpList.cs).
-            if (ShouldSuppressClickAfterJumpList())
-            {
-                e.Handled = true;
-                return;
-            }
-
             // v1.21.7: the release that ends a reorder is not a click: moving
             // an icon must not bring the application to the foreground (same
-            // rule as the Jump List gesture).
+            // rule as the Jump List arrow press, which is consumed in
+            // TaskButton_PreviewMouseDown and therefore never reaches here).
             if (_taskOrderConsumedClick)
             {
                 _taskOrderConsumedClick = false;
@@ -4662,9 +4702,10 @@ namespace Win7Taskbar
 
         // v2.40: il clic DESTRO ripristina il menu contestuale di Windows 7
         // (sistema per una finestra, gruppo per piu' finestre, avvio/rimozione
-        // per un pin idle). La Jump List si apre invece col TRASCINAMENTO
-        // verso l'alto del clic SINISTRO (sistema in TaskbarWindow.JumpList.cs),
-        // come fa la Superbar originale: cosi' il destro non perde mai "Chiudi" & co.
+        // per un pin idle). La Jump List si apre invece col clic SINISTRO
+        // sulla freccetta che il pulsante mostra al passaggio del mouse
+        // (sistema in TaskbarWindow.JumpList.cs), come fa la Superbar
+        // originale: cosi' il destro non perde mai "Chiudi" & co.
         // Il menu del destro NON guadagna nessuna voce di Jump List: le due
         // superfici restano separate esattamente come in Windows 7.
         private void TaskButton_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
@@ -4795,10 +4836,10 @@ namespace Win7Taskbar
             }
         }
 
-        // The left-button press + drag-up Jump List gesture (state machine,
-        // identity hand-off, popup calls and teardown) lives in the partial
-        // file TaskbarWindow.JumpList.cs together with its icon-transport
-        // helper. The right-click menu above stays untouched by design.
+        // The Jump List interaction (arrow trigger, identity hand-off, popup
+        // calls and teardown) lives in the partial file
+        // TaskbarWindow.JumpList.cs together with its icon-transport helper.
+        // The right-click menu above stays untouched by design.
 
         /// <summary>
         /// v2.61 - Testo di menu localizzato.

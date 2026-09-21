@@ -287,25 +287,40 @@ no locks are taken across the guarded boundary elsewhere.
 **Revisit if.** A fault repeats in one spot: the log line names the module
 phase, and the guard can then be narrowed to the exact call.
 
-## 13. Jump Lists: incomplete and temporarily disabled
+## 13. Jump Lists: the hovered button's up-arrow is the only trigger
 
-**Current status.** Jump Lists are incomplete, so the task-button entry-point
-call is commented out and they cannot currently be opened. The managed and
-native implementation is intentionally retained in place for completion.
+**Current status.** Jump Lists are enabled. The hovered task button shows
+the small Windows 7 up-arrow at its right edge; a LEFT click on that arrow
+opens the list above the button. The right-click of a task button keeps only
+the Windows 7 context menu (never a Jump List command), and the historical
+left-button press + drag-up gesture is gone.
 
-**Decision.** When re-enabled, the Windows 7 Jump List opens exclusively from the left-button
-press + drag-up gesture on a task button (never from the right-click menu),
-and the implementation is split the way the rest of the project is:
+**Decision.** The trigger is the arrow, not a drag gesture and not the
+right-click:
 
-- `TaskbarWindow.JumpList.cs` runs the small state machine
-  (`Idle -> PotentialDrag -> Opening -> Open`) on the UI thread. Input uses
-  ordinary WPF mouse capture plus window-level tunneling handlers and manual
-  hit-test forwarding - the same mechanism the tray drag has used since v2.7.
-  No global mouse hook is introduced.
-- The popup itself is a native `WS_POPUP | WS_EX_NOACTIVATE` window with the
-  shared Aero flyout border (`JumpListWindow.cpp`), so it can show and
-  repaint while the WPF window keeps the capture, exactly like the tray
-  overflow panel (point 6).
+- The arrow is drawn by the shared task button content template
+  (`Themes/Overrides.xaml`, `x:Name="JumpListArrow"`), collapsed unless the
+  ancestor `Button` is hovered - the same hover-bound visibility the search
+  button already uses - so all four button state templates and all skins get
+  it without touching a theme.
+- `TaskbarWindow.JumpList.cs` owns the interaction on the UI thread. A press
+  inside the arrow's live layout slot is consumed in
+  `TaskButton_PreviewMouseDown`, before the button can activate or arm the
+  icon reorder; the button captures the mouse so the release always returns,
+  and the release inside the slot opens the list. The slot is found by name
+  in the visual tree and hit-tested with `TransformToDescendant`, so no
+  coordinate of the arrow exists in C# and a moved or resized button is
+  hit-tested where it is now.
+- The opened list is persistent, like Windows 7: row clicks, Escape and
+  click-outside come from the native popup once it owns ordinary input
+  (`W7T_JumpListMakeInteractive`). The popup never behaves as a drag modal,
+  which is what kept the old gesture in conflict with the icon reorder: two
+  gestures capturing the same press is the regression this feature must not
+  introduce.
+- The popup is a native `WS_POPUP | WS_EX_NOACTIVATE` window with the shared
+  Aero flyout border (`native/src/JumpListWindow.cpp`), anchored to the
+  button rectangle read at open time, per taskbar edge, clamped to the work
+  area of the monitor under the button.
 - Data comes only from documented Shell APIs: application identity via
   `SHGetPropertyStoreForWindow` (window) and
   `SHGetPropertyStoreFromParsingName` (the pinned .lnk) for the
@@ -316,18 +331,32 @@ and the implementation is split the way the rest of the project is:
   pixel**; the WPF side converts with `PointToScreen` only (both button
   corners, never a size multiplied by a scale a second time), and the native
   side scales its 96-DPI geometry with `GetDpiForScreenRect` for the monitor
-  of the button. The release-activates rule replaces the "click inside the
-  popup" flow: the popup never takes focus, so activation is the gesture's
-  own left-button release, forwarded by position.
+  of the button.
 
-**Why.** The old v2.38/v2.40 shape (right-click opening a popup that grabs
+**State of the managed side.** Whether the list is on screen is probed from
+the window itself (`NativeBridge.IsJumpListPopupVisible`: class
+`W7T_JumpList`, visibility, process id) instead of a new native export, so
+a `dist/Win7TaskbarCore.dll` older than the sources keeps the bar alive -
+the same "old core switches the novelty off" rule the AppBar protocol uses.
+On such a core the rows and the hover still work (the native `WndProc`
+answers them without the interactive bit) and the click-outside dismissal is
+provided by the managed side with the `GlobalMouseHook` utility the clock
+flyout already uses; Escape is not delivered there because the popup never
+takes focus. Two ordering hazards are handled explicitly: a dismissal the
+previous list posted to the reused popup window is peeled off the UI thread
+queue right after each open (`PeekMessageW` filtered on the popup's own
+message), and a click-outside callback still queued when a newer open
+happens is made inert by an open-generation counter.
+
+**Why.** The v2.38/v2.40 shape (right-click opening a popup that grabs
 foreground and reads the hardware cursor itself) fought the WPF capture
 model, double-scaled coordinates at non-100% DPI, clamped only against the
-primary monitor, and shipped the document list disabled. A separate
-subsystem with one choke point per responsibility (identity, read, show,
-hover, commit, cancel) is what lets every failure path end quietly:
-capture always released, popup always hidden, exceptions always logged
-under the `JUMPLIST` tag.
+primary monitor, and shipped the document list disabled; the drag-up shape
+that replaced it captured the same press the icon reorder captures. One
+choke point per responsibility (trigger, identity, read, show, hand-over,
+teardown) is what lets every failure path end quietly: capture always
+released, hook always stopped, popup always hidden, exceptions always
+logged under the `JUMPLIST` tag.
 
 **Revisit if.** Windows removes or renames the automatic-destination read
 APIs, or the bar ever needs per-monitor instances: the pixel-space contract

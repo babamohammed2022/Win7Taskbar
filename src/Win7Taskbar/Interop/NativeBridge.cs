@@ -688,13 +688,13 @@ namespace Win7Taskbar.Interop
         }
 
         // ---------------------------------------------------------------
-        //  Jump List (sistema del gesto: clic sinistro + trascinamento
-        //  verso l'alto). Coordinate: PIXEL FISICI DELLO SCHERMO.
+        //  Jump List (clic sinistro sulla freccetta del pulsante).
+        //  Coordinate: PIXEL FISICI DELLO SCHERMO.
         //
         //  I metodi sono sottili di proposito: chi li chiama
-        //  (TaskbarWindow.JumpList.cs) e' il punto che conosce il gesto e
-        //  puo' annullarlo, quindi e' li' che ogni chiamata e' avvolta in
-        //  try/catch con log e CancelJumpList(). Qui non si convertono le
+        //  (TaskbarWindow.JumpList.cs) e' il punto che conosce l'interazione
+        //  e puo' annullarla, quindi e' li' che ogni chiamata e' avvolta in
+        //  try/catch con log e HideJumpList(). Qui non si convertono le
         //  eccezioni in nessun comportamento: si lasciano salire.
         //  L'unica eccezione e' JumpListHide, chiamato dai percorsi di
         //  pulizia: un secondo errore durante l'annullamento non deve
@@ -731,6 +731,53 @@ namespace Win7Taskbar.Interop
         /// clic e un clic esterno lo chiude per deactivation.</summary>
         public void JumpListMakeInteractive()
             => NativeMethods.W7T_JumpListMakeInteractive();
+
+        // ---------------------------------------------------------------
+        //  v2.61: visibility of the native Jump List popup.
+        //
+        //  The popup is a top-level window of class W7T_JumpList created
+        //  IN-PROCESS by the native core, so an ordinary window lookup
+        //  answers "is the list on screen" without adding a native export
+        //  (a dist/Win7TaskbarCore.dll older than this frontend keeps
+        //  working). The process check keeps a foreign window that happens
+        //  to register the same class name out of the answer.
+        // ---------------------------------------------------------------
+
+        /// <summary>Class name of the native popup: keep in sync with
+        /// kClassName in native/src/JumpListWindow.cpp.</summary>
+        private const string JumpListPopupClass = "W7T_JumpList";
+
+        /// <summary>The popup window of THIS process, visible or not;
+        /// IntPtr.Zero when there is none.</summary>
+        public IntPtr FindJumpListPopupWindow()
+        {
+            IntPtr hwnd = NativeMethods.FindWindowW(JumpListPopupClass, null);
+            if (hwnd == IntPtr.Zero)
+            {
+                return IntPtr.Zero;
+            }
+            NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
+            return pid == NativeMethods.GetCurrentProcessId() ? hwnd : IntPtr.Zero;
+        }
+
+        /// <summary>True while the Jump List popup is on screen.</summary>
+        public bool IsJumpListPopupVisible()
+        {
+            IntPtr hwnd = FindJumpListPopupWindow();
+            return hwnd != IntPtr.Zero && NativeMethods.IsWindowVisible(hwnd);
+        }
+
+        /// <summary>Screen-physical-pixel rectangle of the visible popup
+        /// (false when there is none): what the click-outside fallback of
+        /// an older core needs as its exclusion area.</summary>
+        public bool TryGetJumpListPopupRect(out NativeMethods.RECT rect)
+        {
+            rect = default;
+            IntPtr hwnd = FindJumpListPopupWindow();
+            return hwnd != IntPtr.Zero &&
+                   NativeMethods.IsWindowVisible(hwnd) &&
+                   NativeMethods.GetWindowRect(hwnd, out rect);
+        }
 
         public void JumpListHide()
         {
