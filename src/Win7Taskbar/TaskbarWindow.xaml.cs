@@ -407,7 +407,14 @@ namespace Win7Taskbar
                 // rects della shell AL nativo e schedula il ricalcolo delle
                 // rects-per-icona (vedi HookIconRectReporting).
                 SizeChanged += (_, _) => { ReportShellRects(); ScheduleIconRectReport(); };
-                LocationChanged += (_, _) => { ReportShellRects(); ScheduleIconRectReport(); };
+                LocationChanged += (_, _) =>
+                {
+                    ReportShellRects();
+                    ScheduleIconRectReport();
+                    // v2.61: a bar that moved (edge change, monitor change)
+                    // left an open list anchored to where its button was.
+                    HideJumpList("taskbar moved");
+                };
             });
 
             RunStage("preferenze-riquadri", () =>
