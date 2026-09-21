@@ -838,6 +838,22 @@ namespace Win7Taskbar.Interop
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+        // v2.61: probes for the native Jump List popup (class W7T_JumpList,
+        // created in-process by Win7TaskbarCore.dll). The managed side needs
+        // to know whether the popup is on screen WITHOUT a new native
+        // export, so a core whose dist/ DLL predates this feature keeps
+        // working: an ordinary top-level window lookup answers it.
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern IntPtr FindWindowW(string? lpClassName,
+            string? lpWindowName);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("kernel32.dll")]
+        public static extern uint GetCurrentProcessId();
+
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
