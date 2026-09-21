@@ -91,8 +91,24 @@ namespace Win7Taskbar
         /// preview, the button tooltip and the icon reorder stay away while
         /// a jump list is open (two stacked flyovers are not the Windows 7
         /// way). Existing call sites keep their meaning unchanged.</summary>
-        private bool IsJumpListGestureActive() =>
-            _jumpArrowPress != null || IsJumpListUp();
+        private bool IsJumpListGestureActive()
+        {
+            if (_jumpArrowPress != null)
+            {
+                return true;
+            }
+            bool up = IsJumpListUp();
+            if (!up && _jumpButton != null)
+            {
+                // The popup went away inside the native core (row
+                // activated, Escape, deactivation): drop the anchor so a
+                // group that later leaves the bar is not kept alive by a
+                // stale reference, and the next open starts clean.
+                _jumpButton = null;
+                _jumpGroup = null;
+            }
+            return up;
+        }
 
         /// <summary>The native popup is on screen (probe in NativeBridge:
         /// window class + visibility + process id, no native export).</summary>

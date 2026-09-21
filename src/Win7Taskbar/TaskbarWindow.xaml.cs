@@ -582,6 +582,11 @@ namespace Win7Taskbar
                     if (ReferenceEquals(g, _jumpGroup))
                     {
                         HideJumpList("its group left the taskbar");
+                        // HideJumpList clears these when it runs; when the
+                        // list was already gone the anchor must not survive
+                        // the group either.
+                        _jumpButton = null;
+                        _jumpGroup = null;
                     }
                 }
             }

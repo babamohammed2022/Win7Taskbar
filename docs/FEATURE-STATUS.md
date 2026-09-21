@@ -87,20 +87,62 @@ Confirmed on real hardware to be work-in-progress and semi-functional, but usabl
 
 This iteration follows the public Microsoft WLAN API contracts for [`WlanSetProfile`](https://learn.microsoft.com/en-us/windows/win32/api/wlanapi/nf-wlanapi-wlansetprofile), [`WlanConnect`](https://learn.microsoft.com/en-us/windows/win32/api/wlanapi/nf-wlanapi-wlanconnect), [`WlanDisconnect`](https://learn.microsoft.com/en-us/windows/win32/api/wlanapi/nf-wlanapi-wlandisconnect), and [`WlanEnumInterfaces`](https://learn.microsoft.com/en-us/windows/win32/api/wlanapi/nf-wlanapi-wlanenuminterfaces). The calls remain asynchronous where the UI already requires it; each external boundary converts both structured faults and C++ exceptions into a Win32 failure code, while WLAN-owned buffers are released by RAII. The current-connection and interface-type handling were reviewed against the existing implementation: both were already present through guarded `WlanQueryInterface`/Network List Manager and `GetIfEntry2`-based filtering, so they were not duplicated. The useful missing behavior was added to the row context menu: Windows 10/11 Settings troubleshooting is tried first, with the legacy `msdt.exe` command retained only as a guarded compatibility fallback. Rotation is intentionally outside this work and remains unchanged.
 
-### Jump Lists (incomplete, temporarily disabled)
+### Jump Lists (opened from the task button's up-arrow)
 
-Jump Lists are currently disabled (confirmed still the case): the task-button gesture entry point is commented out while the remaining behavior is completed. The implementation below remains in the source tree and is not removed.
+Jump Lists are enabled: the hovered task button shows the small Windows 7
+up-arrow at its right edge and a LEFT click on that arrow opens the list
+above the button. The right-click of a task button keeps only the Windows 7
+context menu and never opens a Jump List; the historical left-button press +
+drag-up gesture was removed because it captured the same press the icon
+reorder captures, and two gestures owning one press is a regression this
+feature must not introduce.
 
-The Jump List subsystem is intended to reproduce the Windows 7 interaction: press and hold the left button on a taskbar button, drag up past the system drag threshold, and the list opens above the button; moving the cursor through it highlights a row, and releasing the left button activates the row under the cursor. A press without a qualifying drag behaves exactly like before (normal activation, grouping, picker, hover, tooltip), and the right-click keeps only the Windows 7 context menu (never a Jump List command).
+Interaction, as implemented:
 
-Implementation notes:
+- The arrow appears with the hover state of the button (task button content
+  template in `Themes/Overrides.xaml`) and is the only trigger. A press on
+  the arrow is consumed before the button sees it, so the button neither
+  activates nor starts an icon reorder; the release on the arrow opens the
+  list, a release anywhere else is a plain cancelled click. Pressing the
+  arrow of the button whose list is already open closes it.
+- The list is persistent, like Windows 7: it waits for a row click, Escape
+  or a click outside; it never behaves as a drag modal.
+- The popup is anchored to the rectangle of the button read at open time
+  (screen physical pixels), so a button that was reordered meanwhile
+  anchors the list where it is now. Placement per taskbar edge and the
+  work-area clamp live in the native popup.
+- Entries come only from the public Shell read APIs for jump list data
+  (`IApplicationDocumentLists`, recent + frequent automatic destinations).
+  Application identity is the window's AppUserModelID from the shell
+  property store, else the pinned shortcut's metadata, else the default id
+  Windows derives from the executable path. If the Shell exposes no list
+  for an application, no document rows are shown - nothing is ever
+  fabricated.
+- The popup is a native no-activate window with the shared Aero flyout
+  border (`native/src/JumpListWindow.cpp`). All coordinates crossing the
+  interop boundary are screen physical pixels; the popup geometry is scaled
+  by the DPI of the monitor under the button.
+- Failure handling: every Shell/COM call is wrapped in try/catch with
+  logging (managed `DiagnosticLogger`, category JUMPLIST) and controlled
+  teardown; native resources are RAII owned and hard faults are contained
+  by the project's portable SEH barrier. A jump list failure can never take
+  the taskbar down. The list is also closed when its group leaves the
+  taskbar, when an icon reorder drag starts, on a theme swap and on taskbar
+  close.
 
-- The gesture is a small state machine (TaskbarWindow.JumpList.cs) using normal WPF mouse capture and manual hit-test forwarding, the same mechanism the tray drag uses - no global mouse hooks.
-- The popup is a native no-activate window with the shared Aero flyout border (native/src/JumpListWindow.cpp). All coordinates crossing the interop boundary are screen physical pixels; the popup geometry is scaled by the DPI of the monitor under the button.
-- Entries come only from the public Shell read APIs for jump list data (IApplicationDocumentLists, recent + frequent automatic destinations). Application identity is the window's AppUserModelID from the shell property store, else the pinned shortcut's metadata, else the default id Windows derives from the executable path. If the Shell exposes no list for an application, no document rows are shown - nothing is ever fabricated.
-- Failure handling: every Shell/COM call is wrapped in try/catch with logging (managed DiagnosticLogger, category JUMPLIST) and controlled cancellation; native resources are RAII owned and hard faults are contained by the project's portable SEH barrier. A jump list failure can never take the taskbar down.
+Known limitations of this implementation:
 
-Remaining work before this is marked ✅ and re-enabled: complete the unfinished behavior, then verify it on a real Windows 10/11 desktop at 100/125/150/200% scaling and on a mixed-DPI multi-monitor setup.
+- With a `dist/Win7TaskbarCore.dll` older than the sources (the tracked DLL
+  predates `W7T_JumpListMakeInteractive`, a pre-existing finding recorded in
+  `docs/BALLOON-PARITY-REVIEW.md`), rows and hover still work and the
+  click-outside dismissal is provided by the managed side with the same
+  hook utility the clock flyout uses; Escape is not delivered in that case
+  because the popup never takes focus. A package built by the release
+  pipeline (which rebuilds the native core from the sources) has the full
+  native behavior.
+- Not yet confirmed on real hardware at 100/125/150/200% scaling nor on a
+  mixed-DPI multi-monitor setup; the geometry follows the same DPI rules
+  the rest of the bar uses, but a visual confirmation is still pending.
 
 ### Taskbar-list compatibility (v1.21.32)
 
@@ -163,7 +205,7 @@ on the button's text. Nothing about the icon, the theme or Windows is modified.
 ## Areas that are already in good shape
 
 - The Windows 7-style Start orb and main taskbar layout are present.
-- The Jump List gesture and Shell data path remain in source, but the incomplete feature is temporarily disabled (see above).
+- Jump Lists open from the hovered task button's up-arrow; the Shell data path and the native popup are the ones described above.
 - Pinned and grouped task buttons are supported.
 - The three Windows 7-style toolbars are present.
 - Context menus are generally good.
