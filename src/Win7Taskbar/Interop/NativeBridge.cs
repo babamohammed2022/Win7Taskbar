@@ -290,6 +290,73 @@ namespace Win7Taskbar.Interop
             return copied <= 0 ? null : CreateBitmap(pixels, width, height);
         }
 
+        /// <summary>v2.62-alpha: the user's own preview configuration
+        /// (read-only; the core caches it and drops the cache on
+        /// WM_SETTINGCHANGE). Null when the loaded core predates the
+        /// export: the caller keeps the project defaults, so an old core
+        /// never changes the behaviour. A delay is null when the user value
+        /// is absent.</summary>
+        public (bool WindowThumbs, bool DesktopPeek, int? ThumbHoverMs, int? PeekHoverMs)? GetPreviewPolicy()
+        {
+            try
+            {
+                if (NativeMethods.W7T_GetPreviewPolicy(out int thumbs, out int peek,
+                        out int thumbMs, out int peekMs) != 0)
+                {
+                    return null;
+                }
+                return (thumbs != 0, peek != 0,
+                    thumbMs >= 0 ? (int?)thumbMs : null,
+                    peekMs >= 0 ? (int?)peekMs : null);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>v2.62-alpha (G6): canonical pin/unpin. 1 = on-disk
+        /// state changed, 0 = no change, negative = failure or core without
+        /// the export (the caller keeps its own path).</summary>
+        public int ToggleTaskbarPin(string exePath, string baseName, int pin)
+        {
+            try
+            {
+                return NativeMethods.W7T_ToggleTaskbarPin(exePath, baseName, pin);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return -1;
+            }
+        }
+
+        /// <summary>v2.62-alpha (G4): the executable's own icon (null when
+        /// it cannot be resolved or the core predates the export).</summary>
+        public ImageSource? GetExeIcon(string exePath, int desiredSize = 32)
+        {
+            if (string.IsNullOrEmpty(exePath))
+            {
+                return null;
+            }
+            try
+            {
+                int needed = NativeMethods.W7T_GetExeIconBitmap(
+                    exePath, desiredSize, out int width, out int height, null, 0);
+                if (needed <= 0 || width <= 0 || height <= 0)
+                {
+                    return null;
+                }
+                var pixels = new byte[needed];
+                int copied = NativeMethods.W7T_GetExeIconBitmap(
+                    exePath, desiredSize, out width, out height, pixels, pixels.Length);
+                return copied <= 0 ? null : CreateBitmap(pixels, width, height);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return null;
+            }
+        }
+
         public void ExecuteCommand(ulong hwnd, int command)
             => NativeMethods.W7T_ExecuteWindowCommand(hwnd, command);
 

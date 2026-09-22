@@ -34,6 +34,9 @@
 #include "TrayFallbackIcons.h"
 #include "TrayPrefsStore.h"
 #include "SystemEventsWatch.h"
+#include "JumpListWindow.h"  /* cached jump list section cap invalidation */
+#include "PreviewPolicy.h"   /* cached user preview policy invalidation   */
+#include "TaskbarButtonNotify.h" /* G7: probe of the shell TaskbarButtonCreated message */
 #include <powrprof.h>
 #include <windows.h>
 #include <wtsapi32.h>
@@ -1891,6 +1894,26 @@ LRESULT CALLBACK TrayService::TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
 }
 
 LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    /* PROBE (diagnostic, v2.62-alpha): with W7T_TASKBAND_PROBE=1 in the
+     * environment, the tray window logs (tag PROBE) the registered
+     * TaskbarButtonCreated id at start-up and every time that exact id is
+     * received. Log-only, no reply: the point is to check, on a machine
+     * where the real taskbar is running, whether the shell itself sends
+     * that message and via which id. */
+    if (w7t::TaskbandProbeEnabled()) {
+        static std::atomic<int> probeStart{ 0 };
+        if (probeStart.fetch_add(1) == 0) {
+            LogTagged(L"PROBE",
+                      L"taskband probe enabled, registered TaskbarButtonCreated id=0x%x",
+                      (unsigned)w7t::GetTaskbarButtonMessageId());
+        }
+        if (msg == w7t::GetTaskbarButtonMessageId() && msg != 0) {
+            LogTagged(L"PROBE",
+                      L"TaskbarButtonCreated received (msg=0x%x, w=%lu, l=%ld)",
+                      (unsigned)msg, (unsigned long)wParam, (long)lParam);
+        }
+    }
+
     /* v1.21.32: the taskbar-list protocol comes before any other work on
      * this thread. The caller is the window build of ANOTHER process
      * (tao/Tauri, Chromium/Electron): the reply has to be immediate and
@@ -1907,6 +1930,17 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
 
     if (msg == WM_COPYDATA) {
         return Instance().HandleCopyData(hwnd, reinterpret_cast<const COPYDATASTRUCT*>(lParam));
+    }
+
+    if (msg == WM_SETTINGCHANGE) {
+        /* The user's shell configuration can change at any time (the
+         * jump list section cap among the rest): drop the cached reads so
+         * the next consumer resolves the current value. The invalidation
+         * is cheap; the registry is touched only when a list is actually
+         * opened, never on this message path. */
+        w7t::InvalidateJumpListCapCache();
+        w7t::InvalidatePreviewPolicy();
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
 
     TrayService& self = Instance();

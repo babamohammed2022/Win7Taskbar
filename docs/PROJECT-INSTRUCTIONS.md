@@ -213,3 +213,17 @@ currently disabled, and so on) are in [`docs/architecture-decisions.md`](./archi
 * **One change at a time:** layout and behaviour changes are made so that each one can be
   tested on its own, because most of the visible behaviour can only be verified on a real
   Windows desktop.
+
+## 7. Provenance
+
+Win7Taskbar is a clean-room reconstruction. The bar's behaviour was
+re-established by observing the behaviour of Windows 7 on hardware and by
+using exclusively Microsoft's documented public APIs (Win32, Shell COM);
+the analysis notes that supported those observations live in `docs/` and
+are separated from the code by design. No line of Windows source code, no
+binary offsets, addresses, symbol tables, vtables or decompiled artifacts
+are included in this repository, and none are needed to build or run it:
+every behaviour the bar performs is one a documented public API performs
+for it. Historical notes that describe what was *observed* (and what was
+inferred from it) keep that distinction explicit and are identified as
+evidence, not as licensed material.

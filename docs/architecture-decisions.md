@@ -602,3 +602,180 @@ replaced.
 `To="0.30"` animations are the single place to change. If the accent should also
 appear on pinned programs, the guard is the single `group.IsRunning` condition in
 `TaskbarWindow.xaml.cs`.
+
+## 19. v2.62-alpha: the Jump List section cap follows the user's shell configuration
+
+**Decision.** The Recent/Frequent section cap is no longer a compile-time
+constant: `JumpListWindow::ReadDocumentLists` asks
+`GetJumpListSectionCap()` (cached; the tray window drops the cache on
+`WM_SETTINGCHANGE`) and the value is resolved in this order -
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\ApplicationDestinations\MaxEntries`
+(the per-application destination count), else
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\Start_JumpListItems`
+plus the four fixed rows the shell keeps for its standard entries, else the
+project's internal default (ten, exactly today's behaviour). A tampered
+value is clamped to 1..64 - project safety bounds, not the shell's. The
+registry is only ever read; the read happens at most once per configuration
+change (never on the hot path), and the log line declares which source
+answered.
+
+**Why.** Windows 7 sizes these sections from the user's own shell
+configuration, and a user who configured it deserves to have the
+reconstructed bar honour it. The read-only, cached, clamped design keeps the
+fail-safe rule: with no value the bar behaves exactly as before, and no
+registry failure or absurd value can worsen the current behaviour (the
+worst case is the internal cap of ten).
+
+**Consequences.** No ABI change (the cap never crosses the interop boundary),
+no new public API. The 3/4 reduction Windows applies in its compact display
+mode is deliberately not replicated: it exists to shrink a display the popup
+does not have (its geometry is 96-DPI reference values scaled once by the
+monitor DPI). **Not verified on real hardware**: the value's presence and
+effect on the test machine (the project's probe script reports it) still need
+to be checked; when the value is absent the behaviour is identical to before
+by construction. Revisit if a real machine shows the cap must be resolved
+per-section rather than per-open.
+
+## 20. v2.62-alpha: the preview policy follows the user's configuration (G2)
+
+**Decision.** The core reads (read-only, cached, invalidated by the tray
+window on `WM_SETTINGCHANGE`) the user's own preview configuration from
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`: the two
+disable switches (live window previews, desktop peek) and the hover times.
+The frontend consumes them at the existing decision points: the preview
+popup's single choke point (`ShowTaskPreview`) returns early when the user
+disabled the window previews; the thumbnail popup's first-open delay is the
+user's `ThumbnailLivePreviewHoverTime` when set (the timer is rebuilt only
+when the delay changes) and the project's measured 400 ms otherwise; the
+show-desktop hover peek is suppressed when the user disabled the desktop
+preview (the click still minimizes) and uses the user's
+`DesktopLivePreviewHoverTime` as its delay when set (immediate, as today,
+otherwise). The system-side "live preview allowed" gate uses a shell helper
+that is not a public API: it is NOT replicated (fail-open) and the policy
+log says the gate was not evaluated. No value anywhere => behaviour
+identical to before (the fallbacks are the project's current defaults, not
+observed numbers).
+
+**Why.** Windows consults exactly these values before drawing the live
+thumbnails and the peek; a user who configured them deserves to have the
+reconstructed bar honour them, and the cached/absent-safe design keeps the
+fail-safe rule: a missing value or an old core changes nothing.
+
+**Consequences.** One new export (`W7T_GetPreviewPolicy`, ABI append-only;
+a core without it is tolerated: the frontend keeps its defaults), one new
+native module (read-only), no preview geometry touched.
+`ExtendedUIHoverTime` is read, exposed and logged but has no consumer: the
+project has no extended-UI equivalent. **Not verified on real hardware**:
+the effect of real values on the test machine still needs a check; the
+absent-value path is identical to before by construction. Revisit if the
+user delay must also apply to the preview switching (today it applies to
+the first open only, as the project does now).
+
+## 21. v2.62-alpha: TaskbarButtonCreated and the taskband probe (G7)
+
+**Decision.** When the bar owns the taskbar (the native taskbar is hidden),
+the core registers the "TaskbarButtonCreated" message (RegisterWindowMessage,
+one id per process) and broadcasts it to `HWND_BROADCAST` when a new
+application window enters the bar - at most once per process id, and only
+while the bar is the taskbar. The per-pid dedup is capped and reset when
+the native taskbar becomes visible again. A diagnostic probe (environment
+`W7T_TASKBAND_PROBE=1`) makes the tray window log - tag `PROBE`, log-only,
+no reply - the registered id at start-up and every reception of that exact
+id, so a machine running the real taskbar can show whether the shell itself
+sends the message and via which id.
+
+**Why.** Shell-aware tooling expects to be told about new taskbar buttons
+through that message; a bar that owns the taskbar should honour the
+contract. The probe answers a question that cannot be answered from this
+machine: does the real shell broadcast it too, and with which id - the
+information decides how a coexistence mode would behave.
+
+**Consequences.** No ABI change, no managed change, no registry access. The
+broadcast is fire-and-forget (a dead receiver cannot slow the window
+enumeration). **Not verified on real hardware**: the probe's log on a
+real machine is the open point; with the native taskbar visible nothing is
+sent (by design, the shell owns the buttons then).
+
+## 22. v2.62-alpha: TaskbarGlomLevel and small icons (G3)
+
+**Decision.** Behind the settings switch `TaskbarGroupingPolicy` (default
+OFF: with it off, and with the values absent, the behaviour is exactly the
+current one), the model reads the user's own grouping configuration
+(read-only, once per refresh, both candidate keys probed and the answering
+one logged): `TaskbarGlomLevel` (clamped to 0..2, absurd values never
+worsen the behaviour) and `TaskbarSmallIcons`. `TaskbarGlomLevel 0`
+(never group) makes every window its own button: the grouping key becomes
+per-window, such groups never attach to a pin, and the group commands use
+the real AppId that stays on the windows (`EffectiveAppId`). Levels 1 and 2
+leave the current grouping as is - the project's AppId grouping already
+implements "group similar / always", which is the only distinction the bar
+can make - and the mapping is documented rather than silently assumed.
+`TaskbarSmallIcons` is read, exposed and logged but NOT applied: applying
+it means a button geometry redesign (content-sized buttons, a different
+minimum width), which is deferred until it can be measured on hardware
+rather than guessed. (Gap G5 - the tooltip of a jump list row without a
+path - needs no code: the existing tooltip already falls back to the name
+when the path is absent, which is exactly the Windows 7 behaviour.)
+
+**Why.** A user who configured the grouping level deserves to have the
+bar honour it; the switch keeps the project in control of the rollout, and
+the per-window identity is carried where the pipeline can use it without
+touching the pin logic.
+
+**Consequences.** The new buttons of a never-grouped app are single-window
+groups (an existing capability, already used by idle pins); the group
+minimize/close of such a group act on the window's real AppId; everything
+else is untouched. **Not verified on real hardware**: the switch is off by
+default and the absent-value path is identical to before by construction.
+
+## 23. v2.62-alpha: the group icon criterion and the exceptions (G4)
+
+**Decision.** Behind the same switch (`TaskbarGroupingPolicy`, default
+OFF), the model reads the user's group-icon policy (read-only, once per
+refresh, both candidate keys, the answering one logged):
+`UseExecutableForTaskbarGroupIcon` - when set, the group button shows the
+executable's own icon (new appended export `W7T_GetExeIconBitmap`, the
+project's single icon pipeline; the pin's identity icon always wins) - and
+`TaskbarExceptionsIcons` - the listed executables' windows are never
+grouped (per-window groups, same mechanism as ADR 22). `TaskbarGroupIcon`
+is read and logged only: its meaning is not fully documented, and the
+project does not apply values it cannot explain.
+
+**Why.** Those two values are the documented user controls over "what
+decides the group icon" and "which apps must not be grouped"; honouring
+them keeps the bar from contradicting an explicit choice, and the
+read-and-log of the third one preserves the evidence for a future decision
+instead of guessing.
+
+**Consequences.** One new export (ABI append-only; a core without it is
+tolerated: the icon falls back to the current one), no layout change.
+**Not verified on real hardware**: the switch is off by default; the
+absent-value path is identical to before by construction; the
+`TaskbarGroupIcon` semantics remain an open question.
+
+## 24. v2.62-alpha: the canonical pin verbs and the single .lnk write point (G6)
+
+**Decision.** Behind the settings switch `CanonicalPinVerbs` (default OFF),
+pin/unpin from the bar travels on the canonical native path: the shell's
+canonical verbs are recognised (ordinal, case-insensitive: taskbarpin /
+taskbarunpin / togglepin are executed; open / customopen / delete / runas
+travel on the shell's own ShellExecute path; startpin / startunpin are
+recognised and deliberately NOT executed - the Start menu belongs to the
+shell). The .lnk of the real pin folder is now written in exactly ONE
+place (PinVerbs, shared by the Jump List pin row, which was refactored onto
+it), and the model refresh - with `W7T_EVT_PINNED_CHANGED` - is the
+PinnedApps folder watcher's job, which fires only when the model actually
+changed. With the switch off, the historical managed path (WScript.Shell)
+stays byte-identical.
+
+**Why.** Two writers of the same .lnk (the jump list and the right-click
+menu) can drift; one write point makes "pinned" a single fact on disk. The
+switch keeps the change reversible on the field, and the Start-menu verbs
+stay out of scope by the project's clean-room rules.
+
+**Consequences.** The Jump List pin row and the menu pin share one
+implementation; the event semantics are unchanged (watcher-driven, only on
+real change). The native ShellMenu has no named-verb dispatch (numeric ids
+only), so there is nothing to hook there - stated in the PR, not faked.
+**Not verified on real hardware**: the switch is off by default; the
+off-switch path is the current code.

@@ -26,6 +26,7 @@
 // offsets go through Sc(), so there are no unscaled magic numbers.
 
 #include "JumpListWindow.h"
+#include "PinVerbs.h"
 #include "FlyoutLauncher.h"
 #include "SehGuard.h"
 #include "ScopeGuards.h"
@@ -44,6 +45,7 @@
 #include <commctrl.h>
 #include <cstring>
 #include <algorithm>
+#include <mutex>
 
 namespace w7t {
 
@@ -68,7 +70,90 @@ constexpr int kDocIcon96    = 15;
 constexpr int kAppIcon96    = 21;
 constexpr int kPinIcon96    = 14;
 constexpr int kClose96      = 14;
-constexpr int kMaxDocsPerSection = 10; /* the taskbar list caps at ten    */
+/* Internal cap for the document sections, used only when the user's own
+ * shell configuration provides no value (see GetJumpListSectionCap): with
+ * no configuration the behaviour is exactly the current one. */
+constexpr uint32_t kProjectCapDefault = 10;
+
+/* Safety bounds for a tampered registry: ours, not the shell's. The popup
+ * must stay drawable no matter what value is stored. */
+constexpr uint32_t kCapSafeMin = 1;
+constexpr uint32_t kCapSafeMax = 64;
+
+struct JumpListCapCache {
+    std::mutex mutex;
+    uint32_t cap = kProjectCapDefault;
+    const wchar_t* source = L"internal default";
+    bool valid = false;
+};
+
+JumpListCapCache& JumpListCapCacheRef() {
+    static JumpListCapCache cache;
+    return cache;
+}
+
+/* One REG_DWORD of the user's shell configuration (read-only; the
+ * documented RegGetValueW helper does the type conversion and needs no
+ * manual buffer). */
+bool ReadUserDword(const wchar_t* subKey, const wchar_t* value,
+                   uint32_t* out) {
+    DWORD data = 0;
+    DWORD size = sizeof(data);
+    const LSTATUS st = ::RegGetValueW(HKEY_CURRENT_USER, subKey, value,
+                                      RRF_RT_REG_DWORD, nullptr, &data, &size);
+    if (st != ERROR_SUCCESS || size != sizeof(data)) {
+        return false;
+    }
+    *out = static_cast<uint32_t>(data);
+    return true;
+}
+
+uint32_t ClampCap(uint32_t v) {
+    if (v < kCapSafeMin) return kCapSafeMin;
+    if (v > kCapSafeMax) return kCapSafeMax;
+    return v;
+}
+
+/* The cap of one document section (recent / frequent). Windows 7 sizes
+ * these sections from the user's own shell configuration instead of a
+ * fixed constant: the per-application destination count, and when that is
+ * not set the Start-menu jump list item count plus the fixed extra rows
+ * the shell keeps for the standard entries. Both are user settings; this
+ * only READS them (no write to the registry, ever). Cached: the value is
+ * resolved once per configuration change, not on every open, and
+ * TrayService drops the cache on WM_SETTINGCHANGE. The 3/4 reduction the
+ * shell applies in its compact display mode has no counterpart in this
+ * popup (its geometry is 96-DPI reference values scaled once by the
+ * monitor DPI), so it is intentionally not replicated. */
+uint32_t GetJumpListSectionCap() {
+    JumpListCapCache& cache = JumpListCapCacheRef();
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    if (cache.valid) {
+        return cache.cap;
+    }
+    uint32_t v = 0;
+    if (ReadUserDword(
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer"
+            L"\\ApplicationDestinations",
+            L"MaxEntries", &v)) {
+        cache.cap = ClampCap(v);
+        cache.source = L"MaxEntries (user)";
+    } else if (ReadUserDword(
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer"
+            L"\\Advanced",
+            L"Start_JumpListItems", &v)) {
+        cache.cap = ClampCap(v + 4);
+        cache.source = L"Start_JumpListItems + 4 (user)";
+    } else {
+        cache.cap = kProjectCapDefault;
+        cache.source = L"internal default (no user value)";
+    }
+    cache.valid = true;
+    LogTagged(L"JUMPLIST",
+              L"section cap=%u (source: %s)",
+              (unsigned)cache.cap, cache.source);
+    return cache.cap;
+}
 /* Tooltip delay for the hovered row, ms (Windows 7: about half a second). */
 constexpr DWORD kTipDelayMs = 600;
 
@@ -349,14 +434,6 @@ const JumpStr& Str(int lang) {
     }
 }
 
-/* The REAL taskbar pin folder (the same one PinnedApps reads). */
-std::wstring PinnedFolder() {
-    wchar_t base[MAX_PATH]{};
-    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, base)))
-        return std::wstring();
-    return std::wstring(base) +
-        L"\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar";
-}
 
 /* Read one string property out of a property store. True when the value
  * existed and was a non-empty string. The PROPVARIANT is always released
@@ -405,6 +482,15 @@ bool ExtractDocPath(IUnknown* unk, std::wstring& outPath) {
 }
 
 } // namespace
+
+/* The tray window calls this on WM_SETTINGCHANGE: the user's shell
+ * configuration may have changed, so the cached cap is dropped and the
+ * next list open resolves it again. */
+void w7t::InvalidateJumpListCapCache() {
+    JumpListCapCache& cache = JumpListCapCacheRef();
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    cache.valid = false;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Application identity - public property-store APIs only.             */
@@ -508,10 +594,11 @@ int32_t JumpListWindow::ReadDocumentLists(const std::wstring& appUserModelId,
             UINT sectionCounts[2] = { 0, 0 };
             const APPDOCLISTTYPE kinds[2] = { ADLT_RECENT,
                                                         ADLT_FREQUENT };
+            const uint32_t cap = GetJumpListSectionCap();
             for (int pass = 0; pass < 2; ++pass) {
                 ComPtr<IObjectArray> items;
                 const HRESULT hrList = adl->GetList(
-                    kinds[pass], (UINT)kMaxDocsPerSection,
+                    kinds[pass], (UINT)cap,
                     IID_PPV_ARGS(&items));
                 if (FAILED(hrList) || !items) {
                     /* A normal answer for apps that register no automatic
@@ -525,7 +612,7 @@ int32_t JumpListWindow::ReadDocumentLists(const std::wstring& appUserModelId,
                 UINT count = 0;
                 items->GetCount(&count);
                 for (UINT i = 0; i < count &&
-                                sectionCounts[pass] < (UINT)kMaxDocsPerSection;
+                                sectionCounts[pass] < cap;
                      ++i) {
                     /* One malformed element must not stop the others. */
                     ComPtr<IUnknown> unk;
@@ -1210,36 +1297,17 @@ void JumpListWindow::PerformPinOrUnpin() {
         if (m_pinned) {
             /* Unpin: delete the real .lnk; the PinnedApps watcher refreshes
              * the model on its own, and the managed side also calls
-             * InvalidatePins when it sees BitsPinToggled. */
+             * InvalidatePins when it sees BitsPinToggled. v2.62-alpha (G6):
+             * the write point moved to PinVerbs (shared with the canonical
+             * verbs) so the bar can never disagree with itself on disk. */
             if (!m_pinnedLnk.empty()) {
-                DeleteFileW(m_pinnedLnk.c_str());
+                w7t::DeletePinnedShortcut(m_pinnedLnk);
             }
         } else {
-            /* Pin: create the .lnk in the real shell pin folder. */
-            const std::wstring dir = PinnedFolder();
-            if (!dir.empty() && !m_launchPath.empty()) {
-                CreateDirectoryW(dir.c_str(), nullptr); /* ignore result */
-                std::wstring name = m_title;
-                for (wchar_t& c : name) {
-                    if (c == L'/' || c == L'\\' || c == L':' || c == L'*' ||
-                        c == L'?' || c == L'"' || c == L'<' || c == L'>' ||
-                        c == L'|') c = L'_';
-                }
-                if (name.empty()) name = L"App";
-                const std::wstring lnk = dir + L"\\" + name + L".lnk";
-
-                raii::ComInitializer com;
-                ComPtr<IShellLinkW> link;
-                if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr,
-                        CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link))) && link) {
-                    link->SetPath(m_launchPath.c_str());
-                    link->SetIconLocation(m_launchPath.c_str(), 0);
-                    ComPtr<IPersistFile> pf;
-                    if (SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(&pf)))
-                        && pf) {
-                        pf->Save(lnk.c_str(), TRUE);
-                    }
-                }
+            /* Pin: create the .lnk in the real shell pin folder (the same
+             * shared write point). */
+            if (!m_launchPath.empty()) {
+                w7t::TogglePinnedApp(m_launchPath, m_title, true, nullptr);
             }
         }
     } W7T_SEH_CATCH {

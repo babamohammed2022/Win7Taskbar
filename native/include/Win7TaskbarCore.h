@@ -585,6 +585,37 @@ W7T_API int32_t W7T_CALL W7T_GetLanguageIndex(void);
 W7T_API int32_t W7T_CALL W7T_DetectSystemLanguageIndex(void);
 
 
+/* ------------------------------------------------------------------ */
+/*  v2.62-alpha: user's preview configuration (read-only).            */
+/*                                                                    */
+/*  The core reads (cached, invalidated on WM_SETTINGCHANGE) the      */
+/*  user's own preview settings and publishes them here. Delays are   */
+/*  -1 when the user value is absent: the frontend keeps its own      */
+/*  project default. out parameters may be null (skipped).            */
+/*  Returns W7T_OK.                                                   */
+/* ------------------------------------------------------------------ */
+W7T_API int32_t W7T_CALL W7T_GetPreviewPolicy(int32_t* outWindowThumbs,
+        int32_t* outDesktopPeek, int32_t* outThumbHoverMs,
+        int32_t* outPeekHoverMs);
+
+/* ------------------------------------------------------------------ */
+/*  v2.62-alpha: canonical pin verb (G6). The single write point of    */
+/*  the real pin folder (shared with the Jump List pin row).           */
+/*  pin: 1 = pin, 0 = unpin. 1 = on-disk state changed, 0 = no         */
+/*  change (already in that state), negative = failure.                */
+/* ------------------------------------------------------------------ */
+W7T_API int32_t W7T_CALL W7T_ToggleTaskbarPin(const wchar_t* exePath,
+        const wchar_t* baseName, int32_t pin);
+
+/* ------------------------------------------------------------------ */
+/*  v2.62-alpha: group icon from the executable (G4). Same bitmap      */
+/*  protocol as W7T_GetWindowIconBitmap (query size with pixels ==     */
+/*  nullptr, then fill). Negative on failure.                          */
+/* ------------------------------------------------------------------ */
+W7T_API int32_t W7T_CALL W7T_GetExeIconBitmap(const wchar_t* exePath,
+        int32_t desiredSize, int32_t* width, int32_t* height,
+        uint8_t* pixels, int32_t pixelsBytes);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

@@ -3013,12 +3013,41 @@ namespace Win7Taskbar
 
         private void ShowDesktopButton_MouseEnter(object sender, MouseEventArgs e)
         {
+            _peekHoverLease?.Dispose();
+            _peekHoverLease = null;
+
+            /* v2.62-alpha (G2): the user's own configuration decides the
+             * hover peek: it can be disabled entirely (the click still
+             * minimizes) and, when present, its delay
+             * (DesktopLivePreviewHoverTime) is used instead of appearing
+             * at once. With no value - or on a core without the export -
+             * the behaviour is exactly the current one. */
+            var policy = _bridge.GetPreviewPolicy();
+            if (policy is { DesktopPeek: false })
+            {
+                return;
+            }
+            if (policy is { PeekHoverMs: { } ms } && ms > 0)
+            {
+                _peekHoverLease = new TimerLease(ms, PeekHoverTimer_Tick);
+                _peekHoverLease.Start();
+                return;
+            }
             SetDesktopPeek(true);
         }
 
         private void ShowDesktopButton_MouseLeave(object sender, MouseEventArgs e)
         {
+            _peekHoverLease?.Dispose();
+            _peekHoverLease = null;
             SetDesktopPeek(false);
+        }
+
+        private void PeekHoverTimer_Tick(object? sender, EventArgs e)
+        {
+            /* One-shot (the DispatcherTimer stops itself): the peek starts
+             * only if the mouse is still where the user's delay intended. */
+            SetDesktopPeek(true);
         }
 
         private void SetDesktopPeek(bool enable)
@@ -3267,6 +3296,18 @@ namespace Win7Taskbar
 
         private const int PreviewShowDelayMs = 400;
 
+        /* v2.62-alpha (G2): the delay the current _previewShowTimer was
+         * built with (-1 = never built). The value can change with the
+         * user's configuration, so the timer is rebuilt when it does. */
+        private int _previewShowDelayMs = -1;
+
+        /* v2.62-alpha (G2): hover arm of the desktop peek when the user's
+         * DesktopLivePreviewHoverTime value applies a delay. */
+        private TimerLease? _peekHoverLease;
+
+        /* v2.62-alpha (G2): one log line per policy state, not per hover. */
+        private bool _previewGateLogPending = true;
+
         /// <summary>Ogni quanto si controlla se il mouse e' ancora sul
         /// pulsante o sull'anteprima.</summary>
         private const int PreviewWatchIntervalMs = 200;
@@ -3418,8 +3459,22 @@ namespace Win7Taskbar
                 _previewAnchor = button;
                 _previewGroup = group;
 
-                _previewShowTimer ??= new TimerLease(PreviewShowDelayMs,
-                                                     PreviewShowTimer_Tick);
+                /* v2.62-alpha (G2): the first-open delay is the user's own
+                 * ThumbnailLivePreviewHoverTime when set; with no value (or
+                 * a core without the export) the project's current 400 ms
+                 * stays. The timer is rebuilt only when the delay changes. */
+                int delayMs = PreviewShowDelayMs;
+                if (_bridge.GetPreviewPolicy() is { ThumbHoverMs: { } userMs })
+                {
+                    delayMs = userMs;
+                }
+                if (_previewShowTimer == null || _previewShowDelayMs != delayMs)
+                {
+                    _previewShowTimer?.Dispose();
+                    _previewShowTimer = new TimerLease(delayMs,
+                                                       PreviewShowTimer_Tick);
+                    _previewShowDelayMs = delayMs;
+                }
                 _previewShowTimer.Stop();
                 _previewShowTimer.Start();
             }
@@ -3597,6 +3652,24 @@ namespace Win7Taskbar
             {
                 return;
             }
+
+            /* v2.62-alpha (G2): the user can switch the live window
+             * previews off from the Windows side (DisablePreviewWindow);
+             * honouring it keeps the bar from contradicting an explicit
+             * choice. Without the value - or on a core without the export -
+             * this is exactly as before. The system-side live-preview gate
+             * is fail-open by design (native PreviewPolicy). */
+            if (_bridge.GetPreviewPolicy() is { WindowThumbs: false })
+            {
+                if (_previewGateLogPending)
+                {
+                    _previewGateLogPending = false;
+                    DiagnosticLogger.Write("PREVIEW",
+                        "anteprime finestre disattivate dalla configurazione utente");
+                }
+                return;
+            }
+            _previewGateLogPending = true;
 
             /* The Jump List gesture owns the pointer: a preview popping up
              * while its list is open (or being dragged out) would stack two
@@ -4856,6 +4929,21 @@ namespace Win7Taskbar
         // nella cartella reale dei pin; il watcher nativo aggiorna il modello.
         private void ToggleTaskPin(TaskGroup group)
         {
+            // v2.62-alpha (G6): with the switch on, the pin travels on the
+            // canonical native path (the single .lnk write point shared with
+            // the Jump List, the model refreshed by the native watcher);
+            // without it the historical managed path stays untouched.
+            if (RetroBar.Utilities.Settings.Instance.CanonicalPinVerbs)
+            {
+                string exe = group.ExePath ?? string.Empty;
+                if (string.IsNullOrEmpty(exe)) return;
+                string name = System.IO.Path.GetFileNameWithoutExtension(exe);
+                int r = _bridge.ToggleTaskbarPin(exe, name, group.IsPinned ? 0 : 1);
+                _bridge.Log("pin/unpin (verb canonico): " +
+                    (r > 0 ? "applicato" : r == 0 ? "gi\u00e0 in quello stato" : "fallito"));
+                if (r >= 0) _viewModel.InvalidatePins();
+                return;
+            }
             try
             {
                 if (group.IsPinned)

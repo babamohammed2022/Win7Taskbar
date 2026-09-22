@@ -40,6 +40,14 @@ namespace RetroBar.Utilities
         // v2.47: anteprima del desktop (Aero Peek) attiva. E' la casella
         // "Anteprima del desktop con Aero Peek" della finestra Proprieta'.
         private bool _aeroPeek = true;
+        // v2.62-alpha (G3/G4): read and honour the user's own taskbar
+        // grouping configuration (TaskbarGlomLevel / exceptions / group
+        // icon criterion). OFF (default): exactly the current behaviour.
+        private bool _taskbarGroupingPolicy;
+        // v2.62-alpha (G6): pin/unpin through the canonical native verb
+        // (the single .lnk write point shared with the Jump List). OFF
+        // (default): the historical managed path.
+        private bool _canonicalPinVerbs;
         // Never Italian by omission: until the language is detected (or chosen)
         // the safe value is English, the declared fallback of the project.
         private string _language = DefaultLanguageCode;
@@ -76,6 +84,22 @@ namespace RetroBar.Utilities
         {
             get => _aeroPeek;
             set => SetField(ref _aeroPeek, value);
+        }
+
+        /// <summary>v2.62-alpha (G3/G4): honours the user's own taskbar
+        /// grouping configuration. Off by default (current behaviour).</summary>
+        public bool TaskbarGroupingPolicy
+        {
+            get => _taskbarGroupingPolicy;
+            set => SetField(ref _taskbarGroupingPolicy, value);
+        }
+
+        /// <summary>v2.62-alpha (G6): canonical pin/unpin verb path.
+        /// Off by default (the historical managed path).</summary>
+        public bool CanonicalPinVerbs
+        {
+            get => _canonicalPinVerbs;
+            set => SetField(ref _canonicalPinVerbs, value);
         }
 
         /// <summary>

@@ -499,6 +499,31 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_GetExtraFlyoutColor(out uint rgb);
 
+        /// <summary>v2.62-alpha: the user's own preview configuration
+        /// (read-only, cached in the core, invalidated on WM_SETTINGCHANGE).
+        /// The delays are -1 when the user value is absent: the frontend
+        /// keeps its own project default. 0 = ok.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_GetPreviewPolicy(out int windowThumbs,
+            out int desktopPeek, out int thumbHoverMs, out int peekHoverMs);
+
+        /// <summary>v2.62-alpha (G6): the canonical pin verb. The single
+        /// write point of the real pin folder (shared with the Jump List).
+        /// pin: 1 = pin, 0 = unpin. 1 = on-disk state changed, 0 = no
+        /// change, negative = failure.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
+                   CharSet = CharSet.Unicode)]
+        public static extern int W7T_ToggleTaskbarPin(string exePath,
+            string baseName, int pin);
+
+        /// <summary>v2.62-alpha (G4): the executable's own icon, same bitmap
+        /// protocol as W7T_GetWindowIconBitmap.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
+                   CharSet = CharSet.Unicode)]
+        public static extern int W7T_GetExeIconBitmap(string exePath,
+            int desiredSize, out int width, out int height, byte[]? pixels,
+            int pixelsBytes);
+
         // v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_NetFlyoutInit();

@@ -59,6 +59,11 @@
 
 namespace w7t {
 
+/* Drops the cached jump list section cap so the next list open re-reads
+ * the user's shell configuration. Called by the tray window on
+ * WM_SETTINGCHANGE (the user's settings can change any time). */
+void InvalidateJumpListCapCache();
+
 /* One entry of the application's REAL jump list, as returned by
  * IApplicationDocumentLists (ADLT_RECENT / ADLT_FREQUENT). */
 struct JumpListDoc {

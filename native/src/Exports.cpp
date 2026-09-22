@@ -34,7 +34,10 @@
 #include "FlyoutLauncher.h"
 #include "ExtraSettings.h"     /* v1.21.7: extra settings of the taskbar */
 #include "AudioService.h"
-#include "JumpListWindow.h"     /* v2.38 */
+#include "JumpListWindow.h"
+#include "PreviewPolicy.h"
+#include "PinVerbs.h"
+#include <shlobj.h>     /* v2.38 */
 #include "LanguageSwitcher.h"   /* v1.4: selettore della lingua */
 #include "AeroThumbnailFrame.h" /* v3.10: cornice 9-slice delle anteprime */
 #include "BatteryFlyout.h"      /* v2.38 */
@@ -1616,4 +1619,75 @@ extern "C" W7T_API void W7T_CALL W7T_CloseClassicVolume(void) {
             return TRUE;
         }, 0);
     } W7T_SEH_CATCH {} W7T_SEH_END
+}
+
+/* v2.62-alpha: the user's preview configuration (read-only, cached in
+ * w7t::GetPreviewPolicy). Delays are -1 when the user value is absent, so
+ * the frontend keeps its own project default. */
+extern "C" W7T_API int32_t W7T_CALL W7T_GetPreviewPolicy(int32_t* outWindowThumbs,
+        int32_t* outDesktopPeek, int32_t* outThumbHoverMs,
+        int32_t* outPeekHoverMs) {
+    W7T_SEH_TRY {
+        const w7t::PreviewPolicy p = w7t::GetPreviewPolicy();
+        if (outWindowThumbs != nullptr) *outWindowThumbs = p.windowThumbsEnabled ? 1 : 0;
+        if (outDesktopPeek != nullptr) *outDesktopPeek = p.desktopPeekEnabled ? 1 : 0;
+        if (outThumbHoverMs != nullptr)
+            *outThumbHoverMs = p.thumbHoverMsSet ? (int32_t)p.thumbHoverMs : -1;
+        if (outPeekHoverMs != nullptr)
+            *outPeekHoverMs = p.peekHoverMsSet ? (int32_t)p.peekHoverMs : -1;
+    } W7T_SEH_CATCH { /* defaults stay: the core keeps working */ } W7T_SEH_END
+    return W7T_OK;
+}
+
+/* v2.62-alpha (G6): canonical pin verb. The on-disk state is refreshed by
+ * the PinnedApps folder watcher, which queues W7T_EVT_PINNED_CHANGED only
+ * when the model actually changed. */
+extern "C" W7T_API int32_t W7T_CALL W7T_ToggleTaskbarPin(const wchar_t* exePath,
+        const wchar_t* baseName, int32_t pin) {
+    if (exePath == nullptr || baseName == nullptr) {
+        return W7T_ERR_INVALID_ARG;
+    }
+    int32_t result = W7T_ERR_NOT_FOUND;
+    W7T_SEH_TRY {
+        const bool changed = w7t::TogglePinnedApp(std::wstring(exePath),
+                                                  std::wstring(baseName),
+                                                  pin != 0, nullptr);
+        result = changed ? 1 : 0;
+    } W7T_SEH_CATCH {
+        result = W7T_ERR_NOT_FOUND;
+    } W7T_SEH_END
+    return result;
+}
+
+/* v2.62-alpha (G4): the executable's own icon (the criterion behind
+ * "use the executable for the taskbar group icon"). The project's single
+ * icon pipeline (IconToArgb/EmitBitmap) does the pixel work, so the bitmap
+ * layout is exactly the one W7T_GetWindowIconBitmap exposes. */
+extern "C" W7T_API int32_t W7T_CALL W7T_GetExeIconBitmap(const wchar_t* exePath,
+        int32_t desiredSize, int32_t* width, int32_t* height,
+        uint8_t* pixels, int32_t pixelsBytes) {
+    if (exePath == nullptr || exePath[0] == L'\0' || pixelsBytes < 0) {
+        return W7T_ERR_INVALID_ARG;
+    }
+    if (pixels == nullptr && pixelsBytes != 0) {
+        return W7T_ERR_INVALID_ARG;
+    }
+    int32_t result = W7T_ERR_NOT_FOUND;
+    W7T_SEH_TRY {
+        SHFILEINFOW sfi{};
+        const UINT flags = SHGFI_SYSICONINDEX | SHGFI_ICON |
+            (desiredSize > 16 ? SHGFI_LARGEICON : SHGFI_SMALLICON);
+        if (SHGetFileInfoW(exePath, 0, &sfi, sizeof(sfi), flags) != 0 &&
+            sfi.hIcon != nullptr) {
+            ArgbBitmap bmp;
+            const bool ok = IconToArgb(sfi.hIcon, bmp) && BitmapSane(bmp);
+            DestroyIcon(sfi.hIcon);
+            if (ok) {
+                result = EmitBitmap(bmp, width, height, pixels, pixelsBytes);
+            }
+        }
+    } W7T_SEH_CATCH {
+        result = W7T_ERR_NOT_FOUND;
+    } W7T_SEH_END
+    return result;
 }

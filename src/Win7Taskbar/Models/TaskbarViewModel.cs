@@ -237,15 +237,58 @@ namespace Win7Taskbar.Models
         private static readonly bool DebugForceFlash =
             Environment.GetEnvironmentVariable("W7T_DEBUG_FLASH") == "1";
 
+        /* v2.62-alpha (G4): "use the executable icon for the group" policy,
+         * refreshed once per RefreshWindows (the reader is the authority). */
+        private bool _groupIconUseExecutable;
+
         public void RefreshWindows()
         {
             IReadOnlyList<W7TWindowInfo> windows = _bridge.GetWindows();
             List<PinInfo> pins = _pinsCache ??= LoadPinsFromCore();
 
+            // v2.62-alpha (G3/G4): the user's own grouping configuration,
+            // read at most once per refresh and only when the project switch
+            // is on. Absent value => null => exactly the current behaviour.
+            var groupCfg = RetroBar.Utilities.Settings.Instance.TaskbarGroupingPolicy
+                ? TaskbarSettings.Read() : null;
+            var iconCfg = RetroBar.Utilities.Settings.Instance.TaskbarGroupingPolicy
+                ? GroupIconPolicy.Read() : null;
+            _groupIconUseExecutable = iconCfg?.UseExecutable == true;
+
             // Raggruppa per AppUserModelID / percorso eseguibile.
+            // With the user policy on, "never group" (TaskbarGlomLevel 0) or
+            // a listed exception (TaskbarExceptionsIcons) makes each window
+            // its own group: the key becomes per-window (a synthetic AppId
+            // the pipeline understands: it never matches a pin, it survives
+            // while the window lives, and the real AppId stays on the
+            // TaskWindow for the group commands).
+            bool PerWindow(W7TWindowInfo w)
+            {
+                if (groupCfg == null && iconCfg == null)
+                {
+                    return false;
+                }
+                if (groupCfg?.GlomLevel == 0)
+                {
+                    return true;
+                }
+                if (iconCfg != null && iconCfg.Exceptions.Count > 0)
+                {
+                    string name = System.IO.Path.GetFileName(
+                        w.ExePath ?? string.Empty);
+                    if (iconCfg.Exceptions.Contains(name,
+                            StringComparer.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
             var byApp = windows
                 .Where(w => !string.IsNullOrEmpty(w.AppId))
-                .GroupBy(w => w.AppId, StringComparer.OrdinalIgnoreCase)
+                .GroupBy(w => PerWindow(w)
+                    ? "w7t:win:" + w.Hwnd.ToString("x")
+                    : w.AppId, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             // 0) v2.20: i pinnati REALI (lnk della shell) esistono sempre,
@@ -348,7 +391,12 @@ namespace Win7Taskbar.Models
                     // pinnato invece di creare un bottone duplicato
                     // (il "tre Google" venivano da qui).
                     string firstExe = group.First().ExePath ?? string.Empty;
-                    PinInfo? viaPin = pins.FirstOrDefault(p =>
+                    /* v2.62-alpha (G3/G4): a per-window group (never-group /
+                     * exception) must never attach to a pin: each window
+                     * keeps its own button. */
+                    bool perWindowKey = group.Key.StartsWith("w7t:win:",
+                        StringComparison.Ordinal);
+                    PinInfo? viaPin = perWindowKey ? null : pins.FirstOrDefault(p =>
                         string.Equals(p.AppId, group.Key,
                                       StringComparison.OrdinalIgnoreCase) ||
                         (!string.IsNullOrEmpty(p.TargetPath) &&
@@ -362,7 +410,8 @@ namespace Win7Taskbar.Models
                         // (due profili di Chrome = un bottone, 2 finestre).
                         SameApp(p.TargetPath, firstExe) ||
                         IsExplorerPin(p, firstExe));
-                    if (viaPin == null && _pendingLaunch is { } pending &&
+                    if (!perWindowKey && viaPin == null &&
+                        _pendingLaunch is { } pending &&
                         DateTime.UtcNow < pending.UntilUtc &&
                         firstExe.EndsWith("\\explorer.exe",
                                           StringComparison.OrdinalIgnoreCase))
@@ -761,6 +810,21 @@ namespace Win7Taskbar.Models
 
             // L'icona del gruppo e' quella della prima finestra disponibile.
             group.Icon ??= group.Windows.Select(w => w.Icon).FirstOrDefault(icon => icon != null);
+
+            /* v2.62-alpha (G4): "use the executable for the group icon":
+             * the group button shows the executable's own icon. The pin's
+             * identity icon always wins (v2.26 rule): pinned groups keep
+             * their .lnk icon. Without the policy this block is dead. */
+            if (_groupIconUseExecutable && !group.IsPinned &&
+                !string.IsNullOrEmpty(group.ExePath))
+            {
+                System.Windows.Media.ImageSource? exeIcon =
+                    _bridge.GetExeIcon(group.ExePath);
+                if (exeIcon != null)
+                {
+                    group.Icon = exeIcon;
+                }
+            }
             group.RefreshAggregateState();
         }
 
@@ -953,14 +1017,31 @@ namespace Win7Taskbar.Models
 
         public void MinimizeGroup(TaskGroup group)
         {
-            _bridge.MinimizeGroup(group.AppId);
+            _bridge.MinimizeGroup(EffectiveAppId(group));
             RefreshWindows();
         }
 
         public void CloseGroup(TaskGroup group)
         {
-            _bridge.CloseGroup(group.AppId);
+            _bridge.CloseGroup(EffectiveAppId(group));
             RefreshWindows();
+        }
+
+        /* v2.62-alpha (G3/G4): the per-window groups carry a synthetic
+         * AppId (so the pipeline never merges them): the real AppId lives
+         * on the windows, and that is what the native group commands need.
+         * Every other group is untouched: the behaviour is byte-identical. */
+        private static string EffectiveAppId(TaskGroup group)
+        {
+            if (group.AppId.StartsWith("w7t:win:", StringComparison.Ordinal))
+            {
+                TaskWindow? first = group.Windows.FirstOrDefault();
+                if (first != null && !string.IsNullOrEmpty(first.AppId))
+                {
+                    return first.AppId;
+                }
+            }
+            return group.AppId;
         }
 
         public void SendTrayClick(TrayIconModel icon, int clickType, int x, int y)
