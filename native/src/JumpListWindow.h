@@ -21,14 +21,22 @@
 // anywhere outside dismisses the list.
 //
 // Content rules (project instructions for this subsystem):
-//   - entries come ONLY from the public Shell Jump List APIs
-//     (IApplicationDocumentLists - the documented read side); nothing is
-//     ever invented for an application that exposes no list;
+//   - entries come ONLY from the public Shell Jump List APIs -
+//     IApplicationDocumentLists (Recent/Frequent) and
+//     IApplicationDestinations (the pinned items, the documented read
+//     view of the ApplicationDestinations store that the Windows 7
+//     taskbar reads as well - see docs/JUMPLIST-RE-VERIFICATION.md);
+//     nothing is ever invented for an application that exposes no list;
 //   - application identity is the AppUserModelID of the group's window,
 //     else the shell metadata of the pinned shortcut, else the default id
 //     Windows derives from the executable path (see appids.md, MSDN);
-//   - the two standard Windows 7 rows (application link + "Pin/Unpin this
-//     program to the taskbar") act on the group's own window/shortcut data.
+//   - the Windows 7 Tasks section (Minimize/Maximize/Restore/Move/Size)
+//     appears only while the group has a live window and reuses the
+//     existing native window-command path (WindowManager::ExecuteCommand);
+//   - Start_JumpListItems = 0 (HKCU\...\Explorer\StartMenu) disables the
+//     jump lists, as in Windows 7 (open fails with code -4);
+//   - the two standard rows (application link + "Pin/Unpin this program
+//     to the taskbar") act on the group's own window/shortcut data.
 //
 // All geometry constants are 96-DPI reference values scaled by the DPI of
 // the monitor hosting the taskbar button (GetDpiForScreenRect), so the
@@ -55,6 +63,15 @@ struct JumpListDoc {
     std::wstring displayName;   /* file name without extension */
     std::wstring path;          /* full path                   */
     int32_t section;            /* 0 = recent, 1 = frequent    */
+};
+
+/* One PINNED (custom) jump list item, as returned by
+ * IApplicationDestinations for the application's identity. path may stay
+ * empty for items the Shell cannot resolve to a file path (the Windows 7
+ * shell shows those with a name-only tooltip: NoJumpListPathTooltip). */
+struct JumpListPinnedItem {
+    std::wstring name;
+    std::wstring path;
 };
 
 /* Taskbar edges, same numeric values as the managed TaskbarEdge enum and
@@ -88,9 +105,10 @@ public:
      * (SCREEN PHYSICAL PIXELS), and shows it. Returns the number of shell
      * document entries (>= 0; zero means "only the standard rows") or a
      * negative failure code (-1 COM/Shell failure, -2 window creation
-     * failure, -3 bad argument) - the managed side then cancels the
-     * gesture. outAppId receives the resolved AppUserModelID for logging
-     * (may stay empty when the app exposes none). */
+     * failure, -3 bad argument, -4 disabled by the Start_JumpListItems
+     * policy) - the managed side then cancels the gesture. outAppId
+     * receives the resolved AppUserModelID for logging (may stay empty
+     * when the app exposes none). */
     int32_t Open(const RECT& buttonRectScreen, int32_t edge,
                  const std::wstring& title,
                  const std::wstring& launchPath,
@@ -137,6 +155,14 @@ public:
     static int32_t ReadDocumentLists(const std::wstring& appUserModelId,
         const std::wstring& exePath, std::vector<JumpListDoc>& outDocs);
 
+    /* Pinned (custom) items of one identity: the documented read view of
+     * the store the Windows 7 taskbar reads
+     * (HKCU\...\Explorer\ApplicationDestinations\<AppID>, via
+     * IApplicationDestinations). 0 on success, negative on failure;
+     * the caller keeps the rest of the list on failure. */
+    static int32_t ReadPinnedItems(const std::wstring& appUserModelId,
+        std::vector<JumpListPinnedItem>& outItems);
+
 private:
     JumpListWindow() = default;
 
@@ -144,13 +170,16 @@ private:
      * released through the raii handle (move-only row storage). */
     struct Row {
         enum Kind {
-            DocRecent = 0, DocFrequent = 1, App = 2, Close = 3, Pin = 4
+            DocRecent = 0, DocFrequent = 1, App = 2, Close = 3, Pin = 4,
+            PinnedItem = 5,   /* pinned jump list item (custom)        */
+            Task = 6          /* window task; cmd = W7T_CMD_* value    */
         };
         Kind kind = App;
         RECT rect = {};
         std::wstring label;
         std::wstring path;
         raii::IconHandle icon;   /* real file icon or null */
+        int32_t cmd = 0;         /* Task rows only (W7T_CMD_*) */
 
         Row() = default;
         Row(Row&&) noexcept = default;
@@ -180,6 +209,13 @@ private:
     void LaunchApp();
     void CloseRunningApplication();
     void PerformPinOrUnpin();
+    void ExecuteTask(int32_t cmd);
+    void UnpinItem(int row);
+    void RefreshAfterItemChange();
+    void ShowUnpinMenu(int row, POINT clientPt);
+    std::wstring TooltipFor(const Row& row) const;
+    void ShowRowTooltip(int row, POINT clientPt);
+    void ClearRowTooltip();
     void ClearContent();
     int Sc(int v96) const;           /* 96-DPI value -> device px at m_dpi */
     static void GradientRect(HDC hdc, const RECT& r, COLORREF top,
@@ -198,6 +234,8 @@ private:
     bool m_pinned = false;
 
     std::vector<JumpListDoc> m_docs;
+    std::vector<JumpListPinnedItem> m_pinnedItems;
+    std::wstring m_askId;       /* identity used for the jump list stores */
     std::vector<Row> m_rows;
     raii::BitmapHandle m_appIcon;
     raii::BitmapHandle m_pinIcon;
@@ -209,6 +247,19 @@ private:
     bool m_closeHot = false;
     bool m_closeDown = false;
     HHOOK m_outsideMouseHook = nullptr;
+
+    /* Right-click on a pinned row: the armed row index (-1 = none) and the
+     * Windows 7 tooltip tracked under the hovered row (name-only when the
+     * item has no resolvable path - the NoJumpListPathTooltip case). */
+    int m_pinnedMenuRow = -1;
+    /* The unpin menu is on screen (TrackPopupMenuEx is synchronous): the
+     * outside-mouse dismissal stays off while it is, so a menu click
+     * below the popup edge cannot close the list underneath. */
+    bool m_menuTracking = false;
+    HWND m_tooltip = nullptr;
+    int m_tipRow = -1;
+    DWORD m_tipStart = 0;
+    bool m_tipShown = false;
 
     int m_width = 300;      /* device px, already scaled */
     int m_totalH = 0;       /* device px */

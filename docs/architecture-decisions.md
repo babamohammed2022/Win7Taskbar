@@ -369,6 +369,27 @@ arrow alone:
   AppUserModelID, and `IApplicationDocumentLists` for the Recent/Frequent
   destinations. When the Shell exposes no list, no document rows appear -
   nothing is invented.
+- The content sections are RE-verified against the Windows 7 taskbar code
+  (Windows Thin PC `explorer.exe` string/xref dump; full analysis in
+  `docs/JUMPLIST-RE-VERIFICATION.md`): the **pinned (custom) items** are
+  read with `IApplicationDestinations` - the documented read view of the
+  store the Windows 7 taskbar reads directly
+  (`HKCU\...\Explorer\ApplicationDestinations\<AppID>`, evidenced in the
+  dump) - and are shown above the document sections with their real
+  icons; a click opens the item (`customopen`) and a right-click offers
+  the unpin (`togglepin`) through the documented write API
+  (`ICustomDestinationList`), with an in-place list refresh. The
+  `Start_JumpListItems = 0` policy disables the jump lists (open code -4),
+  and rows carry the Windows 7 path tooltip (name only when unresolvable
+  - the `NoJumpListPathTooltip` case). The **Tasks** section
+  (Minimize/Maximize/Restore/Move/Size for live window groups, reusing
+  `WindowManager::ExecuteCommand`) is general Windows 7 knowledge - the
+  dump carries no Tasks strings - and is flagged as such. The earlier
+  code comment claiming the pinned list cannot be read through the public
+  API was wrong (it hid exactly the section the evidence says Windows 7
+  shows) and has been corrected. Telemetry strings
+  (`taskbarpin`/`startpin`/...) were recorded and deliberately NOT
+  adopted.
 - Every coordinate crossing the interop boundary is a **screen physical
   pixel**; the WPF side converts with `PointToScreen` only (both button
   corners, never a size multiplied by a scale a second time), and the native

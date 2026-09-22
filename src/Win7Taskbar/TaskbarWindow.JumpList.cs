@@ -1145,13 +1145,15 @@ namespace Win7Taskbar
 
                 if (entries < 0)
                 {
-                    // The native side already logged the Shell/COM detail
-                    // ([JUMPLIST] lines in log-core.txt); mirror it into
-                    // the managed diagnostics and stop here.
+                    // The native side already logged the real reason
+                    // ([JUMPLIST] lines in log-core.txt): -1 Shell/COM
+                    // failure, -2 window creation, -3 bad argument, -4
+                    // disabled by the Start_JumpListItems policy. Mirror
+                    // it into the managed diagnostics and stop here.
                     DiagnosticLogger.Write("JUMPLIST",
-                        $"Shell/COM failure opening the jump list (code {entries})");
-                    _bridge.Log(
-                        $"JumpList: Shell/COM failure = code {entries}");
+                        $"jump list open failed (code {entries}); reason" +
+                        $" in log-core.txt");
+                    _bridge.Log($"JumpList: open failed = code {entries}");
                     return false;
                 }
 
