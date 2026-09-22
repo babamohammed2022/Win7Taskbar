@@ -162,16 +162,19 @@ bool TogglePinnedApp(const std::wstring& target, const std::wstring& baseName,
         ::CreateDirectoryW(dir.c_str(), nullptr); /* ignore the result */
         ComGuard com;
         ComPtr<IShellLinkW> link;
+        /* The ComPtr's only member is the raw pointer, so its address can
+         * be reinterpreted as the void** an interface factory wants (the
+         * same technique IID_PPV_ARGS uses). */
         if (SUCCEEDED(::CoCreateInstance(CLSID_ShellLink, nullptr,
                 CLSCTX_INPROC_SERVER, IID_IShellLinkW,
-                reinterpret_cast<void**>(static_cast<IUnknown**>(&link)))
-                ) && link.get() != nullptr) {
+                reinterpret_cast<void**>(&link))) &&
+            link.get() != nullptr) {
             link->SetPath(target.c_str());
             link->SetIconLocation(target.c_str(), 0);
             ComPtr<IPersistFile> pf;
             if (SUCCEEDED(link->QueryInterface(IID_IPersistFile,
-                    reinterpret_cast<void**>(static_cast<IUnknown**>(&pf))))
-                && pf.get() != nullptr) {
+                    reinterpret_cast<void**>(&pf))) &&
+                pf.get() != nullptr) {
                 saved = SUCCEEDED(pf->Save(lnk.c_str(), TRUE));
             }
         }
