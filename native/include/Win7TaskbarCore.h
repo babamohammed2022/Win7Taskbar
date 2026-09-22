@@ -507,14 +507,6 @@ W7T_API int32_t W7T_CALL W7T_JumpListOpen(const RECT* buttonRect,
 W7T_API int32_t W7T_CALL W7T_JumpListSetHover(int32_t screenX,
         int32_t screenY);
 
-/* v2.62: movimento del trascinamento che ha aperto la lista: il popup si
- * ri-ancora sul cursore (centrato sull'asse della barra, clampato
- * nell'area di lavoro del monitor - la regola di posizionamento del mod
- * Windhawk GPL-3.0 "taskbar-jump-list-on-cursor-pos" di m417z) e aggiorna
- * la riga di hover. 1 se il punto resta nell'area di interazione. */
-W7T_API int32_t W7T_CALL W7T_JumpListDrag(int32_t screenX,
-        int32_t screenY);
-
 /* v2.62: indice della riga sotto il punto schermo (>=0), -1 quando non ce
  * n'è nessuna; senza effetti collaterali. Il lato gestito senza questa
  * export ripiega sul rettangolo del popup (FindWindow + GetWindowRect). */

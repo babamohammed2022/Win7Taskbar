@@ -722,17 +722,11 @@ namespace Win7Taskbar.Interop
         }
 
         /// <summary>Vero finche' il cursore resta nell'area di interazione
-        /// del gesto (popup + pulsante + corridoio fra i due).</summary>
+        /// del gesto (popup + pulsante + corridoio fra i due). Il popup
+        /// NON si sposta: resta ancorato al pulsante alla posizione
+        /// canonica di Windows 7; si aggiorna solo la riga evidenziata.</summary>
         public bool JumpListSetHover(int screenX, int screenY)
             => NativeMethods.W7T_JumpListSetHover(screenX, screenY) == 1;
-
-        /// <summary>v2.62: un movimento del trascinamento che ha aperto la
-        /// lista: il popup si ri-ancora sul cursore e aggiorna la riga di
-        /// hover. Vero finche' il cursore resta nell'area di interazione.
-        /// Lancia EntryPointNotFoundException su un core senza l'export:
-        /// il chiamante ripiega su JumpListSetHover.</summary>
-        public bool JumpListDrag(int screenX, int screenY)
-            => NativeMethods.W7T_JumpListDrag(screenX, screenY) == 1;
 
         /// <summary>v2.62: indice della riga sotto il punto schermo
         /// (>=0), -1 se nessuna; senza effetti collaterali. Lancia

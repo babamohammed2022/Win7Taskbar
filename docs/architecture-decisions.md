@@ -287,18 +287,20 @@ no locks are taken across the guarded boundary elsewhere.
 **Revisit if.** A fault repeats in one spot: the log line names the module
 phase, and the guard can then be narrowed to the exact call.
 
-## 13. Jump Lists: the drag away from the bar is the trigger (up-arrow secondary)
+## 13. Jump Lists: the drag away from the bar is the trigger
 
 **Current status.** Jump Lists are enabled with the Windows 7 trigger:
 LEFT press + drag away from the taskbar (up for a bottom bar, down for a
 top bar, right for a left bar, left for a right bar) opens the list during
-the drag; the list follows the cursor and highlights the row under it.
-Releasing on a row activates it; releasing over the list or the button
-leaves the list open and persistent (row clicks, Escape, click-outside);
-releasing outside the interaction area cancels. The hovered button's small
-up-arrow is the secondary trigger (a LEFT click on it opens the list
-directly). The right-click of a task button keeps only the Windows 7
-context menu and NEVER opens a Jump List.
+the drag; the list opens at the canonical Windows 7 position - directly
+above the button, left-aligned with its left edge, small gap (mirrored per
+bar edge) - and stays anchored there for the whole gesture, while the row
+under the cursor is highlighted. Releasing on a row activates it; releasing
+over the list or the button leaves the list open and persistent (row
+clicks, Escape, click-outside); releasing outside the interaction area
+cancels. The right-click of a task button keeps only the Windows 7
+context menu and NEVER opens a Jump List. The v2.61 up-arrow secondary
+trigger was removed in v2.62 on user request: the drag is the only trigger.
 
 **Decision.** The trigger is the drag, not the right-click, and not the
 arrow alone:
@@ -317,44 +319,50 @@ arrow alone:
   any capture or OLE drag starts.
 - `BeginJumpDrag` takes the mouse capture on the button at that moment, so
   the moves and the release come back to it from anywhere on the screen.
-  Every move calls the native `W7T_JumpListDrag` (`JumpListWindow::
-  DragMove`): the popup re-anchors on the cursor - centered on it along the
-  taskbar axis, clamped to the work area of the monitor that hosts the
-  button - and updates the hover row. The cursor-anchoring rule is the one
-  of the GPL-3.0 Windhawk mod "taskbar-jump-list-on-cursor-pos" (m417z),
-  which sets the Windows jump-view position's X to the cursor's X; Win7Taskbar
-  applies the same rule to its own popup, live during the drag, instead of
-  leaving the list glued to the button's left edge. See
-  THIRD-PARTY-NOTICES.md for the license note.
+  The popup keeps the position the native `Place` computed at open -
+  directly above the button, left-aligned with its left edge, small gap,
+  clamped to the work area of the monitor that hosts the button: exactly
+  where the Windows 7 shell opens its jump view, and the only position rule.
+  Every move calls the native `W7T_JumpListSetHover`, which updates only the
+  highlighted row. History: the v2.62-alpha carried a live cursor-following
+  re-anchoring (`W7T_JumpListDrag` / `JumpListWindow::DragMove`), the
+  cursor-position rule of the GPL-3.0 Windhawk mod
+  "taskbar-jump-list-on-cursor-pos" (m417z); the alpha test showed the list
+  in a position that does not match the shell's, so the final v2.62 drops
+  that rule and keeps the canonical button-anchored placement. See
+  THIRD-PARTY-NOTICES.md for the license note on the mod (whose idea was
+  evaluated, implemented in the alpha and then discarded).
 - The release (`TaskButton_PreviewMouseLeftButtonUp`, tunneling per button)
   ALWAYS consumes the click of the press that dragged (e.Handled before the
   button's own click handling), and then decides with two native answers:
   `W7T_JumpListHitRow` (the row under the point, no side effects) and the
-  inside/outside answer of the last `DragMove`. Row -> activate (the native
-  popup closes itself; a pin toggle refreshes the model); inside -> the
-  list persists and `W7T_JumpListMakeInteractive` transfers ordinary input
-  to it (the drag-up became a click list); outside -> `W7T_JumpListHide`.
-  A core without the v2.62 exports falls back to `W7T_JumpListSetHover` for
-  the hover and to the popup's window rectangle (FindWindow + GetWindowRect)
-  for the release decision, so an older dist/ DLL degrades to the button-
-  anchored position instead of breaking the gesture.
-- The arrow trigger is the unchanged v2.61 machinery (press on the arrow
-  slot consumed in `TaskButton_PreviewMouseDown`, release opens through the
-  same shared `OpenJumpListPopup`): a press on the arrow never arms the
-  drag candidate, and a press elsewhere never arms the arrow, so the two
-  triggers are mutually exclusive on the press.
+  inside/outside answer of the last `W7T_JumpListSetHover`. Row -> activate
+  (the native popup closes itself; a pin toggle refreshes the model);
+  inside -> the list persists and `W7T_JumpListMakeInteractive` transfers
+  ordinary input to it (the drag-up became a click list); outside ->
+  `W7T_JumpListHide`. A core without `W7T_JumpListHitRow` falls back to the
+  popup's window rectangle (FindWindow + GetWindowRect) for the release
+  decision, so an older dist/ DLL degrades instead of breaking the gesture.
+- The v2.61 arrow trigger (press on the arrow slot consumed in
+  `TaskButton_PreviewMouseDown`, release opened through the same shared
+  `OpenJumpListPopup`) was REMOVED in v2.62 on user request - the small
+  triangle on the button should not exist. The XAML element it hit-tested no
+  longer exists (`Themes/Overrides.xaml`), so the managed machinery, which
+  locates the arrow by name and hit-tests its live layout slot, finds
+  nothing and stays inert; it is kept so the trigger can be restored by
+  re-adding the element.
 - The opened list is persistent, like Windows 7: row clicks, Escape and
   click-outside come from the native popup once it owns ordinary input
   (`W7T_JumpListMakeInteractive`). The popup never behaves as a drag modal
   after the release, which is also what keeps it from fighting the icon
   reorder: the two gestures share a press but never a live pointer.
 - The popup is a native `WS_POPUP | WS_EX_NOACTIVATE` window with the shared
-  Aero flyout border (`native/src/JumpListWindow.cpp`), anchored to the
-  button rectangle read at open time, per taskbar edge, clamped to the work
-  area of the monitor under the button. During the drag it stays
-  non-activating: WPF's capture keeps every mouse message on the taskbar
-  window, so the popup never sees the drag's own up/down and the managed
-  side drives both its position and its hover row explicitly.
+  Aero flyout border (`native/src/JumpListWindow.cpp`), positioned once at
+  open (the canonical Windows 7 place, per taskbar edge, clamped to the work
+  area of the monitor under the button) and never moved again. During the
+  drag it stays non-activating: WPF's capture keeps every mouse message on
+  the taskbar window, so the popup never sees the drag's own up/down and the
+  managed side drives its hover row explicitly.
 - Data comes only from documented Shell APIs: application identity via
   `SHGetPropertyStoreForWindow` (window) and
   `SHGetPropertyStoreFromParsingName` (the pinned .lnk) for the
@@ -397,8 +405,16 @@ field). The v2.61 arrow fixed the conflict but the trigger was not
 discoverable and in the field the list did not appear as expected, so v2.62
 restores the Windows 7 drag as the main trigger and fixes the conflict at
 its root: one press, two candidates, first threshold wins, capture taken
-only after the winner is committed. One choke point per responsibility
-(arming, arbitration, open, follow, release, hand-over, teardown) is what
+only after the winner is committed. The v2.62-alpha had also carried the
+cursor-following placement of the GPL-3.0 Windhawk mod
+"taskbar-jump-list-on-cursor-pos" (m417z) - the list re-anchoring under the
+cursor during the drag - and removed the arrow in the same round; the alpha
+test verdict was that the position did not match the real Windows 7 shell,
+which opens the jump view NEXT TO THE BUTTON (left-aligned above it), not
+where the cursor is. The final v2.62 therefore keeps the drag trigger and
+the arrow removal, and drops the cursor-following in favor of the shell's
+canonical button-anchored placement. One choke point per responsibility
+(arming, arbitration, open, hover, release, hand-over, teardown) is what
 lets every failure path end quietly: capture always released, hook always
 stopped, popup always hidden, exceptions always logged under the `JUMPLIST`
 tag.

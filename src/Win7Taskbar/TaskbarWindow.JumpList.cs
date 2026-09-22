@@ -1,11 +1,11 @@
-// Win7Taskbar - Windows 7 Jump List subsystem (drag-up trigger + arrow)
+// Win7Taskbar - Windows 7 Jump List subsystem (drag-up trigger)
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 //
 // The Windows 7 Superbar opens a taskbar button's Jump List when the user
 // presses the button with the LEFT button and drags AWAY from the bar
 // (up for a bottom bar) - the press + release still on the button is an
 // ordinary activation, and a press + drag ALONG the bar is the icon
-// reorder. This file is the whole managed side of both Jump List triggers;
+// reorder. This file is the whole managed side of the Jump List trigger;
 // the popup is the native window of native/src/JumpListWindow.cpp.
 //
 // The right-click of a taskbar button is NEVER involved: it keeps the plain
@@ -25,10 +25,11 @@
 //           reorder. A diagonal drag is decided by the dominant axis, so
 //           the two gestures can never fight for the same press.
 //   while the drag is active (the button holds the mouse capture)
-//        -> every move calls the native DragMove: the popup re-anchors on
-//           the cursor (the cursor-position rule of the GPL-3.0 Windhawk
-//           mod "taskbar-jump-list-on-cursor-pos" by m417z, applied live)
-//           and the row under the cursor is highlighted.
+//        -> every move updates the highlighted row (native SetHover).
+//           The popup NEVER moves: it stays at the canonical Windows 7
+//           position - directly above the button, left-aligned with its
+//           left edge, small gap - exactly where the shell opens the
+//           jump view, and it keeps it for the whole gesture.
 //   TaskButton_PreviewMouseLeftButtonUp
 //        -> released ON A ROW -> the row activates and the list closes;
 //           released over the list or the button -> the list stays open,
@@ -37,16 +38,16 @@
 //           released outside the interaction area -> plain cancel.
 //        The release ALWAYS consumes the click of the press that dragged.
 //
-// Trigger 2 - the hover arrow (the secondary affordance):
-//
-//   TaskButton_PreviewMouseDown
-//        -> TryBeginJumpListArrowPress: the press is inside the arrow slot
-//           of the hovered button -> the press is CONSUMED (e.Handled);
-//   the arrow slot release opens the list directly, persistent, through
-//   the same OpenJumpListPopup the drag uses.
+// (The v2.61 hover-arrow trigger was REMOVED in v2.62 on user request:
+// the small triangle on the button should not exist. The XAML element it
+// hit-tested no longer exists in Themes/Overrides.xaml, so the arrow
+// code kept below - TryBeginJumpListArrowPress and friends - finds no
+// arrow to hit and stays inert; it is preserved so the subsystem's
+// history stays readable and the trigger can be restored by re-adding
+// the element.)
 //
 // Every failure (Shell/COM, popup creation, marshal, a core whose dist/ DLL
-// predates the interactive handoff or the drag exports) is logged through
+// predates the interactive handoff or the hit-row export) is logged through
 // the project's DiagnosticLogger under the JUMPLIST tag and ends in a
 // controlled state: capture released, hook stopped, popup hidden. A
 // failure here can never take the taskbar down.
@@ -95,7 +96,7 @@ namespace Win7Taskbar
         private FrameworkElement? _jumpDragButton;  // armed candidate / active drag
         private Point _jumpDragPressPt;             // its press point (window DIPs)
         private bool _jumpDragActive;               // popup on screen, drag owns the pointer
-        private bool _jumpDragExportsMissing;       // core without the v2.62 drag exports
+        private bool _jumpDragHitRowMissing;        // core without W7T_JumpListHitRow
 
         /// <summary>DIP movement away from the taskbar edge that opens the
         /// list. Above the system drag threshold (4 DIP) on purpose: a
@@ -568,10 +569,11 @@ namespace Win7Taskbar
         /// <summary>The away threshold was crossed: this press is now the
         /// Windows 7 jump-list drag. The button captures the mouse (the
         /// moves and the release come back to it from anywhere on the
-        /// screen), the popup opens and the first DragMove anchors it on
-        /// the cursor. Any failure degrades the press to a plain click:
-        /// the capture is released and the button keeps its ordinary
-        /// activation on the release.</summary>
+        /// screen) and the popup opens at the canonical Windows 7
+        /// position - directly above the button, left-aligned with its
+        /// left edge - where it stays for the whole gesture. Any failure
+        /// degrades the press to a plain click: the capture is released
+        /// and the button keeps its ordinary activation on the release.</summary>
         private void BeginJumpDrag(FrameworkElement button,
                                    MouseEventArgs e)
         {
@@ -597,57 +599,24 @@ namespace Win7Taskbar
                 return;
             }
 
-            // The cursor-position anchoring (the GPL-3.0 Windhawk mod
-            // "taskbar-jump-list-on-cursor-pos" rule): the popup centers
-            // on the cursor along the bar axis right away, instead of
-            // staying glued to the button's left edge like a plain menu.
-            try
-            {
-                Point screen = PointToScreen(e.GetPosition(this));
-                DragAt((int)Math.Round(screen.X), (int)Math.Round(screen.Y));
-            }
-            catch (Exception ex)
-            {
-                LogJumpListFailure(ex, "drag open");
-            }
-
             _jumpDragActive = true;
         }
 
-        /// <summary>One move of the active drag: the popup follows the
-        /// cursor and the hover row updates (native DragMove; a core
-        /// without the export keeps the open position and only updates
-        /// the hover through SetHover).</summary>
+        /// <summary>One move of the active drag: the hover row updates
+        /// (native SetHover). The popup position is never touched - it
+        /// stays anchored to the button at the canonical Windows 7
+        /// place, like the shell's own jump view.</summary>
         private void JumpDrag_OnMove(FrameworkElement button, MouseEventArgs e)
         {
             try
             {
                 Point screen = PointToScreen(e.GetPosition(this));
-                DragAt((int)Math.Round(screen.X), (int)Math.Round(screen.Y));
+                _bridge.JumpListSetHover((int)Math.Round(screen.X),
+                                         (int)Math.Round(screen.Y));
             }
             catch (Exception ex)
             {
                 LogJumpListFailure(ex, "drag move");
-            }
-        }
-
-        /// <summary>The drag move against the core, with the older-core
-        /// fallback: without W7T_JumpListDrag the popup keeps the
-        /// position it opened with and the hover row still updates.</summary>
-        private bool DragAt(int screenX, int screenY)
-        {
-            if (_jumpDragExportsMissing)
-            {
-                return _bridge.JumpListSetHover(screenX, screenY);
-            }
-            try
-            {
-                return _bridge.JumpListDrag(screenX, screenY);
-            }
-            catch (EntryPointNotFoundException)
-            {
-                _jumpDragExportsMissing = true;
-                return _bridge.JumpListSetHover(screenX, screenY);
             }
         }
 
@@ -657,7 +626,7 @@ namespace Win7Taskbar
         /// with the popup's rectangle).</summary>
         private int HitRowAtSafe(int screenX, int screenY)
         {
-            if (_jumpDragExportsMissing)
+            if (_jumpDragHitRowMissing)
             {
                 return -2;
             }
@@ -667,7 +636,7 @@ namespace Win7Taskbar
             }
             catch (EntryPointNotFoundException)
             {
-                _jumpDragExportsMissing = true;
+                _jumpDragHitRowMissing = true;
                 return -2;
             }
         }
@@ -700,7 +669,7 @@ namespace Win7Taskbar
             }
 
             int row = HitRowAtSafe(x, y);
-            bool inside = DragAt(x, y);
+            bool inside = _bridge.JumpListSetHover(x, y);
 
             if (row == -2)
             {

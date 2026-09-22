@@ -2,20 +2,20 @@
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 //
 // The popup is opened by the managed state machine
-// (TaskbarWindow.JumpList.cs) through two triggers, the right-click of a
+// (TaskbarWindow.JumpList.cs) through one trigger, the right-click of a
 // task button NEVER opening it:
 //
-//   1. LEFT press + drag away from the bar (up for a bottom bar - the
-//      Windows 7 Superbar gesture). While the drag owns the pointer,
-//      moves arrive as SCREEN PHYSICAL PIXELS through DragMove, which
-//      re-anchors the popup on the cursor (the cursor-position rule of
-//      the GPL-3.0 Windhawk mod "taskbar-jump-list-on-cursor-pos" by
-//      m417z, applied live during the drag) and the popup remains
-//      WS_EX_NOACTIVATE. The release on a row activates it; the release
-//      over the list or the button persists the list and MakeInteractive
-//      transfers focus/input to this window; the release outside the
-//      interaction area dismisses it.
-//   2. Left click on the small up-arrow the hovered button shows.
+//   LEFT press + drag away from the bar (up for a bottom bar - the
+//   Windows 7 Superbar gesture). The popup opens at the canonical
+//   Windows 7 position - directly above the button, LEFT-ALIGNED with
+//   its left edge, small gap - and stays there for the whole gesture:
+//   the shell places the jump view next to the button it belongs to,
+//   not where the cursor wanders. While the drag owns the pointer,
+//   moves arrive as SCREEN PHYSICAL PIXELS through SetHover and the
+//   popup remains WS_EX_NOACTIVATE. The release on a row activates it;
+//   the release over the list or the button persists the list and
+//   MakeInteractive transfers focus/input to this window; the release
+//   outside the interaction area dismisses it.
 //
 // Once persistent, a separate click selects a row, Escape or a click
 // anywhere outside dismisses the list.
@@ -104,16 +104,10 @@ public:
 
     /* Gesture move: updates the hover row under the screen point and
      * reports whether the point is still inside the interaction area
-     * (popup + button + corridor): 1 inside, 0 outside. */
+     * (popup + button + corridor): 1 inside, 0 outside. The popup
+     * position itself never moves: it stays anchored to the button,
+     * exactly where the Windows 7 shell opens its jump view. */
     int32_t SetHover(int32_t screenX, int32_t screenY);
-
-    /* Move of the drag that opened the list: the popup re-anchors on the
-     * cursor - centered on it along the taskbar axis and clamped to the
-     * work area (the cursor-position rule of the Windhawk mod
-     * "taskbar-jump-list-on-cursor-pos", applied live during the drag) -
-     * keeping the edge gap from the bar, and the hover row updates.
-     * 1 when the point stays inside the interaction area. */
-    int32_t DragMove(int32_t screenX, int32_t screenY);
 
     /* Row under the screen point, -1 when none; no side effects. The
      * release decision (activate / keep open / cancel) is the managed
@@ -171,12 +165,12 @@ private:
     void Layout();
     void Place(HWND hwnd, const RECT& button, int32_t edge);
     void UpdateInteractionArea();
-    /* Work area of the monitor that hosts the button (Place and
-     * DragMove share the lookup; the fallback keeps the popup near its
-     * anchor when monitor info is unavailable). */
+    /* Work area of the monitor that hosts the button (Place clamps into
+     * it; the fallback keeps the popup near its anchor when monitor info
+     * is unavailable). */
     RECT WorkAreaForButton() const;
-    /* Hover-row update from a screen point (SetHover and DragMove share
-     * the invalidation pass). */
+    /* Hover-row update from a screen point (the invalidation pass is
+     * shared by SetHover). */
     void UpdateHoverFromScreen(POINT screenPt);
     int HitRowClient(POINT clientPt) const;
     RECT RowRect(size_t index) const;

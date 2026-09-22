@@ -329,7 +329,8 @@ not copied.
     APIs. No source copied.
 
 --------------------------------------------------------------------------------
-5ter. Taskbar jump list on cursor pos  (Windhawk mod by m417z - v2.62)
+5ter. Taskbar jump list on cursor pos  (Windhawk mod by m417z - v2.62,
+     rule evaluated and discarded after the alpha test)
 --------------------------------------------------------------------------------
 
     Project : Taskbar jump list on cursor pos
@@ -341,23 +342,30 @@ not copied.
               file del mod; compatibile con il GPL-3.0-or-later di questo
               progetto)
 
-What was adopted (v2.62, files native/src/JumpListWindow.cpp and
+What was evaluated (v2.62, files native/src/JumpListWindow.cpp and
 src/Win7Taskbar/TaskbarWindow.JumpList.cs):
 
   * the positioning rule of the mod: the jump list is anchored to the mouse
-    cursor, not to the middle of the taskbar group. The mod implements it by
-    hooking CTaskListWnd::_ComputeJumpViewPosition and overwriting the
-    computed position's X with the cursor's X (GetMessagePos); Win7Taskbar
-    has no taskbar.dll to hook, so the same rule is applied to its own popup
-    window: DragMove recenters the popup on the cursor along the taskbar
-    axis and clamps it to the work area of the monitor that hosts the
-    button, on every move of the drag that opened the list (and on the
+    cursor, not to the taskbar button. The mod implements it by hooking
+    CTaskListWnd::_ComputeJumpViewPosition and overwriting the computed
+    position's X with the cursor's X (GetMessagePos); Win7Taskbar has no
+    taskbar.dll to hook, so the v2.62-alpha applied the same rule to its
+    own popup window: DragMove recenters the popup on the cursor along the
+    taskbar axis and clamps it to the work area of the monitor that hosts
+    the button, on every move of the drag that opened the list (and on the
     release).
 
-What was NOT ported: the Windhawk/PEB plumbing and the taskbar.dll symbol
-hooking, which do not exist in a standalone taskbar. No line of the mod's C++
-was copied verbatim; the adopted element is the cursor-anchoring rule it
-implements.
+Outcome: the alpha test showed that the cursor-following position does not
+match the real Windows 7 shell, which opens its jump view next to the
+button (left-aligned above it, small gap). The final v2.62 removed the
+cursor-following re-anchoring entirely: the popup keeps the canonical
+button-anchored placement, and no rule or code derived from the mod remains
+in the released build. The mod is recorded here as the inspiration that was
+evaluated and then discarded.
+
+What was NOT ported (at any point): the Windhawk/PEB plumbing and the
+taskbar.dll symbol hooking, which do not exist in a standalone taskbar. No
+line of the mod's C++ was ever copied verbatim.
 
 --------------------------------------------------------------------------------
 5ter. Language contributions

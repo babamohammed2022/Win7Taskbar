@@ -597,18 +597,13 @@ namespace Win7Taskbar.Interop
         public static extern int W7T_JumpListSetHover(int screenX, int screenY);
 
         // v2.62: il gesto di apertura e' il trascinamento LONTANO dalla
-        // barra (sopra il pulsante per una barra in basso): questi due
-        // export pilotano il popup DURANTE il trascinamento. Come per i
-        // metodi sopra, coordinate in PIXEL FISICI DELLO SCHERMO. Un core
-        // che non li espone resta funzionante: il chiamante (Taskbar-
-        // Window.JumpList.cs) ripiega su SetHover + rettangolo del popup.
-
-        /// <summary>Movimento del trascinamento che ha aperto la lista:
-        /// il popup si ri-ancora sul cursore (centrato sull'asse della
-        /// barra, clampato nell'area di lavoro) e aggiorna la riga di
-        /// hover. 1 = il punto resta nell'area di interazione.</summary>
-        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
-        public static extern int W7T_JumpListDrag(int screenX, int screenY);
+        // barra (sopra il pulsante per una barra in basso): durante il
+        // trascinamento il popup resta ancorato al pulsante (la posizione
+        // canonica di Windows 7, calcolata dal nativo in apertura) e questi
+        // export aggiornano la riga evidenziata. Come per i metodi sopra,
+        // coordinate in PIXEL FISICI DELLO SCHERMO. Un core che non li
+        // espone resta funzionante: il chiamante (TaskbarWindow.JumpList.cs)
+        // ripiega su SetHover + rettangolo del popup.
 
         /// <summary>Indice della riga sotto il punto schermo (>=0), -1 se
         /// nessuna; senza effetti collaterali.</summary>
