@@ -37,6 +37,10 @@
 #include <shellapi.h>
 #include <propkey.h>
 #include <dwmapi.h>
+/* TOOLTIPS_CLASS / TOOLTEXTW / TTS_*: declared in commctrl.h, which
+ * windows.h does not pull in under WIN32_LEAN_AND_MEAN (the project
+ * build definition) - include it explicitly where it is used. */
+#include <commctrl.h>
 #include <cstring>
 #include <algorithm>
 
