@@ -697,27 +697,31 @@ bool JumpListWindow::InInteractionArea(POINT screenPt) const {
     return PtInRect(&m_area, screenPt) != FALSE;
 }
 
+/* Work area of the monitor hosting the taskbar button - the same clamp
+ * the clock flyout applies (FlyoutLauncher::FixFlyoutPosition). */
+RECT JumpListWindow::WorkAreaForButton() const {
+    HMONITOR mon = MonitorFromRect(&m_buttonRect, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (mon != nullptr && GetMonitorInfoW(mon, &mi)) {
+        return mi.rcWork;
+    }
+    /* No monitor info (rare): fall back to the button neighborhood so
+     * the popup is at least visible near its anchor. */
+    return RECT{ m_buttonRect.left - Sc(400), m_buttonRect.top - Sc(600),
+                 m_buttonRect.right + Sc(400),
+                 m_buttonRect.bottom + Sc(80) };
+}
+
 /* Placement from the REAL taskbar button rectangle, per edge, clamped to
- * the work area of the monitor that hosts the button - the same clamp the
- * clock flyout applies (FlyoutLauncher::FixFlyoutPosition). With the bar
- * at the bottom the popup opens ABOVE the button, left-aligned with it,
- * like Windows 7. Gap and margin are DPI-scaled; no unscaled offsets. */
+ * the work area of the monitor that hosts the button. With the bar at the
+ * bottom the popup opens ABOVE the button, left-aligned with it, like
+ * Windows 7 - DragMove re-anchors it on the cursor during the drag. Gap
+ * and margin are DPI-scaled; no unscaled offsets. */
 void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge) {
     const int gap = Sc(kGap96);
     const int margin = Sc(kEdgeMargin96);
-
-    HMONITOR mon = MonitorFromRect(&button, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO mi{};
-    mi.cbSize = sizeof(mi);
-    RECT wa{};
-    if (!GetMonitorInfoW(mon, &mi)) {
-        /* No monitor info (rare): fall back to the button neighborhood so
-         * the popup is at least visible near its anchor. */
-        wa = RECT{ button.left - Sc(400), button.top - Sc(600),
-                   button.right + Sc(400), button.bottom + Sc(80) };
-    } else {
-        wa = mi.rcWork;
-    }
+    const RECT wa = WorkAreaForButton();
 
     const int w = m_width, h = m_totalH;
     int x = button.left, y = button.top - h - gap;
@@ -933,6 +937,33 @@ bool JumpListWindow::IsVisible() const {
     return m_hwnd != nullptr && IsWindowVisible(m_hwnd);
 }
 
+/* Hover-row update from a screen point, shared by SetHover (older cores'
+ * managed fallback path) and DragMove (the live drag). */
+void JumpListWindow::UpdateHoverFromScreen(POINT screenPt) {
+    POINT cl = screenPt;
+    ScreenToClient(m_hwnd, &cl);
+    const int hit = HitRowClient(cl);
+    if (hit != m_hover) {
+        const int previous = m_hover;
+        m_hover = hit;
+        /* Repaint only the involved row bands (client coordinates);
+         * the full-width band keeps the separators and headers intact
+         * because the paint pass redraws them from the same geometry. */
+        if (m_hover >= 0) {
+            RECT r = RowRect((size_t)m_hover);
+            r.left = 0;
+            r.right = m_width;
+            InvalidateRect(m_hwnd, &r, FALSE);
+        }
+        if (previous >= 0) {
+            RECT r = RowRect((size_t)previous);
+            r.left = 0;
+            r.right = m_width;
+            InvalidateRect(m_hwnd, &r, FALSE);
+        }
+    }
+}
+
 int32_t JumpListWindow::SetHover(int32_t screenX, int32_t screenY) {
     if (!IsVisible()) return 0;
     W7T_SEH_TRY {
@@ -944,32 +975,75 @@ int32_t JumpListWindow::SetHover(int32_t screenX, int32_t screenY) {
             }
             return 0;
         }
-        POINT cl = pt;
-        ScreenToClient(m_hwnd, &cl);
-        const int hit = HitRowClient(cl);
-        if (hit != m_hover) {
-            const int previous = m_hover;
-            m_hover = hit;
-            /* Repaint only the involved row bands (client coordinates);
-             * the full-width band keeps the separators and headers intact
-             * because the paint pass redraws them from the same geometry. */
-            if (m_hover >= 0) {
-                RECT r = RowRect((size_t)m_hover);
-                r.left = 0;
-                r.right = m_width;
-                InvalidateRect(m_hwnd, &r, FALSE);
-            }
-            if (previous >= 0) {
-                RECT r = RowRect((size_t)previous);
-                r.left = 0;
-                r.right = m_width;
-                InvalidateRect(m_hwnd, &r, FALSE);
-            }
-        }
+        UpdateHoverFromScreen(pt);
         return 1;
     } W7T_SEH_CATCH {
     } W7T_SEH_END
     return 1;
+}
+
+/* The drag that opened the list moves the popup, not just the highlight:
+ * the edge keeps the distance from the bar while the popup re-centers on
+ * the cursor along the taskbar axis (clamped to the work area) - the
+ * cursor-position anchoring of the GPL-3.0 Windhawk mod
+ * "taskbar-jump-list-on-cursor-pos" (m417z), which applies it to the
+ * Windows taskbar's own jump view, is here applied to this one during
+ * every move of the drag, so the list follows the finger instead of
+ * staying glued to the button's left edge. */
+int32_t JumpListWindow::DragMove(int32_t screenX, int32_t screenY) {
+    if (m_hwnd == nullptr || !IsWindowVisible(m_hwnd)) return 0;
+    W7T_SEH_TRY {
+        const int gap = Sc(kGap96);
+        const int margin = Sc(kEdgeMargin96);
+        const RECT wa = WorkAreaForButton();
+
+        int x, y;
+        switch (m_edge) {
+        case kEdgeTop:
+            x = screenX - m_width / 2;
+            y = m_buttonRect.bottom + gap;
+            break;
+        case kEdgeLeft:
+            x = m_buttonRect.right + gap;
+            y = screenY - m_totalH / 2;
+            break;
+        case kEdgeRight:
+            x = m_buttonRect.left - m_width - gap;
+            y = screenY - m_totalH / 2;
+            break;
+        case kEdgeBottom:
+        default:
+            x = screenX - m_width / 2;
+            y = m_buttonRect.top - m_totalH - gap;
+            break;
+        }
+        if (x + m_width > wa.right - margin)   x = wa.right - margin - m_width;
+        if (x < wa.left + margin)              x = wa.left + margin;
+        if (y + m_totalH > wa.bottom - margin) y = wa.bottom - margin - m_totalH;
+        if (y < wa.top + margin)               y = wa.top + margin;
+
+        SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, m_width, m_totalH,
+                     SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        m_popupRect = RECT{ x, y, x + m_width, y + m_totalH };
+        UpdateInteractionArea();
+
+        POINT pt{ screenX, screenY };
+        UpdateHoverFromScreen(pt);
+        return PtInRect(&m_area, pt) != FALSE ? 1 : 0;
+    } W7T_SEH_CATCH {
+        return 0;
+    } W7T_SEH_END
+}
+
+int32_t JumpListWindow::HitRowAt(int32_t screenX, int32_t screenY) const {
+    if (m_hwnd == nullptr || !IsWindowVisible(m_hwnd)) return -1;
+    W7T_SEH_TRY {
+        POINT cl{ screenX, screenY };
+        ScreenToClient(m_hwnd, &cl);
+        return HitRowClient(cl);
+    } W7T_SEH_CATCH {
+        return -1;
+    } W7T_SEH_END
 }
 
 /* Execute the action behind the row under the screen point. Returns 0 when

@@ -1124,20 +1124,68 @@ namespace Win7Taskbar
 
         private void TaskButton_PreviewMouseMove(object sender, MouseEventArgs e)
         {
-            if (_reorderCandidate == null || _reorderDragging != null)
+            // v2.62: the drag that opened the jump list owns the pointer:
+            // the button holds the mouse capture, so this handler keeps
+            // receiving the moves from anywhere on the screen; every move
+            // re-anchors the popup on the cursor and updates the hover row.
+            if (_jumpDragActive)
+            {
+                if (sender is FrameworkElement moveButton &&
+                    ReferenceEquals(_jumpDragButton, moveButton))
+                {
+                    JumpDrag_OnMove(moveButton, e);
+                }
+                return;
+            }
+
+            if (_reorderDragging != null)
             {
                 return;
             }
+
             if (e.LeftButton != MouseButtonState.Pressed)
             {
                 _reorderCandidate = null;
+                CancelJumpDragCandidate();
+                return;
+            }
+
+            if (_reorderCandidate == null && _jumpDragButton == null)
+            {
                 return;
             }
 
             Point pos = e.GetPosition(this);
-            Vector delta = pos - _reorderPressPoint;
-            if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance &&
-                Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance)
+            // Both candidates are armed on the same press (PreviewMouse-
+            // Down); the reorder one carries the press point by default.
+            Vector delta = pos - (
+                _reorderCandidate != null
+                    ? _reorderPressPoint
+                    : _jumpDragPressPt);
+
+            // v2.62: the press is shared by the Jump List and the icon
+            // reorder. The FIRST axis to cross its threshold owns it:
+            // away from the bar past the jump threshold -> Jump List;
+            // along the bar past the system threshold -> reorder; a
+            // diagonal drag is decided by the dominant axis. That is what
+            // keeps the two gestures from ever fighting for one press,
+            // and it leaves the plain click (no threshold crossed) on the
+            // button's ordinary activation path.
+            if (JumpDragShouldTakeGesture(delta))
+            {
+                FrameworkElement jumpButton =
+                    _jumpDragButton ?? _reorderCandidate!;
+                _reorderCandidate = null;
+                BeginJumpDrag(jumpButton, e);
+                return;
+            }
+
+            if (ReorderBelowThreshold(delta))
+            {
+                return;
+            }
+
+            if (_reorderCandidate == null)
             {
                 return;
             }
@@ -3005,12 +3053,15 @@ namespace Win7Taskbar
                 return;
             }
 
-            // v2.61: the Windows 7 Jump List trigger is the LEFT click on
-            // the small up-arrow the hovered button shows at its right
-            // edge (TaskbarWindow.JumpList.cs + TaskButtonContentTemplate).
-            // When the press lands on the arrow it is consumed here, so
-            // the button neither activates nor arms the icon reorder; the
-            // right-click menu below is not involved at all.
+            // The Windows 7 Jump List triggers (TaskbarWindow.JumpList.cs):
+            // 1) LEFT press + drag away from the bar (the Superbar
+            //    gesture) - armed below as a candidate alongside the
+            //    reorder candidate;
+            // 2) LEFT click on the small up-arrow the hovered button shows
+            //    at its right edge (TaskButtonContentTemplate). When the
+            //    press lands on the arrow it is consumed here, so the
+            //    button neither activates nor arms either gesture; the
+            //    right-click menu is not involved at all.
             if (sender is FrameworkElement arrowHost &&
                 TryBeginJumpListArrowPress(arrowHost, e))
             {
@@ -3038,17 +3089,23 @@ namespace Win7Taskbar
                 _reorderPressPoint = e.GetPosition(this);
             }
 
-            // v2.61: the Jump List entry point moved from the historical
-            // press + drag-up gesture (which captured the same press the
-            // reorder captures) to the left click on the hovered button's
-            // up-arrow; that is armed above and nowhere else.
+            // v2.62: the SAME press also arms the Jump List drag (the
+            // Windows 7 trigger): it stays a candidate until the pointer
+            // moves away from the bar past the threshold (TaskButton_-
+            // PreviewMouseMove arbitrates, first threshold wins), so a
+            // plain click is never consumed and the reorder keeps the
+            // press when its axis crosses first. No capture is taken
+            // here: a capture-less press degrades to an ordinary click.
+            if (sender is FrameworkElement jumpButton)
+            {
+                ArmJumpDragCandidate(jumpButton, e);
+            }
 
             // v1.21.7: possible button reorder (extra settings -> icon
             // order). The gesture is the tray one: immediate capture, and the
             // drag only starts past the system threshold. A normal click is
-            // unchanged. If the Jump List is re-armed one day,
-            // BeginPotentialTaskOrderDrag steps back by itself while that
-            // gesture owns the pointer.
+            // unchanged. It steps back by itself while the Jump List owns
+            // the pointer (IsJumpListGestureActive).
             if (sender is FrameworkElement orderElement)
             {
                 BeginPotentialTaskOrderDrag(orderElement, e);

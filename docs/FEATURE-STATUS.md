@@ -22,7 +22,7 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Application tooltips | ✅ | Application-name tooltips are available. |
 | File drag & drop onto taskbar buttons | ⚠️ | Dropping a file onto a pinned/running app button to open it with that app (hover-to-activate + drop) has an initial implementation: standard WPF drag&drop (no COM IDropTarget needed, since this isn't injected into explorer.exe), with a fallback to ShellExecute when the known executable can't be launched directly, and an extension check (via registry SupportedTypes, permissive when unknown) driving the allowed/forbidden cursor feedback. **Confirmed working with Notepad on real hardware** (drop opens the file correctly). Still needs testing: apps without declared SupportedTypes, multi-file drops, mixed-extension drops. |
 | Thumbnail previews (DWM) | ⚠️ | **Confirmed working on real hardware at 100% and at 125% DPI on a 1920x1080 display** (no flash observed at 125%/1920x1080). On a 1368x768 display at 125% DPI, the taskbar shows a brief flash (disappears and reappears) — likely a low-resolution/small-monitor edge case rather than a general 125% DPI issue; still unconfirmed either way on that specific display, considered rare and not currently prioritized. The popup uses the direct RetroBar-style DWM path (TaskThumbnail.xaml.cs): source-size query, aspect-preserving 180×120 fit, render-time destination updates and guaranteed unload cleanup. Frame, close button and navigation remain in TaskbarWindow.xaml; no confirmation timer or icon fallback is interposed. v1.21.32: the close X copies the height of the title label and centres itself on it (falling back to the historical 14 px when the text cannot be measured), so it no longer depends on a magic value in the template. The frame's accent layer comes from the core's native 9-slice renderer (W7T_RenderAeroThumbnailFrame, cached per size/accent by Utilities/NativePreviewFrame.cs) whenever the core can supply it; the XAML slice template draws it otherwise, and the grayscale overlay, the clipped static blur and the close button are shared by both paths. v1.21.18: the live surface rectangle is measured in physical pixels (PointToScreen, both corners, popup client origin subtracted) instead of multiplying a DIP rectangle by the monitor scale, and the preview popup keeps its 100%-DPI pixel geometry at any scaling (one layout transform on the popup content, no-op at 100%), so the frame, the 202x109 aperture and the DWM rectangle agree by construction at 125%/150% too. v1.21.20: on a display above 100% the normalised preview is drawn 10% larger (PreviewHighDpiEnlargement): the geometry is still the 100%-pixel one (same frame, same aperture, same measured rectangles) and only its size on screen changes, so every measurement taken from the screen follows automatically. At 100% the factor is 1. v1.1.1: the native 9-slice frame is rendered in the frame's LAYOUT units instead of its screen size (Utilities/NativePreviewFrame.cs), which is what actually makes the agreement above true: with the bitmap described in screen pixels its 17/38/19 slices stayed whole pixels while the aperture moved to 18.7/41.8/20.9 px at 125%, so the live surface never reached the border and left a strip of empty frame inside it (1.7 px on the sides, 3.8 px under the title band — the defect reported on a 125% display). The destination rectangle is now rounded outward as well (floor left/top, ceil right/bottom), so a half-pixel edge can never leave a transparent strip inside the border; `native/tools/check-preview-geometry.py` checks the geometry at 100/125/150/175/200%. **Field report (8148 skin, 125%): the live image spilled ~1 px over the frame's inner edge on left/top at some popup positions (all-outward rounding vs fractional device geometry - the shared TaskThumbnail path, so every skin); the destination rect now rounds to nearest with exact halves still outward. 100% re-confirmed clean; stacked/maximised/minimised previews and the close X verified on all skins; fix awaiting hardware retest.** **150% and multi-monitor/mixed-DPI setups still untested — no multi-monitor hardware available for testing.** |
-| Jump Lists | ❌ | Despite the Windows 7-style Jump Lists being implemented as a dedicated subsystem (left-button press + drag-up on a task button opens the list; releasing the button over a row activates it), they are currently not enabled in the code of the software (confirmed still disabled). The data comes from the real Shell APIs (IApplicationDocumentLists + the window/shortcut AppUserModelID), never from invented entries, and the right-click menu is unchanged. The popup is a native window with DPI-scaled geometry. Not yet verified against a real Windows desktop at every scale, so it is not marked complete. |
+| Jump Lists | ⚠️ | **v2.62:** the Windows 7-style Jump Lists are enabled with the Windows 7 trigger: LEFT press + drag AWAY from the bar (up for a bottom bar) opens the list during the drag; the list follows the cursor (cursor-position anchoring, rule taken from the GPL-3.0 Windhawk mod "taskbar-jump-list-on-cursor-pos" by m417z) and highlights the row under it. Release on a row activates it; release over the list or the button leaves the list open, persistent (row clicks, Escape, click-outside); release outside cancels. The drag shares the press with the icon reorder and the two arbitrate by the first threshold crossed (away from the bar vs along the bar; diagonal goes to the dominant axis), so they never conflict; a plain click is untouched. The hover arrow of the button remains a secondary trigger. The data comes from the real Shell APIs (IApplicationDocumentLists + the window/shortcut AppUserModelID), never from invented entries, and the right-click menu is unchanged. The popup is a native window with DPI-scaled geometry. Not yet verified against a real Windows desktop at every scale, so it is not marked complete. |
 | Windows 7 toolbars | ✅ | The three Windows 7-style toolbars are present. |
 | Notification area | ⚠️ | The notification area is implemented, but support for all modern Windows tray states is still partial. v1.7.6: per-icon behavior preferences moved from the legacy registry key to trayicons.ini (zero-footprint); the old key is imported and deleted on first run. **Field matrix: on Windows 11 without ExplorerPatcher only the three recreated fallback icons (network, volume, battery) arrive - third-party icons register with Explorer's own Shell_TrayWnd (dual-tray split, architectural); with ExplorerPatcher the tray is full. On Windows 10 it populates well with or without ExplorerPatcher.** |
 | Balloon notifications | ⚠️ | **v1.21.39:** the balloon now anchors to the icon that generated it, as in Windows 7. Three defects were fixed after checking RetroBar/ManagedShell (`NotifyIcon.TrayIcon_NotificationBalloonShown`, `NotifyIconList` icon promotion, `NotificationBalloon` icon/timeout rules), ExplorerPatcher and Open-Shell (work-area aligned updater balloon, `SystemNotification` sound) against the Microsoft `NOTIFYICONDATAW` documentation: (1) an icon living in the overflow had no visible container, so every balloon fell back to the right edge of the whole notification area — now the icon is temporarily promoted to the bar for the balloon's duration (plus 500 ms), the Windows 7 "Only show notifications" behavior that RetroBar reproduces; the promotion lives in a side set, never touches the user's saved pin preference; (2) the arrow-tip offset used by the placement callback was 23.5 px while the theme's triangle tip sits 14 px from the balloon's right edge (13 px margin + 21−20 of the `M 0,0 l 20,20 V 0` vertex), so even anchored balloons landed ~9.5 px too far right — the tip is now centred on the icon; (3) the icon slot: the theme's text-indent trigger was still bound to ManagedShell's `Icon` property (nonexistent here, so the 36 px indent stayed as an empty gap), the icon is now assigned directly to the `Image` inside the detached popup, `NIIF_USER` falls back to the application's tray icon (the documented legacy `hIcon` behavior, same as ManagedShell; the `hBalloonIcon` handle cannot cross the process boundary), and per the documentation no icon is shown when `szInfoTitle` is empty. Also new, following the same references: duration from `SPI_GETMESSAGEDURATION` when the app's `uTimeout` is not usable (deprecated since Vista), the `SystemNotification` sound unless `NIIF_NOSOUND`, click on the balloon body forwarded to the application as `NIN_BALLOONUSERCLICK` (plus `NIN_BALLOONSHOW`/`BALLOONHIDE`/`BALLOONTIMEOUT`) with the version-4 wParam/lParam layout, and a retry of the anchor resolution after the layout pass for icons whose container is not generated yet (RetroBar's missed-notifications pattern). **v1.21.40 — balloon position enforced (Win32)**: the trial build of 1.21.39 parked the balloon at the top-left corner of the screen. Root cause: WPF `Popup`s whose `PlacementTarget` loses its presentation (icon containers recreated by the tray refresh / promoted-icon churn) lose their coordinates and fall back to (0,0); changing the target on an open popup does not reliably re-place it. The anchor validity check now also requires a live `PresentationSource` (a popup never opens on a detached target), and a watchdog — running for *every* balloon — reads the popup's real `GetWindowRect`, recomputes where the balloon belongs from the anchor's screen coordinates (tip centred on the icon, or right-aligned over the tray), and forces it with `SetWindowPos` (work-area clamped) whenever the two disagree. **The balloon path now follows RetroBar/ManagedShell instead of the single-slot one** (`Controls/NotificationBalloon.cs`): the notification travels as a `NotificationBalloon` object carrying a `Handled` flag; `BalloonQueue` shows one balloon at a time (Windows shows one) and keeps the rest in a bounded FIFO (16, drop-oldest, 2-minute expiry) that is served when the visible balloon closes; a notification nobody managed to show is recorded in that icon's `MissedNotifications` (`NotifyIcon.TriggerNotificationBalloon` upstream); the overflow icon is promoted for the balloon's lifetime plus 500 ms; `NIF_INFO` with an empty `szInfo` is treated as the documented removal (closes the visible balloon and drops that icon's pending one). Every step is inside a try/catch, the unpromote timer is a `TimerLease` (RAII) and the queue releases the popup, the queue and the promotion on `Dispose`. If the pipeline throws, `TaskbarWindow.ShowBalloonLegacy` runs: the v1.21.41 behaviour (no balloon), now reduced to a rare fallback instead of being the only path. This re-enables balloon display, which v1.21.41 had switched off (`BalloonNotificationsEnabled = false`, since removed). The reported cause — balloons parked at the top of the screen on 1.21.39/1.21.40 — was only ever reproduced on real hardware and is NOT fixed by this change, so the placement needs hardware verification before release. The native core is untouched: it still holds a single balloon slot (`m_lastBalloon`, `m_hasBalloon` is never cleared) and still drops `hBalloonIcon`, so two `NIF_INFO` packets inside the same 100 ms pump window can still overwrite each other before the managed queue sees them — see `docs/BALLOON-PARITY-REVIEW.md` sections 5 and 6. |
@@ -87,26 +87,40 @@ Confirmed on real hardware to be work-in-progress and semi-functional, but usabl
 
 This iteration follows the public Microsoft WLAN API contracts for [`WlanSetProfile`](https://learn.microsoft.com/en-us/windows/win32/api/wlanapi/nf-wlanapi-wlansetprofile), [`WlanConnect`](https://learn.microsoft.com/en-us/windows/win32/api/wlanapi/nf-wlanapi-wlanconnect), [`WlanDisconnect`](https://learn.microsoft.com/en-us/windows/win32/api/wlanapi/nf-wlanapi-wlandisconnect), and [`WlanEnumInterfaces`](https://learn.microsoft.com/en-us/windows/win32/api/wlanapi/nf-wlanapi-wlanenuminterfaces). The calls remain asynchronous where the UI already requires it; each external boundary converts both structured faults and C++ exceptions into a Win32 failure code, while WLAN-owned buffers are released by RAII. The current-connection and interface-type handling were reviewed against the existing implementation: both were already present through guarded `WlanQueryInterface`/Network List Manager and `GetIfEntry2`-based filtering, so they were not duplicated. The useful missing behavior was added to the row context menu: Windows 10/11 Settings troubleshooting is tried first, with the legacy `msdt.exe` command retained only as a guarded compatibility fallback. Rotation is intentionally outside this work and remains unchanged.
 
-### Jump Lists (opened from the task button's up-arrow)
+### Jump Lists (drag away from the bar, up-arrow as secondary trigger)
 
-Jump Lists are enabled: the hovered task button shows the small Windows 7
-up-arrow at its right edge and a LEFT click on that arrow opens the list
-above the button. The right-click of a task button keeps only the Windows 7
-context menu and never opens a Jump List; the historical left-button press +
-drag-up gesture was removed because it captured the same press the icon
-reorder captures, and two gestures owning one press is a regression this
-feature must not introduce.
+Jump Lists are enabled with the Windows 7 trigger: press a task button with
+the LEFT button and drag AWAY from the bar (up for a bottom bar, down for a
+top bar, right for a left bar, left for a right bar) and the list appears
+above/beside the button during the drag. The right-click of a task button
+keeps only the Windows 7 context menu and NEVER opens a Jump List. The
+hovered button's small up-arrow (task button content template in
+`Themes/Overrides.xaml`) is the secondary trigger: a LEFT click on it opens
+the list directly, persistent.
 
 Interaction, as implemented:
 
-- The arrow appears with the hover state of the button (task button content
-  template in `Themes/Overrides.xaml`) and is the only trigger. A press on
-  the arrow is consumed before the button sees it, so the button neither
-  activates nor starts an icon reorder; the release on the arrow opens the
-  list, a release anywhere else is a plain cancelled click. Pressing the
-  arrow of the button whose list is already open closes it.
-- The list is persistent, like Windows 7: it waits for a row click, Escape
-  or a click outside; it never behaves as a drag modal.
+- The press of a task button arms two candidates on the SAME press - the
+  jump-list candidate and the icon-reorder candidate. Nothing happens until
+  the pointer moves: the first axis to cross its threshold OWNS the press.
+  Movement away from the bar past the jump threshold (6 DIP, above the
+  system's 4 DIP so a wobbling click stays a click) starts the jump-list
+  drag; movement along the bar past the system drag threshold starts the
+  reorder; a diagonal drag goes to the dominant axis. The two gestures can
+  therefore never fight for one press - that conflict is what kept the old
+  drag-up disabled. A plain click crosses nothing and activates the window
+  as always.
+- While the drag is active the button holds the mouse capture and every move
+  re-anchors the popup on the cursor (centered on it along the taskbar axis,
+  clamped to the work area of the monitor that hosts the button - the
+  cursor-position rule of the GPL-3.0 Windhawk mod
+  "taskbar-jump-list-on-cursor-pos" by m417z, applied live during the drag)
+  and highlights the row under the cursor.
+- The release: on a row -> the row activates and the list closes; over the
+  list or the button -> the list stays open, persistent, and takes ordinary
+  input (row clicks, Escape, click-outside); outside the interaction area
+  (popup + button + corridor) -> plain cancel. The release always consumes
+  the click of the press that dragged.
 - The popup is anchored to the rectangle of the button read at open time
   (screen physical pixels), so a button that was reordered meanwhile
   anchors the list where it is now. Placement per taskbar edge and the
@@ -137,9 +151,12 @@ Known limitations of this implementation:
   `docs/BALLOON-PARITY-REVIEW.md`), rows and hover still work and the
   click-outside dismissal is provided by the managed side with the same
   hook utility the clock flyout uses; Escape is not delivered in that case
-  because the popup never takes focus. A package built by the release
-  pipeline (which rebuilds the native core from the sources) has the full
-  native behavior.
+  because the popup never takes focus. A core without the v2.62 drag exports
+  (`W7T_JumpListDrag`, `W7T_JumpListHitRow`) still opens the list from the
+  drag (anchored to the button's left edge, without the cursor-following
+  re-anchoring) and the release decision falls back to the popup's window
+  rectangle. A package built by the release pipeline (which rebuilds the
+  native core from the sources) has the full native behavior.
 - Not yet confirmed on real hardware at 100/125/150/200% scaling nor on a
   mixed-DPI multi-monitor setup; the geometry follows the same DPI rules
   the rest of the bar uses, but a visual confirmation is still pending.
@@ -205,7 +222,7 @@ on the button's text. Nothing about the icon, the theme or Windows is modified.
 ## Areas that are already in good shape
 
 - The Windows 7-style Start orb and main taskbar layout are present.
-- Jump Lists open from the hovered task button's up-arrow; the Shell data path and the native popup are the ones described above.
+- Jump Lists open from the Windows 7 drag (left press + drag away from the bar), with the hovered task button's up-arrow as the secondary trigger; the Shell data path and the native popup are the ones described above.
 - Pinned and grouped task buttons are supported.
 - The three Windows 7-style toolbars are present.
 - Context menus are generally good.

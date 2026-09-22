@@ -1155,6 +1155,39 @@ extern "C" W7T_API int32_t W7T_CALL W7T_JumpListSetHover(int32_t screenX,
     return 1;
 }
 
+/* v2.62: movimento del trascinamento che ha APERTO la lista: il popup si
+ * ri-ancora sul cursore (centrato sull'asse della barra, clampato nell'area
+ * di lavoro - la regola di posizionamento del mod Windhawk GPL-3.0
+ * "taskbar-jump-list-on-cursor-pos" di m417z) e aggiorna la riga di hover.
+ * 1 se il punto resta nell'area di interazione. Un core senza questa
+ * export continua a funzionare: il gestito ripiega su W7T_JumpListSetHover. */
+extern "C" W7T_API int32_t W7T_CALL W7T_JumpListDrag(int32_t screenX,
+        int32_t screenY) {
+    W7T_SEH_TRY {
+        return w7t::JumpListWindow::Instance().DragMove(screenX, screenY);
+    } W7T_SEH_CATCH {
+        w7t::LogTagged(L"JUMPLIST",
+                       L"fault at the export boundary (drag)");
+        return 0;
+    } W7T_SEH_END
+    return 0;
+}
+
+/* v2.62: la riga sotto il punto schermo (>=0 indice, -1 nessuna), senza
+ * effetti collaterali: la decisione del rilascio (attivare / lasciare
+ * aperta / annullare) e' del gestito. */
+extern "C" W7T_API int32_t W7T_CALL W7T_JumpListHitRow(int32_t screenX,
+        int32_t screenY) {
+    W7T_SEH_TRY {
+        return w7t::JumpListWindow::Instance().HitRowAt(screenX, screenY);
+    } W7T_SEH_CATCH {
+        w7t::LogTagged(L"JUMPLIST",
+                       L"fault at the export boundary (hit row)");
+        return -1;
+    } W7T_SEH_END
+    return -1;
+}
+
 /* The drag release only transfers ordinary input/focus to the popup. It
  * deliberately does not select the row under that release. */
 extern "C" W7T_API void W7T_CALL W7T_JumpListMakeInteractive(void) {

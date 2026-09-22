@@ -287,40 +287,74 @@ no locks are taken across the guarded boundary elsewhere.
 **Revisit if.** A fault repeats in one spot: the log line names the module
 phase, and the guard can then be narrowed to the exact call.
 
-## 13. Jump Lists: the hovered button's up-arrow is the only trigger
+## 13. Jump Lists: the drag away from the bar is the trigger (up-arrow secondary)
 
-**Current status.** Jump Lists are enabled. The hovered task button shows
-the small Windows 7 up-arrow at its right edge; a LEFT click on that arrow
-opens the list above the button. The right-click of a task button keeps only
-the Windows 7 context menu (never a Jump List command), and the historical
-left-button press + drag-up gesture is gone.
+**Current status.** Jump Lists are enabled with the Windows 7 trigger:
+LEFT press + drag away from the taskbar (up for a bottom bar, down for a
+top bar, right for a left bar, left for a right bar) opens the list during
+the drag; the list follows the cursor and highlights the row under it.
+Releasing on a row activates it; releasing over the list or the button
+leaves the list open and persistent (row clicks, Escape, click-outside);
+releasing outside the interaction area cancels. The hovered button's small
+up-arrow is the secondary trigger (a LEFT click on it opens the list
+directly). The right-click of a task button keeps only the Windows 7
+context menu and NEVER opens a Jump List.
 
-**Decision.** The trigger is the arrow, not a drag gesture and not the
-right-click:
+**Decision.** The trigger is the drag, not the right-click, and not the
+arrow alone:
 
-- The arrow is drawn by the shared task button content template
-  (`Themes/Overrides.xaml`, `x:Name="JumpListArrow"`), collapsed unless the
-  ancestor `Button` is hovered - the same hover-bound visibility the search
-  button already uses - so all four button state templates and all skins get
-  it without touching a theme.
-- `TaskbarWindow.JumpList.cs` owns the interaction on the UI thread. A press
-  inside the arrow's live layout slot is consumed in
-  `TaskButton_PreviewMouseDown`, before the button can activate or arm the
-  icon reorder; the button captures the mouse so the release always returns,
-  and the release inside the slot opens the list. The slot is found by name
-  in the visual tree and hit-tested with `TransformToDescendant`, so no
-  coordinate of the arrow exists in C# and a moved or resized button is
-  hit-tested where it is now.
+- The press of a task button arms TWO candidates on the same press - the
+  jump-list candidate (`ArmJumpDragCandidate`) and the icon-reorder
+  candidate (the RetroBar session reorder) - and nothing else. `TaskButton_-
+  PreviewMouseMove` arbitrates on every move: the first axis to cross its
+  threshold OWNS the press. Away from the bar past `JumpDragAwayThreshold`
+  (6 DIP, deliberately above the system's 4 DIP so a wobbling click stays a
+  click) starts the jump-list drag; along the bar past the system drag
+  threshold starts the reorder; a diagonal drag is decided by the dominant
+  axis. First-threshold-wins on shared axes is what makes the two gestures
+  conflict-free: each press belongs to exactly one of them (or to the plain
+  click when no threshold is crossed), and the winner is committed before
+  any capture or OLE drag starts.
+- `BeginJumpDrag` takes the mouse capture on the button at that moment, so
+  the moves and the release come back to it from anywhere on the screen.
+  Every move calls the native `W7T_JumpListDrag` (`JumpListWindow::
+  DragMove`): the popup re-anchors on the cursor - centered on it along the
+  taskbar axis, clamped to the work area of the monitor that hosts the
+  button - and updates the hover row. The cursor-anchoring rule is the one
+  of the GPL-3.0 Windhawk mod "taskbar-jump-list-on-cursor-pos" (m417z),
+  which sets the Windows jump-view position's X to the cursor's X; Win7Taskbar
+  applies the same rule to its own popup, live during the drag, instead of
+  leaving the list glued to the button's left edge. See
+  THIRD-PARTY-NOTICES.md for the license note.
+- The release (`TaskButton_PreviewMouseLeftButtonUp`, tunneling per button)
+  ALWAYS consumes the click of the press that dragged (e.Handled before the
+  button's own click handling), and then decides with two native answers:
+  `W7T_JumpListHitRow` (the row under the point, no side effects) and the
+  inside/outside answer of the last `DragMove`. Row -> activate (the native
+  popup closes itself; a pin toggle refreshes the model); inside -> the
+  list persists and `W7T_JumpListMakeInteractive` transfers ordinary input
+  to it (the drag-up became a click list); outside -> `W7T_JumpListHide`.
+  A core without the v2.62 exports falls back to `W7T_JumpListSetHover` for
+  the hover and to the popup's window rectangle (FindWindow + GetWindowRect)
+  for the release decision, so an older dist/ DLL degrades to the button-
+  anchored position instead of breaking the gesture.
+- The arrow trigger is the unchanged v2.61 machinery (press on the arrow
+  slot consumed in `TaskButton_PreviewMouseDown`, release opens through the
+  same shared `OpenJumpListPopup`): a press on the arrow never arms the
+  drag candidate, and a press elsewhere never arms the arrow, so the two
+  triggers are mutually exclusive on the press.
 - The opened list is persistent, like Windows 7: row clicks, Escape and
   click-outside come from the native popup once it owns ordinary input
-  (`W7T_JumpListMakeInteractive`). The popup never behaves as a drag modal,
-  which is what kept the old gesture in conflict with the icon reorder: two
-  gestures capturing the same press is the regression this feature must not
-  introduce.
+  (`W7T_JumpListMakeInteractive`). The popup never behaves as a drag modal
+  after the release, which is also what keeps it from fighting the icon
+  reorder: the two gestures share a press but never a live pointer.
 - The popup is a native `WS_POPUP | WS_EX_NOACTIVATE` window with the shared
   Aero flyout border (`native/src/JumpListWindow.cpp`), anchored to the
   button rectangle read at open time, per taskbar edge, clamped to the work
-  area of the monitor under the button.
+  area of the monitor under the button. During the drag it stays
+  non-activating: WPF's capture keeps every mouse message on the taskbar
+  window, so the popup never sees the drag's own up/down and the managed
+  side drives both its position and its hover row explicitly.
 - Data comes only from documented Shell APIs: application identity via
   `SHGetPropertyStoreForWindow` (window) and
   `SHGetPropertyStoreFromParsingName` (the pinned .lnk) for the
@@ -346,17 +380,28 @@ takes focus. Two ordering hazards are handled explicitly: a dismissal the
 previous list posted to the reused popup window is peeled off the UI thread
 queue right after each open (`PeekMessageW` filtered on the popup's own
 message), and a click-outside callback still queued when a newer open
-happens is made inert by an open-generation counter.
+happens is made inert by an open-generation counter. Teardown
+(`HideJumpList`) always releases the drag capture, the arrow capture, the
+dismissal hook and the popup, so none of the group-removal, reorder-start,
+theme-swap and window-close paths can leave a capture or a window behind.
 
 **Why.** The v2.38/v2.40 shape (right-click opening a popup that grabs
 foreground and reads the hardware cursor itself) fought the WPF capture
 model, double-scaled coordinates at non-100% DPI, clamped only against the
-primary monitor, and shipped the document list disabled; the drag-up shape
-that replaced it captured the same press the icon reorder captures. One
-choke point per responsibility (trigger, identity, read, show, hand-over,
-teardown) is what lets every failure path end quietly: capture always
-released, hook always stopped, popup always hidden, exceptions always
-logged under the `JUMPLIST` tag.
+primary monitor, and shipped the document list disabled; the v2.40 drag-up
+that replaced it was then disabled again because it captured the same press
+the icon reorder captured WITHOUT arbitrating between the two (either
+threshold crossing started the OLE reorder, so dragging up reordered the
+icons instead of opening the list - the exact conflict reported in the
+field). The v2.61 arrow fixed the conflict but the trigger was not
+discoverable and in the field the list did not appear as expected, so v2.62
+restores the Windows 7 drag as the main trigger and fixes the conflict at
+its root: one press, two candidates, first threshold wins, capture taken
+only after the winner is committed. One choke point per responsibility
+(arming, arbitration, open, follow, release, hand-over, teardown) is what
+lets every failure path end quietly: capture always released, hook always
+stopped, popup always hidden, exceptions always logged under the `JUMPLIST`
+tag.
 
 **Revisit if.** Windows removes or renames the automatic-destination read
 APIs, or the bar ever needs per-monitor instances: the pixel-space contract

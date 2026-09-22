@@ -2,6 +2,29 @@
 
 Win7Taskbar is licensed under the GNU General Public License v3 or later.
 
+## Windhawk — Taskbar jump list on cursor pos
+
+Adopted idea / code reference (since v2.62):
+
+- Mod: **Taskbar jump list on cursor pos** (`taskbar-jump-list-on-cursor-pos`)
+- Author: **m417z**
+- Source: https://github.com/ramensoftware/windhawk-mods/blob/main/mods/taskbar-jump-list-on-cursor-pos.wh.cpp
+- Mod page: https://windhawk.net/mods/taskbar-jump-list-on-cursor-pos
+- License of the referenced mod: **GNU General Public License v3.0** (stated
+  in the file header; GPL-3.0 is compatible with this project's GPL-3.0-or-later)
+
+What was taken: the mod's core rule for jump-list positioning - the list is
+anchored to the **mouse cursor** instead of the middle of the taskbar group
+(the mod implements it by hooking `CTaskListWnd::_ComputeJumpViewPosition`
+and setting the position's X to the cursor's X, read from
+`GetMessagePos`). Win7Taskbar cannot hook taskbar.dll the same way (it has
+its own popup, not Windows' jump view), so the rule is applied to its own
+window in `native/src/JumpListWindow.cpp` (`DragMove`): the popup re-centers
+on the cursor along the taskbar axis and is clamped to the work area, on
+every move of the drag that opened it, instead of staying glued to the
+button's left edge. The hook code itself (Windhawk/PEB plumbing, taskbar.dll
+symbol hooking) was NOT copied: it does not apply to a standalone taskbar.
+
 ## Windhawk — Taskbar classic context menu
 
 Reference / inspiration:

@@ -688,7 +688,7 @@ namespace Win7Taskbar.Interop
         }
 
         // ---------------------------------------------------------------
-        //  Jump List (clic sinistro sulla freccetta del pulsante).
+        //  Jump List (trascinamento lontano dalla barra / freccetta).
         //  Coordinate: PIXEL FISICI DELLO SCHERMO.
         //
         //  I metodi sono sottili di proposito: chi li chiama
@@ -725,6 +725,31 @@ namespace Win7Taskbar.Interop
         /// del gesto (popup + pulsante + corridoio fra i due).</summary>
         public bool JumpListSetHover(int screenX, int screenY)
             => NativeMethods.W7T_JumpListSetHover(screenX, screenY) == 1;
+
+        /// <summary>v2.62: un movimento del trascinamento che ha aperto la
+        /// lista: il popup si ri-ancora sul cursore e aggiorna la riga di
+        /// hover. Vero finche' il cursore resta nell'area di interazione.
+        /// Lancia EntryPointNotFoundException su un core senza l'export:
+        /// il chiamante ripiega su JumpListSetHover.</summary>
+        public bool JumpListDrag(int screenX, int screenY)
+            => NativeMethods.W7T_JumpListDrag(screenX, screenY) == 1;
+
+        /// <summary>v2.62: indice della riga sotto il punto schermo
+        /// (>=0), -1 se nessuna; senza effetti collaterali. Lancia
+        /// EntryPointNotFoundException su un core senza l'export: il
+        /// chiamante ripiega sul rettangolo del popup.</summary>
+        public int JumpListHitRow(int screenX, int screenY)
+            => NativeMethods.W7T_JumpListHitRow(screenX, screenY);
+
+        /// <summary>Attiva la riga sotto il punto schermo nel popup
+        /// (la chiude dopo); bits riporta l'esito per il chiamante
+        /// (1 = documento aperto, 2 = app avviata, 4 = pin commutato).</summary>
+        public void JumpListActivateAt(int screenX, int screenY,
+                                       out int bits)
+        {
+            bits = 0;
+            NativeMethods.W7T_JumpListActivateAt(screenX, screenY, out bits);
+        }
 
         /// <summary>Il rilascio del gesto lascia aperto il popup e gli
         /// trasferisce focus/input ordinario; la scelta richiede un nuovo

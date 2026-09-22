@@ -66,6 +66,20 @@ sources under different licenses:
   the "am I the main shell?" logic and the unload infrastructure. The
   popup window class is renamed (`W7T_LangSwitcherFlyout`) so the mod and
   this port can coexist.
+- **[Taskbar jump list on cursor pos](https://windhawk.net/mods/taskbar-jump-list-on-cursor-pos)**
+  (Windhawk mod v1.0, author m417z,
+  [source](https://github.com/ramensoftware/windhawk-mods/blob/main/mods/taskbar-jump-list-on-cursor-pos.wh.cpp))
+  — GNU General Public License v3.0 (stated in the file header; compatible
+  with this project's GPL-3.0-or-later). Since v2.62 the Jump List follows
+  the cursor-position rule of this mod: the list is anchored to the mouse
+  cursor instead of the taskbar button's left edge. In the mod the rule is
+  a hook of `CTaskListWnd::_ComputeJumpViewPosition` setting the position's
+  X to the cursor's X (from `GetMessagePos`); in Win7Taskbar, which has its
+  own popup window and no taskbar.dll to hook, the same rule is applied to
+  that window in `native/src/JumpListWindow.cpp` (`DragMove`), on every move
+  of the drag that opened the list and on its release. The Windhawk
+  hooking plumbing was not copied (it does not apply to a standalone
+  taskbar).
 
 **The Apache License 2.0 (RetroBar, ManagedShell) is not considered
 compatible by the FSF with GPL-2.0**, because of the patent-termination and
@@ -169,6 +183,25 @@ Control-Panel namespace used to open the notification-area icons page.
 Layout/behavior logic reimplemented in WPF/C# **without any hooking** (the
 mod hooks explorer.exe internals, which Win7Taskbar does not have); the
 symbol-hook part of the mod was deliberately not ported.
+
+### Taskbar jump list on cursor pos (Windhawk mod)
+
+Copyright m417z (github.com/m417z), GNU General Public License v3.0 (the
+mod's file header states "Source code is published under The GNU General
+Public License v3.0"). Reference (v2.62) for the Jump List positioning
+adopted in `native/src/JumpListWindow.cpp` (`DragMove`, called from the
+managed drag gesture in `src/Win7Taskbar/TaskbarWindow.JumpList.cs`): the
+jump list is anchored to the mouse cursor instead of the middle of the
+taskbar group — the mod sets the jump-view position's X to the cursor's X
+on every open; Win7Taskbar applies the same cursor-anchoring live during
+the drag (the popup re-centers on the cursor along the taskbar axis, clamped
+to the work area of the monitor that hosts the button). The hook itself
+(`WindhawkUtils::SYMBOL_HOOK` against `taskbar.dll`) was deliberately NOT
+ported: Win7Taskbar is a standalone taskbar with its own popup window, so
+the Windhawk injection/hooking plumbing does not exist here and cannot be
+reused. No line of the mod's C++ was copied verbatim; the adopted element is
+the positioning rule it implements, plus the idea of reading the cursor
+position from the input stream rather than from the anchor.
 
 ### ViGlance
 

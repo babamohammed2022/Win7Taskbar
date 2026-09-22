@@ -476,14 +476,18 @@ W7T_API int32_t W7T_CALL W7T_TrayOwnerModuleMatch(uint64_t ownerHwnd,
 W7T_API int32_t W7T_CALL W7T_LaunchClassicVolume(int32_t x, int32_t y);
 
 /* ------------------------------------------------------------------ */
-/*  Jump List stile Windows 7 - sistema del gesto (clic sinistro +      */
-/*  trascinamento verso l'alto). TUTTE le coordinate (rettangolo del    */
-/*  pulsante, punti di hover/attivazione) sono PIXEL FISICI DELLO       */
-/*  SCHERMO; la geometria del popup e' scalata sul DPI del monitor      */
-/*  del pulsante. iconArgb = BGRA dritto (non premoltiplicato),         */
-/*  top-down. I dati vengono solo dalle API pubbliche della shell       */
-/*  (IApplicationDocumentLists + property store della finestra/.lnk):   */
-/*  nessuna voce inventata.                                             */
+/*  Jump List stile Windows 7 - due trigger gestiti dal C#             */
+/*  (TaskbarWindow.JumpList.cs), MAI il clic destro: il clic SINISTRO  */
+/*  + trascinamento LONTANO dalla barra (verso l'alto con la barra     */
+/*  in basso) apre la lista durante il trascinamento; il clic sinistro */
+/*  sulla freccetta del pulsante in hover la apre in modalita'         */
+/*  persistente. TUTTE le coordinate (rettangolo del pulsante, punti   */
+/*  di hover/attivazione) sono PIXEL FISICI DELLO SCHERMO; la          */
+/*  geometria del popup e' scalata sul DPI del monitor del pulsante.   */
+/*  iconArgb = BGRA dritto (non premoltiplicato), top-down. I dati     */
+/*  vengono solo dalle API pubbliche della shell                       */
+/*  (IApplicationDocumentLists + property store della finestra/.lnk):  */
+/*  nessuna voce inventata.                                            */
 /* ------------------------------------------------------------------ */
 
 /* Costruisce e mostra il popup ancorato al pulsante. Ritorna il numero
@@ -501,6 +505,20 @@ W7T_API int32_t W7T_CALL W7T_JumpListOpen(const RECT* buttonRect,
 /* 1 se il punto schermo e' ancora nell'area di interazione del gesto
  * (popup + pulsante + corridoio fra i due), 0 se l'ha lasciata. */
 W7T_API int32_t W7T_CALL W7T_JumpListSetHover(int32_t screenX,
+        int32_t screenY);
+
+/* v2.62: movimento del trascinamento che ha aperto la lista: il popup si
+ * ri-ancora sul cursore (centrato sull'asse della barra, clampato
+ * nell'area di lavoro del monitor - la regola di posizionamento del mod
+ * Windhawk GPL-3.0 "taskbar-jump-list-on-cursor-pos" di m417z) e aggiorna
+ * la riga di hover. 1 se il punto resta nell'area di interazione. */
+W7T_API int32_t W7T_CALL W7T_JumpListDrag(int32_t screenX,
+        int32_t screenY);
+
+/* v2.62: indice della riga sotto il punto schermo (>=0), -1 quando non ce
+ * n'è nessuna; senza effetti collaterali. Il lato gestito senza questa
+ * export ripiega sul rettangolo del popup (FindWindow + GetWindowRect). */
+W7T_API int32_t W7T_CALL W7T_JumpListHitRow(int32_t screenX,
         int32_t screenY);
 
 /* Al rilascio del gesto trasferisce focus e input ordinario al popup,
