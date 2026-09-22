@@ -24,7 +24,8 @@ namespace {
  * not have COM up yet (the callers may already be on a COM-initialized
  * thread); CoUninitialize runs only for the S_OK case. */
 struct ComGuard {
-    HRESULT hr = E_NOTINITIALIZED;
+    /* CoUninitialize only when THIS guard initialised the apartment. */
+    HRESULT hr = S_FALSE;
     ComGuard() { hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); }
     ~ComGuard() { if (hr == S_OK) ::CoUninitialize(); }
 };
