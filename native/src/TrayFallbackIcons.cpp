@@ -13,7 +13,7 @@
 #include "TrayFallbackIcons.h"
 
 #include "TrayIconAssets.inc"   /* icone nostre: volume e rete            */
-#include "BatteryAssets.inc"    /* glifi batteria ritagliati dalla striscia */
+                                /* (la batteria si disegna: vedi sotto)   */
 #include "AudioService.h"
 #include "SehGuard.h"
 
@@ -21,6 +21,7 @@
 #include <netlistmgr.h>         /* CLSID_NetworkListManager / INetworkListManager */
 #include <wlanapi.h>            /* WLAN_SIGNAL_QUALITY per le barre di segnale  */
 #include <cmath>
+#include <cstring>
 
 namespace w7t {
 namespace {
@@ -53,19 +54,17 @@ bool GuidIsZero(const GUID& g) {
 }
 
 /* ------------------------------------------------------------------------ */
-/*  Cache delle decodifiche                                                  */
+/*  Cache delle decodifiche (rete e volume)                                  */
 /*                                                                           */
 /*  Ogni PNG incorporato viene decodificato UNA volta, alla prima           */
-/*  richiesta di quella famiglia: le icone di ripiego si disegnano solo in  */
-/*  caso di necessita', e chi non ne ha mai bisogno non paga nulla.          */
+/*  richiesta della famiglia rete/volume: le icone di ripiego si            */
+/*  disegnano solo in caso di necessita', e chi non ne ha mai bisogno non   */
+/*  paga nulla. La batteria NON ha piu' una cache di PNG: si disegna con    */
+/*  GDI+ a ogni cambiamento di stato (vedi il blocco piu' sotto).           */
 /* ------------------------------------------------------------------------ */
 ArgbBitmap g_tray[trayassets::IdxCount];
 bool       g_trayReady   = false;
 bool       g_trayTried   = false;
-
-ArgbBitmap g_batt[battassets::IdxCount];
-bool       g_battReady   = false;
-bool       g_battTried   = false;
 
 bool g_loggedNetwork = false;
 bool g_loggedVolume  = false;
@@ -106,19 +105,6 @@ void EnsureTrayGlyphs() {
     g_trayReady = any;
 }
 
-void EnsureBatteryGlyphs() {
-    if (g_battTried) {
-        return;
-    }
-    g_battTried = true;
-    bool any = false;
-    for (int i = 0; i < battassets::IdxCount; ++i) {
-        g_batt[i] = DecodeOne(battassets::kAll[i].b64);
-        any = any || !g_batt[i].empty();
-    }
-    g_battReady = any;
-}
-
 const ArgbBitmap* TrayGlyph(trayassets::Idx index) {
     EnsureTrayGlyphs();
     if (!g_trayReady) {
@@ -128,13 +114,519 @@ const ArgbBitmap* TrayGlyph(trayassets::Idx index) {
     return bmp.empty() ? nullptr : &bmp;
 }
 
-const ArgbBitmap* BatteryGlyph(int index) {
-    EnsureBatteryGlyphs();
-    if (!g_battReady || index < 0 || index >= battassets::IdxCount) {
-        return nullptr;
+/* ======================================================================== */
+/*  BATTERIA: glifo GENERICO disegnato al volo con GDI+                     */
+/*                                                                          */
+/*  Il ripiego batteria non usa piu' i ritagli PNG (BatteryAssets.inc):    */
+/*  una batteria generica si disegna DA SOLA, cosi' il riempimento segue    */
+/*  la percentuale VERA (continua, non a decimi come nelle strisce) e non   */
+/*  esiste alcun asset incorporato da tenere allineato ai disegni          */
+/*  sorgente. GDI+ arriva da gdiplus.dll caricata dinamicamente, lo stesso  */
+/*  approccio di BatteryFlyout.cpp e LanguageSwitcher.cpp: nessun nuovo     */
+/*  link, nessun header GDI+ nel progetto, soltanto puntatori piatti.       */
+/*                                                                          */
+/*  Si disegna sovracampionato (64x64) e si riduce a 16x16, la dimensione   */
+/*  delle altre icone di ripiego, con interpolazione bicubic high quality:  */
+/*  l'anti-alias resta leggibile alla dimensione della tray. La lettura     */
+/*  finale avviene con LockBits in PixelFormat32bppPARGB: esce GIA'         */
+/*  premoltiplicato, il contratto BGRA di ArgbBitmap, senza conversioni.    */
+/*                                                                          */
+/*  RAII: ogni oggetto GDI+ (bitmap, graphics, brush, pen, path) vive in    */
+/*  un UniqueGdip che lo distrugge a fine scope, la stessa disciplina       */
+/*  degli altri guard del progetto (ScopeGuards.h). Il try/catch copre le   */
+/*  allocazioni C++: il ripiego non puo' mai far salire un'eccezione        */
+/*  verso i punti di ingresso C del core, un fallimento ritorna false e     */
+/*  il chiamante lascia stare la bitmap che ha.                             */
+/* ======================================================================== */
+
+/* Costanti piatte di GDI+ (gdiplus.h non e' incluso nel progetto). */
+constexpr int           kGdipArgb              = 0x0026200A; /* PixelFormat32bppARGB       */
+constexpr int           kGdipPArgb             = 0x0026200E; /* PixelFormat32bppPARGB      */
+constexpr int           kGdipAntiAlias         = 4;          /* SmoothingModeAntiAlias     */
+constexpr int           kGdipHalfOffset        = 4;          /* PixelOffsetModeHalf        */
+constexpr int           kGdipHQBicubic         = 7;          /* InterpolationModeHighQualityBicubic */
+constexpr unsigned int  kGdipLockRead          = 1;          /* ImageLockModeRead          */
+constexpr int           kGdipFillAlternate     = 0;          /* FillModeAlternate          */
+
+/* Minime riproduzioni dei tipi piatti di GDI+ (layout identico). */
+struct GdipPointF  { float x; float y; };
+struct GdipRect    { int x; int y; int width; int height; };
+struct GdipBitmapData {
+    unsigned int width;
+    unsigned int height;
+    int          stride;
+    int          pixelFormat;
+    void*        scan0;
+    void*        reserved;
+};
+
+using GdipStatus = int;
+
+using GdiplusStartupFn              = GdipStatus (WINAPI*)(ULONG_PTR*, const void*, void*);
+using GdipCreateBitmapFromScan0Fn   = GdipStatus (WINAPI*)(int, int, int, int, void*, void**);
+using GdipGetImageGraphicsContextFn = GdipStatus (WINAPI*)(void*, void**);
+using GdipSetSmoothingModeFn        = GdipStatus (WINAPI*)(void*, int);
+using GdipSetPixelOffsetModeFn      = GdipStatus (WINAPI*)(void*, int);
+using GdipSetInterpolationModeFn    = GdipStatus (WINAPI*)(void*, int);
+using GdipCreateSolidFillFn         = GdipStatus (WINAPI*)(uint32_t, void**);
+using GdipDeleteBrushFn             = GdipStatus (WINAPI*)(void*);
+using GdipCreatePen1Fn              = GdipStatus (WINAPI*)(uint32_t, float, int, void**);
+using GdipDeletePenFn               = GdipStatus (WINAPI*)(void*);
+using GdipCreatePathFn              = GdipStatus (WINAPI*)(int, void**);
+using GdipAddPathArcFn              = GdipStatus (WINAPI*)(void*, float, float, float, float, float, float);
+using GdipClosePathFigureFn         = GdipStatus (WINAPI*)(void*);
+using GdipDeletePathFn              = GdipStatus (WINAPI*)(void*);
+using GdipDrawPathFn                = GdipStatus (WINAPI*)(void*, void*, void*);
+using GdipFillRectangleFn           = GdipStatus (WINAPI*)(void*, void*, float, float, float, float);
+using GdipFillPolygonFn             = GdipStatus (WINAPI*)(void*, void*, const void*, int);
+using GdipDrawPolygonFn             = GdipStatus (WINAPI*)(void*, void*, const void*, int);
+using GdipFillEllipseFn             = GdipStatus (WINAPI*)(void*, void*, float, float, float, float);
+using GdipDrawLineFn                = GdipStatus (WINAPI*)(void*, void*, float, float, float, float);
+using GdipDrawImageRectIFn          = GdipStatus (WINAPI*)(void*, void*, int, int, int, int);
+using GdipLockBitsFn                = GdipStatus (WINAPI*)(void*, const void*, unsigned int, int, void*);
+using GdipUnlockBitsFn              = GdipStatus (WINAPI*)(void*, void*);
+using GdipDeleteGraphicsFn          = GdipStatus (WINAPI*)(void*);
+using GdipDisposeImageFn            = GdipStatus (WINAPI*)(void*);
+
+/* Tutti i puntatori di cui ha bisogno il disegno, risolti UNA volta. */
+struct GdiplusApi {
+    bool                            ready = false;
+    GdipCreateBitmapFromScan0Fn     createBitmap       = nullptr;
+    GdipGetImageGraphicsContextFn   getImageGraphics   = nullptr;
+    GdipSetSmoothingModeFn          setSmoothing       = nullptr;
+    GdipSetPixelOffsetModeFn        setPixelOffset     = nullptr;
+    GdipSetInterpolationModeFn      setInterpolation   = nullptr;
+    GdipCreateSolidFillFn           createSolidFill    = nullptr;
+    GdipDeleteBrushFn               deleteBrush        = nullptr;
+    GdipCreatePen1Fn                createPen1         = nullptr;
+    GdipDeletePenFn                 deletePen          = nullptr;
+    GdipCreatePathFn                createPath         = nullptr;
+    GdipAddPathArcFn                addPathArc         = nullptr;
+    GdipClosePathFigureFn           closePathFigure    = nullptr;
+    GdipDeletePathFn                deletePath         = nullptr;
+    GdipDrawPathFn                  drawPath           = nullptr;
+    GdipFillRectangleFn             fillRectangle      = nullptr;
+    GdipFillPolygonFn               fillPolygon        = nullptr;
+    GdipDrawPolygonFn               drawPolygon        = nullptr;
+    GdipFillEllipseFn               fillEllipse        = nullptr;
+    GdipDrawLineFn                  drawLine           = nullptr;
+    GdipDrawImageRectIFn            drawImageRectI     = nullptr;
+    GdipLockBitsFn                  lockBits           = nullptr;
+    GdipUnlockBitsFn                unlockBits         = nullptr;
+    GdipDeleteGraphicsFn            deleteGraphics     = nullptr;
+    GdipDisposeImageFn              disposeImage       = nullptr;
+};
+
+/* Inizializzazione pigra e una tantum di gdiplus.dll (magic static:
+ * thread-safe anche se la tray arriva da thread diversi). Il token di
+ * GdiplusStartup e il modulo restano carichi per tutta la vita del
+ * processo, stessa scelta di BatteryFlyout.cpp e LanguageSwitcher.cpp.
+ * Ritorna nullptr se GDI+ non e' disponibile: in quel caso il ripiego
+ * batteria semplicemente non disegna (false), senza ripiegi strani. */
+const GdiplusApi* GdiplusGet() {
+    static const GdiplusApi api = [] {
+        GdiplusApi a;
+        HMODULE mod = LoadLibraryExW(L"gdiplus.dll", nullptr,
+                                     LOAD_LIBRARY_SEARCH_SYSTEM32);
+        if (mod == nullptr) {
+            return a;
+        }
+        struct Resolve {
+            static void* Fn(HMODULE h, const char* name) {
+                return reinterpret_cast<void*>(GetProcAddress(h, name));
+            }
+        };
+        a.createBitmap     = reinterpret_cast<GdipCreateBitmapFromScan0Fn>(Resolve::Fn(mod, "GdipCreateBitmapFromScan0"));
+        a.getImageGraphics = reinterpret_cast<GdipGetImageGraphicsContextFn>(Resolve::Fn(mod, "GdipGetImageGraphicsContext"));
+        a.setSmoothing     = reinterpret_cast<GdipSetSmoothingModeFn>(Resolve::Fn(mod, "GdipSetSmoothingMode"));
+        a.setPixelOffset   = reinterpret_cast<GdipSetPixelOffsetModeFn>(Resolve::Fn(mod, "GdipSetPixelOffsetMode"));
+        a.setInterpolation = reinterpret_cast<GdipSetInterpolationModeFn>(Resolve::Fn(mod, "GdipSetInterpolationMode"));
+        a.createSolidFill  = reinterpret_cast<GdipCreateSolidFillFn>(Resolve::Fn(mod, "GdipCreateSolidFill"));
+        a.deleteBrush      = reinterpret_cast<GdipDeleteBrushFn>(Resolve::Fn(mod, "GdipDeleteBrush"));
+        a.createPen1       = reinterpret_cast<GdipCreatePen1Fn>(Resolve::Fn(mod, "GdipCreatePen1"));
+        a.deletePen        = reinterpret_cast<GdipDeletePenFn>(Resolve::Fn(mod, "GdipDeletePen"));
+        a.createPath       = reinterpret_cast<GdipCreatePathFn>(Resolve::Fn(mod, "GdipCreatePath"));
+        a.addPathArc       = reinterpret_cast<GdipAddPathArcFn>(Resolve::Fn(mod, "GdipAddPathArc"));
+        a.closePathFigure  = reinterpret_cast<GdipClosePathFigureFn>(Resolve::Fn(mod, "GdipClosePathFigure"));
+        a.deletePath       = reinterpret_cast<GdipDeletePathFn>(Resolve::Fn(mod, "GdipDeletePath"));
+        a.drawPath         = reinterpret_cast<GdipDrawPathFn>(Resolve::Fn(mod, "GdipDrawPath"));
+        a.fillRectangle    = reinterpret_cast<GdipFillRectangleFn>(Resolve::Fn(mod, "GdipFillRectangle"));
+        a.fillPolygon      = reinterpret_cast<GdipFillPolygonFn>(Resolve::Fn(mod, "GdipFillPolygon"));
+        a.drawPolygon      = reinterpret_cast<GdipDrawPolygonFn>(Resolve::Fn(mod, "GdipDrawPolygon"));
+        a.fillEllipse      = reinterpret_cast<GdipFillEllipseFn>(Resolve::Fn(mod, "GdipFillEllipse"));
+        a.drawLine         = reinterpret_cast<GdipDrawLineFn>(Resolve::Fn(mod, "GdipDrawLine"));
+        a.drawImageRectI   = reinterpret_cast<GdipDrawImageRectIFn>(Resolve::Fn(mod, "GdipDrawImageRectI"));
+        a.lockBits         = reinterpret_cast<GdipLockBitsFn>(Resolve::Fn(mod, "GdipLockBits"));
+        a.unlockBits       = reinterpret_cast<GdipUnlockBitsFn>(Resolve::Fn(mod, "GdipUnlockBits"));
+        a.deleteGraphics   = reinterpret_cast<GdipDeleteGraphicsFn>(Resolve::Fn(mod, "GdipDeleteGraphics"));
+        a.disposeImage     = reinterpret_cast<GdipDisposeImageFn>(Resolve::Fn(mod, "GdipDisposeImage"));
+
+        const GdiplusStartupFn startup =
+            reinterpret_cast<GdiplusStartupFn>(Resolve::Fn(mod, "GdiplusStartup"));
+        const bool allResolved =
+            a.createBitmap != nullptr && a.getImageGraphics != nullptr &&
+            a.setSmoothing != nullptr && a.setPixelOffset != nullptr &&
+            a.setInterpolation != nullptr && a.createSolidFill != nullptr &&
+            a.deleteBrush != nullptr && a.createPen1 != nullptr &&
+            a.deletePen != nullptr && a.createPath != nullptr &&
+            a.addPathArc != nullptr && a.closePathFigure != nullptr &&
+            a.deletePath != nullptr && a.drawPath != nullptr &&
+            a.fillRectangle != nullptr &&
+            a.fillPolygon != nullptr && a.drawPolygon != nullptr &&
+            a.fillEllipse != nullptr && a.drawLine != nullptr &&
+            a.drawImageRectI != nullptr && a.lockBits != nullptr &&
+            a.unlockBits != nullptr && a.deleteGraphics != nullptr &&
+            a.disposeImage != nullptr && startup != nullptr;
+        if (!allResolved) {
+            FreeLibrary(mod);
+            return a;
+        }
+        /* Layout di GdiplusStartupInput (i quattro campi, in ordine). */
+        struct StartupInput {
+            unsigned int version;
+            void*        debugEventCallback;
+            int          suppressBackgroundThread;
+            void*        suppressExternalCodecs;
+        } input { 1, nullptr, 0, nullptr };
+        ULONG_PTR token = 0;
+        if (startup(&token, &input, nullptr) != 0) {
+            FreeLibrary(mod);
+            return a;
+        }
+        /* Il token vive fino allo scarico del processo, apposta: come il
+         * modulo, che non si puo' liberare mentre GDI+ e' attivo. */
+        a.ready = true;
+        return a;
+    }();
+    return api.ready ? &api : nullptr;
+}
+
+/* RAII per un oggetto GDI+ (bitmap, graphics, brush, pen, path): ogni
+ * famiglia ha la sua funzione di distruzione, che qui viaggia insieme
+ * all'handle. Distruttore noexcept, nessuna copia: nessun early return
+ * puo' perdere un oggetto GDI+, nemmeno attraverso un'eccezione. */
+class UniqueGdip {
+public:
+    using DisposeFn = GdipStatus (WINAPI*)(void*);
+    UniqueGdip() noexcept = default;
+    UniqueGdip(void* obj, DisposeFn dispose) noexcept
+        : m_obj(obj), m_dispose(dispose) {}
+    ~UniqueGdip() noexcept { reset(); }
+    UniqueGdip(const UniqueGdip&) = delete;
+    UniqueGdip& operator=(const UniqueGdip&) = delete;
+
+    bool  valid() const noexcept { return m_obj != nullptr; }
+    void* get()   const noexcept { return m_obj; }
+    void  reset() noexcept {
+        if (m_obj != nullptr && m_dispose != nullptr) {
+            (void)m_dispose(m_obj);   /* il fallimento qui non e' recuperabile */
+        }
+        m_obj = nullptr;
     }
-    const ArgbBitmap& bmp = g_batt[index];
-    return bmp.empty() ? nullptr : &bmp;
+
+private:
+    void*     m_obj     = nullptr;
+    DisposeFn m_dispose = nullptr;
+};
+
+/* Geometria del glifo, in coordinate logiche 0..16 (poi scalate):
+ * corpo arrotondato con il terminale in alto, come le batterie della
+ * tray di Windows 7. Il riempimento parte dal fondo e cresce con la
+ * carica vera; dentro c'e' la sola "icona semplice della batteria".   */
+constexpr int    kBattIconSize    = 16;   /* come rete e volume            */
+constexpr int    kBattSupersample = 4;    /* si disegna a 64x64, poi giu'  */
+constexpr float  kBodyLeft        = 2.5f;
+constexpr float  kBodyTop         = 3.0f;
+constexpr float  kBodyRight       = 13.5f;
+constexpr float  kBodyBottom      = 15.0f;
+constexpr float  kCornerRadius    = 1.3f;
+constexpr float  kStrokeWidth     = 1.05f;
+constexpr float  kFillPad         = 0.55f;   /* stacco del riempimento      */
+constexpr float  kCapLeft         = 6.25f;
+constexpr float  kCapWidth        = 3.5f;
+constexpr float  kCapTop          = 0.7f;
+constexpr float  kCapHeight       = 2.6f;    /* entra nel corpo: nessun     */
+                                             /* discontinuita' di contorno  */
+/* Colori in ARGB dritto (la premoltiplicazione avviene solo alla
+ * lettura finale): contorno quasi nero come le icone classiche,
+ * verde/giallo/rosso per la carica, bianco per il fulmine.            */
+constexpr uint32_t kColorOutline  = 0xFF2B2B2B;
+constexpr uint32_t kColorFull     = 0xFF46BE3C;   /* verde: carica regolare */
+constexpr uint32_t kColorMid      = 0xFFF0C419;   /* giallo: sotto il 30%   */
+constexpr uint32_t kColorLow      = 0xFFDD3B2F;   /* rosso: sotto il 15%    */
+constexpr uint32_t kColorBolt     = 0xFFFFFFFF;
+constexpr uint32_t kColorWarnMark = 0xFFFF8F00;   /* punto esclamativo      */
+
+/* Che cosa mostrare dentro il corpo della batteria. Stessa semantica di
+ * prima (gli indici delle vecchie strisce), sola cambia la matita.     */
+enum class BatteryView : int {
+    Fill      = 0,   /* riempimento proporzionale alla carica        */
+    Charging  = 1,   /* riempimento + fulmine                        */
+    Unknown   = 2,   /* corpo vuoto + punto esclamativo (stato illeggibile) */
+    NoBattery = 3,   /* corpo vuoto + X rossa (nessuna batteria)     */
+};
+
+struct BatteryState {
+    BatteryView view    = BatteryView::Unknown;
+    int         percent = 0;   /* 0..100, usato da Fill e Charging      */
+};
+
+/* Stessa fonte e stessa semantica di prima (GetSystemPowerStatus,
+ * BatteryFlag/BatteryLifePercent): cambia solo chi disegna. */
+BatteryState BatteryStateNow() {
+    BatteryState state;
+    SYSTEM_POWER_STATUS sps{};
+    if (!GetSystemPowerStatus(&sps)) {
+        /* Stato irraggiungibile: come prima si mostra "senza batteria",
+         * ora con la nostra X disegnata. */
+        state.view = BatteryView::NoBattery;
+        return state;
+    }
+    const bool noBattery = (sps.BatteryFlag & 128) != 0;
+    const bool charging  = (sps.BatteryFlag & 8) != 0;
+    const bool unknown   = sps.BatteryFlag == 255 ||
+                           sps.BatteryLifePercent == 255;
+    int percent = sps.BatteryLifePercent;
+    if (percent > 100) {
+        percent = 100;
+    }
+    if (unknown) {
+        state.view = BatteryView::Unknown;
+    } else if (noBattery) {
+        state.view = BatteryView::NoBattery;
+    } else if (charging) {
+        state.view = BatteryView::Charging;
+    } else {
+        state.view = BatteryView::Fill;
+    }
+    state.percent = percent;
+    return state;
+}
+
+/* Verde sopra il 30%, giallo fino al 15%, rosso sotto: la stessa scala
+ * che la shell usa per il colore dell'icona batteria. */
+uint32_t BatteryFillColor(int percent) {
+    if (percent >= 30) {
+        return kColorFull;
+    }
+    if (percent >= 15) {
+        return kColorMid;
+    }
+    return kColorLow;
+}
+
+UniqueGdip SolidBrush(const GdiplusApi& api, uint32_t argb) {
+    void* brush = nullptr;
+    if (api.createSolidFill(argb, &brush) != 0) {
+        brush = nullptr;
+    }
+    return UniqueGdip(brush, api.deleteBrush);
+}
+
+UniqueGdip FlatPen(const GdiplusApi& api, uint32_t argb, float width) {
+    void* pen = nullptr;
+    if (api.createPen1(argb, width, 0 /*UnitWorld: il canvas e' in pixel*/,
+                       &pen) != 0) {
+        pen = nullptr;
+    }
+    return UniqueGdip(pen, api.deletePen);
+}
+
+/* Il disegno vero e proprio. Tutto dentro un try/catch: le uniche
+ * operazioni che possono lanciare sono le allocazioni del buffer, e in
+ * quel caso si ritorna false senza lasciare oggetti GDI+ appesi (RAII). */
+bool DrawBatteryGlyph(const GdiplusApi& api, const BatteryState& state,
+                      ArgbBitmap& out) {
+    try {
+        const float s = static_cast<float>(kBattSupersample);
+
+        /* Canvas sovracampionato: si disegna a 64x64 cosi' l'anti-alias
+         * non spezza i tratti da un pixel quando si scende a 16x16. */
+        void* canvasBmp = nullptr;
+        if (api.createBitmap(kBattIconSize * kBattSupersample,
+                             kBattIconSize * kBattSupersample, 0,
+                             kGdipArgb, nullptr, &canvasBmp) != 0 ||
+            canvasBmp == nullptr) {
+            return false;
+        }
+        UniqueGdip canvas(canvasBmp, api.disposeImage);
+
+        void* canvasGfx = nullptr;
+        if (api.getImageGraphics(canvas.get(), &canvasGfx) != 0 ||
+            canvasGfx == nullptr) {
+            return false;
+        }
+        UniqueGdip gfx(canvasGfx, api.deleteGraphics);
+        api.setSmoothing(gfx.get(), kGdipAntiAlias);
+        api.setPixelOffset(gfx.get(), kGdipHalfOffset);
+
+        /* Pennelli e penne: uno per colore, tutti RAII. */
+        UniqueGdip outlineBrush = SolidBrush(api, kColorOutline);
+        UniqueGdip fillBrush    = SolidBrush(api, BatteryFillColor(state.percent));
+        UniqueGdip boltBrush    = SolidBrush(api, kColorBolt);
+        UniqueGdip warnBrush    = SolidBrush(api, kColorWarnMark);
+        UniqueGdip bodyPen      = FlatPen(api, kColorOutline, kStrokeWidth * s);
+        UniqueGdip boltPen      = FlatPen(api, kColorOutline, 0.45f * s);
+        UniqueGdip crossPen     = FlatPen(api, kColorLow, 1.5f * s);
+        if (!outlineBrush.valid() || !fillBrush.valid() ||
+            !boltBrush.valid() || !warnBrush.valid() ||
+            !bodyPen.valid() || !boltPen.valid() || !crossPen.valid()) {
+            return false;
+        }
+
+        /* Corpo arrotondato: quattro archi uniti in un path chiuso. */
+        void* rawPath = nullptr;
+        if (api.createPath(kGdipFillAlternate, &rawPath) != 0 ||
+            rawPath == nullptr) {
+            return false;
+        }
+        UniqueGdip body(rawPath, api.deletePath);
+        const float r2    = kCornerRadius * 2.0f * s;
+        const float left  = kBodyLeft * s;
+        const float top   = kBodyTop * s;
+        const float right = kBodyRight * s;
+        const float bottom = kBodyBottom * s;
+        api.addPathArc(body.get(), left, top, r2, r2, 180.0f, 90.0f);
+        api.addPathArc(body.get(), right - r2, top, r2, r2, 270.0f, 90.0f);
+        api.addPathArc(body.get(), right - r2, bottom - r2, r2, r2, 0.0f, 90.0f);
+        api.addPathArc(body.get(), left, bottom - r2, r2, r2, 90.0f, 90.0f);
+        api.closePathFigure(body.get());
+
+        /* Terminale (il "tassello" in alto), poi il riempimento, poi il
+         * contorno del corpo: copre i bordi del riempimento e salda il
+         * terminale al corpo. */
+        api.fillRectangle(gfx.get(), outlineBrush.get(),
+                          kCapLeft * s, kCapTop * s,
+                          kCapWidth * s, kCapHeight * s);
+
+        const float inset  = kStrokeWidth * 0.5f + kFillPad;
+        const float innerL = kBodyLeft + inset;
+        const float innerR = kBodyRight - inset;
+        const float innerT = kBodyTop + inset;
+        const float innerB = kBodyBottom - inset;
+        const float innerH = innerB - innerT;
+        if (state.view == BatteryView::Fill ||
+            state.view == BatteryView::Charging) {
+            float fillH = innerH * static_cast<float>(state.percent) / 100.0f;
+            if (state.percent > 0 && fillH < 1.3f) {
+                fillH = 1.3f;   /* una linguetta visibile anche all'1%    */
+            }
+            if (fillH > 0.0f) {
+                api.fillRectangle(gfx.get(), fillBrush.get(),
+                                  innerL * s, (innerB - fillH) * s,
+                                  (innerR - innerL) * s, fillH * s);
+            }
+        }
+        api.drawPath(gfx.get(), bodyPen.get(), body.get());
+
+        /* Ciò che va DENTRO la batteria, per stato. */
+        switch (state.view) {
+            case BatteryView::Charging: {
+                /* Fulmine bianco bordato di scuro: leggibile su qualunque
+                 * colore di riempimento, come la spina delle vecchie
+                 * serie "in carica". */
+                constexpr int kPts = 6;
+                const float boltX[kPts] = { 9.6f, 5.8f, 8.0f, 6.9f, 10.6f, 8.5f };
+                const float boltY[kPts] = { 5.2f, 9.9f, 9.9f, 13.6f, 8.6f, 8.3f };
+                GdipPointF bolt[kPts];
+                for (int i = 0; i < kPts; ++i) {
+                    bolt[i].x = boltX[i] * s;
+                    bolt[i].y = boltY[i] * s;
+                }
+                api.fillPolygon(gfx.get(), boltBrush.get(), bolt, kPts);
+                api.drawPolygon(gfx.get(), boltPen.get(), bolt, kPts);
+            } break;
+
+            case BatteryView::Unknown:
+                /* Punto esclamativo arancio: lo stato non si legge. */
+                api.fillRectangle(gfx.get(), warnBrush.get(),
+                                  7.4f * s, 5.2f * s, 1.3f * s, 4.4f * s);
+                api.fillEllipse(gfx.get(), warnBrush.get(),
+                                7.3f * s, 11.0f * s, 1.5f * s, 1.5f * s);
+                break;
+
+            case BatteryView::NoBattery:
+                /* X rossa dentro il corpo: nessuna batteria. */
+                api.drawLine(gfx.get(), crossPen.get(),
+                             4.8f * s, 5.2f * s, 11.2f * s, 12.8f * s);
+                api.drawLine(gfx.get(), crossPen.get(),
+                             11.2f * s, 5.2f * s, 4.8f * s, 12.8f * s);
+                break;
+
+            case BatteryView::Fill:
+            default:
+                break;   /* solo riempimento, gia' disegnato sopra */
+        }
+
+        /* Riduzione 64x64 -> 16x16 con bicubic high quality. */
+        void* outBmp = nullptr;
+        if (api.createBitmap(kBattIconSize, kBattIconSize, 0, kGdipArgb,
+                             nullptr, &outBmp) != 0 || outBmp == nullptr) {
+            return false;
+        }
+        UniqueGdip scaled(outBmp, api.disposeImage);
+        void* scaledGfx = nullptr;
+        if (api.getImageGraphics(scaled.get(), &scaledGfx) != 0 ||
+            scaledGfx == nullptr) {
+            return false;
+        }
+        UniqueGdip scaledCtx(scaledGfx, api.deleteGraphics);
+        api.setInterpolation(scaledCtx.get(), kGdipHQBicubic);
+        api.setPixelOffset(scaledCtx.get(), kGdipHalfOffset);
+        if (api.drawImageRectI(scaledCtx.get(), canvas.get(),
+                               0, 0, kBattIconSize, kBattIconSize) != 0) {
+            return false;
+        }
+
+        /* Lettura finale: PARGB = BGRA premoltiplicato, il formato del
+         * contratto ArgbBitmap. Il buffer si alloca PRIMA del lock, cosi'
+         * la copia non puo' lanciare mentre i bit sono bloccati. */
+        out.width  = kBattIconSize;
+        out.height = kBattIconSize;
+        out.pixels.assign(static_cast<size_t>(kBattIconSize) *
+                              kBattIconSize * 4, 0);
+        GdipBitmapData locked{};
+        const GdipRect full { 0, 0, kBattIconSize, kBattIconSize };
+        if (api.lockBits(scaled.get(), &full, kGdipLockRead,
+                         kGdipPArgb, &locked) != 0 ||
+            locked.scan0 == nullptr ||
+            locked.stride < kBattIconSize * 4) {   /* solo top-down */
+            out.clear();
+            return false;
+        }
+        const uint8_t* src = static_cast<const uint8_t*>(locked.scan0);
+        for (int y = 0; y < kBattIconSize; ++y) {
+            std::memcpy(&out.pixels[static_cast<size_t>(y) *
+                                    kBattIconSize * 4],
+                        src + static_cast<size_t>(y) * locked.stride,
+                        static_cast<size_t>(kBattIconSize) * 4);
+        }
+        api.unlockBits(scaled.get(), &locked);
+        return true;
+    } catch (...) {
+        /* std::bad_alloc o altro: niente eccezioni verso i punti di
+         * ingresso C, niente oggetti GDI+ appesi (RAII li ha gia' chiusi). */
+        out.clear();
+        return false;
+    }
+}
+
+/* Punto d'ingresso del ripiego batteria. La SEH copre eventuali fault
+ * dentro gdiplus (la stessa protezione gia' usata sopra per la rete,
+ * che non vede le eccezioni C++); il try/catch dentro DrawBatteryGlyph
+ * copre quelle. Due reti, una sola regola: mai far salire nulla. */
+bool RenderBatteryFallback(ArgbBitmap& out) {
+    bool ok = false;
+    W7T_SEH_TRY {
+        ok = false;
+        const GdiplusApi* api = GdiplusGet();
+        if (api != nullptr) {
+            ok = DrawBatteryGlyph(*api, BatteryStateNow(), out);
+        }
+    } W7T_SEH_CATCH {
+        ok = false;
+    } W7T_SEH_END
+    return ok;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -286,43 +778,21 @@ bool TrayFallbackIcons::Render(SystemIconKind kind, ArgbBitmap& out) {
             }
         } break;
 
-        case SystemIconKind::Battery: {
-            SYSTEM_POWER_STATUS sps{};
-            int index = battassets::IdxNoBatt;
-            if (GetSystemPowerStatus(&sps)) {
-                const bool noBattery = (sps.BatteryFlag & 128) != 0;
-                const bool charging  = (sps.BatteryFlag & 8) != 0;
-                const bool unknown   = sps.BatteryFlag == 255 ||
-                                       sps.BatteryLifePercent == 255;
-                int percent = sps.BatteryLifePercent;
-                if (percent > 100) {
-                    percent = 100;
-                }
-                /* 1..10 come i dieci glifi di ogni colore della striscia. */
-                int level = (percent + 9) / 10;
-                if (level < 1) level = 1;
-                if (level > 10) level = 10;
-
-                /* Le tre serie della striscia: batteria piena (livello per
-                 * decile), batteria con la spina quando e' collegato alla
-                 * rete elettrica, e la serie "scarica" per i livelli bassi. */
-                if (unknown) {
-                    index = battassets::IdxWarn;
-                } else if (noBattery) {
-                    index = battassets::IdxNoBatt;
-                } else if (charging) {
-                    index = battassets::IdxChargingBase + (level - 1);
-                } else if (percent >= 15) {
-                    index = battassets::IdxLevelBase + (level - 1);
-                } else {
-                    index = battassets::IdxLowBase + (level - 1);
-                    if (index > battassets::IdxLowBase + 5) {
-                        index = battassets::IdxLowBase + 5;
-                    }
-                }
-            }
-            glyph = BatteryGlyph(index);
-        } break;
+        case SystemIconKind::Battery:
+            /* v2.63 - IL RIPIEGO BATTERIA SI DISEGNA, NON SI DECODIFICA.
+             *
+             * Niente piu' ritagli dalla striscia PNG (BatteryAssets.inc):
+             * una batteria GENERICA - corpo arrotondato, terminale,
+             * riempimento proporzionale alla carica vera, fulmine quando
+             * e' in carica, X rossa se la batteria manca, punto
+             * esclamativo se lo stato e' illeggibile - si disegna al volo
+             * con GDI+ a ogni cambio di stato. Il caso esce qui perche'
+             * non esiste un "glifo di ripiego del ripiego": se GDI+ non
+             * e' disponibile (non accade sulle Windows supportate, e'
+             * lo stesso motore di BatteryFlyout) si ritorna false e il
+             * chiamante lascia la bitmap che ha, invece di mostrare
+             * l'icona di RETE com'era nella vecchia coda comune. */
+            return RenderBatteryFallback(out);
 
         default:
             return false;
@@ -334,12 +804,13 @@ bool TrayFallbackIcons::Render(SystemIconKind kind, ArgbBitmap& out) {
      * non ha un disegno) non si torna a mani vuote: si usa il glifo
      * "stato non disponibile" dello stesso tipo, che esiste di sicuro.
      * Prima un fallimento qui lasciava la voce fuori dal modello e l'utente
-     * vedeva una tray con due icone invece di tre, senza capire perche'. */
+     * vedeva una tray con due icone invece di tre, senza capire perche'.
+     * (Dalla v2.63 la batteria non passa da qui: si disegna con GDI+ e
+     * non ha piu' asset che possano mancare, vedi il caso qui sopra.) */
     if (glyph == nullptr || glyph->empty()) {
         switch (kind) {
             case SystemIconKind::Network: glyph = TrayGlyph(trayassets::IdxNetworkNotWorking); break;
             case SystemIconKind::Volume:  glyph = TrayGlyph(trayassets::IdxVolume0); break;
-            case SystemIconKind::Battery: glyph = TrayGlyph(trayassets::IdxNetworkNotWorking); break;
             default: break;
         }
     }

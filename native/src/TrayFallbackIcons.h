@@ -16,8 +16,10 @@
  * al modello senza alcuna bitmap. Prima di questo file non c'era nulla da
  * mostrare e il posto restava vuoto.
  *
- * Qui vivono le icone DISEGNATE DA NOI (TrayIconAssets.inc, con la batteria
- * che riusa i glifi reali di BatteryAssets.inc) usate SOLO in quel caso.
+ * Qui vivono le icone DISEGNATE DA NOI usate SOLO in quel caso: rete e
+ * volume arrivano da TrayIconAssets.inc, la batteria e' un glifo GENERICO
+ * disegnato al volo con GDI+ (vedi piu' sotto), cosi' il ripiego batteria
+ * non dipende da alcuna striscia PNG incorporata.
  *
  * Regola d'oro: il ripiego entra in scena soltanto quando manca la bitmap
  * vera. Un'icona leggibile da Explorer non viene MAI sostituita, e ogni
