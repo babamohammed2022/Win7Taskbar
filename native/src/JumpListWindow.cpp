@@ -876,7 +876,6 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
     m_tipRow = -1;
     m_tipShown = false;
     m_tipStart = 0;
-    m_tipText.clear();
     ClearContent();
     m_appIcon.reset();
     m_pinIcon.reset();
@@ -1314,21 +1313,35 @@ void JumpListWindow::ShowRowTooltip(int row, POINT clientPt) {
      * TTM_TRACKACTIVATE sequence with TTTOOLINFOW (the SDK's declared
      * tool structure; the MSDN-documented TOOLTEXTW of the older
      * TrackToolTip entry point is not declared by the SDK headers). The
-     * text lives in a stable member so it stays valid while the tip is
-     * up. The position is in the client coordinates of the parent. */
-    m_tipText = text;
+     * tool string is a writable pointer in the SDK layout, so a
+     * temporary CoTaskMem buffer carries the text (the control copies it
+     * on TTM_ADDTOOL); it is released on every path. The position is in
+     * the client coordinates of the parent. */
+    wchar_t* buf =
+        (wchar_t*)CoTaskMemAlloc((text.size() + 1) * sizeof(wchar_t));
+    if (buf == nullptr) return;
+    lstrcpynW(buf, text.c_str(), (int)text.size() + 1);
     TTTOOLINFOW ti{};
     ti.cbSize = sizeof(ti);
     ti.hwnd = m_hwnd;
     ti.uId = (UINT_PTR)row;
     ti.hinst = GetModuleHandleW(nullptr);
-    ti.lpszText = m_tipText.c_str();
-    if (SendMessageW(m_tooltip, TTM_ADDTOOL, 0, (LPARAM)&ti) == 0) return;
-    (void)SendMessageW(m_tooltip, TTM_TRACKPOSITION, 0,
-                       MAKELPARAM((UINT)(clientPt.x + Sc(10)),
-                                  (UINT)(clientPt.y + Sc(16))));
-    m_tipShown = SendMessageW(m_tooltip, TTM_TRACKACTIVATE, TRUE,
-                              (LPARAM)&ti) != 0;
+    ti.lpszText = buf;
+    const bool added =
+        SendMessageW(m_tooltip, TTM_ADDTOOL, 0, (LPARAM)&ti) != 0;
+    bool shown = false;
+    if (added) {
+        (void)SendMessageW(m_tooltip, TTM_TRACKPOSITION, 0,
+                           MAKELPARAM((UINT)(clientPt.x + Sc(10)),
+                                      (UINT)(clientPt.y + Sc(16))));
+        shown = SendMessageW(m_tooltip, TTM_TRACKACTIVATE, TRUE,
+                             (LPARAM)&ti) != 0;
+        if (!shown) {
+            (void)SendMessageW(m_tooltip, TTM_DELTOOL, 0, (LPARAM)&ti);
+        }
+    }
+    CoTaskMemFree(buf);
+    m_tipShown = shown;
 }
 
 void JumpListWindow::ClearRowTooltip() {
@@ -1348,7 +1361,6 @@ void JumpListWindow::ClearRowTooltip() {
     m_tipShown = false;
     m_tipRow = -1;
     m_tipStart = 0;
-    m_tipText.clear();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1608,7 +1620,6 @@ LRESULT CALLBACK JumpListWindow::WndProc(HWND hwnd, UINT msg,
                 Instance().m_tipShown = false;
                 Instance().m_tipRow = -1;
                 Instance().m_tipStart = 0;
-                Instance().m_tipText.clear();
                 return 0;
         }
     } W7T_SEH_CATCH {
