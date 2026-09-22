@@ -2,12 +2,14 @@
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 //
 // Only public, documented Shell APIs: IApplicationDocumentLists for the
-// application's real Recent/Frequent destinations, IApplicationDestina-
-// tions for its pinned (custom) items - the documented read view of the
-// store the Windows 7 taskbar reads directly (see docs/JUMPLIST-RE-
-// VERIFICATION.md) - ICustomDestinationList for the unpin write, the
-// window/shortcut property stores for the AppUserModelID, IShellLink for
-// the taskbar pin, and the shared DWM flyout border. Every COM/Shell call
+// application's real Recent/Frequent destinations, the window/shortcut
+// property stores for the AppUserModelID, the Start_JumpListItems policy,
+// IShellLink for the taskbar pin, and the shared DWM flyout border. The
+// PINNED (custom) section is intentionally NOT shown: Windows 7 and later
+// expose no public API that reads or removes it (MSDN: the pinned items
+// "cannot be removed programmatically; only the user can remove them";
+// the Shell reads its own store directly - see docs/JUMPLIST-RE-
+// VERIFICATION.md). Nothing is ever invented. Every COM/Shell call
 // sits behind an explicit failure path that logs and degrades to "no jump
 // list" (or to the section staying hidden); hard faults (dead network
 // paths, malformed destination items) stay inside the portable SEH barrier
@@ -62,9 +64,6 @@ constexpr int kAppIcon96    = 21;
 constexpr int kPinIcon96    = 14;
 constexpr int kClose96      = 14;
 constexpr int kMaxDocsPerSection = 10; /* the taskbar list caps at ten    */
-/* Pinned items have no documented cap; this bound keeps the popup on one
- * screen (the list is clamped to the work area either way). */
-constexpr int kMaxPinnedItems = 15;
 /* Tooltip delay for the hovered row, ms (Windows 7: about half a second). */
 constexpr DWORD kTipDelayMs = 600;
 
@@ -219,7 +218,6 @@ struct JumpStr {
     const wchar_t* restore;
     const wchar_t* move;
     const wchar_t* size;
-    const wchar_t* unpinItem;  /* right-click menu entry on a pinned row */
 };
 const JumpStr& Str(int lang) {
     static const JumpStr kIt = {
@@ -228,32 +226,28 @@ const JumpStr& Str(int lang) {
         L"Rimuovi questo programma dalla barra delle applicazioni",
         L"Chiudi la finestra",
         L"Attivit\u00e0", L"Minimizza", L"Ingrandisci", L"Ripristina",
-        L"Sposta", L"Dimensiona",
-        L"Rimuovi la voce fissata" };
+        L"Sposta", L"Dimensiona" };
     static const JumpStr kEn = {
         L"Recent items", L"Frequent items",
         L"Pin this program to the taskbar",
         L"Unpin this program from the taskbar",
         L"Close window",
         L"Tasks", L"Minimize", L"Maximize", L"Restore",
-        L"Move", L"Size",
-        L"Unpin item" };
+        L"Move", L"Size" };
     static const JumpStr kEs = {
         L"Elementos recientes", L"Elementos frecuentes",
         L"Anclar este programa a la barra de tareas",
         L"Desanclar este programa de la barra de tareas",
         L"Cerrar ventana",
         L"Tareas", L"Minimizar", L"Maximizar", L"Restaurar",
-        L"Mover", L"Redimensionar",
-        L"Desanclar elemento" };
+        L"Mover", L"Redimensionar" };
     static const JumpStr kFr = {
         L"\u00c9l\u00e9ments r\u00e9cents", L"\u00c9l\u00e9ments fr\u00e9quents",
         L"\u00c9pingler ce programme \u00e0 la barre des t\u00e2ches",
         L"D\u00e9tacher ce programme de la barre des t\u00e2ches",
         L"Fermer la fen\u00eatre",
         L"T\u00e2ches", L"R\u00e9duire", L"Agrandir", L"Restaurer",
-        L"D\u00e9placer", L"Redimensionner",
-        L"D\u00e9tacher l'\u00e9l\u00e9ment" };
+        L"D\u00e9placer", L"Redimensionner" };
     static const JumpStr kDe = {
         L"Zuletzt verwendete Elemente", L"H\u00e4ufig verwendete Elemente",
         L"Dieses Programm an die Taskleiste anheften",
@@ -261,24 +255,21 @@ const JumpStr& Str(int lang) {
         L"Fenster schlie\u00dfen",
         L"Aufgaben", L"Minimieren", L"Maximieren",
         L"Wiederherstellen",
-        L"Verschieben", L"Gr\u00f6\u00dfe \u00e4ndern",
-        L"Element nicht anheften" };
+        L"Verschieben", L"Gr\u00f6\u00dfe \u00e4ndern" };
     static const JumpStr kPt = {
         L"Itens recentes", L"Itens frequentes",
         L"Fixar este programa na barra de tarefas",
         L"Desafixar este programa da barra de tarefas",
         L"Fechar janela",
         L"Tarefas", L"Minimizar", L"Maximizar", L"Restaurar",
-        L"Mover", L"Redimensionar",
-        L"Desafixar item" };
+        L"Mover", L"Redimensionar" };
     static const JumpStr kPl = {
         L"Ostatnie elementy", L"Cz\u0119ste elementy",
         L"Przypnij ten program do paska zada\u0144",
         L"Odepnij ten program od paska zada\u0144",
         L"Zamknij okno",
         L"Zadania", L"Minimalizuj", L"Maksymalizuj", L"Przywr\u00f3\u0107",
-        L"Przesu\u0144", L"Zmie\u0144 rozmiar",
-        L"Odepnij element" };
+        L"Przesu\u0144", L"Zmie\u0144 rozmiar" };
     static const JumpStr kRu = {
         L"\u041d\u0435\u0434\u0430\u0432\u043d\u0438\u0435 \u044d\u043b\u0435"
         L"\u043c\u0435\u043d\u0442\u044b",
@@ -298,8 +289,7 @@ const JumpStr& Str(int lang) {
         L"\u0420\u0430\u0437\u0432\u0435\u0440\u043d\u0443\u0442\u044c",
         L"\u0412\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c",
         L"\u041f\u0435\u0440\u0435\u043c\u0435\u0441\u0442\u0438\u0442\u044c",
-        L"\u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0440\u0430\u0437\u043c\u0435\u0440",
-        L"\u041e\u0442\u043a\u0440\u0435\u043f\u0438\u0442\u044c \u044d\u043b\u0435\u043c\u0435\u043d\u0442" };
+        L"\u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0440\u0430\u0437\u043c\u0435\u0440" };
     static const JumpStr kJa = {
         L"\u6700\u8fd1\u4f7f\u3063\u305f\u9805\u76ee",
         L"\u3088\u304f\u4f7f\u3046\u9805\u76ee",
@@ -313,8 +303,7 @@ const JumpStr& Str(int lang) {
         L"\u6700\u5927\u5316",
         L"\u5143\u306b\u6253\u3064\u3059",
         L"\u79fb\u52d5",
-        L"\u30b5\u30a4\u30ba\u5909\u66f4",
-        L"\u56fa\u5b9a\u3092\u89e3\u9664" };
+        L"\u30b5\u30a4\u30ba\u5909\u66f4" };
     static const JumpStr kZh = {
         L"\u6700\u8fd1\u4f7f\u7528\u3057\u305f\u9879\u76ee",
         L"\u7ecf\u5e38\u4f7f\u7528\u3059\u308b\u9879\u76ee",
@@ -326,8 +315,7 @@ const JumpStr& Str(int lang) {
         L"\u6700\u5927\u5316",
         L"\u8fd8\u539f",
         L"\u79fb\u52a8",
-        L"\u5927\u5c0f",
-        L"\u53d6\u6d88\u56fa\u5b9a" };
+        L"\u5927\u5c0f" };
     static const JumpStr kAr = {
         L"\u0627\u0644\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0623"
         L"\u062e\u064a\u0631\u0629",
@@ -346,8 +334,7 @@ const JumpStr& Str(int lang) {
         L"\u062a\u0643\u0628\u064a\u0631",
         L"\u0627\u0633\u062a\u0639\u0627\u062f\u0629",
         L"\u062a\u062d\u0631\u064a\u0643",
-        L"\u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u062d\u062c\u0645",
-        L"\u0625\u0644\u063a\u0627\u0621 \u0627\u0644\u062b\u0628\u064a\u062a" };
+        L"\u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u062d\u062c\u0645" };
     switch (lang) {
         case 1: return kEn; case 2: return kEs; case 3: return kFr;
         case 4: return kDe; case 5: return kPt; case 6: return kPl;
@@ -459,17 +446,15 @@ std::wstring JumpListWindow::ResolveAppUserModelId(HWND hwnd,
 /* ------------------------------------------------------------------ */
 /*  Real jump list read: IApplicationDocumentLists.                      */
 /*  This is the documented READ side of the Recent/Frequent sections.    */
-/*  The PINNED (custom) items are read with IApplicationDestinations -   */
-/*  the documented read view of the SAME store the Windows 7 taskbar     */
-/*  reads directly (HKCU\...\Explorer\ApplicationDestinations\<AppID>;   */
-/*  reverse-engineering evidence: the full key prefix and the            */
-/*  customopen/togglepin dispatch in the taskbar code, see               */
-/*  docs/JUMPLIST-RE-VERIFICATION.md). The earlier assumption that the   */
-/*  public API cannot read the pinned list was WRONG: BeginList +        */
-/*  GetObjectCollection of ICustomDestinationList (and the whole         */
-/*  IApplicationDestinations interface) return exactly the pinned set.   */
-/*  Nothing is ever invented: when the Shell exposes no list a section   */
-/*  simply stays hidden.                                                 */
+/*  The PINNED (custom) section has no documented read side at all on    */
+/*  Windows 7 and later: IApplicationDestinations only removes Recent/   */
+/*  Frequent destinations and ICustomDestinationList builds/replaces a   */
+/*  whole list - MSDN is explicit that the pinned items "cannot be       */
+/*  removed programmatically; only the user can remove them", and the    */
+/*  Windows 7 taskbar itself reads the store directly (reverse-          */
+/*  engineering evidence: docs/JUMPLIST-RE-VERIFICATION.md). So the      */
+/*  pinned section is not shown here; nothing is ever invented: when the */
+/*  Shell exposes no list a section simply stays hidden.                 */
 /* ------------------------------------------------------------------ */
 int32_t JumpListWindow::ReadDocumentLists(const std::wstring& appUserModelId,
         const std::wstring& exePath, std::vector<JumpListDoc>& outDocs) {
@@ -588,7 +573,6 @@ LRESULT CALLBACK JumpListWindow::OutsideMouseProc(int code, WPARAM wParam,
                                                    LPARAM lParam) {
     JumpListWindow& j = Instance();
     if (code >= 0 && j.m_interactive && j.IsVisible() &&
-        !j.m_menuTracking &&
         (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN ||
          wParam == WM_MBUTTONDOWN)) {
         const MSLLHOOKSTRUCT* mouse =
@@ -600,107 +584,6 @@ LRESULT CALLBACK JumpListWindow::OutsideMouseProc(int code, WPARAM wParam,
         }
     }
     return CallNextHookEx(j.m_outsideMouseHook, code, wParam, lParam);
-}
-
-/* ------------------------------------------------------------------ */
-/*  Pinned (custom) items: IApplicationDestinations.                   */
-/*  The documented read view of the store the Windows 7 taskbar reads  */
-/*  directly - HKCU\...\Explorer\ApplicationDestinations\<AppID>       */
-/*  (reverse-engineering evidence in docs/JUMPLIST-RE-VERIFICATION.md  */
-/*  - and of the customopen/togglepin item actions). Same identity     */
-/*  rule as the documents: explicit AUMID, else the implicit default   */
-/*  id derived from the executable path.                               */
-/* ------------------------------------------------------------------ */
-int32_t JumpListWindow::ReadPinnedItems(const std::wstring& appUserModelId,
-        std::vector<JumpListPinnedItem>& outItems) {
-    outItems.clear();
-    if (appUserModelId.empty()) {
-        return 0;   /* no identity: no pinned items, not a failure */
-    }
-
-    W7T_SEH_TRY {
-        raii::ComInitializer com;
-        if (FAILED(com.result()) && com.result() != RPC_E_CHANGED_MODE) {
-            LogTagged(L"JUMPLIST", L"CoInitializeEx failed hr=0x%08X",
-                      (unsigned)com.result());
-            return -1;
-        }
-        try {
-            ComPtr<IApplicationDestinations> adl;
-            const HRESULT hrCreate = CoCreateInstance(
-                CLSID_ApplicationDestinations, nullptr,
-                CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&adl));
-            if (FAILED(hrCreate) || !adl) {
-                /* Absent on systems without the destination stores: the
-                 * section stays empty, the rest of the list is intact. */
-                LogTagged(L"JUMPLIST",
-                          L"CoCreateInstance(ApplicationDestinations)"
-                          L" hr=0x%08X - no pinned items",
-                          (unsigned)hrCreate);
-                return 0;
-            }
-            const HRESULT hrSet = adl->SetAppID(appUserModelId.c_str());
-            if (FAILED(hrSet)) {
-                LogTagged(L"JUMPLIST", L"SetAppID failed hr=0x%08X",
-                          (unsigned)hrSet);
-                return -1;
-            }
-            UINT count = 0;
-            if (FAILED(adl->GetObjectCount(&count)) || count == 0) {
-                return 0;   /* the app pinned nothing: section stays hidden */
-            }
-            if (count > (UINT)kMaxPinnedItems) count = kMaxPinnedItems;
-
-            ComPtr<IDestinationList> list;
-            const HRESULT hrList = adl->GetObjectList(&list);
-            if (FAILED(hrList) || !list) {
-                LogTagged(L"JUMPLIST", L"GetObjectList failed hr=0x%08X",
-                          (unsigned)hrList);
-                return -1;
-            }
-            for (UINT i = 0; i < count; ++i) {
-                /* One malformed element must not stop the others. */
-                ComPtr<IShellItem> item;
-                if (FAILED(list->GetItem(i, &item)) || !item) continue;
-                JumpListPinnedItem entry;
-                PWSTR name = nullptr;
-                if (SUCCEEDED(item->GetDisplayName(SIGDN_NORMALDISPLAY,
-                                                   &name))) {
-                    entry.name = name ? std::wstring(name) : std::wstring();
-                    CoTaskMemFree(name);
-                    name = nullptr;
-                }
-                /* Full file path when the item resolves to a file (the
-                 * normal case for pinned items); empty otherwise - the
-                 * row keeps its name and its name-only tooltip, like the
-                 * Windows 7 NoJumpListPathTooltip case. */
-                PWSTR fsp = nullptr;
-                if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH,
-                                                   &fsp))) {
-                    entry.path = fsp ? std::wstring(fsp) : std::wstring();
-                    CoTaskMemFree(fsp);
-                    fsp = nullptr;
-                }
-                if (entry.name.empty()) entry.name = entry.path;
-                if (entry.name.empty()) continue;
-                outItems.push_back(std::move(entry));
-            }
-            LogTagged(L"JUMPLIST", L"pinned items loaded: %d (capped at %d)",
-                      (int)outItems.size(), kMaxPinnedItems);
-            return 0;
-        } catch (...) {
-            outItems.clear();
-            LogTagged(L"JUMPLIST", L"C++ exception while reading the pinned"
-                                   L" items");
-            return -1;
-        }
-    } W7T_SEH_CATCH {
-        outItems.clear();
-        LogTagged(L"JUMPLIST", L"hardware fault while reading the pinned"
-                               L" items");
-        return -1;
-    } W7T_SEH_END
-    return -1;
 }
 
 void JumpListWindow::RegisterClassOnce() {
@@ -723,7 +606,6 @@ int JumpListWindow::Sc(int v96) const {
 void JumpListWindow::ClearContent() {
     m_rows.clear();   /* each Row owns its HICON through raii::IconHandle */
     m_docs.clear();
-    m_pinnedItems.clear();
 }
 
 void JumpListWindow::BuildRows() {
@@ -755,29 +637,6 @@ void JumpListWindow::BuildRows() {
             m_rows.push_back(std::move(r));
         }
     };
-
-    /* Pinned (custom) items first - the Windows 7 order: they appear
-     * directly, without a section header, above the document sections.
-     * The same real-file icon rule as the documents applies. */
-    for (const JumpListPinnedItem& pinned : m_pinnedItems) {
-        Row r;
-        r.kind = Row::PinnedItem;
-        r.label = pinned.name;
-        r.path = pinned.path;
-        if (!r.path.empty()) {
-            SHFILEINFOW sfi{};
-            W7T_SEH_TRY {
-                if (SHGetFileInfoW(r.path.c_str(), 0, &sfi, sizeof(sfi),
-                                   SHGFI_ICON | SHGFI_SMALLICON)
-                    && sfi.hIcon != nullptr) {
-                    r.icon.reset(sfi.hIcon);
-                }
-            } W7T_SEH_CATCH {
-                /* row survives, iconless */
-            } W7T_SEH_END
-        }
-        m_rows.push_back(std::move(r));
-    }
 
     addDocs(0, Row::DocRecent);
 
@@ -840,10 +699,10 @@ void JumpListWindow::BuildRows() {
         close.label = S.closeWindow;
         m_rows.push_back(std::move(close));
     }
-    /* FUTURE IMPLEMENTATION: the former "Unpin this program from the
-     * taskbar" row is intentionally not added for pinned applications.
-     * Keep PerformPinOrUnpin's unpin path available for a future design,
-     * but do not expose that command in the current jump-list interface. */
+    /* The "Pin this program to the taskbar" row above (the taskbar pin
+     * folder .lnk) is the application's taskbar pin - a different store
+     * from the jump list's pinned items, which no public API exposes;
+     * see docs/JUMPLIST-RE-VERIFICATION.md. */
 }
 
 void JumpListWindow::Layout() {
@@ -858,8 +717,7 @@ void JumpListWindow::Layout() {
         const bool isTask = r.kind == Row::Task;
 
         /* Section header band before the first row of every section that
-         * has one: the document sections and Tasks. The pinned items
-         * have NO header in Windows 7 (they appear directly). */
+         * has one: the document sections and Tasks. */
         if ((isDoc || isTask) && (int)r.kind != lastKind) {
             y += Sc(kHeader96);
         }
@@ -870,8 +728,7 @@ void JumpListWindow::Layout() {
                        lastKind == (int)Row::DocFrequent ||
                        lastKind == (int)Row::App ||
                        lastKind == (int)Row::Close ||
-                       lastKind == (int)Row::Pin ||
-                       lastKind == (int)Row::PinnedItem)) {
+                       lastKind == (int)Row::Pin)) {
             y += Sc(kSep96);
         }
 
@@ -1011,8 +868,6 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
     m_interactive = false;
     m_closeHot = false;
     m_closeDown = false;
-    m_pinnedMenuRow = -1;
-    m_menuTracking = false;
     m_tipRow = -1;
     m_tipShown = false;
     m_tipStart = 0;
@@ -1053,12 +908,6 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
         if (outAppId != nullptr && outAppIdCap > 0) {
             CopyToFixed(outAppId, (size_t)outAppIdCap, aumid);
         }
-        /* The identity the jump list stores are queried with (same rule
-         * as the documents: explicit AUMID, else the implicit default id
-         * derived from the executable path). Kept for the unpin write. */
-        m_askId = aumid;
-        if (m_askId.empty()) m_askId = exePath;
-
         /* --- the Windows 7 policy (Start_JumpListItems) ------------- */
         /* 0 disables the jump lists, exactly as in Windows 7 (the value
          * name is evidenced in the taskbar code of the reverse-
@@ -1089,14 +938,6 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
             return -1;   /* Shell/COM failure: the managed side cancels */
         }
         const int32_t docCount = (int32_t)m_docs.size();
-
-        /* --- the pinned (custom) items - best effort ---------------- */
-        /* A failure here must not take the rest of the list down: the
-         * section simply stays hidden, like the document sections. */
-        m_pinnedItems.clear();
-        if (ReadPinnedItems(m_askId, m_pinnedItems) < 0) {
-            m_pinnedItems.clear();
-        }
 
         /* --- app icon for the application row: pixels handed over by the
          *     managed side (the group's live icon, packaged apps included) */
@@ -1148,10 +989,10 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
         InvalidateRect(m_hwnd, nullptr, TRUE);
         LogTagged(L"JUMPLIST",
                   L"popup opened: rect=(%d,%d)-(%d,%d) screen px, dpi=%d,"
-                  L" entries=%d, pinned=%d, edge=%d",
+                  L" entries=%d, edge=%d",
                   (int)m_popupRect.left, (int)m_popupRect.top,
                   (int)m_popupRect.right, (int)m_popupRect.bottom,
-                  (int)m_dpi, (int)docCount, (int)m_pinnedItems.size(),
+                  (int)m_dpi, (int)docCount,
                   (int)edge);
         return docCount;
     } W7T_SEH_CATCH {
@@ -1302,32 +1143,6 @@ int32_t JumpListWindow::ActivateRow(int32_t screenX, int32_t screenY,
                     }
                     break;
                 }
-                case Row::PinnedItem: {
-                    /* The customopen action: open the pinned item with
-                     * its registered application (a .lnk or an exe, as
-                     * stored). */
-                    if (row.path.empty()) {
-                        LogTagged(L"JUMPLIST",
-                                  L"pinned item has no resolvable path -"
-                                  L" nothing to open");
-                    } else {
-                        const HINSTANCE hi = ShellExecuteW(nullptr, L"open",
-                            row.path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-                        const INT_PTR rc = (INT_PTR)hi;
-                        if (rc <= 32) {
-                            LogTagged(L"JUMPLIST",
-                                      L"ShellExecuteW(open pinned item)"
-                                      L" failed code=%d path=\"%s\"",
-                                      (int)rc, row.path.c_str());
-                        } else {
-                            bits |= BitsOpenedDoc;
-                            LogTagged(L"JUMPLIST",
-                                      L"item activated: pinned item \"%s\"",
-                                      row.path.c_str());
-                        }
-                    }
-                    break;
-                }
                 case Row::Task:
                     ExecuteTask(row.cmd);
                     LogTagged(L"JUMPLIST", L"item activated: task command"
@@ -1447,146 +1262,6 @@ void JumpListWindow::ExecuteTask(int32_t cmd) {
     } W7T_SEH_END
 }
 
-/* Remove one pinned item from the application's destination store, via
- * the documented WRITE API (ICustomDestinationList: BeginList ->
- * GetObjectCollection -> RemoveAt -> SetItemObjectList). The store is
- * the same one the Windows 7 taskbar reads (see the ReadPinnedItems
- * header). Matching is by full file path; when the store holds no
- * matching entry (or the write fails) nothing is reported - the next
- * refresh simply shows what the store says. */
-void JumpListWindow::UnpinItem(int row) {
-    if (row < 0 || row >= (int)m_rows.size()) return;
-    const std::wstring path = m_rows[(size_t)row].path;
-    if (path.empty()) {
-        LogTagged(L"JUMPLIST", L"unpin refused: the item has no resolvable"
-                               L" path");
-        return;
-    }
-    W7T_SEH_TRY {
-        raii::ComInitializer com;
-        if (FAILED(com.result()) && com.result() != RPC_E_CHANGED_MODE) {
-            return;
-        }
-        try {
-            ComPtr<ICustomDestinationList> cdl;
-            if (FAILED(CoCreateInstance(CLSID_CustomDestinationList, nullptr,
-                    CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&cdl))) || !cdl) {
-                LogTagged(L"JUMPLIST", L"unpin failed: no CustomDestination"
-                                       L"List available");
-                return;
-            }
-            if (FAILED(cdl->SetAppID(m_askId.c_str()))) {
-                LogTagged(L"JUMPLIST", L"unpin failed: SetAppID");
-                return;
-            }
-            ComPtr<ICustomDestinationList> list;
-            if (FAILED(cdl->BeginList(&list)) || !list) {
-                LogTagged(L"JUMPLIST", L"unpin failed: BeginList");
-                return;
-            }
-            ComPtr<IDestinationList> items;
-            if (FAILED(list->GetObjectCollection(&items)) || !items) {
-                LogTagged(L"JUMPLIST", L"unpin failed: GetObjectCollection");
-                return;
-            }
-            UINT n = 0;
-            if (FAILED(items->GetItemCount(&n))) {
-                LogTagged(L"JUMPLIST", L"unpin failed: GetItemCount");
-                return;
-            }
-            bool removed = false;
-            for (UINT i = 0; i < n; ++i) {
-                ComPtr<IShellItem> it;
-                if (FAILED(items->GetItem(i, &it)) || !it) continue;
-                PWSTR fsp = nullptr;
-                if (SUCCEEDED(it->GetDisplayName(SIGDN_FILESYSPATH, &fsp))) {
-                    const bool match = fsp != nullptr &&
-                                       _wcsicmp(fsp, path.c_str()) == 0;
-                    CoTaskMemFree(fsp);
-                    if (match) {
-                        removed = SUCCEEDED(items->RemoveAt(i));
-                        break;
-                    }
-                }
-            }
-            if (removed && SUCCEEDED(list->SetItemObjectList(items))) {
-                LogTagged(L"JUMPLIST", L"pinned item unpinned: \"%s\"",
-                          path.c_str());
-            } else {
-                LogTagged(L"JUMPLIST",
-                          L"unpin did not take effect for \"%s\" (entry"
-                          L" not in the store or the write failed)",
-                          path.c_str());
-            }
-        } catch (...) {
-            LogTagged(L"JUMPLIST", L"C++ exception while unpinning the item");
-        }
-    } W7T_SEH_CATCH {
-        LogTagged(L"JUMPLIST", L"hardware fault while unpinning the item");
-    } W7T_SEH_END
-}
-
-/* Rebuild the list after a store change (unpin): the pinned section is
- * re-read and the popup is resized IN PLACE - the Windows 7 list keeps
- * its anchored position and the remaining rows, it does not close. */
-void JumpListWindow::RefreshAfterItemChange() {
-    if (m_hwnd == nullptr || !IsWindow(m_hwnd)) return;
-    W7T_SEH_TRY {
-        m_pinnedItems.clear();
-        if (ReadPinnedItems(m_askId, m_pinnedItems) < 0) {
-            m_pinnedItems.clear();   /* failure: show the rest, stay open */
-        }
-        m_hover = -1;
-        m_pinnedMenuRow = -1;
-        ClearRowTooltip();
-        BuildRows();
-        Layout();
-        const RECT before = m_popupRect;
-        SetWindowPos(m_hwnd, HWND_TOPMOST, before.left, before.top,
-                     m_width, m_totalH, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        m_popupRect = RECT{ before.left, before.top,
-                            before.left + m_width, before.top + m_totalH };
-        UpdateInteractionArea();
-        InvalidateRect(m_hwnd, nullptr, TRUE);
-    } W7T_SEH_CATCH {
-        LogTagged(L"JUMPLIST", L"hardware fault while refreshing the list");
-    } W7T_SEH_END
-}
-
-/* The Windows 7 context of a pinned row (the togglepin action): one
- * entry, the unpin. TrackPopupMenuEx is synchronous - the returned
- * command is the selection (0 = cancelled, the list stays open). */
-void JumpListWindow::ShowUnpinMenu(int row, POINT clientPt) {
-    if (row < 0 || row >= (int)m_rows.size()) return;
-    if (m_rows[(size_t)row].path.empty()) {
-        /* Nothing to unpin without a resolvable path (the same guard
-         * UnpinItem applies). */
-        LogTagged(L"JUMPLIST", L"item menu shown: no path, nothing to do");
-        return;
-    }
-    W7T_SEH_TRY {
-        wchar_t entry[128];
-        lstrcpynW(entry, Str(m_lang).unpinItem, 128);
-        HMENU menu = CreatePopupMenu();
-        if (menu == nullptr) return;
-        AppendMenuW(menu, MF_STRING, 0x3701, entry);
-        POINT pt = clientPt;
-        ClientToScreen(m_hwnd, &pt);
-        m_menuTracking = true;
-        const int choice = TrackPopupMenuEx(
-            menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON,
-            pt.x, pt.y, 0, m_hwnd);
-        m_menuTracking = false;
-        DestroyMenu(menu);
-        if (choice == 0x3701) {
-            UnpinItem(row);
-            RefreshAfterItemChange();
-        }
-    } W7T_SEH_CATCH {
-        LogTagged(L"JUMPLIST", L"hardware fault while showing the item menu");
-    } W7T_SEH_END
-}
-
 /* The Windows 7 tooltip of a row: the full path (the name only when the
  * item has no resolvable path - NoJumpListPathTooltip; the application
  * row shows its launch path). */
@@ -1594,7 +1269,6 @@ std::wstring JumpListWindow::TooltipFor(const Row& row) const {
     switch (row.kind) {
         case Row::DocRecent:
         case Row::DocFrequent:
-        case Row::PinnedItem:
             return row.path.empty() ? row.label : row.path;
         case Row::App:
             return m_launchPath;
@@ -1740,8 +1414,7 @@ void JumpListWindow::OnPaint(HWND hwnd) {
             /* Section header ("Recent items" / "Frequent items" /
              * "Tasks"): bold steel-blue with the separator under it -
              * the Windows 7 jump list band. Its y comes from the row
-             * band Layout left empty right above this row. The pinned
-             * items have no header, in Windows 7. */
+             * band Layout left empty right above this row. */
             const int hy = r.rect.top - Sc(kHeader96);
             if (fontBold.valid()) SelectObject(hdc, (HGDIOBJ)fontBold.get());
             SetTextColor(hdc, RGB(0x40, 0x58, 0x78));
@@ -1757,8 +1430,7 @@ void JumpListWindow::OnPaint(HWND hwnd) {
                        lastKind == (int)Row::DocFrequent ||
                        lastKind == (int)Row::App ||
                        lastKind == (int)Row::Close ||
-                       lastKind == (int)Row::Pin ||
-                       lastKind == (int)Row::PinnedItem)) {
+                       lastKind == (int)Row::Pin)) {
             hline(r.rect.top - Sc(kSep96) / 2);
         }
         lastKind = (int)r.kind;
@@ -1770,10 +1442,9 @@ void JumpListWindow::OnPaint(HWND hwnd) {
         }
 
         const int iconLeft = Sc(14);
-        /* Pinned items and tasks share the document column (the tasks
-         * carry no icon; the column keeps the text aligned). */
-        const int textLeft = (isDoc || r.kind == Row::PinnedItem ||
-                              r.kind == Row::Task)
+        /* Tasks share the document column (they carry no icon; the
+         * column keeps the text aligned). */
+        const int textLeft = (isDoc || r.kind == Row::Task)
             ? iconLeft + Sc(kDocIcon96) + Sc(6)
             : (r.kind == Row::App
                 ? iconLeft + Sc(kAppIcon96) + Sc(9)
@@ -1789,7 +1460,7 @@ void JumpListWindow::OnPaint(HWND hwnd) {
         DrawTextW(hdc, r.label.c_str(), -1, &tr,
                   DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
 
-        if ((isDoc || r.kind == Row::PinnedItem) && r.icon.get() != nullptr) {
+        if (isDoc && r.icon.get() != nullptr) {
             const int box = Sc(kDocIcon96);
             DrawIconEx(hdc, iconLeft, r.rect.top + (Sc(kRowDoc96) - box) / 2,
                        r.icon.get(), box, box, 0, nullptr, DI_NORMAL);
@@ -1857,38 +1528,6 @@ LRESULT CALLBACK JumpListWindow::WndProc(HWND hwnd, UINT msg,
                 if (!j.m_closeDown) InvalidateRect(hwnd, nullptr, FALSE);
                 return 0;
             }
-            case WM_RBUTTONDOWN: {
-                JumpListWindow& j = Instance();
-                if (j.IsVisible()) {
-                    POINT cl{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-                    const int hit = j.HitRowClient(cl);
-                    if (hit >= 0 &&
-                        j.m_rows[(size_t)hit].kind == Row::PinnedItem) {
-                        /* The Windows 7 item context (togglepin): armed
-                         * on the pinned row, completed by ShowUnpinMenu
-                         * on the button-up. */
-                        j.m_pinnedMenuRow = hit;
-                        SetCapture(hwnd);
-                    }
-                }
-                return 0;
-            }
-            case WM_RBUTTONUP: {
-                JumpListWindow& j = Instance();
-                if (!j.IsVisible()) return 0;
-                POINT cl{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-                if (j.m_pinnedMenuRow >= 0) {
-                    if (GetCapture() == hwnd) ReleaseCapture();
-                    const int row = j.m_pinnedMenuRow;
-                    j.m_pinnedMenuRow = -1;
-                    const int hit = j.HitRowClient(cl);
-                    if (hit == row &&
-                        j.m_rows[(size_t)hit].kind == Row::PinnedItem) {
-                        j.ShowUnpinMenu(row, cl);
-                    }
-                }
-                return 0;
-            }
             case WM_LBUTTONDOWN: {
                 JumpListWindow& j = Instance();
                 POINT cl{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
@@ -1945,8 +1584,6 @@ LRESULT CALLBACK JumpListWindow::WndProc(HWND hwnd, UINT msg,
                 Instance().m_appIcon.reset();
                 Instance().m_pinIcon.reset();
                 Instance().m_tooltip = nullptr;
-                Instance().m_pinnedMenuRow = -1;
-                Instance().m_menuTracking = false;
                 return 0;
         }
     } W7T_SEH_CATCH {

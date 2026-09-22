@@ -68,13 +68,7 @@ if(W7T_BUILD_STAMP STREQUAL "local")
     endif()
 endif()
 message(STATUS "Win7TaskbarCore build stamp: ${W7T_BUILD_STAMP}")
-# NTDDI_VERSION is defined explicitly (not only _WIN32_WINNT/WINVER): the
-# SDK's shobjidl.h declares the jump list destination interfaces
-# (IApplicationDestinations, ICustomDestinationList, IDestinationList and
-# their CLSIDs) only when NTDDI_VERSION >= NTDDI_WIN7, and this SDK build
-# does not derive it from _WIN32_WINNT. The value matches the declared
-# 0x0A00 (Windows 10) target: 0x0A000100 = NTDDI_WIN10_TH1.
-target_compile_definitions(Win7TaskbarCore PRIVATE W7T_BUILDING_DLL=1 UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00 NTDDI_VERSION=0x0A000100 "W7T_BUILD_STAMP=L\"${W7T_BUILD_STAMP}\"")
+target_compile_definitions(Win7TaskbarCore PRIVATE W7T_BUILDING_DLL=1 UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00 "W7T_BUILD_STAMP=L\"${W7T_BUILD_STAMP}\"")
 # comdlg32: v1.21.7, ChooseColorW for the colour picker of the extra
 # settings tab (the standard Windows colour chooser).
 target_link_libraries(Win7TaskbarCore PRIVATE user32 gdi32 shell32 ole32 oleaut32 comctl32 wtsapi32 dwmapi uxtheme msimg32 propsys shlwapi advapi32 powrprof wlanapi iphlpapi uuid psapi windowscodecs comdlg32)

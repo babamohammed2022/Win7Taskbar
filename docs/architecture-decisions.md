@@ -371,23 +371,28 @@ arrow alone:
   nothing is invented.
 - The content sections are RE-verified against the Windows 7 taskbar code
   (Windows Thin PC `explorer.exe` string/xref dump; full analysis in
-  `docs/JUMPLIST-RE-VERIFICATION.md`): the **pinned (custom) items** are
-  read with `IApplicationDestinations` - the documented read view of the
-  store the Windows 7 taskbar reads directly
-  (`HKCU\...\Explorer\ApplicationDestinations\<AppID>`, evidenced in the
-  dump) - and are shown above the document sections with their real
-  icons; a click opens the item (`customopen`) and a right-click offers
-  the unpin (`togglepin`) through the documented write API
-  (`ICustomDestinationList`), with an in-place list refresh. The
-  `Start_JumpListItems = 0` policy disables the jump lists (open code -4),
-  and rows carry the Windows 7 path tooltip (name only when unresolvable
-  - the `NoJumpListPathTooltip` case). The **Tasks** section
+  `docs/JUMPLIST-RE-VERIFICATION.md`). Recent/Frequent come from
+  `IApplicationDocumentLists`. The **pinned (custom) section is NOT
+  shown**: the dump evidences the Windows 7 taskbar reading the
+  `HKCU\...\Explorer\ApplicationDestinations\<AppID>` store directly -
+  the binary imports no destination-list COM interface at all - and MSDN
+  confirms that on Windows 7 and later no public API reads or removes the
+  pinned set (`IApplicationDestinations` only removes Recent/Frequent
+  destinations; the pinned items "cannot be removed programmatically;
+  only the user can remove them"). An early v2.62 iteration attempted the
+  section through `IApplicationDestinations::GetObjectCount/GetObjectList`
+  and an `ICustomDestinationList` GetObjectCollection/SetItemObjectList
+  unpin; SDK compilation plus MSDN proved those method sets belong to the
+  Vista revision of the interfaces, so the original "no public read API"
+  comment was right and the iteration was withdrawn (section 7 of the
+  RE note). The dump-evidenced `customopen` action is the row click
+  (`ShellExecuteW` on the resolved path). The `Start_JumpListItems = 0`
+  policy disables the jump lists (open code -4), and rows carry the
+  Windows 7 path tooltip (name only when unresolvable - the
+  `NoJumpListPathTooltip` case). The **Tasks** section
   (Minimize/Maximize/Restore/Move/Size for live window groups, reusing
   `WindowManager::ExecuteCommand`) is general Windows 7 knowledge - the
-  dump carries no Tasks strings - and is flagged as such. The earlier
-  code comment claiming the pinned list cannot be read through the public
-  API was wrong (it hid exactly the section the evidence says Windows 7
-  shows) and has been corrected. Telemetry strings
+  dump carries no Tasks strings - and is flagged as such. Telemetry strings
   (`taskbarpin`/`startpin`/...) were recorded and deliberately NOT
   adopted.
 - Every coordinate crossing the interop boundary is a **screen physical
