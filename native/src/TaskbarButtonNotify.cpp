@@ -6,6 +6,7 @@
 #include "AppBarService.h"
 #include "Common.h"   /* w7t::LogTagged */
 
+#include <cstdlib>
 #include <mutex>
 #include <unordered_set>
 
@@ -79,7 +80,8 @@ UINT GetTaskbarButtonMessageId() {
 
 bool TaskbandProbeEnabled() {
     static const bool enabled = [] {
-        const wchar_t* v = ::getenv(L"W7T_TASKBAND_PROBE");
+        /* The wide CRT variant: the ANSI getenv would mangle the name. */
+        const wchar_t* v = _wgetenv(L"W7T_TASKBAND_PROBE");
         return v != nullptr && v[0] != L'0';
     }();
     return enabled;
