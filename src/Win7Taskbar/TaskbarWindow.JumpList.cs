@@ -82,6 +82,7 @@ namespace Win7Taskbar
         private const string JumpListArrowName = "JumpListArrow";
 
         private FrameworkElement? _jumpButton;      // button the open list belongs to
+        private NativeMethods.RECT _jumpButtonRectPx; // last resolved button rect, SCREEN physical pixels
         private TaskGroup? _jumpGroup;
         private FrameworkElement? _jumpArrowPress;  // button holding an un-released arrow press
 
@@ -572,7 +573,7 @@ namespace Win7Taskbar
         /// the capture is released and the button keeps its ordinary
         /// activation on the release.</summary>
         private void BeginJumpDrag(FrameworkElement button,
-                                   MouseButtonEventArgs e)
+                                   MouseEventArgs e)
         {
             DiagnosticLogger.Write("JUMPLIST",
                 "drag away from the bar crossed the threshold - opening" +
