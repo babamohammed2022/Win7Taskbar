@@ -6,6 +6,11 @@
 // STESSO helper condiviso degli altri flyout (ApplyAeroFlyoutStyle).
 // Nessuna icona inventata: ogni stato (colore x livello, vuota, assente,
 // avviso, errore carica, spina AC) e' un glifo ritagliato dalla bitmap.
+//
+// v2.64: l'icona nel pannello e' OMESSA (blocco commentato in OnPaint):
+// il glifo della striscia e' un fallback e resta incompleto; restano
+// percentuale, tempo residuo, stato di carica e link. I membri delle
+// icone restano per il riuso quando il disegno sara' completo.
 
 #pragma once
 #include <windows.h>
@@ -44,7 +49,9 @@ private:
     bool m_linkHot = false;          /* v1.7: hover sul link (stile overflow) */
     int  m_lang = 0;
 
-    /* Icone decodificate UNA volta: HBITMAP 32bpp premoltiplicato. */
+    /* Icone decodificate UNA volta: HBITMAP 32bpp premoltiplicato.
+     * v2.64: momentaneamente NON usate (icona del pannello omessa,
+     * vedi OnPaint); restano per il riuso futuro. */
     HBITMAP m_icons[31] = {};
     int     m_iconW[31] = {};
     int     m_iconH[31] = {};

@@ -4,8 +4,13 @@
 // Costruito da zero con API pubbliche documentate (GetSystemPowerStatus,
 // GDI/AlphaBlend, DWM). Bordo Aero con lo STESSO helper condiviso degli
 // altri flyout (ApplyAeroFlyoutStyle in FlyoutLauncher.cpp), non una copia
-// della logica. Le icone sono i glifi REALI ritagliati dalla striscia
-// fornita (BatteryAssets.inc), decodificati UNA volta all'avvio.
+// della logica.
+//
+// v2.64: l'ICONA DELLA BATTERIA NEL PANNELLO E' OMESSA DI PROPOSITO
+// (blocco commentato in OnPaint): l'unico disegno disponibile qui e' il
+// glifo di RIPIEGO ritagliato dalla striscia (BatteryAssets.inc) che,
+// essendo un fallback, resta incompleto. Percentuale, tempo residuo,
+// stato di carica e link del pannello restano invariati.
 
 #include "BatteryFlyout.h"
 #include "BatteryAssets.inc"
@@ -122,19 +127,40 @@ static void* GdipBitmapFromArgb(const std::vector<uint32_t>& px, int w, int h) {
     return bmp;
 }
 
+/* v2.64: RAII per un graphics GDI+ creato su un DC estraneo: qualunque
+ * modo di uscire dallo scope passa da GdipDeleteGraphics (prima lo faceva
+ * solo il percorso felice: un eventuale return anticipato lo perdeva). */
+class ScopedGdipGraphics {
+public:
+    explicit ScopedGdipGraphics(void* g) : m_g(g) {}
+    ~ScopedGdipGraphics() {
+        if (m_g != nullptr && fGdipDeleteGraphics != nullptr) {
+            fGdipDeleteGraphics(m_g);
+        }
+    }
+    ScopedGdipGraphics(const ScopedGdipGraphics&) = delete;
+    ScopedGdipGraphics& operator=(const ScopedGdipGraphics&) = delete;
+    void* get() const { return m_g; }
+
+private:
+    void* m_g;
+};
+
 /* Disegno ad alta qualita' (interpolazione bicubica + smoothing), come
- * DrawGdipBitmapHighQuality della mod di riferimento. */
-static bool GdipDrawHQ(HDC hdc, void* bmp, int x, int y, int w, int h) {
-    if (!hdc || !bmp || w <= 0 || h <= 0) return false;
+ * DrawGdipBitmapHighQuality della mod di riferimento.
+ * [[maybe_unused]]: l'unico chiamante e' il blocco icona di OnPaint,
+ * omesso dalla v2.64 (vedi li'); la funzione resta pronta al riuso. */
+[[maybe_unused]] static bool GdipDrawHQ(HDC hdc, void* bmp, int x, int y, int w, int h) {
+    if (!hdc || !bmp || w <= 0 || h <= 0 || !fGdipCreateFromHDC ||
+        !fGdipDrawImageRectI || !fGdipDeleteGraphics) return false;
     void* g = nullptr;
     if (fGdipCreateFromHDC(hdc, &g) != 0 || !g) return false;
+    ScopedGdipGraphics guard(g);
     if (fGdipSetInterpolationMode)   fGdipSetInterpolationMode(g, 7);
     if (fGdipSetSmoothingMode)       fGdipSetSmoothingMode(g, 2);
     if (fGdipSetCompositingQuality)  fGdipSetCompositingQuality(g, 2);
     if (fGdipSetPixelOffsetMode)     fGdipSetPixelOffsetMode(g, 2);
-    const int st = fGdipDrawImageRectI(g, bmp, x, y, w, h);
-    fGdipDeleteGraphics(g);
-    return st == 0;
+    return fGdipDrawImageRectI(g, bmp, x, y, w, h) == 0;
 }
 
 /* v2.59: LE TRADUZIONI DI QUESTO FLYOUT NON STANNO PIU' QUI.
@@ -190,19 +216,27 @@ void BatteryFlyout::RegisterClassOnce() {
 
 void BatteryFlyout::DecodeIconsOnce() {
     if (m_iconsReady) return;
-    for (int i = 0; i < battassets::IdxCount; ++i) {
-        std::vector<uint32_t> px;
-        int w = 0, h = 0;
-        /* decodifica UNA volta; un glifo corrotto non blocca gli altri */
-        if (DecodeEmbeddedPng(battassets::kAll[i].b64, px, w, h, false, 0)) {
-            m_icons[i] = MakeHBitmapFromArgb(px, w, h);
-            m_iconW[i] = w;
-            m_iconH[i] = h;
-            /* v2.41: stessa sorgente anche come bitmap GDI+ (HQ). */
-            m_gdip[i] = GdipBitmapFromArgb(px, w, h);
+    /* v2.64: anche qui try/catch: un'allocazione che fallisce non deve
+     * mai arrivare alla window procedure; si riprova alla prossima
+     * apertura (m_iconsReady resta falso). */
+    try {
+        for (int i = 0; i < battassets::IdxCount; ++i) {
+            std::vector<uint32_t> px;
+            int w = 0, h = 0;
+            /* decodifica UNA volta; un glifo corrotto non blocca gli altri */
+            if (DecodeEmbeddedPng(battassets::kAll[i].b64, px, w, h, false, 0)) {
+                m_icons[i] = MakeHBitmapFromArgb(px, w, h);
+                m_iconW[i] = w;
+                m_iconH[i] = h;
+                /* v2.41: stessa sorgente anche come bitmap GDI+ (HQ). */
+                m_gdip[i] = GdipBitmapFromArgb(px, w, h);
+            }
         }
+        m_iconsReady = true;
+    } catch (...) {
+        /* si vive senza icone decodificate; il pannello v2.64 comunque
+         * non le disegna piu' (vedi OnPaint). */
     }
-    m_iconsReady = true;
 }
 
 void BatteryFlyout::Shutdown() {
@@ -227,7 +261,11 @@ RECT BatteryFlyout::LinkRect() const {
 void BatteryFlyout::ShowAt(const RECT& iconRect) {
     W7T_SEH_TRY
         RegisterClassOnce();
-        DecodeIconsOnce();
+        /* v2.64: l'icona del pannello e' omessa (vedi OnPaint), quindi la
+         * decodifica della striscia non serve piu': non si paga piu' alla
+         * singola apertura. Da riattivare INSIEME al blocco icona di
+         * OnPaint se il disegno di ripiego diventa completo. */
+        /* DecodeIconsOnce(); */
         if (m_hwnd == nullptr) {
             m_hwnd = CreateWindowExW(
                 WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
@@ -294,9 +332,40 @@ private:
     HGDIOBJ m_old;
 };
 
+/* v2.64: RAII per BeginPaint/EndPaint: il distruttore chiude e valida la
+ * regione di paint anche su return anticipato o eccezione catturata
+ * (prima un EndPaint saltato avrebbe lasciato la finestra segnata "da
+ * ridisegnare" per sempre). */
+class ScopedPaint {
+public:
+    ScopedPaint(HWND hwnd, PAINTSTRUCT& ps)
+        : m_hwnd(hwnd), m_ps(ps), m_hdc(BeginPaint(hwnd, &ps)) {}
+    ~ScopedPaint() {
+        if (m_hdc != nullptr) {
+            EndPaint(m_hwnd, &m_ps);
+        }
+    }
+    ScopedPaint(const ScopedPaint&) = delete;
+    ScopedPaint& operator=(const ScopedPaint&) = delete;
+
+    bool valid() const { return m_hdc != nullptr; }
+    HDC  hdc()   const { return m_hdc; }
+
+private:
+    HWND         m_hwnd;
+    PAINTSTRUCT& m_ps;
+    HDC          m_hdc;
+};
+
 void BatteryFlyout::OnPaint(HWND hwnd) {
-    PAINTSTRUCT ps;
-    HDC hdc = BeginPaint(hwnd, &ps);
+    PAINTSTRUCT ps{};
+    ScopedPaint paint(hwnd, ps);
+    if (!paint.valid()) return;
+    HDC hdc = paint.hdc();
+
+    /* v2.64: il corpo del paint gira in un try/catch: nessuna eccezione
+     * C++ verso la window procedure; ScopedPaint chiude il paint comunque. */
+    try {
 
     RECT client{};
     GetClientRect(hwnd, &client);
@@ -312,6 +381,16 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
     const int  percent  = (sps.BatteryLifePercent <= 100)
                           ? static_cast<int>(sps.BatteryLifePercent) : -1;
 
+    /* v2.64 - L'ICONA DELLA BATTERIA E' OMESSA DI PROPOSITO.
+     *
+     * L'unico disegno disponibile per questo pannello e' il glifo
+     * ritagliato dalla striscia di RIPIEGO (BatteryAssets.inc): essendo
+     * un fallback, e non un disegno completo, l'icona resta incompleta
+     * e si sceglie di NON mostrarla. Il blocco resta commentato per il
+     * riuso futuro: per riattivarlo serve anche DecodeIconsOnce() in
+     * ShowAt(). Percentuale, tempo residuo, stato di carica e link non
+     * cambiano. */
+#if 0
     /* scegli il glifo: livello per decile, serie per stato. La striscia del
      * progetto disegna la batteria con la spina quando il PC e' collegato
      * alla rete elettrica, quindi la spina non si sovrappone piu': e' gia'
@@ -327,6 +406,7 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
         if (lvl > maxLvl) lvl = maxLvl;
         idx = base + lvl - 1;
     }
+#endif
     /* v1.7: barra inferiore col link, gradiente e riga di separazione
      * IDENTICI al pannello overflow (233/240/248 -> 240/245/252,
      * riga CC/D9/EA). Il link in hover usa la selezione dell'overflow
@@ -351,6 +431,9 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
      * identical at rest and under the mouse; hover feedback is only the
      * link text colour below plus the hand cursor. */
 
+    /* v2.64: disegno dell'icona omesso (fallback incompleto, vedi la
+     * nota sopra); l'area a sinistra del testo resta libera. */
+#if 0
     if (m_icons[idx] || m_gdip[idx]) {
         /* v1.6: il rapporto d'aspetto della sorgente ora si rispetta. I
          * glifi della striscia sono 11x16: il rettangolo fisso 34x45 li
@@ -374,6 +457,7 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
         if (!(m_gdip[idx] && GdipDrawHQ(hdc, m_gdip[idx], 20, iy, dw, dh)))
             DrawBitmapScaled(hdc, m_icons[idx], dw, dh, 20, iy);
     }
+#endif
 
     SetBkMode(hdc, TRANSPARENT);
     ScopedGdiObject font(hdc, CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE,
@@ -407,7 +491,10 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
     SetTextColor(hdc, m_linkHot ? RGB(0x00, 0x4E, 0x9E) : RGB(0x00, 0x66, 0xCC));
     DrawTextW(hdc, S.link, -1, &linkRect, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
 
-    EndPaint(hwnd, &ps);
+    } catch (...) {
+        /* paint incompleto ma valido: la regione viene chiusa da
+         * ScopedPaint, la finestra resta disegnata fin qui. */
+    }
 }
 
 LRESULT CALLBACK BatteryFlyout::WndProc(HWND hwnd, UINT msg,
