@@ -37,9 +37,10 @@
 #include <shellapi.h>
 #include <propkey.h>
 #include <dwmapi.h>
-/* TOOLTIPS_CLASS / TOOLTEXTW / TTS_*: declared in commctrl.h, which
- * windows.h does not pull in under WIN32_LEAN_AND_MEAN (the project
- * build definition) - include it explicitly where it is used. */
+/* TOOLTIPS_CLASS / TTTOOLINFOW / TTM_* / TTS_ALWAYSTIP: declared in
+ * commctrl.h, which windows.h does not pull in under
+ * WIN32_LEAN_AND_MEAN (the project build definition) - include it
+ * explicitly where it is used. */
 #include <commctrl.h>
 #include <cstring>
 #include <algorithm>
@@ -875,6 +876,7 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
     m_tipRow = -1;
     m_tipShown = false;
     m_tipStart = 0;
+    m_tipText.clear();
     ClearContent();
     m_appIcon.reset();
     m_pinIcon.reset();
@@ -1291,9 +1293,11 @@ void JumpListWindow::ShowRowTooltip(int row, POINT clientPt) {
     if (m_tooltip == nullptr) {
         /* The tooltip child is created once per popup window and dies
          * with it (WM_NCDESTROY drops the handle). TTS_ALWAYSTIP because
-         * the parent is a NOACTIVATE tool window. */
+         * the parent is a NOACTIVATE tool window (the legacy
+         * TTS_NOPROGRESS window style is a no-op since Vista and is not
+         * declared by the SDK headers). */
         m_tooltip = CreateWindowExW(0, TOOLTIPS_CLASS, nullptr,
-                                    TTS_ALWAYSTIP | TTS_NOPROGRESS,
+                                    TTS_ALWAYSTIP,
                                     0, 0, 0, 0, m_hwnd, nullptr,
                                     GetModuleHandleW(nullptr), nullptr);
         if (m_tooltip == nullptr) return;
@@ -1306,32 +1310,45 @@ void JumpListWindow::ShowRowTooltip(int row, POINT clientPt) {
     /* The Windows 7 delay: the tip appears only after the row has been
      * hovered for a beat, not on the first mouse move. */
     if (m_tipShown || GetTickCount() - m_tipStart < kTipDelayMs) return;
-    TOOLTEXTW tt{};
-    tt.cbSize = sizeof(tt);
-    tt.hwnd = m_hwnd;
-    wchar_t buf[600];
-    lstrcpynW(buf, text.c_str(), 600);
-    tt.lpszText = buf;
-    tt.chsMax = (UINT)lstrlenW(buf) + 1;
-    tt.pt.x = clientPt.x + Sc(10);
-    tt.pt.y = clientPt.y + Sc(16);
-    TrackToolTip(m_tooltip, &tt);
-    m_tipShown = true;
+    /* Manual tracking - the documented TTM_ADDTOOL / TTM_TRACKPOSITION /
+     * TTM_TRACKACTIVATE sequence with TTTOOLINFOW (the SDK's declared
+     * tool structure; the MSDN-documented TOOLTEXTW of the older
+     * TrackToolTip entry point is not declared by the SDK headers). The
+     * text lives in a stable member so it stays valid while the tip is
+     * up. The position is in the client coordinates of the parent. */
+    m_tipText = text;
+    TTTOOLINFOW ti{};
+    ti.cbSize = sizeof(ti);
+    ti.hwnd = m_hwnd;
+    ti.uId = (UINT_PTR)row;
+    ti.hinst = GetModuleHandleW(nullptr);
+    ti.lpszText = m_tipText.c_str();
+    if (SendMessageW(m_tooltip, TTM_ADDTOOL, 0, (LPARAM)&ti) == 0) return;
+    (void)SendMessageW(m_tooltip, TTM_TRACKPOSITION, 0,
+                       MAKELPARAM((UINT)(clientPt.x + Sc(10)),
+                                  (UINT)(clientPt.y + Sc(16))));
+    m_tipShown = SendMessageW(m_tooltip, TTM_TRACKACTIVATE, TRUE,
+                              (LPARAM)&ti) != 0;
 }
 
 void JumpListWindow::ClearRowTooltip() {
-    if (m_tipShown && m_tooltip != nullptr) {
-        /* An empty tracked tip hides the previous one. */
-        TOOLTEXTW tt{};
-        tt.cbSize = sizeof(tt);
-        tt.hwnd = m_hwnd;
-        tt.lpszText = L"";
-        tt.chsMax = 1;
-        TrackToolTip(m_tooltip, &tt);
+    if (m_tooltip != nullptr && (m_tipShown || m_tipRow >= 0)) {
+        TTTOOLINFOW ti{};
+        ti.cbSize = sizeof(ti);
+        ti.hwnd = m_hwnd;
+        ti.uId = (UINT_PTR)m_tipRow;
+        if (m_tipShown) {
+            (void)SendMessageW(m_tooltip, TTM_TRACKACTIVATE, FALSE,
+                               (LPARAM)&ti);
+        }
+        if (m_tipRow >= 0) {
+            (void)SendMessageW(m_tooltip, TTM_DELTOOL, 0, (LPARAM)&ti);
+        }
     }
     m_tipShown = false;
     m_tipRow = -1;
     m_tipStart = 0;
+    m_tipText.clear();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1588,6 +1605,10 @@ LRESULT CALLBACK JumpListWindow::WndProc(HWND hwnd, UINT msg,
                 Instance().m_appIcon.reset();
                 Instance().m_pinIcon.reset();
                 Instance().m_tooltip = nullptr;
+                Instance().m_tipShown = false;
+                Instance().m_tipRow = -1;
+                Instance().m_tipStart = 0;
+                Instance().m_tipText.clear();
                 return 0;
         }
     } W7T_SEH_CATCH {

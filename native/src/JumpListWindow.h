@@ -233,6 +233,7 @@ private:
     int m_tipRow = -1;
     DWORD m_tipStart = 0;
     bool m_tipShown = false;
+    std::wstring m_tipText;    /* tracked tool text (stable while shown) */
 
     int m_width = 300;      /* device px, already scaled */
     int m_totalH = 0;       /* device px */
