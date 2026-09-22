@@ -1,23 +1,44 @@
 // Win7Taskbar - Windows 7 style Jump List for taskbar buttons
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 //
-// The popup is opened by the left-button press + upward drag gesture that
-// the managed side runs as a state machine (TaskbarWindow.JumpList.cs):
-// the opening release leaves the list visible. While the drag owns input,
-// positions arrive here as SCREEN PHYSICAL PIXELS through SetHover and the
-// popup remains WS_EX_NOACTIVATE. On release MakeInteractive transfers
-// focus/input to this window; a separate click selects a row, Escape or a
-// click anywhere outside dismisses it.
+// The popup is opened by the managed state machine
+// (TaskbarWindow.JumpList.cs) through one trigger, the right-click of a
+// task button NEVER opening it:
+//
+//   LEFT press + drag away from the bar (up for a bottom bar - the
+//   Windows 7 Superbar gesture). The popup opens at the canonical
+//   Windows 7 position - directly above the button, LEFT-ALIGNED with
+//   its left edge, small gap - and stays there for the whole gesture:
+//   the shell places the jump view next to the button it belongs to,
+//   not where the cursor wanders. While the drag owns the pointer,
+//   moves arrive as SCREEN PHYSICAL PIXELS through SetHover and the
+//   popup remains WS_EX_NOACTIVATE. The release on a row activates it;
+//   the release over the list or the button persists the list and
+//   MakeInteractive transfers focus/input to this window; the release
+//   outside the interaction area dismisses it.
+//
+// Once persistent, a separate click selects a row, Escape or a click
+// anywhere outside dismisses the list.
 //
 // Content rules (project instructions for this subsystem):
-//   - entries come ONLY from the public Shell Jump List APIs
-//     (IApplicationDocumentLists - the documented read side); nothing is
-//     ever invented for an application that exposes no list;
+//   - entries come ONLY from the public Shell Jump List APIs -
+//     IApplicationDocumentLists (Recent/Frequent). The pinned (custom)
+//     section is NOT shown: Windows 7 and later expose no public API
+//     that reads or removes it (MSDN: the pinned items "cannot be
+//     removed programmatically; only the user can remove them"; the
+//     Shell reads its own store directly - see
+//     docs/JUMPLIST-RE-VERIFICATION.md); nothing is ever invented for
+//     an application that exposes no list;
 //   - application identity is the AppUserModelID of the group's window,
 //     else the shell metadata of the pinned shortcut, else the default id
 //     Windows derives from the executable path (see appids.md, MSDN);
-//   - the two standard Windows 7 rows (application link + "Pin/Unpin this
-//     program to the taskbar") act on the group's own window/shortcut data.
+//   - the Windows 7 Tasks section (Minimize/Maximize/Restore/Move/Size)
+//     appears only while the group has a live window and reuses the
+//     existing native window-command path (WindowManager::ExecuteCommand);
+//   - Start_JumpListItems = 0 (HKCU\...\Explorer\StartMenu) disables the
+//     jump lists, as in Windows 7 (open fails with code -4);
+//   - the two standard rows (application link + "Pin/Unpin this program
+//     to the taskbar") act on the group's own window/shortcut data.
 //
 // All geometry constants are 96-DPI reference values scaled by the DPI of
 // the monitor hosting the taskbar button (GetDpiForScreenRect), so the
@@ -37,6 +58,11 @@
 #include "RaiiWrappers.h"
 
 namespace w7t {
+
+/* Drops the cached jump list section cap so the next list open re-reads
+ * the user's shell configuration. Called by the tray window on
+ * WM_SETTINGCHANGE (the user's settings can change any time). */
+void InvalidateJumpListCapCache();
 
 /* One entry of the application's REAL jump list, as returned by
  * IApplicationDocumentLists (ADLT_RECENT / ADLT_FREQUENT). */
@@ -77,9 +103,10 @@ public:
      * (SCREEN PHYSICAL PIXELS), and shows it. Returns the number of shell
      * document entries (>= 0; zero means "only the standard rows") or a
      * negative failure code (-1 COM/Shell failure, -2 window creation
-     * failure, -3 bad argument) - the managed side then cancels the
-     * gesture. outAppId receives the resolved AppUserModelID for logging
-     * (may stay empty when the app exposes none). */
+     * failure, -3 bad argument, -4 disabled by the Start_JumpListItems
+     * policy) - the managed side then cancels the gesture. outAppId
+     * receives the resolved AppUserModelID for logging (may stay empty
+     * when the app exposes none). */
     int32_t Open(const RECT& buttonRectScreen, int32_t edge,
                  const std::wstring& title,
                  const std::wstring& launchPath,
@@ -93,8 +120,15 @@ public:
 
     /* Gesture move: updates the hover row under the screen point and
      * reports whether the point is still inside the interaction area
-     * (popup + button + corridor): 1 inside, 0 outside. */
+     * (popup + button + corridor): 1 inside, 0 outside. The popup
+     * position itself never moves: it stays anchored to the button,
+     * exactly where the Windows 7 shell opens its jump view. */
     int32_t SetHover(int32_t screenX, int32_t screenY);
+
+    /* Row under the screen point, -1 when none; no side effects. The
+     * release decision (activate / keep open / cancel) is the managed
+     * state machine's, this is only its hit-test. */
+    int32_t HitRowAt(int32_t screenX, int32_t screenY) const;
 
     /* Hands input from the completed drag gesture to the popup itself.
      * The release which opened the list never selects an item: after this
@@ -126,13 +160,15 @@ private:
      * released through the raii handle (move-only row storage). */
     struct Row {
         enum Kind {
-            DocRecent = 0, DocFrequent = 1, App = 2, Close = 3, Pin = 4
+            DocRecent = 0, DocFrequent = 1, App = 2, Close = 3, Pin = 4,
+            Task = 5          /* window task; cmd = W7T_CMD_* value    */
         };
         Kind kind = App;
         RECT rect = {};
         std::wstring label;
         std::wstring path;
         raii::IconHandle icon;   /* real file icon or null */
+        int32_t cmd = 0;         /* Task rows only (W7T_CMD_*) */
 
         Row() = default;
         Row(Row&&) noexcept = default;
@@ -147,6 +183,13 @@ private:
     void Layout();
     void Place(HWND hwnd, const RECT& button, int32_t edge);
     void UpdateInteractionArea();
+    /* Work area of the monitor that hosts the button (Place clamps into
+     * it; the fallback keeps the popup near its anchor when monitor info
+     * is unavailable). */
+    RECT WorkAreaForButton() const;
+    /* Hover-row update from a screen point (the invalidation pass is
+     * shared by SetHover). */
+    void UpdateHoverFromScreen(POINT screenPt);
     int HitRowClient(POINT clientPt) const;
     RECT RowRect(size_t index) const;
     RECT CloseRect() const;
@@ -155,6 +198,10 @@ private:
     void LaunchApp();
     void CloseRunningApplication();
     void PerformPinOrUnpin();
+    void ExecuteTask(int32_t cmd);
+    std::wstring TooltipFor(const Row& row) const;
+    void ShowRowTooltip(int row, POINT clientPt);
+    void ClearRowTooltip();
     void ClearContent();
     int Sc(int v96) const;           /* 96-DPI value -> device px at m_dpi */
     static void GradientRect(HDC hdc, const RECT& r, COLORREF top,
@@ -184,6 +231,13 @@ private:
     bool m_closeHot = false;
     bool m_closeDown = false;
     HHOOK m_outsideMouseHook = nullptr;
+
+    /* The Windows 7 tooltip tracked under the hovered row (name-only when
+     * the item has no resolvable path - the NoJumpListPathTooltip case). */
+    HWND m_tooltip = nullptr;
+    int m_tipRow = -1;
+    DWORD m_tipStart = 0;
+    bool m_tipShown = false;
 
     int m_width = 300;      /* device px, already scaled */
     int m_totalH = 0;       /* device px */

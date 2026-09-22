@@ -17,6 +17,7 @@
  */
 
 #include "WindowManager.h"
+#include "TaskbarButtonNotify.h"
 #include <algorithm>
 #include <objbase.h>
 #include <shlobj.h>
@@ -128,6 +129,7 @@ void WindowManager::OnWinEventImpl(DWORD event, HWND hwnd) {
                     m_order.push_back(hwnd);
                     CoreState::Instance().QueueEvent(W7T_EVT_WINDOW_ADDED,
                                                      reinterpret_cast<uint64_t>(hwnd), 0);
+                    w7t::NotifyTaskbarButton(hwnd, win.pid);
                 }
             }
             break;
@@ -146,6 +148,7 @@ void WindowManager::OnWinEventImpl(DWORD event, HWND hwnd) {
                     m_order.push_back(hwnd);
                     CoreState::Instance().QueueEvent(W7T_EVT_WINDOW_ADDED,
                                                      reinterpret_cast<uint64_t>(hwnd), 0);
+                    w7t::NotifyTaskbarButton(hwnd, win.pid);
                 }
                 break;
             }
@@ -197,6 +200,7 @@ void WindowManager::OnWinEventImpl(DWORD event, HWND hwnd) {
                     m_order.push_back(hwnd);
                     CoreState::Instance().QueueEvent(W7T_EVT_WINDOW_ADDED,
                                                      reinterpret_cast<uint64_t>(hwnd), 0);
+                    w7t::NotifyTaskbarButton(hwnd, win.pid);
                 }
             }
             CoreState::Instance().QueueEvent(W7T_EVT_WINDOW_ACTIVATED,
@@ -295,6 +299,7 @@ bool WindowManager::ApplyTaskbarListCallImpl(HWND hwnd, bool add) {
                 m_order.push_back(hwnd);
                 CoreState::Instance().QueueEvent(W7T_EVT_WINDOW_ADDED,
                                                  reinterpret_cast<uint64_t>(hwnd), 0);
+                w7t::NotifyTaskbarButton(hwnd, win.pid);
                 return true;
             }
         }
@@ -402,6 +407,7 @@ int32_t WindowManager::RefreshImpl() {
                 m_order.push_back(hwnd);
                 CoreState::Instance().QueueEvent(W7T_EVT_WINDOW_ADDED,
                                                  reinterpret_cast<uint64_t>(hwnd), 0);
+                w7t::NotifyTaskbarButton(hwnd, win.pid);
             }
         } else {
             wchar_t title[W7T_MAX_TITLE] = {};

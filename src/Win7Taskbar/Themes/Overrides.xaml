@@ -441,56 +441,11 @@
                     </Image.RenderTransform>
                 </Image>
             </Grid>
-            <!-- v2.61: the Windows 7 Jump List trigger. The hovered task
-                 button shows the small up-arrow at its right edge; a LEFT
-                 click on it opens the list above the button (the state of
-                 the art lives in TaskbarWindow.JumpList.cs). The right-click
-                 menu of the button is not involved at all.
-                 The arrow is the LAST child of the root Grid so it paints
-                 above the window-stack separators, exactly where the
-                 Superbar draws it. Its transparent background is what makes
-                 it hit-testable: the press detection in code-behind locates
-                 this element by name (FindJumpListArrow) and hit-tests the
-                 pointer against its own layout slot, so no coordinate of the
-                 arrow is ever hard-coded in C#. -->
-            <Border x:Name="JumpListArrow"
-                    Width="12"
-                    Height="21"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Center"
-                    Margin="0,0,1.5,0"
-                    Background="Transparent"
-                    SnapsToDevicePixels="True">
-                <Border.Style>
-                    <Style TargetType="Border">
-                        <Setter Property="Visibility" Value="Collapsed" />
-                        <Style.Triggers>
-                            <!-- The arrow belongs to the hover state of the
-                                 button, like in Windows 7: it appears with
-                                 the hover tile and goes away with it. -->
-                            <DataTrigger Binding="{Binding IsMouseOver,
-                                        RelativeSource={RelativeSource AncestorType=Button}}"
-                                         Value="True">
-                                <Setter Property="Visibility" Value="Visible" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Border.Style>
-                <!-- White glyph with a soft dark edge, the same reading the
-                     Superbar arrow has over every button state (idle tile,
-                     running blue, active chrome). -->
-                <Path Data="M 0.5,4.5 L 4.5,0.5 L 8.5,4.5 Z"
-                      Width="9"
-                      Height="5"
-                      Stretch="Fill"
-                      HorizontalAlignment="Center"
-                      VerticalAlignment="Center"
-                      Fill="#F2FFFFFF"
-                      Stroke="#59000000"
-                      StrokeThickness="1"
-                      StrokeLineJoin="Round"
-                      SnapsToDevicePixels="True" />
-            </Border>
+            <!-- v2.62: the small up-arrow trigger of v2.61 was removed on
+                 request - the Jump List opens with the Windows 7 drag (left
+                 press + drag away from the bar); the trigger code in
+                 TaskbarWindow.JumpList.cs simply finds no arrow element
+                 anymore and stays inert. -->
         </Grid>
     </DataTemplate>
 

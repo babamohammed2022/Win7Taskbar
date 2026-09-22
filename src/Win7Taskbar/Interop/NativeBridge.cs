@@ -290,6 +290,73 @@ namespace Win7Taskbar.Interop
             return copied <= 0 ? null : CreateBitmap(pixels, width, height);
         }
 
+        /// <summary>v2.62-alpha: the user's own preview configuration
+        /// (read-only; the core caches it and drops the cache on
+        /// WM_SETTINGCHANGE). Null when the loaded core predates the
+        /// export: the caller keeps the project defaults, so an old core
+        /// never changes the behaviour. A delay is null when the user value
+        /// is absent.</summary>
+        public (bool WindowThumbs, bool DesktopPeek, int? ThumbHoverMs, int? PeekHoverMs)? GetPreviewPolicy()
+        {
+            try
+            {
+                if (NativeMethods.W7T_GetPreviewPolicy(out int thumbs, out int peek,
+                        out int thumbMs, out int peekMs) != 0)
+                {
+                    return null;
+                }
+                return (thumbs != 0, peek != 0,
+                    thumbMs >= 0 ? (int?)thumbMs : null,
+                    peekMs >= 0 ? (int?)peekMs : null);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>v2.62-alpha (G6): canonical pin/unpin. 1 = on-disk
+        /// state changed, 0 = no change, negative = failure or core without
+        /// the export (the caller keeps its own path).</summary>
+        public int ToggleTaskbarPin(string exePath, string baseName, int pin)
+        {
+            try
+            {
+                return NativeMethods.W7T_ToggleTaskbarPin(exePath, baseName, pin);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return -1;
+            }
+        }
+
+        /// <summary>v2.62-alpha (G4): the executable's own icon (null when
+        /// it cannot be resolved or the core predates the export).</summary>
+        public ImageSource? GetExeIcon(string exePath, int desiredSize = 32)
+        {
+            if (string.IsNullOrEmpty(exePath))
+            {
+                return null;
+            }
+            try
+            {
+                int needed = NativeMethods.W7T_GetExeIconBitmap(
+                    exePath, desiredSize, out int width, out int height, null, 0);
+                if (needed <= 0 || width <= 0 || height <= 0)
+                {
+                    return null;
+                }
+                var pixels = new byte[needed];
+                int copied = NativeMethods.W7T_GetExeIconBitmap(
+                    exePath, desiredSize, out width, out height, pixels, pixels.Length);
+                return copied <= 0 ? null : CreateBitmap(pixels, width, height);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return null;
+            }
+        }
+
         public void ExecuteCommand(ulong hwnd, int command)
             => NativeMethods.W7T_ExecuteWindowCommand(hwnd, command);
 
@@ -688,7 +755,7 @@ namespace Win7Taskbar.Interop
         }
 
         // ---------------------------------------------------------------
-        //  Jump List (clic sinistro sulla freccetta del pulsante).
+        //  Jump List (trascinamento lontano dalla barra / freccetta).
         //  Coordinate: PIXEL FISICI DELLO SCHERMO.
         //
         //  I metodi sono sottili di proposito: chi li chiama
@@ -722,9 +789,28 @@ namespace Win7Taskbar.Interop
         }
 
         /// <summary>Vero finche' il cursore resta nell'area di interazione
-        /// del gesto (popup + pulsante + corridoio fra i due).</summary>
+        /// del gesto (popup + pulsante + corridoio fra i due). Il popup
+        /// NON si sposta: resta ancorato al pulsante alla posizione
+        /// canonica di Windows 7; si aggiorna solo la riga evidenziata.</summary>
         public bool JumpListSetHover(int screenX, int screenY)
             => NativeMethods.W7T_JumpListSetHover(screenX, screenY) == 1;
+
+        /// <summary>v2.62: indice della riga sotto il punto schermo
+        /// (>=0), -1 se nessuna; senza effetti collaterali. Lancia
+        /// EntryPointNotFoundException su un core senza l'export: il
+        /// chiamante ripiega sul rettangolo del popup.</summary>
+        public int JumpListHitRow(int screenX, int screenY)
+            => NativeMethods.W7T_JumpListHitRow(screenX, screenY);
+
+        /// <summary>Attiva la riga sotto il punto schermo nel popup
+        /// (la chiude dopo); bits riporta l'esito per il chiamante
+        /// (1 = documento aperto, 2 = app avviata, 4 = pin commutato).</summary>
+        public void JumpListActivateAt(int screenX, int screenY,
+                                       out int bits)
+        {
+            bits = 0;
+            NativeMethods.W7T_JumpListActivateAt(screenX, screenY, out bits);
+        }
 
         /// <summary>Il rilascio del gesto lascia aperto il popup e gli
         /// trasferisce focus/input ordinario; la scelta richiede un nuovo

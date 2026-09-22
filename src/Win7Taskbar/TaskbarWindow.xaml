@@ -388,6 +388,7 @@
                                 MouseDown="TaskButton_MouseDown"
                                 PreviewMouseDown="TaskButton_PreviewMouseDown"
                                 PreviewMouseMove="TaskButton_PreviewMouseMove"
+                                PreviewMouseLeftButtonUp="TaskButton_PreviewMouseLeftButtonUp"
                                 MouseMove="TaskButton_MouseMove"
                                 MouseWheel="TaskButton_MouseWheel"
                                 MouseEnter="TaskButton_MouseEnter"

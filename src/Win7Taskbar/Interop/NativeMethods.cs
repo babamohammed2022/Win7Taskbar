@@ -499,6 +499,31 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_GetExtraFlyoutColor(out uint rgb);
 
+        /// <summary>v2.62-alpha: the user's own preview configuration
+        /// (read-only, cached in the core, invalidated on WM_SETTINGCHANGE).
+        /// The delays are -1 when the user value is absent: the frontend
+        /// keeps its own project default. 0 = ok.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_GetPreviewPolicy(out int windowThumbs,
+            out int desktopPeek, out int thumbHoverMs, out int peekHoverMs);
+
+        /// <summary>v2.62-alpha (G6): the canonical pin verb. The single
+        /// write point of the real pin folder (shared with the Jump List).
+        /// pin: 1 = pin, 0 = unpin. 1 = on-disk state changed, 0 = no
+        /// change, negative = failure.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
+                   CharSet = CharSet.Unicode)]
+        public static extern int W7T_ToggleTaskbarPin(string exePath,
+            string baseName, int pin);
+
+        /// <summary>v2.62-alpha (G4): the executable's own icon, same bitmap
+        /// protocol as W7T_GetWindowIconBitmap.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall,
+                   CharSet = CharSet.Unicode)]
+        public static extern int W7T_GetExeIconBitmap(string exePath,
+            int desiredSize, out int width, out int height, byte[]? pixels,
+            int pixelsBytes);
+
         // v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_NetFlyoutInit();
@@ -595,6 +620,20 @@ namespace Win7Taskbar.Interop
         /// interazione del gesto (popup + pulsante + corridoio).</summary>
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_JumpListSetHover(int screenX, int screenY);
+
+        // v2.62: il gesto di apertura e' il trascinamento LONTANO dalla
+        // barra (sopra il pulsante per una barra in basso): durante il
+        // trascinamento il popup resta ancorato al pulsante (la posizione
+        // canonica di Windows 7, calcolata dal nativo in apertura) e questi
+        // export aggiornano la riga evidenziata. Come per i metodi sopra,
+        // coordinate in PIXEL FISICI DELLO SCHERMO. Un core che non li
+        // espone resta funzionante: il chiamante (TaskbarWindow.JumpList.cs)
+        // ripiega su SetHover + rettangolo del popup.
+
+        /// <summary>Indice della riga sotto il punto schermo (>=0), -1 se
+        /// nessuna; senza effetti collaterali.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_JumpListHitRow(int screenX, int screenY);
 
         /// <summary>Trasferisce il popup dal gesto catturato all'input
         /// ordinario; il rilascio non attiva alcuna riga.</summary>

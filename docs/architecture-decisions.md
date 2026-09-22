@@ -287,46 +287,114 @@ no locks are taken across the guarded boundary elsewhere.
 **Revisit if.** A fault repeats in one spot: the log line names the module
 phase, and the guard can then be narrowed to the exact call.
 
-## 13. Jump Lists: the hovered button's up-arrow is the only trigger
+## 13. Jump Lists: the drag away from the bar is the trigger
 
-**Current status.** Jump Lists are enabled. The hovered task button shows
-the small Windows 7 up-arrow at its right edge; a LEFT click on that arrow
-opens the list above the button. The right-click of a task button keeps only
-the Windows 7 context menu (never a Jump List command), and the historical
-left-button press + drag-up gesture is gone.
+**Current status.** Jump Lists are enabled with the Windows 7 trigger:
+LEFT press + drag away from the taskbar (up for a bottom bar, down for a
+top bar, right for a left bar, left for a right bar) opens the list during
+the drag; the list opens at the canonical Windows 7 position - directly
+above the button, left-aligned with its left edge, small gap (mirrored per
+bar edge) - and stays anchored there for the whole gesture, while the row
+under the cursor is highlighted. Releasing on a row activates it; releasing
+over the list or the button leaves the list open and persistent (row
+clicks, Escape, click-outside); releasing outside the interaction area
+cancels. The right-click of a task button keeps only the Windows 7
+context menu and NEVER opens a Jump List. The v2.61 up-arrow secondary
+trigger was removed in v2.62 on user request: the drag is the only trigger.
 
-**Decision.** The trigger is the arrow, not a drag gesture and not the
-right-click:
+**Decision.** The trigger is the drag, not the right-click, and not the
+arrow alone:
 
-- The arrow is drawn by the shared task button content template
-  (`Themes/Overrides.xaml`, `x:Name="JumpListArrow"`), collapsed unless the
-  ancestor `Button` is hovered - the same hover-bound visibility the search
-  button already uses - so all four button state templates and all skins get
-  it without touching a theme.
-- `TaskbarWindow.JumpList.cs` owns the interaction on the UI thread. A press
-  inside the arrow's live layout slot is consumed in
-  `TaskButton_PreviewMouseDown`, before the button can activate or arm the
-  icon reorder; the button captures the mouse so the release always returns,
-  and the release inside the slot opens the list. The slot is found by name
-  in the visual tree and hit-tested with `TransformToDescendant`, so no
-  coordinate of the arrow exists in C# and a moved or resized button is
-  hit-tested where it is now.
+- The press of a task button arms TWO candidates on the same press - the
+  jump-list candidate (`ArmJumpDragCandidate`) and the icon-reorder
+  candidate (the RetroBar session reorder) - and nothing else. `TaskButton_-
+  PreviewMouseMove` arbitrates on every move: the first axis to cross its
+  threshold OWNS the press. Away from the bar past `JumpDragAwayThreshold`
+  (6 DIP, deliberately above the system's 4 DIP so a wobbling click stays a
+  click) starts the jump-list drag; along the bar past the system drag
+  threshold starts the reorder; a diagonal drag is decided by the dominant
+  axis. First-threshold-wins on shared axes is what makes the two gestures
+  conflict-free: each press belongs to exactly one of them (or to the plain
+  click when no threshold is crossed), and the winner is committed before
+  any capture or OLE drag starts.
+- `BeginJumpDrag` takes the mouse capture on the button at that moment, so
+  the moves and the release come back to it from anywhere on the screen.
+  The popup keeps the position the native `Place` computed at open -
+  directly above the button, left-aligned with its left edge, small gap,
+  clamped to the work area of the monitor that hosts the button: exactly
+  where the Windows 7 shell opens its jump view, and the only position rule.
+  Every move calls the native `W7T_JumpListSetHover`, which updates only the
+  highlighted row. History: the v2.62-alpha carried a live cursor-following
+  re-anchoring (`W7T_JumpListDrag` / `JumpListWindow::DragMove`), the
+  cursor-position rule of the GPL-3.0 Windhawk mod
+  "taskbar-jump-list-on-cursor-pos" (m417z); the alpha test showed the list
+  in a position that does not match the shell's, so the final v2.62 drops
+  that rule and keeps the canonical button-anchored placement. See
+  THIRD-PARTY-NOTICES.md for the license note on the mod (whose idea was
+  evaluated, implemented in the alpha and then discarded).
+- The release (`TaskButton_PreviewMouseLeftButtonUp`, tunneling per button)
+  ALWAYS consumes the click of the press that dragged (e.Handled before the
+  button's own click handling), and then decides with two native answers:
+  `W7T_JumpListHitRow` (the row under the point, no side effects) and the
+  inside/outside answer of the last `W7T_JumpListSetHover`. Row -> activate
+  (the native popup closes itself; a pin toggle refreshes the model);
+  inside -> the list persists and `W7T_JumpListMakeInteractive` transfers
+  ordinary input to it (the drag-up became a click list); outside ->
+  `W7T_JumpListHide`. A core without `W7T_JumpListHitRow` falls back to the
+  popup's window rectangle (FindWindow + GetWindowRect) for the release
+  decision, so an older dist/ DLL degrades instead of breaking the gesture.
+- The v2.61 arrow trigger (press on the arrow slot consumed in
+  `TaskButton_PreviewMouseDown`, release opened through the same shared
+  `OpenJumpListPopup`) was REMOVED in v2.62 on user request - the small
+  triangle on the button should not exist. The XAML element it hit-tested no
+  longer exists (`Themes/Overrides.xaml`), so the managed machinery, which
+  locates the arrow by name and hit-tests its live layout slot, finds
+  nothing and stays inert; it is kept so the trigger can be restored by
+  re-adding the element.
 - The opened list is persistent, like Windows 7: row clicks, Escape and
   click-outside come from the native popup once it owns ordinary input
-  (`W7T_JumpListMakeInteractive`). The popup never behaves as a drag modal,
-  which is what kept the old gesture in conflict with the icon reorder: two
-  gestures capturing the same press is the regression this feature must not
-  introduce.
+  (`W7T_JumpListMakeInteractive`). The popup never behaves as a drag modal
+  after the release, which is also what keeps it from fighting the icon
+  reorder: the two gestures share a press but never a live pointer.
 - The popup is a native `WS_POPUP | WS_EX_NOACTIVATE` window with the shared
-  Aero flyout border (`native/src/JumpListWindow.cpp`), anchored to the
-  button rectangle read at open time, per taskbar edge, clamped to the work
-  area of the monitor under the button.
+  Aero flyout border (`native/src/JumpListWindow.cpp`), positioned once at
+  open (the canonical Windows 7 place, per taskbar edge, clamped to the work
+  area of the monitor under the button) and never moved again. During the
+  drag it stays non-activating: WPF's capture keeps every mouse message on
+  the taskbar window, so the popup never sees the drag's own up/down and the
+  managed side drives its hover row explicitly.
 - Data comes only from documented Shell APIs: application identity via
   `SHGetPropertyStoreForWindow` (window) and
   `SHGetPropertyStoreFromParsingName` (the pinned .lnk) for the
   AppUserModelID, and `IApplicationDocumentLists` for the Recent/Frequent
   destinations. When the Shell exposes no list, no document rows appear -
   nothing is invented.
+- The content sections are RE-verified against the Windows 7 taskbar code
+  (Windows Thin PC `explorer.exe` string/xref dump; full analysis in
+  `docs/JUMPLIST-RE-VERIFICATION.md`). Recent/Frequent come from
+  `IApplicationDocumentLists`. The **pinned (custom) section is NOT
+  shown**: the dump evidences the Windows 7 taskbar reading the
+  `HKCU\...\Explorer\ApplicationDestinations\<AppID>` store directly -
+  the binary imports no destination-list COM interface at all - and MSDN
+  confirms that on Windows 7 and later no public API reads or removes the
+  pinned set (`IApplicationDestinations` only removes Recent/Frequent
+  destinations; the pinned items "cannot be removed programmatically;
+  only the user can remove them"). An early v2.62 iteration attempted the
+  section through `IApplicationDestinations::GetObjectCount/GetObjectList`
+  and an `ICustomDestinationList` GetObjectCollection/SetItemObjectList
+  unpin; SDK compilation plus MSDN proved those method sets belong to the
+  Vista revision of the interfaces, so the original "no public read API"
+  comment was right and the iteration was withdrawn (section 7 of the
+  RE note). The dump-evidenced `customopen` action is the row click
+  (`ShellExecuteW` on the resolved path). The `Start_JumpListItems = 0`
+  policy disables the jump lists (open code -4), and rows carry the
+  Windows 7 path tooltip (name only when unresolvable - the
+  `NoJumpListPathTooltip` case). The **Tasks** section
+  (Minimize/Maximize/Restore/Move/Size for live window groups, reusing
+  `WindowManager::ExecuteCommand`) is general Windows 7 knowledge - the
+  dump carries no Tasks strings - and is flagged as such. Telemetry strings
+  (`taskbarpin`/`startpin`/...) were recorded and deliberately NOT
+  adopted.
 - Every coordinate crossing the interop boundary is a **screen physical
   pixel**; the WPF side converts with `PointToScreen` only (both button
   corners, never a size multiplied by a scale a second time), and the native
@@ -346,17 +414,36 @@ takes focus. Two ordering hazards are handled explicitly: a dismissal the
 previous list posted to the reused popup window is peeled off the UI thread
 queue right after each open (`PeekMessageW` filtered on the popup's own
 message), and a click-outside callback still queued when a newer open
-happens is made inert by an open-generation counter.
+happens is made inert by an open-generation counter. Teardown
+(`HideJumpList`) always releases the drag capture, the arrow capture, the
+dismissal hook and the popup, so none of the group-removal, reorder-start,
+theme-swap and window-close paths can leave a capture or a window behind.
 
 **Why.** The v2.38/v2.40 shape (right-click opening a popup that grabs
 foreground and reads the hardware cursor itself) fought the WPF capture
 model, double-scaled coordinates at non-100% DPI, clamped only against the
-primary monitor, and shipped the document list disabled; the drag-up shape
-that replaced it captured the same press the icon reorder captures. One
-choke point per responsibility (trigger, identity, read, show, hand-over,
-teardown) is what lets every failure path end quietly: capture always
-released, hook always stopped, popup always hidden, exceptions always
-logged under the `JUMPLIST` tag.
+primary monitor, and shipped the document list disabled; the v2.40 drag-up
+that replaced it was then disabled again because it captured the same press
+the icon reorder captured WITHOUT arbitrating between the two (either
+threshold crossing started the OLE reorder, so dragging up reordered the
+icons instead of opening the list - the exact conflict reported in the
+field). The v2.61 arrow fixed the conflict but the trigger was not
+discoverable and in the field the list did not appear as expected, so v2.62
+restores the Windows 7 drag as the main trigger and fixes the conflict at
+its root: one press, two candidates, first threshold wins, capture taken
+only after the winner is committed. The v2.62-alpha had also carried the
+cursor-following placement of the GPL-3.0 Windhawk mod
+"taskbar-jump-list-on-cursor-pos" (m417z) - the list re-anchoring under the
+cursor during the drag - and removed the arrow in the same round; the alpha
+test verdict was that the position did not match the real Windows 7 shell,
+which opens the jump view NEXT TO THE BUTTON (left-aligned above it), not
+where the cursor is. The final v2.62 therefore keeps the drag trigger and
+the arrow removal, and drops the cursor-following in favor of the shell's
+canonical button-anchored placement. One choke point per responsibility
+(arming, arbitration, open, hover, release, hand-over, teardown) is what
+lets every failure path end quietly: capture always released, hook always
+stopped, popup always hidden, exceptions always logged under the `JUMPLIST`
+tag.
 
 **Revisit if.** Windows removes or renames the automatic-destination read
 APIs, or the bar ever needs per-monitor instances: the pixel-space contract
@@ -515,3 +602,180 @@ replaced.
 `To="0.30"` animations are the single place to change. If the accent should also
 appear on pinned programs, the guard is the single `group.IsRunning` condition in
 `TaskbarWindow.xaml.cs`.
+
+## 19. v2.62-alpha: the Jump List section cap follows the user's shell configuration
+
+**Decision.** The Recent/Frequent section cap is no longer a compile-time
+constant: `JumpListWindow::ReadDocumentLists` asks
+`GetJumpListSectionCap()` (cached; the tray window drops the cache on
+`WM_SETTINGCHANGE`) and the value is resolved in this order -
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\ApplicationDestinations\MaxEntries`
+(the per-application destination count), else
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\Start_JumpListItems`
+plus the four fixed rows the shell keeps for its standard entries, else the
+project's internal default (ten, exactly today's behaviour). A tampered
+value is clamped to 1..64 - project safety bounds, not the shell's. The
+registry is only ever read; the read happens at most once per configuration
+change (never on the hot path), and the log line declares which source
+answered.
+
+**Why.** Windows 7 sizes these sections from the user's own shell
+configuration, and a user who configured it deserves to have the
+reconstructed bar honour it. The read-only, cached, clamped design keeps the
+fail-safe rule: with no value the bar behaves exactly as before, and no
+registry failure or absurd value can worsen the current behaviour (the
+worst case is the internal cap of ten).
+
+**Consequences.** No ABI change (the cap never crosses the interop boundary),
+no new public API. The 3/4 reduction Windows applies in its compact display
+mode is deliberately not replicated: it exists to shrink a display the popup
+does not have (its geometry is 96-DPI reference values scaled once by the
+monitor DPI). **Not verified on real hardware**: the value's presence and
+effect on the test machine (the project's probe script reports it) still need
+to be checked; when the value is absent the behaviour is identical to before
+by construction. Revisit if a real machine shows the cap must be resolved
+per-section rather than per-open.
+
+## 20. v2.62-alpha: the preview policy follows the user's configuration (G2)
+
+**Decision.** The core reads (read-only, cached, invalidated by the tray
+window on `WM_SETTINGCHANGE`) the user's own preview configuration from
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`: the two
+disable switches (live window previews, desktop peek) and the hover times.
+The frontend consumes them at the existing decision points: the preview
+popup's single choke point (`ShowTaskPreview`) returns early when the user
+disabled the window previews; the thumbnail popup's first-open delay is the
+user's `ThumbnailLivePreviewHoverTime` when set (the timer is rebuilt only
+when the delay changes) and the project's measured 400 ms otherwise; the
+show-desktop hover peek is suppressed when the user disabled the desktop
+preview (the click still minimizes) and uses the user's
+`DesktopLivePreviewHoverTime` as its delay when set (immediate, as today,
+otherwise). The system-side "live preview allowed" gate uses a shell helper
+that is not a public API: it is NOT replicated (fail-open) and the policy
+log says the gate was not evaluated. No value anywhere => behaviour
+identical to before (the fallbacks are the project's current defaults, not
+observed numbers).
+
+**Why.** Windows consults exactly these values before drawing the live
+thumbnails and the peek; a user who configured them deserves to have the
+reconstructed bar honour them, and the cached/absent-safe design keeps the
+fail-safe rule: a missing value or an old core changes nothing.
+
+**Consequences.** One new export (`W7T_GetPreviewPolicy`, ABI append-only;
+a core without it is tolerated: the frontend keeps its defaults), one new
+native module (read-only), no preview geometry touched.
+`ExtendedUIHoverTime` is read, exposed and logged but has no consumer: the
+project has no extended-UI equivalent. **Not verified on real hardware**:
+the effect of real values on the test machine still needs a check; the
+absent-value path is identical to before by construction. Revisit if the
+user delay must also apply to the preview switching (today it applies to
+the first open only, as the project does now).
+
+## 21. v2.62-alpha: TaskbarButtonCreated and the taskband probe (G7)
+
+**Decision.** When the bar owns the taskbar (the native taskbar is hidden),
+the core registers the "TaskbarButtonCreated" message (RegisterWindowMessage,
+one id per process) and broadcasts it to `HWND_BROADCAST` when a new
+application window enters the bar - at most once per process id, and only
+while the bar is the taskbar. The per-pid dedup is capped and reset when
+the native taskbar becomes visible again. A diagnostic probe (environment
+`W7T_TASKBAND_PROBE=1`) makes the tray window log - tag `PROBE`, log-only,
+no reply - the registered id at start-up and every reception of that exact
+id, so a machine running the real taskbar can show whether the shell itself
+sends the message and via which id.
+
+**Why.** Shell-aware tooling expects to be told about new taskbar buttons
+through that message; a bar that owns the taskbar should honour the
+contract. The probe answers a question that cannot be answered from this
+machine: does the real shell broadcast it too, and with which id - the
+information decides how a coexistence mode would behave.
+
+**Consequences.** No ABI change, no managed change, no registry access. The
+broadcast is fire-and-forget (a dead receiver cannot slow the window
+enumeration). **Not verified on real hardware**: the probe's log on a
+real machine is the open point; with the native taskbar visible nothing is
+sent (by design, the shell owns the buttons then).
+
+## 22. v2.62-alpha: TaskbarGlomLevel and small icons (G3)
+
+**Decision.** Behind the settings switch `TaskbarGroupingPolicy` (default
+OFF: with it off, and with the values absent, the behaviour is exactly the
+current one), the model reads the user's own grouping configuration
+(read-only, once per refresh, both candidate keys probed and the answering
+one logged): `TaskbarGlomLevel` (clamped to 0..2, absurd values never
+worsen the behaviour) and `TaskbarSmallIcons`. `TaskbarGlomLevel 0`
+(never group) makes every window its own button: the grouping key becomes
+per-window, such groups never attach to a pin, and the group commands use
+the real AppId that stays on the windows (`EffectiveAppId`). Levels 1 and 2
+leave the current grouping as is - the project's AppId grouping already
+implements "group similar / always", which is the only distinction the bar
+can make - and the mapping is documented rather than silently assumed.
+`TaskbarSmallIcons` is read, exposed and logged but NOT applied: applying
+it means a button geometry redesign (content-sized buttons, a different
+minimum width), which is deferred until it can be measured on hardware
+rather than guessed. (Gap G5 - the tooltip of a jump list row without a
+path - needs no code: the existing tooltip already falls back to the name
+when the path is absent, which is exactly the Windows 7 behaviour.)
+
+**Why.** A user who configured the grouping level deserves to have the
+bar honour it; the switch keeps the project in control of the rollout, and
+the per-window identity is carried where the pipeline can use it without
+touching the pin logic.
+
+**Consequences.** The new buttons of a never-grouped app are single-window
+groups (an existing capability, already used by idle pins); the group
+minimize/close of such a group act on the window's real AppId; everything
+else is untouched. **Not verified on real hardware**: the switch is off by
+default and the absent-value path is identical to before by construction.
+
+## 23. v2.62-alpha: the group icon criterion and the exceptions (G4)
+
+**Decision.** Behind the same switch (`TaskbarGroupingPolicy`, default
+OFF), the model reads the user's group-icon policy (read-only, once per
+refresh, both candidate keys, the answering one logged):
+`UseExecutableForTaskbarGroupIcon` - when set, the group button shows the
+executable's own icon (new appended export `W7T_GetExeIconBitmap`, the
+project's single icon pipeline; the pin's identity icon always wins) - and
+`TaskbarExceptionsIcons` - the listed executables' windows are never
+grouped (per-window groups, same mechanism as ADR 22). `TaskbarGroupIcon`
+is read and logged only: its meaning is not fully documented, and the
+project does not apply values it cannot explain.
+
+**Why.** Those two values are the documented user controls over "what
+decides the group icon" and "which apps must not be grouped"; honouring
+them keeps the bar from contradicting an explicit choice, and the
+read-and-log of the third one preserves the evidence for a future decision
+instead of guessing.
+
+**Consequences.** One new export (ABI append-only; a core without it is
+tolerated: the icon falls back to the current one), no layout change.
+**Not verified on real hardware**: the switch is off by default; the
+absent-value path is identical to before by construction; the
+`TaskbarGroupIcon` semantics remain an open question.
+
+## 24. v2.62-alpha: the canonical pin verbs and the single .lnk write point (G6)
+
+**Decision.** Behind the settings switch `CanonicalPinVerbs` (default OFF),
+pin/unpin from the bar travels on the canonical native path: the shell's
+canonical verbs are recognised (ordinal, case-insensitive: taskbarpin /
+taskbarunpin / togglepin are executed; open / customopen / delete / runas
+travel on the shell's own ShellExecute path; startpin / startunpin are
+recognised and deliberately NOT executed - the Start menu belongs to the
+shell). The .lnk of the real pin folder is now written in exactly ONE
+place (PinVerbs, shared by the Jump List pin row, which was refactored onto
+it), and the model refresh - with `W7T_EVT_PINNED_CHANGED` - is the
+PinnedApps folder watcher's job, which fires only when the model actually
+changed. With the switch off, the historical managed path (WScript.Shell)
+stays byte-identical.
+
+**Why.** Two writers of the same .lnk (the jump list and the right-click
+menu) can drift; one write point makes "pinned" a single fact on disk. The
+switch keeps the change reversible on the field, and the Start-menu verbs
+stay out of scope by the project's clean-room rules.
+
+**Consequences.** The Jump List pin row and the menu pin share one
+implementation; the event semantics are unchanged (watcher-driven, only on
+real change). The native ShellMenu has no named-verb dispatch (numeric ids
+only), so there is nothing to hook there - stated in the PR, not faked.
+**Not verified on real hardware**: the switch is off by default; the
+off-switch path is the current code.

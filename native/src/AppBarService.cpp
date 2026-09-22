@@ -17,6 +17,7 @@
  */
 
 #include "AppBarService.h"
+#include "TaskbarButtonNotify.h"
 
 #include <cstdlib>
 
@@ -689,6 +690,12 @@ void AppBarService::StopHideWatcher() {
 
 int32_t AppBarService::SetNativeTaskbarHidden(bool hidden) {
     std::lock_guard<std::mutex> lock(m_hideMutex);
+
+    /* v2.62-alpha (G7): the bar is not the taskbar again: drop the
+     * per-pid dedup so the next ownership period notifies cleanly. */
+    if (!hidden) {
+        w7t::ResetTaskbarButtonNotify();
+    }
 
     if (hidden) {
         if (!m_stateSaved) {
