@@ -42,6 +42,7 @@ namespace Win7Taskbar.StartMenu
 
     public partial class StartMenuWindow : Window
     {
+        private readonly NativeBridge _bridge;
         private readonly StartMenuViewModel _vm;
         private bool _suppressDeactivate;
         private bool _glassApplied;
@@ -51,6 +52,7 @@ namespace Win7Taskbar.StartMenu
         internal StartMenuWindow(NativeBridge bridge)
         {
             InitializeComponent();
+            _bridge = bridge;
             _vm = new StartMenuViewModel(bridge, Dispatcher);
             DataContext = _vm;
             Visibility = Visibility.Hidden;
@@ -68,6 +70,7 @@ namespace Win7Taskbar.StartMenu
             _suppressDeactivate = true;
             try
             {
+                try { _bridge.AppSearchHide(); } catch (Exception) { }
                 _vm.ShowDefaultList();
                 ResetUserPhoto(animate: false);
                 if (ActualHeight < 1)
@@ -265,14 +268,17 @@ namespace Win7Taskbar.StartMenu
             }
             Point pt = CursorScreenPoint();
             _suppressDeactivate = true;
-            try
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
             {
-                _vm.ShowEmptyLeftContextMenu((int)Math.Round(pt.X), (int)Math.Round(pt.Y));
-            }
-            finally
-            {
-                _suppressDeactivate = false;
-            }
+                try
+                {
+                    _vm.ShowEmptyLeftContextMenu((int)Math.Round(pt.X), (int)Math.Round(pt.Y));
+                }
+                finally
+                {
+                    _suppressDeactivate = false;
+                }
+            }));
             e.Handled = true;
         }
 
@@ -301,20 +307,23 @@ namespace Win7Taskbar.StartMenu
         {
             Point pt = CursorScreenPoint();
             _suppressDeactivate = true;
-            bool dismiss = false;
-            try
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
             {
-                dismiss = _vm.ShowItemContextMenu(item, (int)Math.Round(pt.X),
-                    (int)Math.Round(pt.Y));
-            }
-            finally
-            {
-                _suppressDeactivate = false;
-            }
-            if (dismiss)
-            {
-                Dismiss();
-            }
+                bool dismiss = false;
+                try
+                {
+                    dismiss = _vm.ShowItemContextMenu(item, (int)Math.Round(pt.X),
+                        (int)Math.Round(pt.Y));
+                }
+                finally
+                {
+                    _suppressDeactivate = false;
+                }
+                if (dismiss)
+                {
+                    Dismiss();
+                }
+            }));
         }
 
         private Point CursorScreenPoint()

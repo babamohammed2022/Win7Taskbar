@@ -44,7 +44,7 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        public Thickness IndentMargin => new Thickness(4 + IndentLevel * 14, 0, 0, 0);
+        public Thickness IndentMargin => new Thickness(IndentLevel * 16, 0, 0, 0);
 
         public bool IsExpanded
         {

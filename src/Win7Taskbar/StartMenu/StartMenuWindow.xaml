@@ -96,7 +96,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
                         <Border x:Name="Bd" Background="Transparent" BorderBrush="Transparent"
-                                BorderThickness="1" CornerRadius="3" Padding="7,2">
+                                BorderThickness="1" CornerRadius="3" Padding="6,2">
                             <ContentPresenter/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -262,7 +262,7 @@
                                  ItemsSource="{Binding LeftItems}"
                                  BorderThickness="0"
                                  Background="Transparent"
-                                 Padding="2,4,2,2"
+                                 Padding="6,2"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  VirtualizingPanel.IsVirtualizing="True"
                                  VirtualizingPanel.VirtualizationMode="Recycling"
@@ -285,7 +285,7 @@
                             </ListBox.Style>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Height="37" Background="Transparent">
+                                    <Grid Height="34" Background="Transparent" Margin="{Binding IndentMargin}">
                                         <Rectangle Height="1" Fill="#C0C8D4" VerticalAlignment="Center" Margin="8,0">
                                             <Rectangle.Style>
                                                 <Style TargetType="Rectangle">
@@ -298,7 +298,7 @@
                                                 </Style>
                                             </Rectangle.Style>
                                         </Rectangle>
-                                        <Grid Margin="{Binding IndentMargin}">
+                                        <Grid>
                                             <Grid.Style>
                                                 <Style TargetType="Grid">
                                                     <Style.Triggers>
@@ -309,14 +309,13 @@
                                                 </Style>
                                             </Grid.Style>
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="12"/>
                                                 <ColumnDefinition Width="36"/>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="16"/>
                                             </Grid.ColumnDefinitions>
-                                            <Path Grid.Column="0" Fill="#3A5068"
-                                                  VerticalAlignment="Center" HorizontalAlignment="Center"
-                                                  Stretch="Uniform" Width="6" Height="8">
+                                            <Path Fill="#3A5068"
+                                                  VerticalAlignment="Center" HorizontalAlignment="Left"
+                                                  Stretch="Uniform" Width="6" Height="8" Margin="1,0,0,0">
                                                 <Path.Style>
                                                     <Style TargetType="Path">
                                                         <Setter Property="Visibility" Value="Collapsed"/>
@@ -334,14 +333,14 @@
                                                     </Style>
                                                 </Path.Style>
                                             </Path>
-                                            <Image Grid.Column="1" Source="{Binding Icon}" Width="32" Height="32"
+                                            <Image Source="{Binding Icon}" Width="32" Height="32"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                                    RenderOptions.BitmapScalingMode="HighQuality"/>
-                                            <TextBlock Grid.Column="2" Text="{Binding Name}"
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}"
                                                        VerticalAlignment="Center" Margin="4,0,4,0"
                                                        FontSize="12" Foreground="#1A1A1A"
                                                        TextTrimming="CharacterEllipsis"/>
-                                            <Path Grid.Column="3" Data="M0,0 L5,4 L0,8 Z" Fill="#3A5068"
+                                            <Path Grid.Column="2" Data="M0,0 L5,4 L0,8 Z" Fill="#3A5068"
                                                   VerticalAlignment="Center" HorizontalAlignment="Center"
                                                   Visibility="{Binding JumpVisibility}"/>
                                         </Grid>
@@ -502,7 +501,7 @@
                                  MouseLeave="OnRightListMouseLeave">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid MinHeight="20">
+                                    <Grid MinHeight="18">
                                         <Rectangle Height="1" Fill="#60FFFFFF" VerticalAlignment="Center" Margin="4,0">
                                             <Rectangle.Style>
                                                 <Style TargetType="Rectangle">

@@ -5045,17 +5045,19 @@ namespace Win7Taskbar
 
             e.Handled = true;
 
-            // v1.7.1: a context-menu failure must never become an unhandled
-            // exception (the native side already falls back to a standard
-            // menu for stub system menus, e.g. UWP frame windows).
-            try
+            // TrackPopupMenu on RBUTTONUP swallows itself; show after this
+            // mouse-up has left the queue (same as the bar context menu).
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
             {
-                OpenTaskButtonMenu(element, group);
-            }
-            catch (Exception ex)
-            {
-                DiagnosticLogger.WriteException("TASKMENU", ex);
-            }
+                try
+                {
+                    OpenTaskButtonMenu(element, group);
+                }
+                catch (Exception ex)
+                {
+                    DiagnosticLogger.WriteException("TASKMENU", ex);
+                }
+            }));
         }
 
         private void OpenTaskButtonMenu(FrameworkElement element, TaskGroup group)
@@ -5127,24 +5129,48 @@ namespace Win7Taskbar
         // nella cartella reale dei pin; il watcher nativo aggiorna il modello.
         private void ToggleTaskPin(TaskGroup group)
         {
+            // v2.62-alpha (G6): with the switch on, the pin travels on the
+            // canonical native path (the single .lnk write point shared with
+            // the Jump List, the model refreshed by the native watcher);
+            // without it the historical managed path stays untouched.
+            if (RetroBar.Utilities.Settings.Instance.CanonicalPinVerbs)
+            {
+                string exe = group.ExePath ?? string.Empty;
+                if (string.IsNullOrEmpty(exe)) return;
+                string name = System.IO.Path.GetFileNameWithoutExtension(exe);
+                int r = _bridge.ToggleTaskbarPin(exe, name, group.IsPinned ? 0 : 1);
+                _bridge.Log("pin/unpin (verb canonico): " +
+                    (r > 0 ? "applicato" : r == 0 ? "già in quello stato" : "fallito"));
+                if (r >= 0) _viewModel.InvalidatePins();
+                return;
+            }
             try
             {
-                string path = !string.IsNullOrEmpty(group.LaunchPath)
-                    ? group.LaunchPath
-                    : (group.ExePath ?? string.Empty);
-                if (string.IsNullOrEmpty(path))
+                if (group.IsPinned)
                 {
-                    return;
-                }
-                bool pinned = group.IsPinned ||
-                    Win7Taskbar.StartMenu.StartMenuStore.IsTaskbarPinned(path);
-                if (pinned)
-                {
-                    Win7Taskbar.StartMenu.StartMenuStore.UnpinTaskbar(path);
+                    if (!string.IsNullOrEmpty(group.LaunchPath))
+                        System.IO.File.Delete(group.LaunchPath);
                 }
                 else
                 {
-                    Win7Taskbar.StartMenu.StartMenuStore.PinTaskbar(path);
+                    string exe = group.ExePath ?? string.Empty;
+                    if (string.IsNullOrEmpty(exe)) return;
+                    string dir = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                        @"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar");
+                    System.IO.Directory.CreateDirectory(dir);
+                    string name = System.IO.Path.GetFileNameWithoutExtension(exe);
+                    string lnk = System.IO.Path.Combine(dir, name + ".lnk");
+                    var t = Type.GetTypeFromProgID("WScript.Shell");
+                    if (t != null)
+                    {
+                        dynamic sh = Activator.CreateInstance(t)
+                                     ?? throw new InvalidOperationException(
+                                         "WScript.Shell non disponibile");
+                        dynamic sc = sh.CreateShortcut(lnk);
+                        sc.TargetPath = exe;
+                        sc.Save();
+                    }
                 }
                 _viewModel.InvalidatePins();
             }
@@ -5652,6 +5678,7 @@ namespace Win7Taskbar
         /// <summary>Chiude il pannello tramite la freccetta (binding TwoWay).</summary>
         private void CloseOverflowPopup()
         {
+            CancelOpenPopupMenus();
             if (OverflowToggle != null)
             {
                 OverflowToggle.IsChecked = false;
@@ -5659,6 +5686,33 @@ namespace Win7Taskbar
             else if (OverflowPopup != null)
             {
                 OverflowPopup.IsOpen = false;
+            }
+        }
+
+        /// <summary>
+        /// Right-click on an overflow icon posts the owner's TrackPopupMenu.
+        /// Closing the overflow must also dismiss that menu.
+        /// </summary>
+        private static void CancelOpenPopupMenus()
+        {
+            try
+            {
+                NativeMethods.EndMenu();
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                IntPtr fg = NativeMethods.GetForegroundWindow();
+                if (fg != IntPtr.Zero)
+                {
+                    NativeMethods.SendMessage(fg, 0x001F /* WM_CANCELMODE */,
+                        IntPtr.Zero, IntPtr.Zero);
+                }
+            }
+            catch (Exception)
+            {
             }
         }
 
@@ -5770,6 +5824,7 @@ namespace Win7Taskbar
 
         private void OverflowToggle_Unchecked(object sender, RoutedEventArgs e)
         {
+            CancelOpenPopupMenus();
             if (!_useNativeOverflow)
             {
                 OverflowPopup.IsOpen = false;
@@ -8169,6 +8224,14 @@ namespace Win7Taskbar
             if (!RetroBar.Utilities.Settings.Instance.EnableAppSearch)
             {
                 return;
+            }
+
+            try
+            {
+                Win7Taskbar.StartMenu.StartMenuHost.Hide();
+            }
+            catch (Exception)
+            {
             }
 
             /* v1.21.50: il click sulla lente non deve mai abbattere la

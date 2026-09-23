@@ -791,6 +791,13 @@ namespace Win7Taskbar.StartMenu
             }
 
             string path = FirstExisting(item.Path, item.Target);
+            if (!string.IsNullOrEmpty(path) &&
+                (File.Exists(path) || Directory.Exists(path)) &&
+                ShellContextMenu.TryShow(path, screenX, screenY))
+            {
+                return true;
+            }
+
             bool pinned = item.IsPinned || StartMenuStore.IsStartMenuPinned(path);
             bool recent = item.IsRecent && !pinned;
             bool allPrograms = AllProgramsOpen && !pinned && !recent;
@@ -912,6 +919,14 @@ namespace Win7Taskbar.StartMenu
 
         private bool ShowRightPaneMenu(StartMenuItem item, int screenX, int screenY)
         {
+            string real = item.Path;
+            if (!string.IsNullOrEmpty(real) &&
+                !real.StartsWith("::", StringComparison.Ordinal) &&
+                (Directory.Exists(real) || File.Exists(real)) &&
+                ShellContextMenu.TryShow(real, screenX, screenY))
+            {
+                return true;
+            }
             const string items = "Open\nExplore\nSearch\nProperties";
             int choice = _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
                 items, anchorAtCursor: true);
@@ -963,6 +978,12 @@ namespace Win7Taskbar.StartMenu
 
         private bool ShowProgramsFolderMenu(StartMenuItem item, int screenX, int screenY)
         {
+            string folderPath = item.Path;
+            if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath) &&
+                ShellContextMenu.TryShow(folderPath, screenX, screenY))
+            {
+                return true;
+            }
             const string items = "Open\nExplore\nSearch\nProperties";
             int choice = _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
                 items, anchorAtCursor: true);
@@ -1058,20 +1079,39 @@ namespace Win7Taskbar.StartMenu
                 : "Pin to Taskbar";
         }
 
-        private static void ToggleTaskbarPin(string path, bool pin)
+        private void ToggleTaskbarPin(string path, bool pin)
         {
-            if (string.IsNullOrEmpty(path))
+            string exe = ResolveExe(path);
+            if (string.IsNullOrEmpty(exe))
             {
                 return;
             }
-            if (pin)
+            try
             {
-                StartMenuStore.PinTaskbar(path);
+                string name = Path.GetFileNameWithoutExtension(exe);
+                _bridge.ToggleTaskbarPin(exe, name, pin ? 1 : 0);
             }
-            else
+            catch (Exception)
             {
-                StartMenuStore.UnpinTaskbar(path);
             }
+        }
+
+        private static string ResolveExe(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return string.Empty;
+            }
+            if (path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(path))
+            {
+                return path;
+            }
+            string target = StartMenuStore.ResolveTarget(path);
+            if (!string.IsNullOrEmpty(target))
+            {
+                return target;
+            }
+            return path;
         }
 
         private static void OpenFileLocation(string path)

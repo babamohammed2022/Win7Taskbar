@@ -804,6 +804,10 @@ namespace Win7Taskbar.Interop
         [DllImport("user32.dll")]
         public static extern IntPtr GetForegroundWindow();
 
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EndMenu();
+
         // ---------------- v1.7.4: language bar via shell menu ----------------
         // The ITA indicator now opens a plain Win32 menu (the same
         // W7T_ShowContextMenuEx path the clock and the bar use, which never

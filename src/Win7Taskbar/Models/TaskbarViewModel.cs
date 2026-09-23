@@ -531,32 +531,27 @@ namespace Win7Taskbar.Models
         }
 
         /// <summary>
-        /// Pins from OUR TaskBar folder only
-        /// (%AppData%\Win7Taskbar\Pinned\TaskBar). Explorer's User Pinned
-        /// folder is never read or written.
+        /// v2.25: il modello pin arriva dal core (C++/Shell); qui si aggiunge
+        /// solo l'icona di presentazione estratta dal .lnk: la UI non fa
+        /// discovery.
         /// </summary>
         private List<PinInfo> LoadPinsFromCore()
         {
             var list = new List<PinInfo>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string lnk in StartMenuStore.ReadTaskbarPins())
+            foreach (var pn in _bridge.GetPinnedApps())
             {
-                string target = StartMenuStore.ResolveTarget(lnk);
-                string identity = !string.IsNullOrEmpty(target) ? target : lnk;
-                if (!seen.Add(lnk))
-                {
-                    continue;
-                }
-                var icon = PinReader.ReadIcon(lnk, target);
+                var icon = PinReader.ReadIcon(pn.LnkPath ?? string.Empty,
+                                              pn.Target ?? string.Empty);
                 if (icon != null)
                 {
-                    _icons.Put(AppIconCache.PinKey(lnk), icon);
+                    _icons.Put(AppIconCache.PinKey(pn.LnkPath ?? string.Empty), icon);
                 }
+
                 list.Add(new PinInfo
                 {
-                    AppId = identity,
-                    LnkPath = lnk,
-                    TargetPath = target,
+                    AppId = pn.Identity ?? string.Empty,
+                    LnkPath = pn.LnkPath ?? string.Empty,
+                    TargetPath = pn.Target ?? string.Empty,
                     Icon = icon,
                 });
             }
