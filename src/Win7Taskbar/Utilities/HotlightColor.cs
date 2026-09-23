@@ -58,6 +58,15 @@ namespace Win7Taskbar.Utilities
         /// (saturation in percent of the brightest channel).</summary>
         private const int MinSaturationPercent = 18;
 
+        /// <summary>Minimum share of the icon's opaque pixels that must be
+        /// colours before the icon is said to have a dominant colour at all
+        /// (percent). A badge or a thin highlight is not a dominant colour:
+        /// without this floor the accent would take its hue from a handful of
+        /// pixels and jump around between icons that are really colourless.
+        /// Below the floor the icon counts as black/white/grey and lights
+        /// neutral (v2.65).</summary>
+        private const int MinCoveragePercent = 10;
+
         /// <summary>Blend of the winning colour toward white, so the light is
         /// a light and not the flat colour of the icon.</summary>
         private const float LightenTint = 0.35f;
@@ -156,7 +165,10 @@ namespace Win7Taskbar.Utilities
         /// <summary>
         /// The three rules of the blog post applied to a BGRA32 buffer: skip
         /// black, white and the shades of grey, then pick the predominant
-        /// colour among the pixels that are left.
+        /// colour among the pixels that are left. On top of them one
+        /// robustness rule of our own (v2.65): the colours must cover enough
+        /// of the icon (<see cref="MinCoveragePercent"/>) to deserve the name
+        /// "dominant", otherwise the light stays neutral.
         /// </summary>
         private static Color DominantLightFromPixels(byte[] bgra)
         {
@@ -164,6 +176,8 @@ namespace Win7Taskbar.Utilities
             long[] sumR = new long[BucketCount];
             long[] sumG = new long[BucketCount];
             long[] sumB = new long[BucketCount];
+            int opaque = 0;
+            int coloured = 0;
 
             for (int i = 0; i + 3 < bgra.Length; i += 4)
             {
@@ -177,6 +191,7 @@ namespace Win7Taskbar.Utilities
                 {
                     continue;
                 }
+                opaque++;
 
                 int max = Math.Max(r, Math.Max(g, b));
                 int min = Math.Min(r, Math.Min(g, b));
@@ -193,6 +208,7 @@ namespace Win7Taskbar.Utilities
                 {
                     continue;
                 }
+                coloured++;
 
                 int bucket = ((r >> BucketShift) << (2 * (8 - BucketShift)))
                            | ((g >> BucketShift) << (8 - BucketShift))
@@ -205,6 +221,12 @@ namespace Win7Taskbar.Utilities
                 sumR[bucket] += (long)r * vote;
                 sumG[bucket] += (long)g * vote;
                 sumB[bucket] += (long)b * vote;
+            }
+
+            /* v2.65: a few coloured pixels are not a dominant colour. */
+            if (opaque <= 0 || coloured * 100 < opaque * MinCoveragePercent)
+            {
+                return NeutralLight;
             }
 
             int best = -1;

@@ -20,6 +20,8 @@
 
 #include "TrayService.h"
 
+#include "RegistryPolicy.h"   /* Regola README: write con backup rilevato */
+
 /* v2.62: i riquadri di Windows 7 per le icone di sistema ricreate. */
 #include "BatteryFlyout.h"
 #include "Win7NetworkFlyout.h"
@@ -4571,8 +4573,18 @@ static void EnsureWin32BatteryFlyoutValue() {
          * ripristinera' il valore precedente. */
         WriteBatteryFlyoutBackup(g_batteryKeyPrevExists, g_batteryKeyPrevValue);
         const DWORD one = 1;
-        RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
-                       reinterpret_cast<const BYTE*>(&one), sizeof(one));
+        /* Regola README: la scrittura passa da RegistryPolicy con
+         * backup rilevato HKCU\Software\Win7Taskbar\RegistryBackup (il
+         * file di backup qui sopra resta il recovery no-alloc del
+         * filtro SEH: unica eccezione documentata ai Reg* diretti). */
+        w7t::PolicyValue batteryFlyout;
+        batteryFlyout.subkey =
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell";
+        batteryFlyout.valueName = L"UseWin32BatteryFlyout";
+        batteryFlyout.type = REG_DWORD;
+        batteryFlyout.data.assign(reinterpret_cast<const BYTE*>(&one),
+                                  reinterpret_cast<const BYTE*>(&one) + sizeof(one));
+        w7t::RegistryPolicy::WriteWithBackup(batteryFlyout);
         g_batteryKeyTouched = true;
     }
     RegCloseKey(key);

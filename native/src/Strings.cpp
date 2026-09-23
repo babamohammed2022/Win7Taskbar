@@ -978,6 +978,13 @@ constexpr ExtraStrings kExtraIt = {
     L"Trascina le icone sulla barra delle applicazioni per cambiarne l'ordine. "
     L"L'ordine è salvato solo in Win7Taskbar: la barra delle applicazioni di "
     L"Windows non viene modificata.",
+    L"Posizione:",
+    L"In basso",
+    L"In alto",
+    L"A sinistra",
+    L"A destra",
+    L"Blocca la barra delle applicazioni"
+
 };
 constexpr ExtraStrings kExtraEn = {
     L"Extra settings",
@@ -1002,6 +1009,13 @@ constexpr ExtraStrings kExtraEn = {
     L"Icon order:",
     L"Drag the icons on the taskbar to change their order. The order is saved "
     L"only in Win7Taskbar: the Windows taskbar is not modified.",
+    L"Position:",
+    L"Bottom",
+    L"Top",
+    L"Left",
+    L"Right",
+    L"Lock the taskbar"
+
 };
 constexpr ExtraStrings kExtraEs = {
     L"Configuración extra",
@@ -1027,6 +1041,13 @@ constexpr ExtraStrings kExtraEs = {
     L"Arrastra los iconos en la barra de tareas para cambiar su orden. El "
     L"orden se guarda solo en Win7Taskbar: la barra de tareas de Windows no se "
     L"modifica.",
+    L"Posición:",
+    L"Abajo",
+    L"Arriba",
+    L"Izquierda",
+    L"Derecha",
+    L"Bloquear la barra de tareas"
+
 };
 constexpr ExtraStrings kExtraFr = {
     L"Paramètres supplémentaires",
@@ -1052,6 +1073,13 @@ constexpr ExtraStrings kExtraFr = {
     L"Faites glisser les icônes sur la barre des tâches pour changer leur "
     L"ordre. L'ordre est enregistré uniquement dans Win7Taskbar : la barre des "
     L"tâches de Windows n'est pas modifiée.",
+    L"Position :",
+    L"En bas",
+    L"En haut",
+    L"À gauche",
+    L"À droite",
+    L"Verrouiller la barre des tâches"
+
 };
 constexpr ExtraStrings kExtraDe = {
     L"Weitere Einstellungen",
@@ -1077,6 +1105,13 @@ constexpr ExtraStrings kExtraDe = {
     L"Ziehen Sie die Symbole auf der Taskleiste, um ihre Reihenfolge zu "
     L"ändern. Die Reihenfolge wird nur in Win7Taskbar gespeichert: die "
     L"Windows-Taskleiste wird nicht geändert.",
+    L"Position:",
+    L"Unten",
+    L"Oben",
+    L"Links",
+    L"Rechts",
+    L"Taskleiste sperren"
+
 };
 constexpr ExtraStrings kExtraPt = {
     L"Configurações extras",
@@ -1102,6 +1137,13 @@ constexpr ExtraStrings kExtraPt = {
     L"Arraste os ícones na barra de tarefas para alterar a ordem. A ordem é "
     L"salva apenas no Win7Taskbar: a barra de tarefas do Windows não é "
     L"modificada.",
+    L"Posição:",
+    L"Em baixo",
+    L"Em cima",
+    L"À esquerda",
+    L"À direita",
+    L"Bloquear a barra de tarefas"
+
 };
 constexpr ExtraStrings kExtraPl = {
     L"Ustawienia dodatkowe",
@@ -1127,6 +1169,13 @@ constexpr ExtraStrings kExtraPl = {
     L"Przeciągnij ikony na pasku zadań, aby zmienić ich kolejność. Kolejność "
     L"jest zapisywana tylko w Win7Taskbar: pasek zadań Windows nie jest "
     L"zmieniany.",
+    L"Pozycja:",
+    L"Na dole",
+    L"Na górze",
+    L"Na lewo",
+    L"Na prawo",
+    L"Zablokuj pasek zadań"
+
 };
 constexpr ExtraStrings kExtraRu = {
     L"Дополнительные параметры",
@@ -1152,6 +1201,13 @@ constexpr ExtraStrings kExtraRu = {
     L"Перетаскивайте значки на панели задач, чтобы изменить их порядок. "
     L"Порядок сохраняется только в Win7Taskbar: панель задач Windows не "
     L"изменяется.",
+    L"Расположение:",
+    L"Внизу",
+    L"Вверху",
+    L"Слева",
+    L"Справа",
+    L"Заблокировать панель задач"
+
 };
 constexpr ExtraStrings kExtraJa = {
     L"詳細設定",
@@ -1176,6 +1232,13 @@ constexpr ExtraStrings kExtraJa = {
     L"アイコンの順序:",
     L"タスクバー上のアイコンをドラッグして順序を変更します。順序は "
     L"Win7Taskbar にのみ保存され、Windows のタスクバーは変更されません。",
+    L"位置:",
+    L"下",
+    L"上",
+    L"左",
+    L"右",
+    L"タスク バーをロックする"
+
 };
 constexpr ExtraStrings kExtraZh = {
     L"额外设置",
@@ -1199,6 +1262,13 @@ constexpr ExtraStrings kExtraZh = {
     L"图标顺序:",
     L"在任务栏上拖动图标以更改其顺序。顺序仅保存在 Win7Taskbar 中：不会修改 "
     L"Windows 任务栏。",
+    L"位置:",
+    L"下",
+    L"上",
+    L"左",
+    L"右",
+    L"锁定任务栏"
+
 };
 constexpr ExtraStrings kExtraAr = {
     L"إعدادات إضافية",
@@ -1223,6 +1293,13 @@ constexpr ExtraStrings kExtraAr = {
     L"ترتيب الأيقونات:",
     L"اسحب الأيقونات على شريط المهام لتغيير ترتيبها. يُحفظ الترتيب في "
     L"Win7Taskbar فقط: لا يتم تعديل شريط مهام Windows.",
+    L"الموضع:",
+    L"أسفل",
+    L"أعلى",
+    L"يسار",
+    L"يمين",
+    L"قفل شريط المهام"
+
 };
 
 const PropStrings& PickProp(Lang lang) {

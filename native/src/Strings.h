@@ -228,6 +228,14 @@ struct ExtraStrings {
     const wchar_t* themeWin8Beta8148;
     const wchar_t* lblIconOrder;
     const wchar_t* txtIconOrderHint;
+    /* v1.21.43: riga "Posizione" + blocco barra (in coda, ordine
+     * posizionale: campo e valori vanno aggiunti in tutte le lingue). */
+    const wchar_t* lblPosition;
+    const wchar_t* posBottom;
+    const wchar_t* posTop;
+    const wchar_t* posLeft;
+    const wchar_t* posRight;
+    const wchar_t* chkLock;
 };
 
 const ExtraStrings& ExtraStringsFor(Lang lang);

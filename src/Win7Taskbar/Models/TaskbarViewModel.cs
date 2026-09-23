@@ -23,6 +23,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Threading;
 using Win7Taskbar.Controls;
 using Win7Taskbar.Interop;
+using Win7Taskbar.Models.Tasking;
 
 namespace Win7Taskbar.Models
 {
@@ -36,13 +37,17 @@ namespace Win7Taskbar.Models
         private readonly DispatcherTimer _refreshTimer;
         private List<PinInfo>? _pinsCache;
 
-        /* v2.27: quando l'utente avvia un pin dalla barra, per pochi
-         * secondi le nuove finestre di explorer.exe appartengono a quel
-         * pin anche se il collegamento e' un elemento shell senza
-         * percorso (IDList): e' il comportamento con cui la taskbar di
-         * Windows associa la finestra appena aperta al pulsante premuto,
-         * invece di creare un bottone nuovo con l'icona del contenuto. */
-        private (string PinAppId, DateTime UntilUtc)? _pendingLaunch;
+        /* v2.27: when the user launches a pin from the bar, for a few seconds
+         * new explorer.exe windows belong to that pin even when the shortcut
+         * is a shell item without a path: it is the behaviour with which the
+         * Windows taskbar associates a just-opened window with the pressed
+         * button instead of creating a new button with the content icon. The
+         * affinity window now lives in TaskMatcher (model identity), not in
+         * the view. */
+        private readonly AppIconCache _icons;
+        private readonly TaskCatalog _catalog;
+        private readonly TaskResolver _resolver;
+        private readonly TaskProjection _projection;
         private bool _disposed;
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -57,7 +62,30 @@ namespace Win7Taskbar.Models
         public TaskbarViewModel(NativeBridge bridge)
         {
             _bridge = bridge;
-            Groups = new ObservableCollection<TaskGroup>();
+
+            // Shared task model (identity + grouping + async resolution) and
+            // its presentation projection (the bindable buttons the theme
+            // knows). The resolver worker materializes icons, titles and
+            // friendly names off the UI thread and completes through the
+            // catalog, which re-validates every result against the current
+            // model before applying it.
+            _icons = new AppIconCache();
+            _catalog = new TaskCatalog();
+            _resolver = new TaskResolver(bridge, _icons, Dispatcher.CurrentDispatcher);
+            _resolver.Completed = result => _catalog.CompleteResolution(result);
+            _catalog.ResolveRequested = (entry, reason, wantExeIcon) =>
+                _resolver.Schedule(entry, reason, wantExeIcon);
+            _projection = new TaskProjection(_catalog, _icons,
+                (entry, reason, wantExeIcon) => _resolver.Schedule(entry, reason, wantExeIcon));
+
+            // Deterministic icon-cache cleanup (RAII): a window's materialized
+            // icon dies with its entry. EntryRemoving is the documented
+            // notify-first hook, so this covers every removal path (core event
+            // and reconcile alike); the frozen ImageSource itself lives on as
+            // long as any departing button still references it.
+            _catalog.EntryRemoving += (_, args) =>
+                _icons.Invalidate(AppIconCache.WindowKey(args.Entry.Hwnd));
+
             NotificationArea = new NotificationArea();
             Clock = new ClockModel();
 
@@ -77,13 +105,30 @@ namespace Win7Taskbar.Models
             };
             _refreshTimer.Tick += (_, _) =>
             {
-                RefreshWindows();
-                RefreshTray();
-                TrimWorkingSet();
+                // Same contract as the core-event pump: a failed safety-net
+                // tick must not kill the timer.
+                try
+                {
+                    RefreshWindows();
+                    RefreshTray();
+                    TrimWorkingSet();
+                }
+                catch (Exception ex)
+                {
+                    _bridge.Log("refresh tick failed: " + ex.Message);
+                }
             };
         }
 
-        public ObservableCollection<TaskGroup> Groups { get; }
+        /// <summary>The bindable buttons: a projection of the shared model.</summary>
+        public ObservableCollection<TaskGroup> Groups => _projection.Groups;
+
+        /// <summary>Thumbnail-picker window list of a group: the
+        /// <c>ThumbnailPickerFilter</c> view of the catalog (v2.64), mapped
+        /// to the same <see cref="TaskWindow"/> instances the button list
+        /// binds to. Snapshot at call time (see TaskProjection.PickerWindows).</summary>
+        public IReadOnlyList<TaskWindow> PickerWindows(TaskGroup group)
+            => _projection.PickerWindows(group);
 
         // v1.21.15: ordine personalizzato dal trascinamento (meccanismo
         // copiato da RetroBar): lista di sessione, svuotata ad ogni
@@ -170,10 +215,38 @@ namespace Win7Taskbar.Models
 
         private void OnCoreEvent(object? sender, CoreEventArgs e)
         {
+            // Choke point: one malformed or hostile event must never take
+            // down the pump or the dispatcher callback it runs on. The next
+            // event (or the safety-net refresh) re-syncs the truth from the
+            // core.
+            try
+            {
+                HandleCoreEvent(e);
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log("core event " + e.EventType + " failed: " + ex.Message);
+            }
+        }
+
+        private void HandleCoreEvent(CoreEventArgs e)
+        {
             switch (e.EventType)
             {
                 case CoreEvent.WindowAdded:
+                    // Discovery is not resolution: a pending entry exists at
+                    // once, its identity completes asynchronously.
+                    _catalog.Discover(e.A);
+                    RefreshWindows();
+                    break;
+
                 case CoreEvent.WindowRemoved:
+                    // Notify-first removal in the model (listeners can still
+                    // inspect the departing task), then the mirror pass.
+                    _catalog.RemoveEntry(e.A);
+                    RefreshWindows();
+                    break;
+
                 case CoreEvent.WindowChanged:
                 case CoreEvent.WindowActivated:
                 // Una richiesta di attenzione cambia lo stato della finestra
@@ -230,18 +303,22 @@ namespace Win7Taskbar.Models
         /// invece di ricostruire: cosi' i bottoni non "sfarfallano" e non
         /// perdono lo stato di hover.
         /// </summary>
-        /// <summary>
-        /// Attivo solo se la variabile d'ambiente W7T_DEBUG_FLASH vale "1".
-        /// Non ha effetto in uso normale.
-        /// </summary>
-        private static readonly bool DebugForceFlash =
-            Environment.GetEnvironmentVariable("W7T_DEBUG_FLASH") == "1";
-
-        /* v2.62-alpha (G4): "use the executable icon for the group" policy,
-         * refreshed once per RefreshWindows (the reader is the authority). */
-        private bool _groupIconUseExecutable;
-
         public void RefreshWindows()
+        {
+            // Choke point of every refresh caller (core pump, safety-net tick,
+            // UI actions): a failure is logged and swallowed, the next refresh
+            // re-syncs the truth from the core.
+            try
+            {
+                RefreshWindowsCore();
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log("refresh failed: " + ex.Message);
+            }
+        }
+
+        private void RefreshWindowsCore()
         {
             IReadOnlyList<W7TWindowInfo> windows = _bridge.GetWindows();
             List<PinInfo> pins = _pinsCache ??= LoadPinsFromCore();
@@ -249,214 +326,32 @@ namespace Win7Taskbar.Models
             // v2.62-alpha (G3/G4): the user's own grouping configuration,
             // read at most once per refresh and only when the project switch
             // is on. Absent value => null => exactly the current behaviour.
+            // It is VIEW policy (per-window buttons, group icon); identity
+            // stays on the model entries regardless. "Never group"
+            // (TaskbarGlomLevel 0) and the TaskbarExceptionsIcons list make
+            // each window its own button: the group key becomes per-window (a
+            // synthetic identity that never matches a pin and survives while
+            // the window lives), while the real AppId stays on the TaskWindow
+            // for the group commands (see EffectiveAppId).
             var groupCfg = RetroBar.Utilities.Settings.Instance.TaskbarGroupingPolicy
                 ? TaskbarSettings.Read() : null;
             var iconCfg = RetroBar.Utilities.Settings.Instance.TaskbarGroupingPolicy
                 ? GroupIconPolicy.Read() : null;
-            _groupIconUseExecutable = iconCfg?.UseExecutable == true;
+            var policy = new ProjectionPolicy(groupCfg, iconCfg);
 
-            // Raggruppa per AppUserModelID / percorso eseguibile.
-            // With the user policy on, "never group" (TaskbarGlomLevel 0) or
-            // a listed exception (TaskbarExceptionsIcons) makes each window
-            // its own group: the key becomes per-window (a synthetic AppId
-            // the pipeline understands: it never matches a pin, it survives
-            // while the window lives, and the real AppId stays on the
-            // TaskWindow for the group commands).
-            bool PerWindow(W7TWindowInfo w)
-            {
-                if (groupCfg == null && iconCfg == null)
-                {
-                    return false;
-                }
-                if (groupCfg?.GlomLevel == 0)
-                {
-                    return true;
-                }
-                if (iconCfg != null && iconCfg.Exceptions.Count > 0)
-                {
-                    string name = System.IO.Path.GetFileName(
-                        w.ExePath ?? string.Empty);
-                    if (iconCfg.Exceptions.Contains(name,
-                            StringComparer.OrdinalIgnoreCase))
-                    {
-                        return true;
-                    }
-                }
-                return false;
-            }
-            var byApp = windows
-                .Where(w => !string.IsNullOrEmpty(w.AppId))
-                .GroupBy(w => PerWindow(w)
-                    ? "w7t:win:" + w.Hwnd.ToString("x")
-                    : w.AppId, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            // Shared model: entries (ghost-aware), pin claiming (a pin and a
+            // group are the same app by AppUserModelID OR executable path -
+            // without the double criterion the same app shows up several
+            // times), window-to-group assignment with ONE membership sync per
+            // group so several native AppIds keep one button (the v2.29 rule:
+            // two Chrome profiles = one button), and empty-group GC where
+            // pinned groups always survive. The historical criteria and order
+            // are preserved inside the catalog.
+            _catalog.Reconcile(windows, pins, policy);
 
-            // 0) v2.20: i pinnati REALI (lnk della shell) esistono sempre,
-            //    anche con zero finestre (stato Idle della Superbar).
-            foreach (PinInfo pin in pins)
-            {
-                TaskGroup? pg = Groups.FirstOrDefault(g => PinMatches(pin, g));
-                if (pg == null)
-                {
-                    // v2.27: un gruppo di finestre di explorer.exe nato
-                    // PRIMA del riallineamento dei pin e' l'app Explorer:
-                    // il pin "Esplora file" gli si aggancia invece di
-                    // creare un secondo bottone.
-                    pg = Groups.FirstOrDefault(g => !g.IsPinned &&
-                        IsExplorerPin(pin, g.ExePath ?? string.Empty));
-                }
-
-                if (pg == null)
-                {
-                    pg = new TaskGroup(pin.AppId, pin.TargetPath)
-                    {
-                        IsPinned = true,
-                        LaunchPath = pin.LnkPath,
-                        Icon = pin.Icon
-                    };
-                    Groups.Add(pg);
-                }
-                else
-                {
-                    pg.IsPinned = true;
-                    pg.LaunchPath ??= pin.LnkPath;
-                    // v2.26: l'icona del pin E' l'identita' dell'app:
-                    // prevale sempre sull'icona del contenuto delle
-                    // finestre (Esplora file che apre "Questo PC" deve
-                    // mostrare l'icona di Explorer, non del contenuto).
-                    pg.Icon = pin.Icon;
-                }
-            }
-
-            // chi non e' piu' pinnato torna gruppo "solo running"
-            foreach (TaskGroup g in Groups)
-            {
-                if (g.IsPinned && !pins.Any(p => PinMatches(p, g)))
-                {
-                    g.IsPinned = false;
-                }
-            }
-
-            // 1) Elimina i gruppi che non esistono piu' (mai i pinnati).
-            for (int i = Groups.Count - 1; i >= 0; i--)
-            {
-                if (Groups[i].IsPinned)
-                {
-                    continue;
-                }
-                if (!byApp.Any(g => string.Equals(g.Key, Groups[i].AppId,
-                                                  StringComparison.OrdinalIgnoreCase)))
-                {
-                    Groups.RemoveAt(i);
-                }
-            }
-
-            // 2) Aggiorna quelli esistenti e aggiungi i nuovi.
-            // v2.24: i gruppi NON presenti fra le finestre vive vanno
-            // sincronizzati a zero finestre (pin torna idle, morti spariscono).
-            // v2.29: FIX raggruppamento multi-AppId sullo stesso TaskGroup
-            // (es. due profili Chrome, AppUserModelID diverso per profilo).
-            // PRIMA si risolve, per ogni IGrouping nativo, quale TaskGroup gli
-            // appartiene e si ACCUMULANO le finestre in una mappa per-gruppo;
-            // SOLO DOPO si chiama SyncGroupWindows, una volta sola per ogni
-            // TaskGroup, con l'unione di tutte le finestre che gli spettano.
-            // (Prima del fix: SyncGroupWindows veniva chiamato una volta per
-            // ogni AppId nativo, e la sua logica di rimozione "finestre non
-            // piu' presenti" cancellava, alla chiamata successiva sullo
-            // stesso gruppo, le finestre appena aggiunte dalla chiamata
-            // precedente: con due profili Chrome sopravviveva solo l'ultimo
-            // processato, il gruppo restava sempre a 1 finestra.)
-            var windowsByGroup = new Dictionary<TaskGroup, List<W7TWindowInfo>>();
-
-            List<W7TWindowInfo> GetBucket(TaskGroup g)
-            {
-                if (!windowsByGroup.TryGetValue(g, out List<W7TWindowInfo>? bucket))
-                {
-                    bucket = new List<W7TWindowInfo>();
-                    windowsByGroup[g] = bucket;
-                }
-                return bucket;
-            }
-
-            foreach (IGrouping<string, W7TWindowInfo> group in byApp)
-            {
-                TaskGroup? existing = Groups.FirstOrDefault(
-                    g => string.Equals(g.AppId, group.Key, StringComparison.OrdinalIgnoreCase));
-
-                if (existing == null)
-                {
-                    // v2.22: la finestra puo' appartenere a un'app gia'
-                    // presente come PIN con identita' diversa (AppUserModelID
-                    // del lnk vs percorso usato dal core): aggancia al gruppo
-                    // pinnato invece di creare un bottone duplicato
-                    // (il "tre Google" venivano da qui).
-                    string firstExe = group.First().ExePath ?? string.Empty;
-                    /* v2.62-alpha (G3/G4): a per-window group (never-group /
-                     * exception) must never attach to a pin: each window
-                     * keeps its own button. */
-                    bool perWindowKey = group.Key.StartsWith("w7t:win:",
-                        StringComparison.Ordinal);
-                    PinInfo? viaPin = perWindowKey ? null : pins.FirstOrDefault(p =>
-                        string.Equals(p.AppId, group.Key,
-                                      StringComparison.OrdinalIgnoreCase) ||
-                        (!string.IsNullOrEmpty(p.TargetPath) &&
-                         string.Equals(p.TargetPath, group.Key,
-                                       StringComparison.OrdinalIgnoreCase)) ||
-                        // v2.26: stessa app anche se l'identita' e' scritta
-                        // in forme diverse (AUMID nel lnk, exe nel processo,
-                        // o viceversa). Questo e' il criterio con cui la
-                        // Superbar raggruppa, come Explorer, piu' finestre
-                        // dello stesso eseguibile sotto un unico pulsante
-                        // (due profili di Chrome = un bottone, 2 finestre).
-                        SameApp(p.TargetPath, firstExe) ||
-                        IsExplorerPin(p, firstExe));
-                    if (!perWindowKey && viaPin == null &&
-                        _pendingLaunch is { } pending &&
-                        DateTime.UtcNow < pending.UntilUtc &&
-                        firstExe.EndsWith("\\explorer.exe",
-                                          StringComparison.OrdinalIgnoreCase))
-                    {
-                        // v2.27: finestra di explorer.exe comparsa subito
-                        // dopo l'avvio di un pin shell-item: appartiene al
-                        // pin appena lanciato (niente bottone "cartella").
-                        viaPin = pins.FirstOrDefault(pp =>
-                            string.Equals(pp.AppId, pending.PinAppId,
-                                          StringComparison.OrdinalIgnoreCase));
-                        _pendingLaunch = null;
-                    }
-
-                    if (viaPin != null)
-                    {
-                        existing = Groups.FirstOrDefault(g => PinMatches(viaPin, g));
-                    }
-                }
-
-                if (existing == null)
-                {
-                    existing = new TaskGroup(group.Key, group.First().ExePath);
-                    Groups.Add(existing);
-                }
-
-                // v2.29: non piu' SyncGroupWindows qui - si accumula soltanto.
-                GetBucket(existing).AddRange(group);
-            }
-
-            var synced = new HashSet<TaskGroup>();
-            foreach (KeyValuePair<TaskGroup, List<W7TWindowInfo>> kv in windowsByGroup)
-            {
-                // v2.29: UNA sola chiamata per gruppo, con TUTTE le finestre
-                // che gli appartengono (anche da AppId nativi diversi):
-                // niente piu' finestre cancellate a vicenda fra profili.
-                SyncGroupWindows(kv.Key, kv.Value);
-                synced.Add(kv.Key);
-            }
-            foreach (TaskGroup g in Groups)
-            {
-                if (!synced.Contains(g))
-                {
-                    SyncGroupWindows(g, Enumerable.Empty<W7TWindowInfo>());
-                }
-            }
+            // Presentation: mirror the model onto the bindable buttons, in
+            // place (no rebuild: no flicker, hover state preserved).
+            _projection.Sync(policy);
 
             // 3) v2.20: ordine Superbar = pin nell'ordine della cartella,
             //    poi le app solo-running (senza ricreare i bottoni).
@@ -484,7 +379,8 @@ namespace Win7Taskbar.Models
             }
             foreach (PinInfo pin in pins)
             {
-                TaskGroup? g = Groups.FirstOrDefault(x => PinMatches(pin, x));
+                TaskGroup? g = Groups.FirstOrDefault(x =>
+                    TaskMatcher.PinMatches(pin, x.AppId, x.ExePath, x.IsPinned));
                 if (g != null && !desired.Contains(g))
                 {
                     desired.Add(g);
@@ -521,113 +417,6 @@ namespace Win7Taskbar.Models
             }
         }
 
-        /// <summary>
-        /// v2.22: un pin e un gruppo di finestre sono la STESSA app se
-        /// coincidono per AppUserModelID OPPURE per percorso eseguibile
-        /// (il core puo' identificare le finestre col path quando l'app non
-        /// dichiara AppId, mentre il .lnk pinnato dichiara l'AppUserModelID:
-        /// senza questo doppio criterio Chrome compariva tre volte).
-        /// </summary>
-        private static bool PinMatches(PinInfo pin, TaskGroup group)
-        {
-            if (string.Equals(pin.AppId, group.AppId,
-                              StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            if (!string.IsNullOrEmpty(pin.TargetPath) &&
-                !string.IsNullOrEmpty(group.ExePath) &&
-                string.Equals(pin.TargetPath, group.ExePath,
-                              StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            // v2.26: finestre di explorer.exe con pin avente l'AUMID
-            // canonico di Explorer. v2.27: il criterio "elemento shell"
-            // vale solo su gruppi non ancora rivendicati da un altro pin.
-            if (!group.IsPinned &&
-                IsExplorerPin(pin, group.ExePath ?? string.Empty))
-            {
-                return true;
-            }
-
-            // ultimo criterio: nome file senza estensione identico
-            try
-            {
-                string pn = System.IO.Path.GetFileNameWithoutExtension(pin.TargetPath)
-                            ?? string.Empty;
-                string gn = System.IO.Path.GetFileNameWithoutExtension(group.ExePath)
-                            ?? string.Empty;
-                return !string.IsNullOrEmpty(pn) &&
-                       string.Equals(pn, gn, StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// v2.26: "stessa applicazione" fra target del pin ed eseguibile
-        /// della finestra: stesso percorso normalizzato OPPURE stesso nome
-        /// file senza estensione (confronto case-insensitive). E' il
-        /// criterio di fallback che la taskbar di Windows usa quando
-        /// l'AppUserModelID non coincide fra collegamento e processo.
-        /// </summary>
-        private static bool SameApp(string pinTarget, string windowExe)
-        {
-            if (string.IsNullOrEmpty(pinTarget) || string.IsNullOrEmpty(windowExe))
-            {
-                return false;
-            }
-
-            if (string.Equals(pinTarget, windowExe, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            try
-            {
-                string pn = System.IO.Path.GetFileNameWithoutExtension(pinTarget);
-                string gn = System.IO.Path.GetFileNameWithoutExtension(windowExe);
-                return !string.IsNullOrEmpty(pn) &&
-                       string.Equals(pn, gn, StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// v2.26: le finestre di explorer.exe appartengono all'elemento
-        /// Explorer quando il pin ha l'AUMID canonico dichiarato da
-        /// Windows ("Microsoft.Windows.Explorer"): e' il comportamento con
-        /// cui Explorer stesso mantiene il grouping delle proprie
-        /// finestre (incluse quelle che mostrano "Questo PC"/cartelle).
-        /// </summary>
-        private static bool IsExplorerPin(PinInfo pin, string windowExe)
-        {
-            if (string.IsNullOrEmpty(windowExe) ||
-                !windowExe.EndsWith("\\explorer.exe", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            return string.Equals(pin.AppId, "Microsoft.Windows.Explorer",
-                                 StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(pin.TargetPath, "Microsoft.Windows.Explorer",
-                                 StringComparison.OrdinalIgnoreCase) ||
-                   // v2.27: i pin "elemento shell" (IDList, nessun exe:
-                   // l'Esplora file pinnato da Windows) si aprono comunque
-                   // dentro explorer.exe: le sue finestre gli appartengono.
-                   // (Caso limite documentato: con piu' pin shell-item la
-                   // prima enumerata riceve le finestre, come in Windows.)
-                   string.IsNullOrEmpty(pin.TargetPath);
-        }
-
         /// <summary>v2.27: la barra ha appena avviato questo pin: per i
         /// prossimi secondi le finestre di explorer.exe senza altra
         /// corrispondenza vengono agganciate a questo gruppo.</summary>
@@ -638,7 +427,9 @@ namespace Win7Taskbar.Models
                 return;
             }
 
-            _pendingLaunch = (group.AppId, DateTime.UtcNow.AddSeconds(8));
+            // The matcher keeps the affinity window (model identity,
+            // not view state).
+            _catalog.Matcher.NoteRecentLaunch(group.AppId);
         }
 
         /// <summary>v2.25: dopo un unpin reale o su richiesta.</summary>
@@ -747,85 +538,24 @@ namespace Win7Taskbar.Models
             var list = new List<PinInfo>();
             foreach (var pn in _bridge.GetPinnedApps())
             {
+                var icon = PinReader.ReadIcon(pn.LnkPath ?? string.Empty,
+                                              pn.Target ?? string.Empty);
+                if (icon != null)
+                {
+                    // The pin's identity icon lives in the shared icon cache:
+                    // the model carries keys, the projection dresses buttons.
+                    _icons.Put(AppIconCache.PinKey(pn.LnkPath ?? string.Empty), icon);
+                }
+
                 list.Add(new PinInfo
                 {
                     AppId = pn.Identity ?? string.Empty,
                     LnkPath = pn.LnkPath ?? string.Empty,
                     TargetPath = pn.Target ?? string.Empty,
-                    Icon = PinReader.ReadIcon(pn.LnkPath ?? string.Empty, pn.Target ?? string.Empty)
+                    Icon = icon,
                 });
             }
             return list;
-        }
-
-        private void SyncGroupWindows(TaskGroup group, IEnumerable<W7TWindowInfo> windows)
-        {
-            List<W7TWindowInfo> list = windows.ToList();
-
-            // Rimuovi le finestre chiuse.
-            for (int i = group.Windows.Count - 1; i >= 0; i--)
-            {
-                if (list.All(w => w.Hwnd != group.Windows[i].Hwnd))
-                {
-                    group.Windows.RemoveAt(i);
-                }
-            }
-
-            // Aggiungi/aggiorna.
-            foreach (W7TWindowInfo info in list)
-            {
-                TaskWindow? window = group.Windows.FirstOrDefault(w => w.Hwnd == info.Hwnd);
-                if (window == null)
-                {
-                    window = new TaskWindow(info.Hwnd, info.AppId);
-                    group.Windows.Add(window);
-                }
-
-                var state = (WindowStateFlags)info.State;
-                window.Title = info.Title ?? string.Empty;
-                // Reuse the executable path already supplied by the native
-                // window enumeration; don't perform another process query.
-                window.ApplicationName = TaskGroup.ResolveFriendlyApplicationName(
-                    info.ExePath, window.Title, info.AppId);
-                window.IsActive = state.HasFlag(WindowStateFlags.Active);
-                window.IsMinimized = state.HasFlag(WindowStateFlags.Minimized);
-                window.IsMaximized = state.HasFlag(WindowStateFlags.Maximized);
-
-                // Una finestra in primo piano non lampeggia mai: Windows spegne
-                // la richiesta di attenzione appena l'utente la guarda.
-                window.IsFlashing = state.HasFlag(WindowStateFlags.Flashing)
-                                    && !window.IsActive;
-
-                // Interruttore diagnostico: con W7T_DEBUG_FLASH=1 la prima
-                // finestra non attiva viene mostrata come lampeggiante. Serve
-                // a verificare la resa grafica dove HSHELL_FLASH non arriva
-                // (per esempio sotto Wine, che non registra gli hook di shell).
-                if (DebugForceFlash && !window.IsActive)
-                {
-                    window.IsFlashing = true;
-                }
-
-                window.Icon ??= _bridge.GetWindowIcon(info.Hwnd);
-            }
-
-            // L'icona del gruppo e' quella della prima finestra disponibile.
-            group.Icon ??= group.Windows.Select(w => w.Icon).FirstOrDefault(icon => icon != null);
-
-            /* v2.62-alpha (G4): "use the executable for the group icon":
-             * the group button shows the executable's own icon. The pin's
-             * identity icon always wins (v2.26 rule): pinned groups keep
-             * their .lnk icon. Without the policy this block is dead. */
-            if (_groupIconUseExecutable && !group.IsPinned &&
-                !string.IsNullOrEmpty(group.ExePath))
-            {
-                System.Windows.Media.ImageSource? exeIcon =
-                    _bridge.GetExeIcon(group.ExePath);
-                if (exeIcon != null)
-                {
-                    group.Icon = exeIcon;
-                }
-            }
-            group.RefreshAggregateState();
         }
 
         // ---------------------------------------------------------------
@@ -1065,6 +795,9 @@ namespace Win7Taskbar.Models
             }
             _disposed = true;
 
+            _projection.Dispose();
+            _resolver.Dispose();
+            _catalog.Dispose();
             _refreshTimer.Stop();
             _bridge.CoreEventRaised -= OnCoreEvent;
             Clock.Dispose();

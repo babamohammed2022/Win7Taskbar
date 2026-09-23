@@ -60,3 +60,19 @@ Reference / inspiration:
 The Win7Taskbar Windows 11 tray refresh guard also independently reimplements
 the general idea of rediscovering disposable taskbar/XAML state after Explorer
 rebuilds. No Windhawk source code is copied for that mechanism.
+
+## Methodological provenance (native module integration)
+
+The native integration layer in `native/src/` (rotation, resizing, tray
+layout, registry policy) was written as a clean-room implementation from
+public documentation (MSDN `SHAppBarMessage`, `Shell_NotifyIconW`,
+`ITaskbarList3`, `SetWindowSubclass`) plus architectural intent extracted
+from prior analysis notes kept in `docs/`. No decompiled code, symbol
+names, addresses, vtable offsets or message numbers from third-party
+binaries were copied into the codebase; the design notes that did derive
+from such analysis are confined to `docs/native-module-notes.md` and
+carry no build/run significance. Snippet material supplied for the
+integration used the `w7tb` namespace and was renamed/adapted to this
+project's `w7t` conventions; the snippet's vtable-offset map and its
+references to undocumented COM interfaces were deliberately not carried
+over (see the deviations section of the notes).

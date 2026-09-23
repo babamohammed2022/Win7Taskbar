@@ -382,13 +382,16 @@
             </StackPanel>
             <Grid IsHitTestVisible="False">
                 <!-- linea piu' vicina al bordo destro (2 finestre) -->
-                <!-- v1.7.2: the OUTER line slid slightly right as sheets
-                     opened: +2% of the button width per sheet, counted up
-                     to 3 (4+ behaves as 3). v1.7.6: +2.5% right for ALL
-                     lines at 2+ sheets, and a FURTHER +2.5% right for the
-                     outer line only when MORE THAN 2 sheets are open
-                     (3+ is one single case - no new per-sheet cases were
-                     invented above 3). RenderTransform has zero layout
+                <!-- v2.63: the OUTER line sits at a FIXED +11.3% of the
+                     button width at every count (the v1.7.2 per-sheet
+                     slide and the v1.7.6 count>2 branches are retired).
+                     The strip is 3x43 with feathered alpha: its rendered
+                     colour is the composite at its position, so a border
+                     that slid right as sheets opened changed colour with
+                     the window count. Frozen at the 3+ placement, a
+                     2-window group's border is pixel-identical to a 3+
+                     group's outer border - the same colour by
+                     construction. RenderTransform has zero layout
                      impact, like the rest of the overlay. -->
                 <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
                        Width="3" Height="40"
@@ -413,10 +416,10 @@
                     </Image.RenderTransform>
                 </Image>
                 <!-- seconda linea, un gradino piu' a sinistra (3+ finestre) -->
-                <!-- v1.7.6: this line slides +2.5% right as well
-                     (parameter "inner": it never gets the outer line's
-                     extra +2.5% at 3+ sheets). RenderTransform again:
-                     zero layout impact. -->
+                <!-- v2.63: fixed +10.3% (parameter "inner"), 1% of the
+                     button width left of the outer line, at every count -
+                     never moves, so it never changes colour either.
+                     RenderTransform again: zero layout impact. -->
                 <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
                        Width="3" Height="40"
                        Stretch="Fill"

@@ -11,6 +11,9 @@
 #include <objbase.h>
 #include <combaseapi.h>
 #include <memory>
+#include <stdexcept>
+#include <string>
+#include <type_traits>
 #include <utility>
 
 namespace w7t {
@@ -223,6 +226,132 @@ public:
 private:
     CRITICAL_SECTION& cs_;
 };
+
+// ------------------------------------------------------------
+// scope_guard: runs a callable at scope exit (also on exception).
+// Used at Win32 boundaries where a leak in a resize/paint loop is
+// immediately visible. dismiss() cancels the action.
+// ------------------------------------------------------------
+template <typename F>
+class scope_guard {
+public:
+    explicit scope_guard(F&& f) noexcept : f_(std::move(f)), active_(true) {}
+    scope_guard(scope_guard&& other) noexcept
+        : f_(std::move(other.f_)), active_(std::exchange(other.active_, false)) {}
+    scope_guard(const scope_guard&) = delete;
+    scope_guard& operator=(const scope_guard&) = delete;
+
+    void dismiss() noexcept { active_ = false; }
+
+    ~scope_guard() {
+        if (active_) {
+            try { f_(); } catch (...) { /* never propagate out of a guard */ }
+        }
+    }
+private:
+    F f_;
+    bool active_;
+};
+
+template <typename F>
+scope_guard<std::decay_t<F>> on_scope_exit(F&& f) {
+    return scope_guard<std::decay_t<F>>(std::forward<F>(f));
+}
+
+// ------------------------------------------------------------
+// Typed deleters for the handles that recur in the taskbar code,
+// plus unique_handle aliases and adopt helpers (01_raii_win32).
+// IconDeleter is the one defined above (line with IconHandle).
+// ------------------------------------------------------------
+struct HookDeleter   { void operator()(HHOOK h)   const noexcept { if (h)   UnhookWindowsHookEx(h); } };
+struct FontDeleter   { void operator()(HFONT h)   const noexcept { if (h)   DeleteObject(h); } };
+struct LocalDeleter  { void operator()(HLOCAL h)  const noexcept { if (h)   LocalFree(h); } };
+struct GlobalDeleter { void operator()(HGLOBAL h) const noexcept { if (h)   GlobalFree(h); } };
+struct CoTaskDeleter { void operator()(void* p)   const noexcept { if (p)   CoTaskMemFree(p); } };
+
+using unique_hicon   = unique_handle<HICON,   IconDeleter>;
+using unique_hfont   = unique_handle<HFONT,   FontDeleter>;
+using unique_hhook   = unique_handle<HHOOK,   HookDeleter>;
+using unique_hlocal  = unique_handle<HLOCAL,  LocalDeleter>;
+using unique_hglobal = unique_handle<HGLOBAL, GlobalDeleter>;
+using unique_cotask  = unique_handle<void*,   CoTaskDeleter>;
+
+inline unique_hicon  adopt_icon(HICON h)  noexcept { return unique_hicon(h); }
+inline unique_hfont  adopt_font(HFONT h)  noexcept { return unique_hfont(h); }
+inline unique_hhook  adopt_hook(HHOOK h)  noexcept { return unique_hhook(h); }
+
+// ------------------------------------------------------------
+// MemoryDc: compatible DC with a selected bitmap restored safely.
+// GdiSelector/SelectGuard already restore a single selection; this
+// bundles the DC itself (DeleteDC) with its first selection record.
+// ------------------------------------------------------------
+class MemoryDc {
+public:
+    MemoryDc() : hdc_(CreateCompatibleDC(nullptr)) {}
+    ~MemoryDc() {
+        if (hdc_) {
+            if (original_) SelectObject(hdc_, original_);
+            DeleteDC(hdc_);
+        }
+    }
+    MemoryDc(const MemoryDc&) = delete;
+    MemoryDc& operator=(const MemoryDc&) = delete;
+
+    HBITMAP select_bitmap(HBITMAP bmp) noexcept {
+        const HGDIOBJ previous = SelectObject(hdc_, bmp);
+        if (!original_) original_ = previous;
+        return static_cast<HBITMAP>(previous);
+    }
+    HDC get() const noexcept { return hdc_; }
+private:
+    HDC hdc_ = nullptr;
+    HGDIOBJ original_ = nullptr;
+};
+
+// ------------------------------------------------------------
+// ComPtr: minimal COM smart pointer (same shape as the one in
+// ImmersiveFlyouts.h). Kept here as the shared toolbox version;
+// a uniform merge of the two is a documented follow-up.
+// ------------------------------------------------------------
+template <typename T>
+class ComPtr {
+public:
+    ComPtr() = default;
+    explicit ComPtr(T* p) noexcept : m_ptr(p) {}
+    ~ComPtr() { Reset(); }
+
+    ComPtr(const ComPtr&) = delete;
+    ComPtr& operator=(const ComPtr&) = delete;
+
+    ComPtr(ComPtr&& other) noexcept : m_ptr(other.m_ptr) { other.m_ptr = nullptr; }
+    ComPtr& operator=(ComPtr&& other) noexcept {
+        if (this != &other) {
+            Reset();
+            m_ptr = other.m_ptr;
+            other.m_ptr = nullptr;
+        }
+        return *this;
+    }
+
+    T** Put() { Reset(); return &m_ptr; }
+    T* Get() const noexcept { return m_ptr; }
+    T* operator->() const noexcept { return m_ptr; }
+    explicit operator bool() const noexcept { return m_ptr != nullptr; }
+    T* Detach() noexcept { T* p = m_ptr; m_ptr = nullptr; return p; }
+    void Reset() {
+        if (m_ptr) { m_ptr->Release(); m_ptr = nullptr; }
+    }
+private:
+    T* m_ptr = nullptr;
+};
+
+// Throws only on paths that never cross a Win32 window-proc boundary
+// (see ExceptionGuards.h for the boundary wrappers).
+[[noreturn]] inline void throw_if_failed(HRESULT hr, const char* what) {
+    if (FAILED(hr)) {
+        throw std::runtime_error(std::string(what) + " failed");
+    }
+}
 
 } // namespace raii
 } // namespace w7t

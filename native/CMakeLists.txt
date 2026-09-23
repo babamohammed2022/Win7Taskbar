@@ -42,7 +42,14 @@ add_library(Win7TaskbarCore SHARED
     src/LanguageSwitcher.cpp src/AeroThumbnailFrame.cpp src/PreviewPolicy.cpp src/TaskbarButtonNotify.cpp src/PinVerbs.cpp
     src/Strings.cpp src/LocalizationExports.cpp
     src/TrayFallbackIcons.cpp src/CrashHandler.cpp
-    src/TrayPrefsStore.cpp resources/app.rc)
+    src/TrayPrefsStore.cpp
+    src/DpiMetrics.cpp src/WindowSubclass.cpp
+    src/AppBarPositioner.cpp src/TaskbarWindow.cpp src/BandLayout.cpp
+    src/TraySizer.cpp
+    src/TrayIconHost.cpp src/ShellHookReceiver.cpp
+    src/RegistryPolicy.cpp src/LocalAppDataStore.cpp src/RegistryShadow.cpp
+    src/TaskbarListClient.cpp src/ClockTrayLayout.cpp
+    resources/app.rc)
 target_include_directories(Win7TaskbarCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # v1.21.18: the revision the DLL is built from, compiled into the binary and
 # written to log-core.txt at the first log line ("=== Win7Taskbar core build:
@@ -127,3 +134,25 @@ add_custom_command(TARGET W7TInject POST_BUILD
     COMMENT "Copy W7TInject.dll to dist/")
 install(TARGETS Win7TaskbarCore W7TInject RUNTIME DESTINATION bin)
 install(FILES include/Win7TaskbarCore.h DESTINATION include)
+
+# Unit tests (pure layout + registry policy on temp HKCI keys). Built
+# as part of the standard build so CI compiles them too; run with
+# ctest. (The pinned workflow cannot be edited by this integration:
+# the ctest step is pending, see docs/native-module-notes.md.)
+enable_testing()
+
+add_executable(w7t_layout_tests
+    tests/layout_tests.cpp
+    src/BandLayout.cpp src/ClockTrayLayout.cpp src/TraySizer.cpp)
+target_include_directories(w7t_layout_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(w7t_layout_tests PRIVATE kernel32 user32)
+add_test(NAME layout_tests COMMAND w7t_layout_tests)
+
+add_executable(w7t_registry_tests
+    tests/registry_tests.cpp
+    src/RegistryPolicy.cpp src/RegistryShadow.cpp src/LocalAppDataStore.cpp)
+target_include_directories(w7t_registry_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(w7t_registry_tests PRIVATE kernel32 user32 advapi32)
+add_test(NAME registry_tests COMMAND w7t_registry_tests)

@@ -54,30 +54,39 @@ namespace Win7Taskbar.Converters
         public object Convert(object value, Type targetType, object parameter,
                               CultureInfo culture)
         {
-            int count = value is int n ? n : 0;
-
-            if (count < 2)
+            try
             {
+                int count = value is int n ? n : 0;
+
+                if (count < 2)
+                {
+                    return Visibility.Collapsed;
+                }
+
+                int index = 1;
+                if (parameter != null)
+                {
+                    int.TryParse(parameter.ToString(), NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture, out index);
+                }
+
+                if (index < 1 || index > MaxSheets)
+                {
+                    return Visibility.Collapsed;
+                }
+
+                /* Il separatore N-esimo sta FRA due finestre: serve almeno
+                 * una finestra in piu' della posizione (regola v3.5:
+                 * 1->0, 2->1, 3+->2 separatori). */
+                return count >= index + 1 ? Visibility.Visible
+                                          : Visibility.Collapsed;
+            }
+            catch
+            {
+                // A converter must never break the binding engine: hide the
+                // separator (the safe default) and let the next update retry.
                 return Visibility.Collapsed;
             }
-
-            int index = 1;
-            if (parameter != null)
-            {
-                int.TryParse(parameter.ToString(), NumberStyles.Integer,
-                             CultureInfo.InvariantCulture, out index);
-            }
-
-            if (index < 1 || index > MaxSheets)
-            {
-                return Visibility.Collapsed;
-            }
-
-            /* Il separatore N-esimo sta FRA due finestre: serve almeno
-             * una finestra in piu' della posizione (regola v3.5:
-             * 1->0, 2->1, 3+->2 separatori). */
-            return count >= index + 1 ? Visibility.Visible
-                                      : Visibility.Collapsed;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter,
@@ -99,20 +108,27 @@ namespace Win7Taskbar.Converters
         public object Convert(object value, Type targetType, object parameter,
                               CultureInfo culture)
         {
-            double width = value is double d ? d : 0.0;
-            double ratio = 0.05;
-            if (parameter is string text && double.TryParse(
-                    text, NumberStyles.Float, CultureInfo.InvariantCulture,
-                    out double parsed))
+            try
             {
-                ratio = parsed;
-            }
-            else if (parameter is double pd)
-            {
-                ratio = pd;
-            }
+                double width = value is double d ? d : 0.0;
+                double ratio = 0.05;
+                if (parameter is string text && double.TryParse(
+                        text, NumberStyles.Float, CultureInfo.InvariantCulture,
+                        out double parsed))
+                {
+                    ratio = parsed;
+                }
+                else if (parameter is double pd)
+                {
+                    ratio = pd;
+                }
 
-            return width * ratio;
+                return width * ratio;
+            }
+            catch
+            {
+                return 0.0;
+            }
         }
 
         public object ConvertBack(object value, Type targetType, object parameter,
@@ -133,28 +149,35 @@ namespace Win7Taskbar.Converters
         public object Convert(object value, Type targetType, object parameter,
                               CultureInfo culture)
         {
-            double baseFactor = 0.0;
-            if (parameter is string s && double.TryParse(
-                    s, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out var parsed))
+            try
             {
-                baseFactor = parsed;
+                double baseFactor = 0.0;
+                if (parameter is string s && double.TryParse(
+                        s, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out var parsed))
+                {
+                    baseFactor = parsed;
+                }
+                else if (parameter is double d)
+                {
+                    baseFactor = d;
+                }
+                int count = value is int n ? n : 0;
+                if (count == 2)
+                {
+                    return baseFactor * 1.015;
+                }
+                if (count >= 3)
+                {
+                    return baseFactor * 1.02;
+                }
+                return baseFactor;
             }
-            else if (parameter is double d)
+            catch
             {
-                baseFactor = d;
+                return 0.0;
             }
-            int count = value is int n ? n : 0;
-            if (count == 2)
-            {
-                return baseFactor * 1.015;
-            }
-            if (count >= 3)
-            {
-                return baseFactor * 1.02;
-            }
-            return baseFactor;
         }
 
         public object ConvertBack(object value, Type targetType,
@@ -180,6 +203,19 @@ namespace Win7Taskbar.Converters
     /// At 3+ the inner line moves another 1.5% toward the outer line,
     /// tightening the width/gap occupied by the pair.
     ///
+    /// v2.63: the offsets are FROZEN at the v1.7.6 three-or-more-sheets
+    /// layout (outer +11.3% of the button width, inner +10.3%) for every
+    /// visible line, on request. The strip is a 3x43 PNG with feathered
+    /// alpha, so its perceived colour is whatever it composites over (the
+    /// button frame, the glass, the gap to the next button) at its own
+    /// sub-pixel phase: while the same border slid right as sheets opened
+    /// (v1.7.2/v1.7.6) its rendered colour changed with the window count.
+    /// With count-invariant offsets the border of a 2-window group is the
+    /// same rendering, pixel for pixel, as the outer border of a 3+ group
+    /// — same colour by construction. The separators' rule (1 window -> 0,
+    /// 2 -> 1, 3+ -> 2) is unchanged and lives in
+    /// WindowStackVisibilityConverter.
+    ///
     /// Multi-binding: values[0] = button ActualWidth, values[1] =
     /// WindowCount. parameter = "outer" (default) or "inner". Below two
     /// sheets there are no separators at all: offset 0.
@@ -204,29 +240,14 @@ namespace Win7Taskbar.Converters
                     return 0.0;
                 }
 
-                /* v1.7.2 base, clamped at three sheets (4+ == 3). */
-                int effective = Math.Min(count, 3);
-                double ratio = 0.02 * (effective - 1);
-
-                /* Existing v1.7.6 placement, the previous +2% shift, and
-                 * the requested additional +0.3% rightward adjustment. */
-                ratio += 0.025 + 0.02 + 0.003;
-
-                bool outer = parameter as string is not "inner";
-                if (outer && count > 2)
-                {
-                    // With more than two open windows, increase the outer
-                    // stacked border offset by exactly another 2.5%.
-                    ratio += 0.025;
-                }
-                else if (!outer && count > 2)
-                {
-                    /* With two visible lines (3+ windows), move the inner
-                     * one 1.5% toward the outer one. This narrows the pair's
-                     * horizontal footprint and therefore the gap, without
-                     * changing the 3px artwork or the button layout. */
-                    ratio += 0.015;
-                }
+                /* v2.63: frozen at the v1.7.6 3+-sheets placement (the
+                 * v1.7.2 per-sheet slide and the count>2 branches are
+                 * retired): the outer line always sits +11.3% of the button
+                 * width right (0.02*2 + 0.048 + 0.025), the inner one
+                 * +10.3% (0.02*2 + 0.048 + 0.015). Count-invariant, so the
+                 * same border renders identically with 2 sheets and with 3+
+                 * — the same colour by construction. */
+                double ratio = parameter as string is "inner" ? 0.103 : 0.113;
 
                 return width * ratio;
             }

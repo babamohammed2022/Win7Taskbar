@@ -46,11 +46,16 @@ struct PropsApplyMsg {
     int32_t themeSelection;        // 0 = Windows 7, 1 = Windows 8.1,
                                // 2 = Windows 7 Aero Basic, 3 = Windows 8 Beta 8148
     /* v1.21.37 - "avvio automatico con Windows" della scheda Informazioni.
-     * Ultimo campo, AGGIUNTO IN CODA come tutti gli altri: il ricevente lo
+     * AGGIUNTO IN CODA come tutti gli altri: il ricevente lo
      * legge solo se il pacchetto contiene davvero 80 byte (cbData). L'effetto
      * (scrivere/togliere il valore Run nel registro) lo applica il gestito,
      * con la stessa logica di RetroBar (vedi AutoStart.cs e CREDITS.txt). */
     int32_t autoStart;             // 0/1 avvia il programma all'avvio di Windows
+    /* v1.21.43 - rotazione della barra + blocco (stesso schema RetroBar:
+     * Edge 4 lati + LockTaskbar). Campi in CODA: il ricevente li legge solo
+     * con cbData >= 88/84, un core piu' vecchio non li azzera. */
+    int32_t taskbarPosition;       // 0=Basso, 1=Alto, 2=Sinistra, 3=Destra
+    int32_t lockTaskbar;           // 0/1 barra bloccata (niente resize/drag)
 };
 constexpr DWORD kPropsCopyDataId = 'W7PA';
 
@@ -66,7 +71,8 @@ public:
               int32_t taskManagerMode,
               int32_t flyoutColorMode, int32_t flyoutColorRgb,
               int32_t connectionPrivacyMode, int32_t themeSelection,
-              int32_t autoStart);
+              int32_t autoStart,
+              int32_t taskbarPosition, int32_t lockTaskbar);
 
     /* v2.47: il font del dialogo e' un oggetto GDI: si crea una volta per
      * apertura e si distrugge alla chiusura, nel distruttore della classe
@@ -96,6 +102,8 @@ private:
     HWND m_owner = nullptr;
     int32_t m_lang = 0;
     int32_t m_seconds = 0;
+    int32_t m_taskbarPosition = 0;
+    int32_t m_lockTaskbar = 1;
     int32_t m_nativeFlyout = 0;
     int32_t m_enableSearch = 0;
     int32_t m_netFlyout = 0;

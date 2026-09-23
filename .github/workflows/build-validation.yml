@@ -28,11 +28,15 @@ jobs:
 
       - name: Configure native CMake
         shell: pwsh
-        run: cmake -S native -B native/build -A x64
+        run: cmake -S native -B native/build -A x64 -DW7T_BUILD_TESTS=ON
 
       - name: Build native backend
         shell: pwsh
         run: cmake --build native/build --config Release -j 2
+
+      - name: Run native unit tests
+        shell: pwsh
+        run: ctest --test-dir native/build -C Release --output-on-failure
 
       - name: Restore WPF frontend
         shell: pwsh

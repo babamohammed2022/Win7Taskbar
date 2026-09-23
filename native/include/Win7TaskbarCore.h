@@ -429,7 +429,10 @@ W7T_API void    W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t connectionPrivacyMode, int32_t themeSelection,
         /* v1.21.37: current autostart state, read from the registry by the
          * frontend before opening the dialog (RetroBar's logic). */
-        int32_t autoStart);
+        int32_t autoStart,
+        /* v1.21.43: taskbar edge and lock state, appended to preserve the ABI
+         * ordering used by older managed callers. */
+        int32_t taskbarPosition, int32_t lockTaskbar);
 
 /* v1.21.7: secondary settings published by the frontend (which stores them
  * in its own configuration: the core writes no file). The privacy mode
