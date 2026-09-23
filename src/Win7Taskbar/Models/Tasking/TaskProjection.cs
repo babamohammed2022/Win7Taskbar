@@ -18,6 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using Win7Taskbar.Interop;
 using System.Linq;
 
 namespace Win7Taskbar.Models.Tasking
