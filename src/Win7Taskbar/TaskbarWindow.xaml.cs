@@ -4790,7 +4790,12 @@ namespace Win7Taskbar
         {
             var listBox = new ListBox
             {
-                ItemsSource = group.Windows,
+                // v2.64: the picker's items come from the ThumbnailPickerFilter
+                // view of the catalog (TaskbarViewModel.PickerWindows), not
+                // from the button projection's window list directly: the two
+                // views are allowed to diverge when the model grows
+                // child/hosted-window relations. Selection is unchanged today.
+                ItemsSource = _viewModel.PickerWindows(group),
                 ItemTemplate = TryFindResource("WindowPickerItemTemplate") as DataTemplate,
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,

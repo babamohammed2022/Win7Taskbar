@@ -273,6 +273,29 @@ namespace Win7Taskbar.Interop
             return result;
         }
 
+        /// <summary>
+        /// Snapshot of a single window, for the async resolution worker (which
+        /// runs off the UI thread and must not pull the whole enumeration).
+        /// False when the core no longer tracks the window.
+        /// </summary>
+        public bool TryGetWindow(ulong hwnd, out W7TWindowInfo info)
+        {
+            info = default;
+            if (hwnd == 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                return NativeMethods.W7T_GetWindowInfo(hwnd, out info) == W7TResult.Ok;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public ImageSource? GetWindowIcon(ulong hwnd, int desiredSize = 32)
         {
             int needed = NativeMethods.W7T_GetWindowIconBitmap(

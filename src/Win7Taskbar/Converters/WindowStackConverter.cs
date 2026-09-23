@@ -180,6 +180,19 @@ namespace Win7Taskbar.Converters
     /// At 3+ the inner line moves another 1.5% toward the outer line,
     /// tightening the width/gap occupied by the pair.
     ///
+    /// v2.63: the offsets are FROZEN at the v1.7.6 three-or-more-sheets
+    /// layout (outer +11.3% of the button width, inner +10.3%) for every
+    /// visible line, on request. The strip is a 3x43 PNG with feathered
+    /// alpha, so its perceived colour is whatever it composites over (the
+    /// button frame, the glass, the gap to the next button) at its own
+    /// sub-pixel phase: while the same border slid right as sheets opened
+    /// (v1.7.2/v1.7.6) its rendered colour changed with the window count.
+    /// With count-invariant offsets the border of a 2-window group is the
+    /// same rendering, pixel for pixel, as the outer border of a 3+ group
+    /// — same colour by construction. The separators' rule (1 window -> 0,
+    /// 2 -> 1, 3+ -> 2) is unchanged and lives in
+    /// WindowStackVisibilityConverter.
+    ///
     /// Multi-binding: values[0] = button ActualWidth, values[1] =
     /// WindowCount. parameter = "outer" (default) or "inner". Below two
     /// sheets there are no separators at all: offset 0.
@@ -204,29 +217,14 @@ namespace Win7Taskbar.Converters
                     return 0.0;
                 }
 
-                /* v1.7.2 base, clamped at three sheets (4+ == 3). */
-                int effective = Math.Min(count, 3);
-                double ratio = 0.02 * (effective - 1);
-
-                /* Existing v1.7.6 placement, the previous +2% shift, and
-                 * the requested additional +0.3% rightward adjustment. */
-                ratio += 0.025 + 0.02 + 0.003;
-
-                bool outer = parameter as string is not "inner";
-                if (outer && count > 2)
-                {
-                    // With more than two open windows, increase the outer
-                    // stacked border offset by exactly another 2.5%.
-                    ratio += 0.025;
-                }
-                else if (!outer && count > 2)
-                {
-                    /* With two visible lines (3+ windows), move the inner
-                     * one 1.5% toward the outer one. This narrows the pair's
-                     * horizontal footprint and therefore the gap, without
-                     * changing the 3px artwork or the button layout. */
-                    ratio += 0.015;
-                }
+                /* v2.63: frozen at the v1.7.6 3+-sheets placement (the
+                 * v1.7.2 per-sheet slide and the count>2 branches are
+                 * retired): the outer line always sits +11.3% of the button
+                 * width right (0.02*2 + 0.048 + 0.025), the inner one
+                 * +10.3% (0.02*2 + 0.048 + 0.015). Count-invariant, so the
+                 * same border renders identically with 2 sheets and with 3+
+                 * — the same colour by construction. */
+                double ratio = parameter as string is "inner" ? 0.103 : 0.113;
 
                 return width * ratio;
             }
