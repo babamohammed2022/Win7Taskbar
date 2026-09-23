@@ -48,6 +48,7 @@ add_library(Win7TaskbarCore SHARED
     src/TraySizer.cpp
     src/TrayIconHost.cpp src/ShellHookReceiver.cpp
     src/RegistryPolicy.cpp src/LocalAppDataStore.cpp src/RegistryShadow.cpp
+    src/TaskbarListClient.cpp src/ClockTrayLayout.cpp
     resources/app.rc)
 target_include_directories(Win7TaskbarCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # v1.21.18: the revision the DLL is built from, compiled into the binary and
