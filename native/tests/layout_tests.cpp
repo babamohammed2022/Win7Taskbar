@@ -22,7 +22,10 @@ static int g_failures = 0;
 #define CHECK(cond)                                                        \
     do {                                                                   \
         if (!(cond)) {                                                     \
-            std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);    \
+            /* "::error::" e' una workflow command: diventa annotazione    \
+             * visibile anche senza i log del job (convenzione repo). */   \
+            std::printf("::error::FAIL %s:%d  %s\n", __FILE__, __LINE__,   \
+                        #cond);                                            \
             ++g_failures;                                                  \
         }                                                                  \
     } while (0)
@@ -142,6 +145,6 @@ int main() {
         std::printf("layout_tests: %d FAILURE(S)\n", g_failures);
         return 1;
     }
-    std::printf("layout_tests: all checks passed\n");
+    std::printf("::notice::layout_tests: all checks passed\n");
     return 0;
 }
