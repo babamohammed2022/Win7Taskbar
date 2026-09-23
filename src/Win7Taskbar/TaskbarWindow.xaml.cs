@@ -4788,6 +4788,20 @@ namespace Win7Taskbar
 
         private void ShowWindowPicker(FrameworkElement placementTarget, TaskGroup group)
         {
+            // Entry point of a click: a failure must leave the bar usable
+            // (no popup) instead of crashing the handler.
+            try
+            {
+                ShowWindowPickerCore(placementTarget, group);
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log("window picker failed: " + ex.Message);
+            }
+        }
+
+        private void ShowWindowPickerCore(FrameworkElement placementTarget, TaskGroup group)
+        {
             var listBox = new ListBox
             {
                 // v2.64: the picker's items come from the ThumbnailPickerFilter

@@ -54,30 +54,39 @@ namespace Win7Taskbar.Converters
         public object Convert(object value, Type targetType, object parameter,
                               CultureInfo culture)
         {
-            int count = value is int n ? n : 0;
-
-            if (count < 2)
+            try
             {
+                int count = value is int n ? n : 0;
+
+                if (count < 2)
+                {
+                    return Visibility.Collapsed;
+                }
+
+                int index = 1;
+                if (parameter != null)
+                {
+                    int.TryParse(parameter.ToString(), NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture, out index);
+                }
+
+                if (index < 1 || index > MaxSheets)
+                {
+                    return Visibility.Collapsed;
+                }
+
+                /* Il separatore N-esimo sta FRA due finestre: serve almeno
+                 * una finestra in piu' della posizione (regola v3.5:
+                 * 1->0, 2->1, 3+->2 separatori). */
+                return count >= index + 1 ? Visibility.Visible
+                                          : Visibility.Collapsed;
+            }
+            catch
+            {
+                // A converter must never break the binding engine: hide the
+                // separator (the safe default) and let the next update retry.
                 return Visibility.Collapsed;
             }
-
-            int index = 1;
-            if (parameter != null)
-            {
-                int.TryParse(parameter.ToString(), NumberStyles.Integer,
-                             CultureInfo.InvariantCulture, out index);
-            }
-
-            if (index < 1 || index > MaxSheets)
-            {
-                return Visibility.Collapsed;
-            }
-
-            /* Il separatore N-esimo sta FRA due finestre: serve almeno
-             * una finestra in piu' della posizione (regola v3.5:
-             * 1->0, 2->1, 3+->2 separatori). */
-            return count >= index + 1 ? Visibility.Visible
-                                      : Visibility.Collapsed;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter,
@@ -99,20 +108,27 @@ namespace Win7Taskbar.Converters
         public object Convert(object value, Type targetType, object parameter,
                               CultureInfo culture)
         {
-            double width = value is double d ? d : 0.0;
-            double ratio = 0.05;
-            if (parameter is string text && double.TryParse(
-                    text, NumberStyles.Float, CultureInfo.InvariantCulture,
-                    out double parsed))
+            try
             {
-                ratio = parsed;
-            }
-            else if (parameter is double pd)
-            {
-                ratio = pd;
-            }
+                double width = value is double d ? d : 0.0;
+                double ratio = 0.05;
+                if (parameter is string text && double.TryParse(
+                        text, NumberStyles.Float, CultureInfo.InvariantCulture,
+                        out double parsed))
+                {
+                    ratio = parsed;
+                }
+                else if (parameter is double pd)
+                {
+                    ratio = pd;
+                }
 
-            return width * ratio;
+                return width * ratio;
+            }
+            catch
+            {
+                return 0.0;
+            }
         }
 
         public object ConvertBack(object value, Type targetType, object parameter,
@@ -133,28 +149,35 @@ namespace Win7Taskbar.Converters
         public object Convert(object value, Type targetType, object parameter,
                               CultureInfo culture)
         {
-            double baseFactor = 0.0;
-            if (parameter is string s && double.TryParse(
-                    s, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out var parsed))
+            try
             {
-                baseFactor = parsed;
+                double baseFactor = 0.0;
+                if (parameter is string s && double.TryParse(
+                        s, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out var parsed))
+                {
+                    baseFactor = parsed;
+                }
+                else if (parameter is double d)
+                {
+                    baseFactor = d;
+                }
+                int count = value is int n ? n : 0;
+                if (count == 2)
+                {
+                    return baseFactor * 1.015;
+                }
+                if (count >= 3)
+                {
+                    return baseFactor * 1.02;
+                }
+                return baseFactor;
             }
-            else if (parameter is double d)
+            catch
             {
-                baseFactor = d;
+                return 0.0;
             }
-            int count = value is int n ? n : 0;
-            if (count == 2)
-            {
-                return baseFactor * 1.015;
-            }
-            if (count >= 3)
-            {
-                return baseFactor * 1.02;
-            }
-            return baseFactor;
         }
 
         public object ConvertBack(object value, Type targetType,

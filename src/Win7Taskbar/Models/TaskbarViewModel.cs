@@ -78,6 +78,14 @@ namespace Win7Taskbar.Models
             _projection = new TaskProjection(_catalog, _icons,
                 (entry, reason, wantExeIcon) => _resolver.Schedule(entry, reason, wantExeIcon));
 
+            // Deterministic icon-cache cleanup (RAII): a window's materialized
+            // icon dies with its entry. EntryRemoving is the documented
+            // notify-first hook, so this covers every removal path (core event
+            // and reconcile alike); the frozen ImageSource itself lives on as
+            // long as any departing button still references it.
+            _catalog.EntryRemoving += (_, args) =>
+                _icons.Invalidate(AppIconCache.WindowKey(args.Entry.Hwnd));
+
             NotificationArea = new NotificationArea();
             Clock = new ClockModel();
 
@@ -97,9 +105,18 @@ namespace Win7Taskbar.Models
             };
             _refreshTimer.Tick += (_, _) =>
             {
-                RefreshWindows();
-                RefreshTray();
-                TrimWorkingSet();
+                // Same contract as the core-event pump: a failed safety-net
+                // tick must not kill the timer.
+                try
+                {
+                    RefreshWindows();
+                    RefreshTray();
+                    TrimWorkingSet();
+                }
+                catch (Exception ex)
+                {
+                    _bridge.Log("refresh tick failed: " + ex.Message);
+                }
             };
         }
 
@@ -197,6 +214,22 @@ namespace Win7Taskbar.Models
         // ---------------------------------------------------------------
 
         private void OnCoreEvent(object? sender, CoreEventArgs e)
+        {
+            // Choke point: one malformed or hostile event must never take
+            // down the pump or the dispatcher callback it runs on. The next
+            // event (or the safety-net refresh) re-syncs the truth from the
+            // core.
+            try
+            {
+                HandleCoreEvent(e);
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log("core event " + e.EventType + " failed: " + ex.Message);
+            }
+        }
+
+        private void HandleCoreEvent(CoreEventArgs e)
         {
             switch (e.EventType)
             {

@@ -70,6 +70,73 @@ namespace Win7Taskbar.Models.Tasking
         public event EventHandler<TaskGroupEventArgs>? GroupChanged;
 
         // ----------------------------------------------------------------
+        //  Event dispatch
+        //
+        //  Each handler runs on its own, guarded: one broken listener must
+        //  never abort a model mutation half-way (removal notifies BEFORE
+        //  mutating - the entry must still go away when a handler fails) and
+        //  must never take down the caller (core pump or dispatcher).
+        // ----------------------------------------------------------------
+
+        private void RaiseEntry(EventHandler<TaskEntryEventArgs>? handlers,
+                                TaskEntry entry)
+        {
+            if (handlers == null)
+            {
+                return;
+            }
+
+            var args = new TaskEntryEventArgs(entry);
+            foreach (Delegate handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    ((EventHandler<TaskEntryEventArgs>)handler)(this, args);
+                }
+                catch
+                {
+                    // Best-effort notification: see the note above.
+                }
+            }
+        }
+
+        private void RaiseGroup(EventHandler<TaskGroupEventArgs>? handlers,
+                                AppGroup group)
+        {
+            if (handlers == null)
+            {
+                return;
+            }
+
+            var args = new TaskGroupEventArgs(group);
+            foreach (Delegate handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    ((EventHandler<TaskGroupEventArgs>)handler)(this, args);
+                }
+                catch
+                {
+                    // Best-effort notification: see the note above.
+                }
+            }
+        }
+
+        private void RequestResolve(TaskEntry entry, ResolveReason reason,
+                                    bool wantExeIcon)
+        {
+            try
+            {
+                ResolveRequested?.Invoke(entry, reason, wantExeIcon);
+            }
+            catch
+            {
+                // Scheduling is best-effort; the next refresh re-queues what
+                // is still missing.
+            }
+        }
+
+        // ----------------------------------------------------------------
         //  Discovery (insert intent)
         // ----------------------------------------------------------------
 
@@ -93,8 +160,8 @@ namespace Win7Taskbar.Models.Tasking
 
             TaskEntry entry = CreateEntry(hwnd);
             entry.ResolveState = TaskResolveState.Resolving;
-            EntryAppeared?.Invoke(this, new TaskEntryEventArgs(entry));
-            ResolveRequested?.Invoke(entry, ResolveReason.Discovered, false);
+            RaiseEntry(EntryAppeared, entry);
+            RequestResolve(entry, ResolveReason.Discovered, false);
             return entry;
         }
 
@@ -165,7 +232,7 @@ namespace Win7Taskbar.Models.Tasking
                 ExePath = id.ExePath,
             };
             _groups.Add(group);
-            GroupChanged?.Invoke(this, new TaskGroupEventArgs(group));
+            RaiseGroup(GroupChanged, group);
             return group;
         }
 
@@ -230,15 +297,15 @@ namespace Win7Taskbar.Models.Tasking
                     entry = CreateEntry(info.Hwnd);
                     ApplySnapshot(entry, info);
                     entry.ResolveState = TaskResolveState.Resolving;
-                    EntryAppeared?.Invoke(this, new TaskEntryEventArgs(entry));
-                    ResolveRequested?.Invoke(entry, ResolveReason.Discovered, false);
+                    RaiseEntry(EntryAppeared, entry);
+                    RequestResolve(entry, ResolveReason.Discovered, false);
                     continue;
                 }
 
                 bool changed = ApplySnapshot(entry, info);
                 if (changed)
                 {
-                    EntryChanged?.Invoke(this, new TaskEntryEventArgs(entry));
+                    RaiseEntry(EntryChanged, entry);
                 }
             }
 
@@ -359,7 +426,7 @@ namespace Win7Taskbar.Models.Tasking
                         PinIconKey = AppIconCache.PinKey(pin.LnkPath ?? string.Empty),
                     };
                     _groups.Add(group);
-                    GroupChanged?.Invoke(this, new TaskGroupEventArgs(group));
+                    RaiseGroup(GroupChanged, group);
                 }
                 else
                 {
@@ -449,7 +516,7 @@ namespace Win7Taskbar.Models.Tasking
                     }
 
                     group.MemberList.Clear();
-                    GroupChanged?.Invoke(this, new TaskGroupEventArgs(group));
+                    RaiseGroup(GroupChanged, group);
                 }
             }
 
@@ -526,7 +593,7 @@ namespace Win7Taskbar.Models.Tasking
                         ExePath = firstExe,
                     };
                     _groups.Add(group);
-                    GroupChanged?.Invoke(this, new TaskGroupEventArgs(group));
+                    RaiseGroup(GroupChanged, group);
                 }
 
                 if (!assigned.TryGetValue(group, out List<TaskEntry>? members))
@@ -604,7 +671,7 @@ namespace Win7Taskbar.Models.Tasking
 
             if (changed)
             {
-                GroupChanged?.Invoke(this, new TaskGroupEventArgs(group));
+                RaiseGroup(GroupChanged, group);
             }
         }
 
@@ -700,14 +767,14 @@ namespace Win7Taskbar.Models.Tasking
                 }
                 entry.Group = destination;
 
-                GroupChanged?.Invoke(this, new TaskGroupEventArgs(previous));
-                GroupChanged?.Invoke(this, new TaskGroupEventArgs(destination));
+                RaiseGroup(GroupChanged, previous);
+                RaiseGroup(GroupChanged, destination);
             }
 
-            EntryResolved?.Invoke(this, new TaskEntryEventArgs(entry));
+            RaiseEntry(EntryResolved, entry);
             if (changed)
             {
-                EntryChanged?.Invoke(this, new TaskEntryEventArgs(entry));
+                RaiseEntry(EntryChanged, entry);
             }
         }
 
@@ -731,7 +798,7 @@ namespace Win7Taskbar.Models.Tasking
                 return false;
             }
 
-            EntryRemoving?.Invoke(this, new TaskEntryEventArgs(entry));
+            RaiseEntry(EntryRemoving, entry);
 
             _byHwnd.Remove(hwnd);
             _entries.Remove(entry);
@@ -749,11 +816,11 @@ namespace Win7Taskbar.Models.Tasking
             if (group != null && group.MemberList.Count == 0 && !group.KeepAlive)
             {
                 _groups.Remove(group);
-                GroupChanged?.Invoke(this, new TaskGroupEventArgs(group));
+                RaiseGroup(GroupChanged, group);
             }
             else if (group != null)
             {
-                GroupChanged?.Invoke(this, new TaskGroupEventArgs(group));
+                RaiseGroup(GroupChanged, group);
             }
 
             return true;
