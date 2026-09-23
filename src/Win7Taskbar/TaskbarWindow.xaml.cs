@@ -2222,7 +2222,7 @@ namespace Win7Taskbar
             }
             int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
             var st = RetroBar.Utilities.Settings.Instance;
-            AppBarEdgeValue edge = AppBarEdgeFromPosition(st.TaskbarPosition);
+            int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
 
             // Il rettangolo confermato dalla shell e' in PIXEL FISICI: il core
             // ci sposta lui stesso la finestra (SetWindowPos con SWP_NOZORDER,
