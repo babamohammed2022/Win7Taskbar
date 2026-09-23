@@ -207,7 +207,11 @@ private:
  * bersaglio, che appartiene a un altro processo.
  */
 HWND GetMenuOwnerWindow() {
-    static HWND s_owner = nullptr;
+    /* One owner per calling thread. TrackPopupMenuEx requires an owner
+     * created on THIS thread: a process-wide HWND made on the Superbar
+     * STA cannot host a menu from the Start Menu STA, so those menus
+     * never appeared. */
+    thread_local HWND s_owner = nullptr;
     if (s_owner != nullptr && IsWindow(s_owner)) {
         return s_owner;
     }

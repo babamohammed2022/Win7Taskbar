@@ -91,9 +91,14 @@ namespace Win7Taskbar.StartMenu
                         return false;
                     }
 
+                    IntPtr owner = NativeMethods.GetForegroundWindow();
+                    if (owner == IntPtr.Zero)
+                    {
+                        owner = GetDesktopWindow();
+                    }
                     uint cmd = TrackPopupMenuEx(menu,
                         TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD,
-                        screenX, screenY, GetDesktopWindow(), IntPtr.Zero);
+                        screenX, screenY, owner, IntPtr.Zero);
                     if (cmd == 0)
                     {
                         return false;

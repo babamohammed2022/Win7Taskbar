@@ -44,6 +44,7 @@ namespace Win7Taskbar.StartMenu
     {
         private readonly NativeBridge _bridge;
         private readonly StartMenuViewModel _vm;
+        private readonly StartMenuClickAway _clickAway;
         private bool _suppressDeactivate;
         private bool _glassApplied;
         private DispatcherTimer? _crossfadeTimer;
@@ -108,6 +109,7 @@ namespace Win7Taskbar.StartMenu
                 Topmost = true;
                 Show();
                 Activate();
+                try { _clickAway.Start(); } catch (Exception) { }
                 SearchBox.Focus();
                 Keyboard.Focus(SearchBox);
             }
@@ -120,6 +122,7 @@ namespace Win7Taskbar.StartMenu
 
         internal void Dismiss()
         {
+            try { _clickAway.Stop(); } catch (Exception) { }
             _vm.SearchText = string.Empty;
             Topmost = false;
             Hide();
@@ -268,11 +271,14 @@ namespace Win7Taskbar.StartMenu
             }
             Point pt = CursorScreenPoint();
             _suppressDeactivate = true;
-            Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
             {
                 try
                 {
                     _vm.ShowEmptyLeftContextMenu((int)Math.Round(pt.X), (int)Math.Round(pt.Y));
+                }
+                catch (Exception)
+                {
                 }
                 finally
                 {
@@ -307,13 +313,16 @@ namespace Win7Taskbar.StartMenu
         {
             Point pt = CursorScreenPoint();
             _suppressDeactivate = true;
-            Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
             {
                 bool dismiss = false;
                 try
                 {
                     dismiss = _vm.ShowItemContextMenu(item, (int)Math.Round(pt.X),
                         (int)Math.Round(pt.Y));
+                }
+                catch (Exception)
+                {
                 }
                 finally
                 {

@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Win7Taskbar.StartMenu"
         Title="Win7Taskbar Start Menu"
-        Width="416" Height="548"
+        Width="431" Height="511"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
@@ -21,16 +21,22 @@
         Deactivated="OnDeactivated"
         PreviewKeyDown="OnPreviewKeyDown"
         PreviewTextInput="OnPreviewTextInput">
+    <!--
+      Win7 100% DIP metrics (frame origin = chrome top-left after the
+      10/25 shadow inset). Frame 411x476. Photo glass protrudes 25px above.
+    -->
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <local:InverseBooleanToVisibilityConverter x:Key="InvBoolToVis"/>
         <local:NullToVisibilityConverter x:Key="NullToVis"/>
 
-        <!-- Win7 left-pane row: pale cyan hover, 1px glass border. -->
+        <SolidColorBrush x:Key="Win7Hairline" Color="#D2E2F1"/>
+        <SolidColorBrush x:Key="Win7SearchBand" Color="#F1F6FB"/>
+
         <Style x:Key="LeftRowStyle" TargetType="ListBoxItem">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Padding" Value="0"/>
-            <Setter Property="Margin" Value="1,0,1,0"/>
+            <Setter Property="Margin" Value="0"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="BorderBrush" Value="Transparent"/>
@@ -41,7 +47,7 @@
                         <Border x:Name="Bd" Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="3" Padding="2,1" SnapsToDevicePixels="True">
+                                CornerRadius="3" Padding="0" SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Stretch"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -85,18 +91,17 @@
             <EventSetter Event="MouseRightButtonUp" Handler="OnLeftItemContext"/>
         </Style>
 
-        <!-- Win7 right pane: white text, brighter hover on the glass. -->
         <Style x:Key="RightRowStyle" TargetType="ListBoxItem">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Padding" Value="0"/>
-            <Setter Property="Margin" Value="2,0,6,0"/>
+            <Setter Property="Margin" Value="0"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
                         <Border x:Name="Bd" Background="Transparent" BorderBrush="Transparent"
-                                BorderThickness="1" CornerRadius="3" Padding="6,2">
+                                BorderThickness="1" CornerRadius="3" Padding="0">
                             <ContentPresenter/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -129,7 +134,6 @@
             <EventSetter Event="MouseEnter" Handler="OnRightItemMouseEnter"/>
         </Style>
 
-        <!-- Drawn Aero scrollbar (no Microsoft bitmaps). Used by All Programs. -->
         <Style x:Key="AeroScrollBar" TargetType="ScrollBar">
             <Setter Property="Width" Value="17"/>
             <Setter Property="MinWidth" Value="17"/>
@@ -224,173 +228,203 @@
         </Style>
     </Window.Resources>
 
-    <!-- Outer Aero frame: drawn gradients (no Microsoft bitmaps). -->
-    <Border Margin="10,10,10,2" CornerRadius="8,8,0,0" BorderThickness="1"
-            BorderBrush="#C06A8BB0">
-        <Border.Effect>
-            <DropShadowEffect Color="#A0000000" BlurRadius="18" ShadowDepth="0" Opacity="0.65"/>
-        </Border.Effect>
-        <Border.Background>
-            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#55D0E8F8" Offset="0"/>
-                <GradientStop Color="#4088B0C8" Offset="0.45"/>
-                <GradientStop Color="#307098B0" Offset="1"/>
-            </LinearGradientBrush>
-        </Border.Background>
-        <Border CornerRadius="7,7,0,0" BorderThickness="1" BorderBrush="#90FFFFFF" Margin="1">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="242"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
+    <Grid>
+        <!-- Frame 411x476. Window pad: 10 left/right/bottom, 25 top (photo). -->
+        <Border x:Name="Chrome" Width="411" Height="476"
+                HorizontalAlignment="Left" VerticalAlignment="Top"
+                Margin="10,25,0,0" CornerRadius="8,8,0,0" BorderThickness="1"
+                BorderBrush="#C06A8BB0">
+            <Border.Effect>
+                <DropShadowEffect Color="#A0000000" BlurRadius="18" ShadowDepth="0" Opacity="0.65"/>
+            </Border.Effect>
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#55D0E8F8" Offset="0"/>
+                    <GradientStop Color="#4088B0C8" Offset="0.45"/>
+                    <GradientStop Color="#307098B0" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+            <Border CornerRadius="7,7,0,0" BorderThickness="1" BorderBrush="#90FFFFFF" Margin="1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="250"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
 
-                <!-- Left programs pane: opaque white (no glass). -->
-                <Border Grid.Column="0" Margin="7,10,5,8" CornerRadius="3"
-                        BorderBrush="#90A0B4C8" BorderThickness="1"
-                        Background="#FFFFFFFF">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="32"/>
-                        </Grid.RowDefinitions>
+                    <!-- Left pane: frame x 9-258, y 9-466 → 250x458. -->
+                    <Border Grid.Column="0" Width="250" Height="458"
+                            Margin="8,8,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"
+                            BorderBrush="#90A0B4C8" BorderThickness="1"
+                            Background="#FFFFFFFF" CornerRadius="2">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="381"/>
+                                <RowDefinition Height="1"/>
+                                <RowDefinition Height="30"/>
+                                <RowDefinition Height="2"/>
+                                <RowDefinition Height="43"/>
+                            </Grid.RowDefinitions>
 
-                        <ListBox x:Name="LeftList"
-                                 ItemsSource="{Binding LeftItems}"
-                                 BorderThickness="0"
-                                 Background="Transparent"
-                                 Padding="6,2"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                 VirtualizingPanel.IsVirtualizing="True"
-                                 VirtualizingPanel.VirtualizationMode="Recycling"
-                                 ItemContainerStyle="{StaticResource LeftRowStyle}"
-                                 KeyDown="OnLeftKeyDown"
-                                 MouseRightButtonUp="OnLeftListContext"
-                                 Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}">
-                            <ListBox.Resources>
-                                <Style TargetType="ScrollBar" BasedOn="{StaticResource AeroScrollBar}"/>
-                            </ListBox.Resources>
-                            <ListBox.Style>
-                                <Style TargetType="ListBox">
-                                    <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Hidden"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding AllProgramsOpen}" Value="True">
-                                            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </ListBox.Style>
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Height="34" Background="Transparent" Margin="{Binding IndentMargin}">
-                                        <Rectangle Height="1" Fill="#C0C8D4" VerticalAlignment="Center" Margin="8,0">
-                                            <Rectangle.Style>
-                                                <Style TargetType="Rectangle">
-                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsSeparator}" Value="True">
-                                                            <Setter Property="Visibility" Value="Visible"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Rectangle.Style>
-                                        </Rectangle>
-                                        <Grid>
+                            <ListBox x:Name="LeftList" Grid.Row="0"
+                                     ItemsSource="{Binding LeftItems}"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     Padding="0,1,0,0"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     VirtualizingPanel.IsVirtualizing="True"
+                                     VirtualizingPanel.VirtualizationMode="Recycling"
+                                     ItemContainerStyle="{StaticResource LeftRowStyle}"
+                                     KeyDown="OnLeftKeyDown"
+                                     MouseRightButtonUp="OnLeftListContext"
+                                     Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}">
+                                <ListBox.Resources>
+                                    <Style TargetType="ScrollBar" BasedOn="{StaticResource AeroScrollBar}"/>
+                                </ListBox.Resources>
+                                <ListBox.Style>
+                                    <Style TargetType="ListBox">
+                                        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Hidden"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding AllProgramsOpen}" Value="True">
+                                                <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ListBox.Style>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Background="Transparent">
                                             <Grid.Style>
                                                 <Style TargetType="Grid">
+                                                    <Setter Property="Height" Value="38"/>
                                                     <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsTreeRow}" Value="True">
+                                                            <Setter Property="Height" Value="20"/>
+                                                        </DataTrigger>
                                                         <DataTrigger Binding="{Binding IsSeparator}" Value="True">
-                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                            <Setter Property="Height" Value="7"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
                                             </Grid.Style>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="36"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="16"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Path Fill="#3A5068"
-                                                  VerticalAlignment="Center" HorizontalAlignment="Left"
-                                                  Stretch="Uniform" Width="6" Height="8" Margin="1,0,0,0">
-                                                <Path.Style>
-                                                    <Style TargetType="Path">
+                                            <Rectangle Height="1" Fill="{StaticResource Win7Hairline}"
+                                                       VerticalAlignment="Center" Margin="11,0">
+                                                <Rectangle.Style>
+                                                    <Style TargetType="Rectangle">
                                                         <Setter Property="Visibility" Value="Collapsed"/>
-                                                        <Setter Property="Data" Value="M0,0 L6,4 L0,8 Z"/>
                                                         <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsFolder}" Value="True">
+                                                            <DataTrigger Binding="{Binding IsSeparator}" Value="True">
                                                                 <Setter Property="Visibility" Value="Visible"/>
-                                                            </DataTrigger>
-                                                            <DataTrigger Binding="{Binding IsExpanded}" Value="True">
-                                                                <Setter Property="Data" Value="M0,0 L8,0 L4,6 Z"/>
-                                                                <Setter Property="Width" Value="8"/>
-                                                                <Setter Property="Height" Value="6"/>
                                                             </DataTrigger>
                                                         </Style.Triggers>
                                                     </Style>
-                                                </Path.Style>
-                                            </Path>
-                                            <Image Source="{Binding Icon}" Width="32" Height="32"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                   RenderOptions.BitmapScalingMode="HighQuality"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding Name}"
-                                                       VerticalAlignment="Center" Margin="4,0,4,0"
-                                                       FontSize="12" Foreground="#1A1A1A"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                            <Path Grid.Column="2" Data="M0,0 L5,4 L0,8 Z" Fill="#3A5068"
-                                                  VerticalAlignment="Center" HorizontalAlignment="Center"
-                                                  Visibility="{Binding JumpVisibility}"/>
+                                                </Rectangle.Style>
+                                            </Rectangle>
+                                            <Grid Margin="{Binding IndentMargin}">
+                                                <Grid.Style>
+                                                    <Style TargetType="Grid">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsSeparator}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Grid.Style>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="16"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Path Fill="#3A5068"
+                                                      VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                      Stretch="Uniform" Width="6" Height="8" Margin="2,0,4,0">
+                                                    <Path.Style>
+                                                        <Style TargetType="Path">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                            <Setter Property="Data" Value="M0,0 L6,4 L0,8 Z"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsFolder}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                                                                    <Setter Property="Data" Value="M0,0 L8,0 L4,6 Z"/>
+                                                                    <Setter Property="Width" Value="8"/>
+                                                                    <Setter Property="Height" Value="6"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Path.Style>
+                                                </Path>
+                                                <Image Grid.Column="1" Source="{Binding Icon}"
+                                                       HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                       Margin="0,0,0,0"
+                                                       RenderOptions.BitmapScalingMode="HighQuality">
+                                                    <Image.Style>
+                                                        <Style TargetType="Image">
+                                                            <Setter Property="Width" Value="32"/>
+                                                            <Setter Property="Height" Value="32"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsTreeRow}" Value="True">
+                                                                    <Setter Property="Width" Value="16"/>
+                                                                    <Setter Property="Height" Value="16"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Image.Style>
+                                                </Image>
+                                                <TextBlock Grid.Column="2" Text="{Binding Name}"
+                                                           VerticalAlignment="Center" Margin="8,0,4,0"
+                                                           FontSize="12" Foreground="#1A1A1A"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <Path Grid.Column="3" Data="M0,0 L5,4 L0,8 Z" Fill="#3A5068"
+                                                      VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                      Visibility="{Binding JumpVisibility}"/>
+                                            </Grid>
                                         </Grid>
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
 
-                        <ListBox x:Name="SearchList"
-                                 ItemsSource="{Binding SearchHits}"
-                                 BorderThickness="0"
-                                 Background="Transparent"
-                                 Padding="2,4"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                 VirtualizingPanel.IsVirtualizing="True"
-                                 VirtualizingPanel.VirtualizationMode="Recycling"
-                                 ItemContainerStyle="{StaticResource LeftRowStyle}"
-                                 Visibility="{Binding IsSearching, Converter={StaticResource BoolToVis}}">
-                            <ListBox.Resources>
-                                <Style TargetType="ScrollBar" BasedOn="{StaticResource AeroScrollBar}"/>
-                            </ListBox.Resources>
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Height="28">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="28"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <Image Source="{Binding Icon}" Width="16" Height="16"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Name}"
-                                                   VerticalAlignment="Center" Margin="4,0"
-                                                   TextTrimming="CharacterEllipsis"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                            <ListBox x:Name="SearchList" Grid.Row="0"
+                                     ItemsSource="{Binding SearchHits}"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     Padding="2,4"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     VirtualizingPanel.IsVirtualizing="True"
+                                     VirtualizingPanel.VirtualizationMode="Recycling"
+                                     ItemContainerStyle="{StaticResource LeftRowStyle}"
+                                     Visibility="{Binding IsSearching, Converter={StaticResource BoolToVis}}">
+                                <ListBox.Resources>
+                                    <Style TargetType="ScrollBar" BasedOn="{StaticResource AeroScrollBar}"/>
+                                </ListBox.Resources>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Height="28">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="28"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Image Source="{Binding Icon}" Width="16" Height="16"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                                       VerticalAlignment="Center" Margin="4,0"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
 
-                        <!-- Programs, a hairline, then "> All Programs" as a row. -->
-                        <Grid Grid.Row="1"
-                              Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            <Rectangle Height="1" Fill="#C0C8D4" Margin="8,4,8,2"/>
-                            <Border x:Name="AllProgramsRow" Grid.Row="1"
+                            <!-- All Programs hairline: frame y=391, x 20-251. -->
+                            <Rectangle Grid.Row="1" Height="1" Fill="{StaticResource Win7Hairline}"
+                                       Margin="11,0,7,0"
+                                       Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}"/>
+
+                            <Border x:Name="AllProgramsRow" Grid.Row="2"
                                     Background="Transparent" BorderBrush="Transparent"
                                     BorderThickness="1" CornerRadius="3"
-                                    Padding="4,3" Margin="1,0,1,2" Cursor="Hand"
+                                    Padding="0" Margin="0" Cursor="Hand"
+                                    Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}"
                                     MouseLeftButtonUp="OnAllProgramsFooter"
                                     MouseRightButtonUp="OnAllProgramsContext">
                                 <Border.Style>
@@ -411,98 +445,102 @@
                                         </Style.Triggers>
                                     </Style>
                                 </Border.Style>
-                                <StackPanel Orientation="Horizontal">
+                                <Grid>
+                                    <!-- Arrow frame x 19-24 → panel x 10. Text frame x=49 → panel x 40. -->
                                     <Path Data="M0,0 L6,4 L0,8 Z" Fill="#3A5068" Width="6" Height="8"
-                                          Stretch="Uniform" Margin="8,0,8,0"
-                                          VerticalAlignment="Center"
+                                          Stretch="Uniform" Margin="10,0,0,0"
+                                          HorizontalAlignment="Left" VerticalAlignment="Center"
                                           Visibility="{Binding AllProgramsOpen, Converter={StaticResource InvBoolToVis}}"/>
                                     <Path Data="M6,0 L0,4 L6,8 Z" Fill="#3A5068" Width="6" Height="8"
-                                          Stretch="Uniform" Margin="8,0,8,0"
-                                          VerticalAlignment="Center"
+                                          Stretch="Uniform" Margin="10,0,0,0"
+                                          HorizontalAlignment="Left" VerticalAlignment="Center"
                                           Visibility="{Binding AllProgramsOpen, Converter={StaticResource BoolToVis}}"/>
                                     <TextBlock Text="All Programs" FontSize="12" Foreground="#1A1A1A"
-                                               VerticalAlignment="Center"
+                                               Margin="40,0,0,0" VerticalAlignment="Center"
+                                               HorizontalAlignment="Left"
                                                Visibility="{Binding AllProgramsOpen, Converter={StaticResource InvBoolToVis}}"/>
                                     <TextBlock Text="Back" FontSize="12" Foreground="#1A1A1A"
-                                               VerticalAlignment="Center"
+                                               Margin="40,0,0,0" VerticalAlignment="Center"
+                                               HorizontalAlignment="Left"
                                                Visibility="{Binding AllProgramsOpen, Converter={StaticResource BoolToVis}}"/>
-                                </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <!-- Double divider y 422-423. -->
+                            <StackPanel Grid.Row="3"
+                                        Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}">
+                                <Rectangle Height="1" Fill="{StaticResource Win7Hairline}"/>
+                                <Rectangle Height="1" Fill="{StaticResource Win7Hairline}"/>
+                            </StackPanel>
+
+                            <!-- Search band y 424-466, RGB(241,246,251). Box 222x22. -->
+                            <Border Grid.Row="4" Background="{StaticResource Win7SearchBand}">
+                                <Grid Width="222" Height="22" Margin="12,10,0,11"
+                                      HorizontalAlignment="Left" VerticalAlignment="Top">
+                                    <Border BorderBrush="#424246" BorderThickness="1,1,0,0"/>
+                                    <Border BorderBrush="#787978" BorderThickness="0,0,1,0"/>
+                                    <Border BorderBrush="#ACACAC" BorderThickness="0,0,0,1"/>
+                                    <Border Margin="1" Background="#FFFFFF">
+                                        <Grid>
+                                            <TextBlock Text="{Binding SearchHint}" Foreground="#808080"
+                                                       FontStyle="Italic"
+                                                       Margin="6,0,22,0" VerticalAlignment="Center"
+                                                       IsHitTestVisible="False"
+                                                       Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}"/>
+                                            <TextBox x:Name="SearchBox"
+                                                     BorderThickness="0" Background="Transparent"
+                                                     VerticalContentAlignment="Center"
+                                                     Padding="6,0,22,0"
+                                                     FontSize="12"
+                                                     Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <!-- Handle points down-RIGHT (Win7). -->
+                                            <Canvas Width="16" Height="16" HorizontalAlignment="Right"
+                                                    VerticalAlignment="Center" Margin="0,0,3,0"
+                                                    IsHitTestVisible="False">
+                                                <Ellipse Canvas.Left="1" Canvas.Top="1"
+                                                         Width="9" Height="9"
+                                                         Stroke="#1A73C7" StrokeThickness="1.7"/>
+                                                <Path Data="M8.2,8.2 L14.2,14.2"
+                                                      Stroke="#1A73C7" StrokeThickness="2"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                            </Canvas>
+                                        </Grid>
+                                    </Border>
+                                </Grid>
                             </Border>
                         </Grid>
+                    </Border>
 
-                        <!-- Search lives under the left pane, as on Windows 7. -->
-                        <Border Grid.Row="2" Margin="6,2,6,6" Background="#C0FFFFFF"
-                                BorderBrush="#90A0B4C8" BorderThickness="1" CornerRadius="2">
-                            <Grid>
-                                <TextBlock Text="{Binding SearchHint}" Foreground="#808080"
-                                           Margin="8,0,26,0" VerticalAlignment="Center"
-                                           IsHitTestVisible="False"
-                                           Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}"/>
-                                <TextBox x:Name="SearchBox"
-                                         BorderThickness="0" Background="Transparent"
-                                         VerticalContentAlignment="Center"
-                                         Padding="6,0,26,0"
-                                         FontSize="12"
-                                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
-                                <Grid HorizontalAlignment="Right" Width="22" Margin="0,0,4,0"
-                                      IsHitTestVisible="False">
-                                    <Ellipse Width="9" Height="9" Stroke="#1A73C7" StrokeThickness="1.7"
-                                             HorizontalAlignment="Left" VerticalAlignment="Center"
-                                             Margin="2,0,0,2"/>
-                                    <Path Data="M10,12 L14.5,16.5" Stroke="#1A73C7" StrokeThickness="2"
-                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                          HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                                </Grid>
-                            </Grid>
-                        </Border>
-                    </Grid>
-                </Border>
-
-                <!-- Right pane: darker glass, hierarchy, shutdown. -->
-                <Border Grid.Column="1" Margin="0,8,8,8" CornerRadius="2">
-                    <Border.Background>
-                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                            <GradientStop Color="#283A5878" Offset="0"/>
-                            <GradientStop Color="#18283858" Offset="1"/>
-                        </LinearGradientBrush>
-                    </Border.Background>
-                    <Grid>
+                    <!-- Right column from x=259. No inner frosted rectangle. -->
+                    <Grid Grid.Column="1">
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="424"/>
+                            <RowDefinition Height="43"/>
                             <RowDefinition Height="*"/>
-                            <RowDefinition Height="40"/>
                         </Grid.RowDefinitions>
 
-                        <Grid Width="48" Height="48" Margin="8,12,8,8"
-                              HorizontalAlignment="Center" Cursor="Hand"
-                              MouseLeftButtonUp="OnUserPictureClick">
-                            <Image x:Name="IconOld" Stretch="UniformToFill"
-                                   RenderOptions.BitmapScalingMode="HighQuality"/>
-                            <Image x:Name="IconNew" Stretch="Uniform" Opacity="0"
-                                   RenderOptions.BitmapScalingMode="HighQuality"/>
-                            <Border x:Name="PhotoFrame" CornerRadius="2"
-                                    BorderThickness="2" IsHitTestVisible="False">
-                                <Border.BorderBrush>
-                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                        <GradientStop Color="#F0FFFFFF" Offset="0"/>
-                                        <GradientStop Color="#A0C8D8E8" Offset="1"/>
-                                    </LinearGradientBrush>
-                                </Border.BorderBrush>
-                            </Border>
-                        </Grid>
-
-                        <ListBox x:Name="RightList" Grid.Row="1"
+                        <ListBox x:Name="RightList" Grid.Row="0"
                                  ItemsSource="{Binding RightLinks}"
                                  BorderThickness="0" Background="Transparent"
-                                 Padding="4,4,0,0"
+                                 Padding="16,43,8,0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  ScrollViewer.VerticalScrollBarVisibility="Disabled"
                                  ItemContainerStyle="{StaticResource RightRowStyle}"
                                  MouseLeave="OnRightListMouseLeave">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid MinHeight="18">
-                                        <Rectangle Height="1" Fill="#60FFFFFF" VerticalAlignment="Center" Margin="4,0">
+                                    <Grid>
+                                        <Grid.Style>
+                                            <Style TargetType="Grid">
+                                                <Setter Property="Height" Value="35"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsSeparator}" Value="True">
+                                                        <Setter Property="Height" Value="3"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Grid.Style>
+                                        <Rectangle Height="1" Fill="#60FFFFFF" VerticalAlignment="Center" Margin="0">
                                             <Rectangle.Style>
                                                 <Style TargetType="Rectangle">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
@@ -515,14 +553,11 @@
                                             </Rectangle.Style>
                                         </Rectangle>
                                         <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
-                                                   FontSize="12" Foreground="White">
+                                                   FontSize="12" Foreground="White" FontWeight="Normal">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="FontWeight" Value="Normal"/>
                                                     <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsPrimary}" Value="True">
-                                                            <Setter Property="FontWeight" Value="SemiBold"/>
-                                                        </DataTrigger>
                                                         <DataTrigger Binding="{Binding IsSeparator}" Value="True">
                                                             <Setter Property="Visibility" Value="Collapsed"/>
                                                         </DataTrigger>
@@ -535,44 +570,113 @@
                             </ListBox.ItemTemplate>
                         </ListBox>
 
-                        <StackPanel Grid.Row="2" Orientation="Horizontal"
-                                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                                    Margin="0,0,5,4">
-                            <Border x:Name="ShutdownChrome" CornerRadius="3,0,0,3"
+                        <!-- Shutdown 94x22 at frame x 267-360, y 434-455. -->
+                        <StackPanel Grid.Row="1" Orientation="Horizontal"
+                                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                                    Margin="8,10,0,0" Height="22">
+                            <Border x:Name="ShutdownChrome" Width="72" Height="22"
+                                    CornerRadius="3,0,0,3"
                                     BorderThickness="1,1,0,1" BorderBrush="#90FFFFFF"
                                     Cursor="Hand" MouseLeftButtonUp="OnShutdown">
-                                <Border.Background>
-                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                        <GradientStop Color="#90D0E4F4" Offset="0"/>
-                                        <GradientStop Color="#7088A8C0" Offset="0.49"/>
-                                        <GradientStop Color="#60607090" Offset="0.5"/>
-                                        <GradientStop Color="#50405068" Offset="1"/>
-                                    </LinearGradientBrush>
-                                </Border.Background>
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background">
+                                            <Setter.Value>
+                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                    <GradientStop Color="#90D0E4F4" Offset="0"/>
+                                                    <GradientStop Color="#7088A8C0" Offset="0.49"/>
+                                                    <GradientStop Color="#60607090" Offset="0.5"/>
+                                                    <GradientStop Color="#50405068" Offset="1"/>
+                                                </LinearGradientBrush>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background">
+                                                    <Setter.Value>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                            <GradientStop Color="#B0E8F4FF" Offset="0"/>
+                                                            <GradientStop Color="#90A8C8E0" Offset="0.49"/>
+                                                            <GradientStop Color="#808090A8" Offset="0.5"/>
+                                                            <GradientStop Color="#70607088" Offset="1"/>
+                                                        </LinearGradientBrush>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
                                 <TextBlock x:Name="ShutdownLabel" Text="Shut down"
                                            Foreground="White" FontSize="12"
-                                           Margin="12,4,10,4" VerticalAlignment="Center"/>
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
-                            <Border x:Name="ShutdownArrow" CornerRadius="0,3,3,0"
+                            <Border x:Name="ShutdownArrow" Width="22" Height="22"
+                                    CornerRadius="0,3,3,0"
                                     BorderThickness="1" BorderBrush="#90FFFFFF"
-                                    Width="22" Cursor="Hand"
+                                    Cursor="Hand"
                                     MouseLeftButtonUp="OnShutdownArrow">
-                                <Border.Background>
-                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                        <GradientStop Color="#90D0E4F4" Offset="0"/>
-                                        <GradientStop Color="#7088A8C0" Offset="0.49"/>
-                                        <GradientStop Color="#60607090" Offset="0.5"/>
-                                        <GradientStop Color="#50405068" Offset="1"/>
-                                    </LinearGradientBrush>
-                                </Border.Background>
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background">
+                                            <Setter.Value>
+                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                    <GradientStop Color="#90D0E4F4" Offset="0"/>
+                                                    <GradientStop Color="#7088A8C0" Offset="0.49"/>
+                                                    <GradientStop Color="#60607090" Offset="0.5"/>
+                                                    <GradientStop Color="#50405068" Offset="1"/>
+                                                </LinearGradientBrush>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background">
+                                                    <Setter.Value>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                            <GradientStop Color="#B0E8F4FF" Offset="0"/>
+                                                            <GradientStop Color="#90A8C8E0" Offset="0.49"/>
+                                                            <GradientStop Color="#808090A8" Offset="0.5"/>
+                                                            <GradientStop Color="#70607088" Offset="1"/>
+                                                        </LinearGradientBrush>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
                                 <Path Data="M0,0 L8,0 L4,5 Z" Fill="White"
                                       HorizontalAlignment="Center" VerticalAlignment="Center"
                                       Margin="0,2,0,0"/>
                             </Border>
                         </StackPanel>
                     </Grid>
-                </Border>
-            </Grid>
+                </Grid>
+            </Border>
         </Border>
-    </Border>
+
+        <!-- Photo glass 55x57 at frame x 309, y -25. Window: 10+309=319, y=0. -->
+        <Grid Width="55" Height="57" HorizontalAlignment="Left" VerticalAlignment="Top"
+              Margin="319,0,0,0" Cursor="Hand" MouseLeftButtonUp="OnUserPictureClick">
+            <Border x:Name="PhotoFrame" CornerRadius="2" BorderThickness="2"
+                    IsHitTestVisible="False">
+                <Border.BorderBrush>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#F0FFFFFF" Offset="0"/>
+                        <GradientStop Color="#A0C8D8E8" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.BorderBrush>
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#80FFFFFF" Offset="0"/>
+                        <GradientStop Color="#40C8D8E8" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
+            <Grid Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Image x:Name="IconOld" Stretch="UniformToFill"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                <Image x:Name="IconNew" Stretch="Uniform" Opacity="0"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+            </Grid>
+        </Grid>
+    </Grid>
 </Window>

@@ -28,6 +28,7 @@ namespace Win7Taskbar.StartMenu
         public bool IsPinned { get; set; }
         public bool IsRecent { get; set; }
         public bool IsRightPane { get; set; }
+        public bool IsTreeRow { get; set; }
 
         public int IndentLevel
         {
@@ -44,7 +45,12 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        public Thickness IndentMargin => new Thickness(IndentLevel * 16, 0, 0, 0);
+        /// <summary>
+        /// Open-Shell Programs tree indent is TreeView default (~19px) plus
+        /// skin Programs_indent. Rewritten: 16 DIP per level at 100% scale.
+        /// </summary>
+        public Thickness IndentMargin =>
+            new Thickness(IsTreeRow ? IndentLevel * 16 : 0, 0, 0, 0);
 
         public bool IsExpanded
         {

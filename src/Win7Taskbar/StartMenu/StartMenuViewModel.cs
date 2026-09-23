@@ -195,7 +195,16 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        public void Power(int action) => _bridge.StartMenuPower(action);
+        public void Power(int action)
+        {
+            try
+            {
+                _bridge.StartMenuPower(action);
+            }
+            catch (Exception)
+            {
+            }
+        }
 
         /// <summary>
         /// Win32 TrackPopupMenu for Shut down / Log off / Sleep — same
@@ -206,8 +215,15 @@ namespace Win7Taskbar.StartMenu
         {
             const string items =
                 "Switch user\nLog off\nLock\n-\nRestart\nSleep\nHibernate";
-            return _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
-                items, anchorAtCursor: true);
+            try
+            {
+                return _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
+                    items, anchorAtCursor: true);
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
         }
 
         public void ApplyPowerChoice(int choice)
@@ -311,6 +327,7 @@ namespace Win7Taskbar.StartMenu
                 LeftItems.Add(item);
             }
 
+            int pinCount = LeftItems.Count;
             bool addedRecent = false;
             foreach (string recent in _store.Recent)
             {
@@ -327,7 +344,10 @@ namespace Win7Taskbar.StartMenu
                 item.IsPinned = pinSet.Contains(item.Path);
                 if (!addedRecent)
                 {
-                    LeftItems.Add(new StartMenuItem { IsSeparator = true });
+                    if (pinCount > 0)
+                    {
+                        LeftItems.Add(new StartMenuItem { IsSeparator = true });
+                    }
                     addedRecent = true;
                 }
                 LeftItems.Add(item);
@@ -432,7 +452,10 @@ namespace Win7Taskbar.StartMenu
                 StringComparison.CurrentCultureIgnoreCase));
             foreach (NativeMethods.W7TStartMenuEntry e in files)
             {
-                LeftItems.Add(FromEntry(e, indent));
+                StartMenuItem row = FromEntry(e, indent);
+                row.IsTreeRow = true;
+                row.Icon = StartMenuIcons.FromPath(row.Path, row.Target, 16);
+                LeftItems.Add(row);
             }
         }
 
@@ -449,6 +472,7 @@ namespace Win7Taskbar.StartMenu
                 IsFolder = true,
                 IsExpanded = expanded,
                 IndentLevel = indent,
+                IsTreeRow = true,
                 Icon = FolderIcon(fs)
             };
         }
@@ -485,7 +509,7 @@ namespace Win7Taskbar.StartMenu
 
         private ImageSource? FolderIcon(string path)
         {
-            ImageSource? icon = LoadIcon(path, path);
+            ImageSource? icon = StartMenuIcons.FromPath(path, path, 16);
             if (icon != null)
             {
                 return icon;
@@ -494,8 +518,8 @@ namespace Win7Taskbar.StartMenu
             {
                 return _folderIcon;
             }
-            _folderIcon = IconFromDll("imageres.dll", 3)
-                ?? IconFromDll("shell32.dll", 3);
+            _folderIcon = StartMenuIcons.FromDll("imageres.dll", 3, 16)
+                ?? StartMenuIcons.FromDll("shell32.dll", 3, 16);
             return _folderIcon;
         }
 
@@ -830,8 +854,7 @@ namespace Win7Taskbar.StartMenu
                 lines.Add("Properties");
             }
 
-            int choice = _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
-                string.Join("\n", lines), anchorAtCursor: true);
+            int choice = PopupAtCursor(screenX, screenY, string.Join("\n", lines));
             if (choice <= 0)
             {
                 return false;
@@ -880,8 +903,7 @@ namespace Win7Taskbar.StartMenu
         public void ShowEmptyLeftContextMenu(int screenX, int screenY)
         {
             const string items = "Sort by Name\nProperties";
-            int choice = _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
-                items, anchorAtCursor: true);
+            int choice = PopupAtCursor(screenX, screenY, items);
             if (choice == 1)
             {
                 SortLeftByName();
@@ -897,8 +919,7 @@ namespace Win7Taskbar.StartMenu
         {
             const string items =
                 "Open All Users\nExplore All Users\nSort by Name\nProperties";
-            int choice = _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
-                items, anchorAtCursor: true);
+            int choice = PopupAtCursor(screenX, screenY, items);
             string common = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu);
             switch (choice)
             {
@@ -919,34 +940,33 @@ namespace Win7Taskbar.StartMenu
 
         private bool ShowRightPaneMenu(StartMenuItem item, int screenX, int screenY)
         {
-            string real = item.Path;
-            if (!string.IsNullOrEmpty(real) &&
-                !real.StartsWith("::", StringComparison.Ordinal) &&
-                (Directory.Exists(real) || File.Exists(real)) &&
-                ShellContextMenu.TryShow(real, screenX, screenY))
+            bool computer = string.Equals(item.Folder, "computer", StringComparison.Ordinal);
+            string items = computer ? "Open\nProperties" : "Open";
+            int choice = PopupAtCursor(screenX, screenY, items);
+            if (choice == 1)
             {
+                OpenRightLink(item);
                 return true;
             }
-            const string items = "Open\nExplore\nSearch\nProperties";
-            int choice = _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
-                items, anchorAtCursor: true);
-            string path = item.Path;
-            switch (choice)
+            if (computer && choice == 2)
             {
-                case 1:
-                    OpenRightLink(item);
-                    return true;
-                case 2:
-                    OpenParsingName(path);
-                    return true;
-                case 3:
-                    OpenSearchIn(path);
-                    return true;
-                case 4:
-                    ShellProperties(path);
-                    return true;
-                default:
-                    return false;
+                StartProcess("explorer.exe",
+                    "shell:::{BB06C0E4-D293-4f75-8A90-CB05B6477EEE}");
+                return true;
+            }
+            return false;
+        }
+
+        private int PopupAtCursor(int screenX, int screenY, string items)
+        {
+            try
+            {
+                return _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: false,
+                    items, anchorAtCursor: true);
+            }
+            catch (Exception)
+            {
+                return 0;
             }
         }
 
@@ -985,8 +1005,7 @@ namespace Win7Taskbar.StartMenu
                 return true;
             }
             const string items = "Open\nExplore\nSearch\nProperties";
-            int choice = _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
-                items, anchorAtCursor: true);
+            int choice = PopupAtCursor(screenX, screenY, items);
             string path = item.Path;
             switch (choice)
             {
