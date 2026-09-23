@@ -287,7 +287,16 @@ namespace Win7Taskbar.Models.Tasking
                     _inFlight.TryRemove(hwnd, out _);
                     if (!_disposed)
                     {
-                        Completed?.Invoke(result);
+                        try
+                        {
+                            Completed?.Invoke(result);
+                        }
+                        catch
+                        {
+                            // The completion is applied best-effort: a failed
+                            // apply must not take down the dispatcher (the
+                            // next refresh re-syncs what was lost).
+                        }
                     }
                 }));
             }

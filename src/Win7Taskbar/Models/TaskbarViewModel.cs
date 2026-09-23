@@ -305,6 +305,21 @@ namespace Win7Taskbar.Models
         /// </summary>
         public void RefreshWindows()
         {
+            // Choke point of every refresh caller (core pump, safety-net tick,
+            // UI actions): a failure is logged and swallowed, the next refresh
+            // re-syncs the truth from the core.
+            try
+            {
+                RefreshWindowsCore();
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log("refresh failed: " + ex.Message);
+            }
+        }
+
+        private void RefreshWindowsCore()
+        {
             IReadOnlyList<W7TWindowInfo> windows = _bridge.GetWindows();
             List<PinInfo> pins = _pinsCache ??= LoadPinsFromCore();
 

@@ -248,29 +248,38 @@ namespace Win7Taskbar.Interop
 
         public IReadOnlyList<W7TWindowInfo> GetWindows()
         {
-            NativeMethods.W7T_RefreshWindows();
-
-            int count = NativeMethods.W7T_GetWindowCount();
-            if (count <= 0)
+            try
             {
+                NativeMethods.W7T_RefreshWindows();
+
+                int count = NativeMethods.W7T_GetWindowCount();
+                if (count <= 0)
+                {
+                    return Array.Empty<W7TWindowInfo>();
+                }
+
+                // Margine sulla capacita': una finestra puo' apparire fra le
+                // due chiamate e il core rifiuterebbe il buffer.
+                var buffer = new W7TWindowInfo[count + 8];
+                int written = NativeMethods.W7T_GetWindows(buffer, buffer.Length);
+                if (written <= 0)
+                {
+                    return Array.Empty<W7TWindowInfo>();
+                }
+
+                var result = new List<W7TWindowInfo>(written);
+                for (int i = 0; i < written; i++)
+                {
+                    result.Add(buffer[i]);
+                }
+                return result;
+            }
+            catch
+            {
+                // Interop boundary: a failed enumeration degrades to "nothing
+                // to show right now"; the next refresh re-syncs the truth.
                 return Array.Empty<W7TWindowInfo>();
             }
-
-            // Margine sulla capacita': una finestra puo' apparire fra le due
-            // chiamate e il core rifiuterebbe il buffer.
-            var buffer = new W7TWindowInfo[count + 8];
-            int written = NativeMethods.W7T_GetWindows(buffer, buffer.Length);
-            if (written <= 0)
-            {
-                return Array.Empty<W7TWindowInfo>();
-            }
-
-            var result = new List<W7TWindowInfo>(written);
-            for (int i = 0; i < written; i++)
-            {
-                result.Add(buffer[i]);
-            }
-            return result;
         }
 
         /// <summary>
@@ -298,19 +307,28 @@ namespace Win7Taskbar.Interop
 
         public ImageSource? GetWindowIcon(ulong hwnd, int desiredSize = 32)
         {
-            int needed = NativeMethods.W7T_GetWindowIconBitmap(
-                hwnd, desiredSize, out int width, out int height, null, 0);
-
-            if (needed <= 0 || width <= 0 || height <= 0)
+            try
             {
+                int needed = NativeMethods.W7T_GetWindowIconBitmap(
+                    hwnd, desiredSize, out int width, out int height, null, 0);
+
+                if (needed <= 0 || width <= 0 || height <= 0)
+                {
+                    return null;
+                }
+
+                var pixels = new byte[needed];
+                int copied = NativeMethods.W7T_GetWindowIconBitmap(
+                    hwnd, desiredSize, out width, out height, pixels, pixels.Length);
+
+                return copied <= 0 ? null : CreateBitmap(pixels, width, height);
+            }
+            catch
+            {
+                // No icon this time (boundary guard): the entry keeps the one
+                // it has, the resolver retries later.
                 return null;
             }
-
-            var pixels = new byte[needed];
-            int copied = NativeMethods.W7T_GetWindowIconBitmap(
-                hwnd, desiredSize, out width, out height, pixels, pixels.Length);
-
-            return copied <= 0 ? null : CreateBitmap(pixels, width, height);
         }
 
         /// <summary>v2.62-alpha: the user's own preview configuration
@@ -381,64 +399,101 @@ namespace Win7Taskbar.Interop
         }
 
         public void ExecuteCommand(ulong hwnd, int command)
-            => NativeMethods.W7T_ExecuteWindowCommand(hwnd, command);
+        {
+            try { NativeMethods.W7T_ExecuteWindowCommand(hwnd, command); } catch { }
+        }
 
-        public void MinimizeGroup(string appId) => NativeMethods.W7T_MinimizeGroup(appId);
+        public void MinimizeGroup(string appId)
+        {
+            try { NativeMethods.W7T_MinimizeGroup(appId); } catch { }
+        }
 
-        public void CloseGroup(string appId) => NativeMethods.W7T_CloseGroup(appId);
+        public void CloseGroup(string appId)
+        {
+            try { NativeMethods.W7T_CloseGroup(appId); } catch { }
+        }
 
-        public bool IsFullScreenAppActive() => NativeMethods.W7T_IsFullScreenAppActive() != 0;
+        public bool IsFullScreenAppActive()
+        {
+            try { return NativeMethods.W7T_IsFullScreenAppActive() != 0; }
+            catch { return false; }
+        }
 
         // ---------------------------------------------------------------
         //  Tray
         // ---------------------------------------------------------------
 
-        public bool StartTray() => NativeMethods.W7T_TrayStart() == W7TResult.Ok;
+        public bool StartTray()
+        {
+            try { return NativeMethods.W7T_TrayStart() == W7TResult.Ok; }
+            catch { return false; }
+        }
 
-        public void StopTray() => NativeMethods.W7T_TrayStop();
+        public void StopTray()
+        {
+            try { NativeMethods.W7T_TrayStop(); } catch { }
+        }
 
         public IReadOnlyList<W7TTrayIconInfo> GetTrayIcons()
         {
-            int count = NativeMethods.W7T_GetTrayIconCount();
-            if (count <= 0)
+            try
             {
+                int count = NativeMethods.W7T_GetTrayIconCount();
+                if (count <= 0)
+                {
+                    return Array.Empty<W7TTrayIconInfo>();
+                }
+
+                var buffer = new W7TTrayIconInfo[count + 8];
+                int written = NativeMethods.W7T_GetTrayIcons(buffer, buffer.Length);
+                if (written <= 0)
+                {
+                    return Array.Empty<W7TTrayIconInfo>();
+                }
+
+                var result = new List<W7TTrayIconInfo>(written);
+                for (int i = 0; i < written; i++)
+                {
+                    result.Add(buffer[i]);
+                }
+                return result;
+            }
+            catch
+            {
+                // Boundary guard: same contract as GetWindows.
                 return Array.Empty<W7TTrayIconInfo>();
             }
-
-            var buffer = new W7TTrayIconInfo[count + 8];
-            int written = NativeMethods.W7T_GetTrayIcons(buffer, buffer.Length);
-            if (written <= 0)
-            {
-                return Array.Empty<W7TTrayIconInfo>();
-            }
-
-            var result = new List<W7TTrayIconInfo>(written);
-            for (int i = 0; i < written; i++)
-            {
-                result.Add(buffer[i]);
-            }
-            return result;
         }
 
         public ImageSource? GetTrayIcon(ulong ownerHwnd, uint uid)
         {
-            int needed = NativeMethods.W7T_GetTrayIconBitmap(
-                ownerHwnd, uid, out int width, out int height, null, 0);
+            try
+            {
+                int needed = NativeMethods.W7T_GetTrayIconBitmap(
+                    ownerHwnd, uid, out int width, out int height, null, 0);
 
-            if (needed <= 0 || width <= 0 || height <= 0)
+                if (needed <= 0 || width <= 0 || height <= 0)
+                {
+                    return null;
+                }
+
+                var pixels = new byte[needed];
+                int copied = NativeMethods.W7T_GetTrayIconBitmap(
+                    ownerHwnd, uid, out width, out height, pixels, pixels.Length);
+
+                return copied <= 0 ? null : CreateBitmap(pixels, width, height);
+            }
+            catch
             {
                 return null;
             }
-
-            var pixels = new byte[needed];
-            int copied = NativeMethods.W7T_GetTrayIconBitmap(
-                ownerHwnd, uid, out width, out height, pixels, pixels.Length);
-
-            return copied <= 0 ? null : CreateBitmap(pixels, width, height);
         }
 
         public void SendTrayClick(ulong ownerHwnd, uint uid, int clickType, int x, int y)
-            => NativeMethods.W7T_SendTrayIconClick(ownerHwnd, uid, clickType, x, y);
+        {
+            try { NativeMethods.W7T_SendTrayIconClick(ownerHwnd, uid, clickType, x, y); }
+            catch { }
+        }
 
         /// <summary>
         /// Recupera l'ultima notifica a fumetto ricevuta dal core.
@@ -447,25 +502,36 @@ namespace Win7Taskbar.Interop
         public bool TryGetLastBalloon(out BalloonNotification balloon)
         {
             balloon = default;
-
-            if (NativeMethods.W7T_GetLastBalloon(out W7TBalloonInfo info) != W7TResult.Ok)
+            try
             {
+                if (NativeMethods.W7T_GetLastBalloon(out W7TBalloonInfo info) != W7TResult.Ok)
+                {
+                    return false;
+                }
+
+                balloon = new BalloonNotification(
+                    info.OwnerHwnd,
+                    info.Uid,
+                    info.Title ?? string.Empty,
+                    info.Text ?? string.Empty,
+                    info.InfoFlags,
+                    info.Timeout);
+
+                return true;
+            }
+            catch
+            {
+                // Boundary guard: a lost balloon is a missing notification,
+                // never a dead bar.
                 return false;
             }
-
-            balloon = new BalloonNotification(
-                info.OwnerHwnd,
-                info.Uid,
-                info.Title ?? string.Empty,
-                info.Text ?? string.Empty,
-                info.InfoFlags,
-                info.Timeout);
-
-            return true;
         }
 
         public void SetTrayIconPinned(ulong ownerHwnd, uint uid, bool pinned)
-            => NativeMethods.W7T_SetTrayIconPinned(ownerHwnd, uid, pinned ? 1 : 0);
+        {
+            try { NativeMethods.W7T_SetTrayIconPinned(ownerHwnd, uid, pinned ? 1 : 0); }
+            catch { }
+        }
 
         /// <summary>
         /// Propaga al core (e al ToolbarWindow32 reale del modello) il
@@ -474,31 +540,55 @@ namespace Win7Taskbar.Interop
         /// </summary>
         public bool TrayMoveIcon(ulong sourceHwnd, uint sourceUid,
                                  ulong targetHwnd, uint targetUid, bool insertAfter)
-            => NativeMethods.W7T_TrayMoveIcon(sourceHwnd, sourceUid, targetHwnd, targetUid,
-                                              insertAfter ? 1 : 0) == W7TResult.Ok;
+        {
+            try
+            {
+                return NativeMethods.W7T_TrayMoveIcon(sourceHwnd, sourceUid, targetHwnd,
+                    targetUid, insertAfter ? 1 : 0) == W7TResult.Ok;
+            }
+            catch { return false; }
+        }
 
         // ---------------------------------------------------------------
         //  AppBar
         // ---------------------------------------------------------------
 
         public bool RegisterAppBar(IntPtr hwnd, int edge, int sizePx)
-            => NativeMethods.W7T_AppBarRegister((ulong)hwnd.ToInt64(), edge, sizePx) == W7TResult.Ok;
+        {
+            try
+            {
+                return NativeMethods.W7T_AppBarRegister(
+                    (ulong)hwnd.ToInt64(), edge, sizePx) == W7TResult.Ok;
+            }
+            catch { return false; }
+        }
 
         public bool SetAppBarPos(IntPtr hwnd, int edge, int sizePx, out Rect reserved)
         {
-            int result = NativeMethods.W7T_AppBarSetPos(
-                (ulong)hwnd.ToInt64(), edge, sizePx,
-                out int left, out int top, out int right, out int bottom);
+            reserved = Rect.Empty;
+            try
+            {
+                int result = NativeMethods.W7T_AppBarSetPos(
+                    (ulong)hwnd.ToInt64(), edge, sizePx,
+                    out int left, out int top, out int right, out int bottom);
 
-            reserved = result == W7TResult.Ok
-                ? new Rect(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top))
-                : Rect.Empty;
+                reserved = result == W7TResult.Ok
+                    ? new Rect(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top))
+                    : Rect.Empty;
 
-            return result == W7TResult.Ok;
+                return result == W7TResult.Ok;
+            }
+            catch
+            {
+                reserved = Rect.Empty;
+                return false;
+            }
         }
 
         public void UnregisterAppBar(IntPtr hwnd)
-            => NativeMethods.W7T_AppBarUnregister((ulong)hwnd.ToInt64());
+        {
+            try { NativeMethods.W7T_AppBarUnregister((ulong)hwnd.ToInt64()); } catch { }
+        }
 
         // v3.4: protocollo AppBar completo (flusso ManagedShell/RetroBar).
         // Il messaggio di callback e' lo stesso che il core ha passato ad
@@ -608,25 +698,61 @@ namespace Win7Taskbar.Interop
         /// continuano ad aprirsi sopra il pulsante della Superbar.</summary>
         public int ShowContextMenuEx(int x, int y, bool bottomEdge, string items,
                                      bool anchorAtCursor = false)
-            => NativeMethods.W7T_ShowContextMenuEx(x, y, bottomEdge ? 1 : 0,
-                                                   items, anchorAtCursor ? 1 : 0);
+        {
+            try
+            {
+                return NativeMethods.W7T_ShowContextMenuEx(x, y, bottomEdge ? 1 : 0,
+                                                          items, anchorAtCursor ? 1 : 0);
+            }
+            catch { return 0; }
+        }
 
-        // v2.7: overflow nativo.
-        public bool OverflowInit(IntPtr taskbarHwnd) => NativeMethods.W7T_OverflowInit((ulong)taskbarHwnd) == 1;
-        public void OverflowShow(int l, int t, int r, int b) => NativeMethods.W7T_OverflowShow(l, t, r, b);
-        public void OverflowHide() => NativeMethods.W7T_OverflowHide();
-        public void OverflowRefresh() => NativeMethods.W7T_OverflowRefresh();
-        public bool OverflowIsVisible() => NativeMethods.W7T_OverflowIsVisible() == 1;
+        // v2.7: overflow nativo. Interop boundary guard on every call
+        // (same contract as the AppBar block above).
+        public bool OverflowInit(IntPtr taskbarHwnd)
+        {
+            try { return NativeMethods.W7T_OverflowInit((ulong)taskbarHwnd) == 1; }
+            catch { return false; }
+        }
+        public void OverflowShow(int l, int t, int r, int b)
+        {
+            try { NativeMethods.W7T_OverflowShow(l, t, r, b); } catch { }
+        }
+        public void OverflowHide()
+        {
+            try { NativeMethods.W7T_OverflowHide(); } catch { }
+        }
+        public void OverflowRefresh()
+        {
+            try { NativeMethods.W7T_OverflowRefresh(); } catch { }
+        }
+        public bool OverflowIsVisible()
+        {
+            try { return NativeMethods.W7T_OverflowIsVisible() == 1; }
+            catch { return false; }
+        }
         public bool OverflowGetRect(out int l, out int t, out int r, out int b)
-            => NativeMethods.W7T_OverflowGetRect(out l, out t, out r, out b) == 1;
+        {
+            l = t = r = b = 0;
+            try { return NativeMethods.W7T_OverflowGetRect(out l, out t, out r, out b) == 1; }
+            catch { l = t = r = b = 0; return false; }
+        }
 
         /// <summary>v2.60: su Windows 11 il clic sulla freccetta apre il flyout
         /// di sistema. Non c'e' nessun pannello nostro da nascondere e nessun
         /// rettangolo da escludere dall'hook dei clic esterni.</summary>
-        public bool OverflowUsesShellFlyout() => NativeMethods.W7T_OverflowUsesShellFlyout() == 1;
+        public bool OverflowUsesShellFlyout()
+        {
+            try { return NativeMethods.W7T_OverflowUsesShellFlyout() == 1; }
+            catch { return false; }
+        }
 
         /// <summary>v2.61: Windows 11 secondo il core (RtlGetVersion).</summary>
-        public bool IsWindows11() => NativeMethods.W7T_IsWindows11() == 1;
+        public bool IsWindows11()
+        {
+            try { return NativeMethods.W7T_IsWindows11() == 1; }
+            catch { return false; }
+        }
 
         /// <summary>v2.62: chiude il riquadro dell'orologio della shell se
         /// e' aperto (non lo apre mai).</summary>
@@ -645,7 +771,14 @@ namespace Win7Taskbar.Interop
 
         // v3.0: ricerca app opzionale.
         public bool AppSearchInit(IntPtr taskbarHwnd, byte[]? argbPixels, int iconW, int iconH)
-            => NativeMethods.W7T_AppSearchInit((ulong)taskbarHwnd, argbPixels, iconW, iconH) == 1;
+        {
+            try
+            {
+                return NativeMethods.W7T_AppSearchInit(
+                    (ulong)taskbarHwnd, argbPixels, iconW, iconH) == 1;
+            }
+            catch { return false; }
+        }
         public void PropertiesShow(IntPtr owner, int lang, int seconds, int nativeFlyout,
             int enableSearch, int netFlyout, int classicVolume, int batteryFlyout,
             int aeroPeek, int toolbarDesktop, int toolbarAddress, int toolbarLinks,
@@ -653,13 +786,19 @@ namespace Win7Taskbar.Interop
             int flyoutColorMode, int flyoutColorRgb,
             int connectionPrivacyMode, int themeSelection,
             int autoStart)
-            => NativeMethods.W7T_PropertiesShow((ulong)owner, lang, seconds, nativeFlyout,
-                enableSearch, netFlyout, classicVolume, batteryFlyout,
-                aeroPeek, toolbarDesktop, toolbarAddress, toolbarLinks,
-                inputLanguageMode, taskManagerMode,
-                flyoutColorMode, flyoutColorRgb,
-                connectionPrivacyMode, themeSelection,
-                autoStart);
+        {
+            try
+            {
+                NativeMethods.W7T_PropertiesShow((ulong)owner, lang, seconds, nativeFlyout,
+                    enableSearch, netFlyout, classicVolume, batteryFlyout,
+                    aeroPeek, toolbarDesktop, toolbarAddress, toolbarLinks,
+                    inputLanguageMode, taskManagerMode,
+                    flyoutColorMode, flyoutColorRgb,
+                    connectionPrivacyMode, themeSelection,
+                    autoStart);
+            }
+            catch { }
+        }
 
         /// <summary>
         /// v1.21.7: settings of the extra section published to the core (a
@@ -668,8 +807,14 @@ namespace Win7Taskbar.Interop
         /// </summary>
         public void SetExtraSettings(int flyoutColorMode, int flyoutColorRgb,
                                      int connectionPrivacyMode)
-            => NativeMethods.W7T_SetExtraSettings(flyoutColorMode, flyoutColorRgb,
-                connectionPrivacyMode);
+        {
+            try
+            {
+                NativeMethods.W7T_SetExtraSettings(flyoutColorMode, flyoutColorRgb,
+                    connectionPrivacyMode);
+            }
+            catch { }
+        }
 
         /// <summary>
         /// v1.21.7: the colour the recreated Windows 8-style flyout would use
@@ -677,16 +822,29 @@ namespace Win7Taskbar.Interop
         /// asking the system every time.
         /// </summary>
         public bool GetExtraFlyoutColor(out uint rgb)
-            => NativeMethods.W7T_GetExtraFlyoutColor(out rgb) == 1;
+        {
+            rgb = 0;
+            try { return NativeMethods.W7T_GetExtraFlyoutColor(out rgb) == 1; }
+            catch { rgb = 0; return false; }
+        }
 
         /// <summary>v2.36: flyout di rete Windows 7 (porting MIT mod Windhawk).</summary>
-        public bool NetFlyoutInit() => NativeMethods.W7T_NetFlyoutInit() == 1;
-        public void NetFlyoutUninit() => NativeMethods.W7T_NetFlyoutUninit();
+        public bool NetFlyoutInit()
+        {
+            try { return NativeMethods.W7T_NetFlyoutInit() == 1; }
+            catch { return false; }
+        }
+        public void NetFlyoutUninit()
+        {
+            try { NativeMethods.W7T_NetFlyoutUninit(); } catch { }
+        }
 
         /// <summary>v2.62: dichiara al core se il riquadro di rete di
         /// Windows 7 e' pronto all'uso (vedi W7T_NetFlyoutInit).</summary>
         public void SetWin7NetworkFlyout(bool ready)
-            => NativeMethods.W7T_SetWin7NetworkFlyout(ready ? 1 : 0);
+        {
+            try { NativeMethods.W7T_SetWin7NetworkFlyout(ready ? 1 : 0); } catch { }
+        }
 
         /// <summary>v2.63: pubblica le preferenze dei quattro riquadri al
         /// core, che da solo decide quale percorso usare per ognuno.
