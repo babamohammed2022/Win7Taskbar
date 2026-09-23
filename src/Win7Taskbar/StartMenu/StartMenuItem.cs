@@ -22,6 +22,7 @@ namespace Win7Taskbar.StartMenu
         public bool IsSeparator { get; set; }
         public bool IsAllPrograms { get; set; }
         public bool IsFolder { get; set; }
+        public bool IsPrimary { get; set; }
 
         public ImageSource? Icon
         {

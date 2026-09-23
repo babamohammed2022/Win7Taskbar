@@ -172,6 +172,38 @@ namespace Win7Taskbar.StartMenu
 
         public void Power(int action) => _bridge.StartMenuPower(action);
 
+        /// <summary>
+        /// Win32 TrackPopupMenu for Shut down / Log off / Sleep — same
+        /// hover as the taskbar context menu, not a WPF Popup.
+        /// Returns the 1-based choice, or 0 if cancelled.
+        /// </summary>
+        public int ShowPowerMenu(int screenX, int screenY)
+        {
+            const string items =
+                "Switch user\nLog off\nLock\n-\nRestart\nSleep\nHibernate";
+            return _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
+                items, anchorAtCursor: true);
+        }
+
+        public void ApplyPowerChoice(int choice)
+        {
+            /* 1 Switch user, 2 Log off, 3 Lock, 4 Restart, 5 Sleep, 6 Hibernate */
+            int action = choice switch
+            {
+                1 => 6,
+                2 => 4,
+                3 => 5,
+                4 => 1,
+                5 => 2,
+                6 => 3,
+                _ => -1
+            };
+            if (action >= 0)
+            {
+                Power(action);
+            }
+        }
+
         public void OpenShellFolder(Environment.SpecialFolder folder)
         {
             try
@@ -244,42 +276,24 @@ namespace Win7Taskbar.StartMenu
             }
 
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string pinPath in StartMenuStore.ReadWindowsPinnedShortcuts())
+            foreach (string pinPath in StartMenuStore.ReadPinnedShortcuts())
             {
-                StartMenuItem? item = FromPathOrCatalog(pinPath);
+                StartMenuItem? item = FromExistingShortcut(pinPath);
                 if (item == null || !seen.Add(item.Path))
                 {
                     continue;
                 }
                 LeftItems.Add(item);
             }
-            if (LeftItems.Count == 0)
-            {
-                /* No Explorer pins: show real catalog entries, never invented names. */
-                int n = 0;
-                foreach (NativeMethods.W7TStartMenuEntry entry in _catalog)
-                {
-                    if (string.IsNullOrEmpty(entry.Path) && string.IsNullOrEmpty(entry.Target))
-                    {
-                        continue;
-                    }
-                    StartMenuItem item = FromEntry(entry);
-                    if (!seen.Add(item.Path))
-                    {
-                        continue;
-                    }
-                    LeftItems.Add(item);
-                    if (++n >= 8)
-                    {
-                        break;
-                    }
-                }
-            }
 
             bool addedRecent = false;
             foreach (string recent in _store.Recent)
             {
-                StartMenuItem? item = FromPathOrCatalog(recent);
+                if (!StartMenuStore.LooksLikePath(recent) || !File.Exists(recent))
+                {
+                    continue;
+                }
+                StartMenuItem? item = FromExistingShortcut(recent);
                 if (item == null || !seen.Add(item.Path))
                 {
                     continue;
@@ -293,45 +307,19 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        private StartMenuItem? FromPathOrCatalog(string pathOrName)
+        private StartMenuItem? FromExistingShortcut(string path)
         {
-            if (string.IsNullOrWhiteSpace(pathOrName))
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             {
                 return null;
             }
-            NativeMethods.W7TStartMenuEntry? found = FindByName(pathOrName);
-            if (found.HasValue)
+            return new StartMenuItem
             {
-                return FromEntry(found.Value);
-            }
-            if (File.Exists(pathOrName))
-            {
-                return new StartMenuItem
-                {
-                    Name = Path.GetFileNameWithoutExtension(pathOrName),
-                    Path = pathOrName,
-                    Target = pathOrName,
-                    Icon = LoadIcon(pathOrName, pathOrName)
-                };
-            }
-            return null;
-        }
-
-        private NativeMethods.W7TStartMenuEntry? FindByName(string name)
-        {
-            foreach (NativeMethods.W7TStartMenuEntry e in _catalog)
-            {
-                if ((e.Name != null &&
-                     e.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0) ||
-                    (e.Path != null &&
-                     string.Equals(e.Path, name, StringComparison.OrdinalIgnoreCase)) ||
-                    (e.Target != null &&
-                     string.Equals(e.Target, name, StringComparison.OrdinalIgnoreCase)))
-                {
-                    return e;
-                }
-            }
-            return null;
+                Name = Path.GetFileNameWithoutExtension(path),
+                Path = path,
+                Target = path,
+                Icon = LoadIcon(path, path)
+            };
         }
 
         private StartMenuItem FromEntry(NativeMethods.W7TStartMenuEntry e)
@@ -519,29 +507,53 @@ namespace Win7Taskbar.StartMenu
 
         private void BuildRightLinks()
         {
+            /* Win7 two-column right pane. Icon sources are the same
+             * known-folder / parsing names Open-Shell lists in
+             * CustomMenu.cpp g_StdCommands7 (IDs looked up, code not copied). */
             RightLinks.Clear();
+            string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            RightLinks.Add(FolderLink(UserName, "user", profile, isPrimary: true));
             RightLinks.Add(FolderLink("Documents", "documents",
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)));
             RightLinks.Add(FolderLink("Pictures", "pictures",
                 Environment.GetFolderPath(Environment.SpecialFolder.MyPictures)));
             RightLinks.Add(FolderLink("Music", "music",
                 Environment.GetFolderPath(Environment.SpecialFolder.MyMusic)));
-            RightLinks.Add(FolderLink("Games", "games", "shell:Games"));
             RightLinks.Add(new StartMenuItem { IsSeparator = true });
-            RightLinks.Add(FolderLink("Computer", "computer", "shell:MyComputerFolder"));
-            RightLinks.Add(FolderLink("Control Panel", "control", "control.exe"));
-            RightLinks.Add(FolderLink("Devices and Printers", "devices", "control.exe"));
-            RightLinks.Add(FolderLink("Default Programs", "defaults", "control.exe"));
-            RightLinks.Add(FolderLink("Help and Support", "help", null));
+            RightLinks.Add(FolderLink("Games", "games",
+                "::{CAC52C1A-B53D-4EDC-92D7-6B2E8AC19434}"));
+            RightLinks.Add(FolderLink("Computer", "computer",
+                "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}"));
+            RightLinks.Add(new StartMenuItem { IsSeparator = true });
+            RightLinks.Add(FolderLink("Control Panel", "control",
+                "::{26EE0668-A00A-44D7-9371-BEB064C98683}"));
+            RightLinks.Add(FolderLink("Devices and Printers", "devices",
+                @"::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{A8A91A66-3A7D-4424-8D24-04E180695C7A}"));
+            RightLinks.Add(FolderLink("Default Programs", "defaults",
+                @"::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{17CD9488-1228-4B2F-88CE-4298E93E0966}"));
+            RightLinks.Add(HelpLink());
         }
 
-        private static StartMenuItem FolderLink(string name, string folder, string? iconPath)
+        private static StartMenuItem FolderLink(string name, string folder, string? iconPath,
+            bool isPrimary = false)
         {
             return new StartMenuItem
             {
                 Name = name,
                 Folder = folder,
-                Icon = string.IsNullOrEmpty(iconPath) ? null : LoadIcon(iconPath, iconPath)
+                IsPrimary = isPrimary,
+                Icon = IconFromParsingName(iconPath)
+            };
+        }
+
+        private static StartMenuItem HelpLink()
+        {
+            return new StartMenuItem
+            {
+                Name = "Help and Support",
+                Folder = "help",
+                Icon = IconFromDll("imageres.dll", 99)
+                    ?? IconFromParsingName(@"%SystemRoot%\Help")
             };
         }
 
@@ -549,6 +561,9 @@ namespace Win7Taskbar.StartMenu
         {
             switch (item.Folder)
             {
+                case "user":
+                    OpenShellFolder(Environment.SpecialFolder.UserProfile);
+                    break;
                 case "documents":
                     OpenShellFolder(Environment.SpecialFolder.MyDocuments);
                     break;
@@ -568,13 +583,15 @@ namespace Win7Taskbar.StartMenu
                     StartProcess("control.exe", null);
                     break;
                 case "devices":
-                    StartProcess("control.exe", "printers");
+                    StartProcess("explorer.exe",
+                        @"shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{A8A91A66-3A7D-4424-8D24-04E180695C7A}");
                     break;
                 case "defaults":
-                    StartProcess("control.exe", "/name Microsoft.DefaultPrograms");
+                    StartProcess("explorer.exe",
+                        @"shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{17CD9488-1228-4B2F-88CE-4298E93E0966}");
                     break;
                 case "help":
-                    OpenShellUri("https://support.microsoft.com");
+                    StartProcess("hh.exe", null);
                     break;
             }
         }
@@ -630,6 +647,81 @@ namespace Win7Taskbar.StartMenu
             finally
             {
                 NativeMethods.DestroyIcon(hicon);
+            }
+        }
+
+        private static ImageSource? IconFromParsingName(string? probe)
+        {
+            if (string.IsNullOrEmpty(probe))
+            {
+                return null;
+            }
+            if (probe.StartsWith("::{", StringComparison.Ordinal) ||
+                probe.StartsWith("shell:", StringComparison.OrdinalIgnoreCase))
+            {
+                return IconFromPidl(probe) ?? IconFromShell(probe, exists: true);
+            }
+            string expanded = Environment.ExpandEnvironmentVariables(probe);
+            return LoadIcon(expanded, expanded);
+        }
+
+        private static ImageSource? IconFromPidl(string parsingName)
+        {
+            IntPtr pidl = IntPtr.Zero;
+            try
+            {
+                int hr = NativeMethods.SHParseDisplayName(parsingName, IntPtr.Zero,
+                    out pidl, 0, IntPtr.Zero);
+                if (hr != 0 || pidl == IntPtr.Zero)
+                {
+                    return null;
+                }
+                var info = new NativeMethods.SHFILEINFOW();
+                uint flags = NativeMethods.SHGFI_PIDL | NativeMethods.SHGFI_ICON |
+                             NativeMethods.SHGFI_LARGEICON;
+                IntPtr result = NativeMethods.SHGetFileInfoPidl(
+                    pidl, 0, ref info,
+                    (uint)Marshal.SizeOf<NativeMethods.SHFILEINFOW>(),
+                    flags);
+                if (result == IntPtr.Zero || info.hIcon == IntPtr.Zero)
+                {
+                    return null;
+                }
+                return IconFromHicon(info.hIcon);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                if (pidl != IntPtr.Zero)
+                {
+                    NativeMethods.ILFree(pidl);
+                }
+            }
+        }
+
+        private static ImageSource? IconFromDll(string dll, int index)
+        {
+            try
+            {
+                string path = Path.Combine(Environment.SystemDirectory, dll);
+                uint n = NativeMethods.ExtractIconEx(path, index,
+                    out IntPtr large, out IntPtr small, 1);
+                if (small != IntPtr.Zero && small != large)
+                {
+                    NativeMethods.DestroyIcon(small);
+                }
+                if (n == 0 || large == IntPtr.Zero)
+                {
+                    return null;
+                }
+                return IconFromHicon(large);
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
 

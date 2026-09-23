@@ -125,14 +125,6 @@
             </Setter>
             <EventSetter Event="MouseLeftButtonUp" Handler="OnRightItemClick"/>
             <EventSetter Event="MouseEnter" Handler="OnRightItemMouseEnter"/>
-            <EventSetter Event="MouseLeave" Handler="OnRightItemMouseLeave"/>
-        </Style>
-
-        <Style x:Key="PowerMenuItem" TargetType="MenuItem">
-            <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Padding" Value="8,4"/>
-            <Setter Property="Background" Value="Transparent"/>
         </Style>
     </Window.Resources>
 
@@ -159,15 +151,10 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <!-- Left programs pane -->
+                <!-- Left programs pane: opaque white (no glass). -->
                 <Border Grid.Column="0" Margin="7,10,5,8" CornerRadius="3"
-                        BorderBrush="#90A0B4C8" BorderThickness="1">
-                    <Border.Background>
-                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="#90FFFFFF" Offset="0"/>
-                            <GradientStop Color="#70F4F8FC" Offset="1"/>
-                        </LinearGradientBrush>
-                    </Border.Background>
+                        BorderBrush="#90A0B4C8" BorderThickness="1"
+                        Background="#FFFFFFFF">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="*"/>
@@ -316,75 +303,23 @@
                             <RowDefinition Height="40"/>
                         </Grid.RowDefinitions>
 
-                        <StackPanel Margin="8,12,8,8">
-                            <Border Width="48" Height="48" CornerRadius="2"
-                                    BorderThickness="2"
-                                    HorizontalAlignment="Center"
-                                    Cursor="Hand"
-                                    MouseLeftButtonUp="OnUserPictureClick">
+                        <Grid Width="48" Height="48" Margin="8,12,8,8"
+                              HorizontalAlignment="Center" Cursor="Hand"
+                              MouseLeftButtonUp="OnUserPictureClick">
+                            <Image x:Name="IconOld" Stretch="UniformToFill"
+                                   RenderOptions.BitmapScalingMode="HighQuality"/>
+                            <Image x:Name="IconNew" Stretch="Uniform" Opacity="0"
+                                   RenderOptions.BitmapScalingMode="HighQuality"/>
+                            <Border x:Name="PhotoFrame" CornerRadius="2"
+                                    BorderThickness="2" IsHitTestVisible="False">
                                 <Border.BorderBrush>
                                     <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                                         <GradientStop Color="#F0FFFFFF" Offset="0"/>
                                         <GradientStop Color="#A0C8D8E8" Offset="1"/>
                                     </LinearGradientBrush>
                                 </Border.BorderBrush>
-                                <Border.Background>
-                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                        <GradientStop Color="#30405060" Offset="0"/>
-                                        <GradientStop Color="#20182838" Offset="1"/>
-                                    </LinearGradientBrush>
-                                </Border.Background>
-                                <Grid>
-                                    <Image x:Name="UserPicImage" Source="{Binding UserPicture}"
-                                           Stretch="UniformToFill">
-                                        <Image.Style>
-                                            <Style TargetType="Image">
-                                                <Setter Property="Opacity" Value="1"/>
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding HoveredLinkIcon, Converter={StaticResource NullToVis}}" Value="Visible">
-                                                        <DataTrigger.EnterActions>
-                                                            <BeginStoryboard>
-                                                                <Storyboard>
-                                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18"/>
-                                                                </Storyboard>
-                                                            </BeginStoryboard>
-                                                        </DataTrigger.EnterActions>
-                                                        <DataTrigger.ExitActions>
-                                                            <BeginStoryboard>
-                                                                <Storyboard>
-                                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.18"/>
-                                                                </Storyboard>
-                                                            </BeginStoryboard>
-                                                        </DataTrigger.ExitActions>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Image.Style>
-                                    </Image>
-                                    <Image x:Name="HoverPicImage" Source="{Binding HoveredLinkIcon}"
-                                           Stretch="Uniform" Opacity="0">
-                                        <Image.Style>
-                                            <Style TargetType="Image">
-                                                <Setter Property="Opacity" Value="0"/>
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding HoveredLinkIcon, Converter={StaticResource NullToVis}}" Value="Visible">
-                                                        <Setter Property="Opacity" Value="1"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Image.Style>
-                                    </Image>
-                                </Grid>
                             </Border>
-                            <TextBlock Text="{Binding UserName}"
-                                       FontWeight="SemiBold" FontSize="13"
-                                       Foreground="White" HorizontalAlignment="Center"
-                                       Margin="0,6,0,0" TextTrimming="CharacterEllipsis">
-                                <TextBlock.Effect>
-                                    <DropShadowEffect Color="Black" BlurRadius="3" ShadowDepth="1" Opacity="0.45"/>
-                                </TextBlock.Effect>
-                            </TextBlock>
-                        </StackPanel>
+                        </Grid>
 
                         <ListBox x:Name="RightList" Grid.Row="1"
                                  ItemsSource="{Binding RightLinks}"
@@ -392,7 +327,8 @@
                                  Padding="4,4,0,0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                 ItemContainerStyle="{StaticResource RightRowStyle}">
+                                 ItemContainerStyle="{StaticResource RightRowStyle}"
+                                 MouseLeave="OnRightListMouseLeave">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
                                     <Grid MinHeight="22">
@@ -409,11 +345,14 @@
                                             </Rectangle.Style>
                                         </Rectangle>
                                         <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
-                                                   FontSize="12" Foreground="White"
-                                                   FontWeight="SemiBold">
+                                                   FontSize="12" Foreground="White">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
+                                                    <Setter Property="FontWeight" Value="Normal"/>
                                                     <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsPrimary}" Value="True">
+                                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                                        </DataTrigger>
                                                         <DataTrigger Binding="{Binding IsSeparator}" Value="True">
                                                             <Setter Property="Visibility" Value="Collapsed"/>
                                                         </DataTrigger>
@@ -427,8 +366,8 @@
                         </ListBox>
 
                         <StackPanel Grid.Row="2" Orientation="Horizontal"
-                                    HorizontalAlignment="Right" VerticalAlignment="Center"
-                                    Margin="0,0,8,4">
+                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    Margin="0,0,0,4">
                             <Border x:Name="ShutdownChrome" CornerRadius="3,0,0,3"
                                     BorderThickness="1,1,0,1" BorderBrush="#80202838"
                                     Cursor="Hand" MouseLeftButtonUp="OnShutdown">
@@ -463,24 +402,6 @@
                         </StackPanel>
                     </Grid>
                 </Border>
-
-                <Popup x:Name="PowerPopup" PlacementTarget="{Binding ElementName=ShutdownArrow}"
-                       Placement="Top" StaysOpen="False">
-                    <Border Background="#F4F8FCFF" BorderBrush="#A05A7A9C" BorderThickness="1" Padding="2">
-                        <Border.Effect>
-                            <DropShadowEffect Color="#80000000" BlurRadius="8" ShadowDepth="2" Opacity="0.4"/>
-                        </Border.Effect>
-                        <StackPanel>
-                            <MenuItem Header="Switch user" Click="OnSwitchUser" Style="{StaticResource PowerMenuItem}"/>
-                            <MenuItem Header="Log off" Click="OnLogOff" Style="{StaticResource PowerMenuItem}"/>
-                            <MenuItem Header="Lock" Click="OnLock" Style="{StaticResource PowerMenuItem}"/>
-                            <Separator/>
-                            <MenuItem Header="Restart" Click="OnRestart" Style="{StaticResource PowerMenuItem}"/>
-                            <MenuItem Header="Sleep" Click="OnSleep" Style="{StaticResource PowerMenuItem}"/>
-                            <MenuItem Header="Hibernate" Click="OnHibernate" Style="{StaticResource PowerMenuItem}"/>
-                        </StackPanel>
-                    </Border>
-                </Popup>
             </Grid>
         </Border>
     </Border>

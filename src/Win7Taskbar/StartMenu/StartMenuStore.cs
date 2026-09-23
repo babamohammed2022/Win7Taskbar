@@ -1,10 +1,17 @@
-// Win7Taskbar - Start Menu pinned / recent / usage store
+// Win7Taskbar - Start Menu pinned / recent store
 // Copyright (c) 2026 Win7Taskbar contributors
 // Licensed under the GNU General Public License version 3 or later.
-// Written from scratch. No Microsoft assets.
+// Written from scratch. No Microsoft assets. No Open-Shell source copied.
 //
-// Pins come from the real Windows "User Pinned\StartMenu" folder (the same
-// place Open-Shell / Explorer read). Nothing is invented.
+// Pin discovery (clean-room, same folders Open-Shell / Explorer actually
+// keep .lnk files in — looked up, not copied):
+//   1. Windows Explorer "Pin to Start Menu":
+//      %AppData%\Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu
+//   2. Open-Shell's own pin folder, if the user also has Open-Shell:
+//      %AppData%\Open-Shell\Pinned
+//   3. Classic Shell's pin folder (the predecessor):
+//      %AppData%\ClassicShell\Pinned
+// First non-empty folder wins. Nothing is invented from All Programs.
 
 using System;
 using System.Collections.Generic;
@@ -31,19 +38,8 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        public static string WindowsPinnedFolder
-        {
-            get
-            {
-                return Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    @"Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu");
-            }
-        }
-
         public static StartMenuStore Load()
         {
-            StartMenuStore store;
             try
             {
                 string path = StorePath;
@@ -54,11 +50,10 @@ namespace Win7Taskbar.StartMenu
                         JsonSerializer.Deserialize<StartMenuStore>(json);
                     if (loaded != null)
                     {
-                        store = loaded;
-                        store.Pinned ??= new List<string>();
-                        store.Recent ??= new List<string>();
-                        store.Usage ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                        return store;
+                        loaded.Pinned ??= new List<string>();
+                        loaded.Recent ??= new List<string>();
+                        loaded.Usage ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                        return loaded;
                     }
                 }
             }
@@ -66,22 +61,52 @@ namespace Win7Taskbar.StartMenu
             {
             }
 
-            store = new StartMenuStore();
-            return store;
+            return new StartMenuStore();
         }
 
-        public static List<string> ReadWindowsPinnedShortcuts()
+        /// <summary>
+        /// Real .lnk pins only. Empty list if the user has never pinned
+        /// anything — never a synthetic catalogue fill.
+        /// </summary>
+        public static List<string> ReadPinnedShortcuts()
+        {
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string[] folders =
+            {
+                Path.Combine(appData,
+                    @"Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu"),
+                Path.Combine(appData, @"Open-Shell\Pinned"),
+                Path.Combine(appData, @"ClassicShell\Pinned"),
+            };
+            foreach (string folder in folders)
+            {
+                List<string> found = ReadLnkFolder(folder);
+                if (found.Count > 0)
+                {
+                    return found;
+                }
+            }
+            return new List<string>();
+        }
+
+        private static List<string> ReadLnkFolder(string folder)
         {
             var paths = new List<string>();
             try
             {
-                string folder = WindowsPinnedFolder;
                 if (!Directory.Exists(folder))
                 {
                     return paths;
                 }
-                foreach (string file in Directory.GetFiles(folder, "*.lnk"))
+                string[] files = Directory.GetFiles(folder, "*.lnk");
+                Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+                foreach (string file in files)
                 {
+                    if (string.Equals(Path.GetFileName(file), "desktop.ini",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
                     paths.Add(file);
                 }
             }
@@ -93,7 +118,7 @@ namespace Win7Taskbar.StartMenu
 
         public void RecordLaunch(string path)
         {
-            if (string.IsNullOrWhiteSpace(path))
+            if (string.IsNullOrWhiteSpace(path) || !LooksLikePath(path))
             {
                 return;
             }
@@ -106,6 +131,15 @@ namespace Win7Taskbar.StartMenu
                 Recent.RemoveAt(Recent.Count - 1);
             }
             Save();
+        }
+
+        public static bool LooksLikePath(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value) || value.Length < 3)
+            {
+                return false;
+            }
+            return value.IndexOf('\\') >= 0 || value.IndexOf('/') >= 0;
         }
 
         public void Save()

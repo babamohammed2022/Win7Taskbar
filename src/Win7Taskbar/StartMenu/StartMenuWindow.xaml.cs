@@ -15,6 +15,9 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using Win7Taskbar.Interop;
 
 namespace Win7Taskbar.StartMenu
@@ -42,6 +45,8 @@ namespace Win7Taskbar.StartMenu
         private readonly StartMenuViewModel _vm;
         private bool _suppressDeactivate;
         private bool _glassApplied;
+        private DispatcherTimer? _crossfadeTimer;
+        private bool _showingUserPhoto = true;
 
         internal StartMenuWindow(NativeBridge bridge)
         {
@@ -64,6 +69,7 @@ namespace Win7Taskbar.StartMenu
             try
             {
                 _vm.ShowDefaultList();
+                ResetUserPhoto(animate: false);
                 if (ActualHeight < 1)
                 {
                     UpdateLayout();
@@ -254,15 +260,85 @@ namespace Win7Taskbar.StartMenu
 
         private void OnRightItemMouseEnter(object sender, MouseEventArgs e)
         {
-            if (sender is ListBoxItem { DataContext: StartMenuItem item })
+            if (sender is ListBoxItem { DataContext: StartMenuItem item } &&
+                !item.IsSeparator)
             {
-                _vm.SetHoveredLink(item);
+                ShowLinkIcon(item.Icon);
             }
         }
 
-        private void OnRightItemMouseLeave(object sender, MouseEventArgs e)
+        private void OnRightListMouseLeave(object sender, MouseEventArgs e)
         {
-            _vm.SetHoveredLink(null);
+            ResetUserPhoto(animate: true);
+        }
+
+        /// <summary>
+        /// Two stacked Images, 150 ms cross-fade. The profile frame is
+        /// hidden with the photo so the hovered item icon can show.
+        /// </summary>
+        public void CrossfadeIcon(ImageSource? newIcon, TimeSpan duration)
+        {
+            IconNew.BeginAnimation(OpacityProperty, null);
+            IconOld.BeginAnimation(OpacityProperty, null);
+            IconNew.Source = newIcon;
+            IconNew.Opacity = 0;
+            var fadeOut = new DoubleAnimation(1, 0, duration);
+            var fadeIn = new DoubleAnimation(0, 1, duration);
+            IconOld.BeginAnimation(OpacityProperty, fadeOut);
+            IconNew.BeginAnimation(OpacityProperty, fadeIn);
+            if (_crossfadeTimer != null)
+            {
+                _crossfadeTimer.Stop();
+                _crossfadeTimer.Tick -= OnCrossfadeDone;
+            }
+            _crossfadeTimer = new DispatcherTimer { Interval = duration };
+            _crossfadeTimer.Tick += OnCrossfadeDone;
+            _crossfadeTimer.Start();
+        }
+
+        private void OnCrossfadeDone(object? sender, EventArgs e)
+        {
+            if (_crossfadeTimer != null)
+            {
+                _crossfadeTimer.Stop();
+                _crossfadeTimer.Tick -= OnCrossfadeDone;
+            }
+            IconOld.BeginAnimation(OpacityProperty, null);
+            IconNew.BeginAnimation(OpacityProperty, null);
+            IconOld.Source = IconNew.Source;
+            IconOld.Opacity = 1;
+            IconNew.Opacity = 0;
+        }
+
+        private void ShowLinkIcon(ImageSource? icon)
+        {
+            PhotoFrame.Visibility = Visibility.Collapsed;
+            _showingUserPhoto = false;
+            CrossfadeIcon(icon, TimeSpan.FromMilliseconds(150));
+        }
+
+        private void ResetUserPhoto(bool animate)
+        {
+            PhotoFrame.Visibility = Visibility.Visible;
+            if (_showingUserPhoto && IconOld.Source == _vm.UserPicture && animate)
+            {
+                return;
+            }
+            _showingUserPhoto = true;
+            if (animate)
+            {
+                CrossfadeIcon(_vm.UserPicture, TimeSpan.FromMilliseconds(150));
+            }
+            else
+            {
+                IconOld.BeginAnimation(OpacityProperty, null);
+                IconNew.BeginAnimation(OpacityProperty, null);
+                _crossfadeTimer?.Stop();
+                IconOld.Source = _vm.UserPicture;
+                IconOld.Opacity = 1;
+                IconNew.Source = null;
+                IconNew.Opacity = 0;
+            }
         }
 
         private void OnAllProgramsFooter(object sender, RoutedEventArgs e)
@@ -338,16 +414,34 @@ namespace Win7Taskbar.StartMenu
 
         private void OnShutdownArrow(object sender, MouseButtonEventArgs e)
         {
-            PowerPopup.IsOpen = true;
+            Point origin;
+            try
+            {
+                origin = ShutdownArrow.PointToScreen(Mouse.GetPosition(ShutdownArrow));
+            }
+            catch (InvalidOperationException)
+            {
+                origin = ShutdownArrow.PointToScreen(new Point(0, 0));
+            }
+            _suppressDeactivate = true;
+            int choice = 0;
+            try
+            {
+                choice = _vm.ShowPowerMenu(
+                    (int)Math.Round(origin.X),
+                    (int)Math.Round(origin.Y));
+            }
+            finally
+            {
+                _suppressDeactivate = false;
+            }
+            if (choice > 0)
+            {
+                _vm.ApplyPowerChoice(choice);
+            }
+            Dismiss();
             e.Handled = true;
         }
-
-        private void OnSwitchUser(object sender, RoutedEventArgs e) { _vm.Power(6); Dismiss(); }
-        private void OnLogOff(object sender, RoutedEventArgs e) { _vm.Power(4); Dismiss(); }
-        private void OnLock(object sender, RoutedEventArgs e) { _vm.Power(5); Dismiss(); }
-        private void OnRestart(object sender, RoutedEventArgs e) { _vm.Power(1); Dismiss(); }
-        private void OnSleep(object sender, RoutedEventArgs e) { _vm.Power(2); Dismiss(); }
-        private void OnHibernate(object sender, RoutedEventArgs e) { _vm.Power(3); Dismiss(); }
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MARGINS

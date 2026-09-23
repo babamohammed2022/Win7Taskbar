@@ -1075,6 +1075,7 @@ namespace Win7Taskbar.Interop
         public const uint SHGFI_ICON = 0x000000100;
         public const uint SHGFI_SMALLICON = 0x000000001;
         public const uint SHGFI_LARGEICON = 0x000000000;
+        public const uint SHGFI_PIDL = 0x000000008;
         public const uint SHGFI_USEFILEATTRIBUTES = 0x000000010;
         /* v2.6.1: riempie SHFILEINFOW.szDisplayName col nome che mostra
          * Explorer (nasconde le estensioni registrate: "File.lnk" -> "File"). */
@@ -1097,6 +1098,22 @@ namespace Win7Taskbar.Interop
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
         public static extern IntPtr SHGetFileInfoW(string pszPath, uint dwFileAttributes,
                                                    ref SHFILEINFOW psfi, uint cbFileInfo, uint uFlags);
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, EntryPoint = "SHGetFileInfoW")]
+        public static extern IntPtr SHGetFileInfoPidl(IntPtr pidl, uint dwFileAttributes,
+                                                      ref SHFILEINFOW psfi, uint cbFileInfo, uint uFlags);
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        public static extern int SHParseDisplayName(string pszName, IntPtr pbc,
+                                                    out IntPtr ppidl, uint sfgaoIn, IntPtr psfgaoOut);
+
+        [DllImport("shell32.dll")]
+        public static extern void ILFree(IntPtr pidl);
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        public static extern uint ExtractIconEx(string lpszFile, int nIconIndex,
+                                                out IntPtr phiconLarge, out IntPtr phiconSmall,
+                                                uint nIcons);
 
         /* v2.4: disposizione finestre del menu contestuale della barra,
          * come le voci equivalenti del menu vero di Windows 7. */
