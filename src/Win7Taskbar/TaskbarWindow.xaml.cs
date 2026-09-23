@@ -5081,22 +5081,13 @@ namespace Win7Taskbar
                         "Pin this program to taskbar");
                 string launchText = L("lang_start_context",
                     L("lang_start_tip", "Start"));
-                int choice;
-                try
-                {
-                    choice = _bridge.ShowPinMenu(
-                        x, y, launchText, pinText,
-                        group.LaunchPath ?? string.Empty,
-                        group.ExePath ?? string.Empty,
-                        bottomEdge: true);
-                }
-                catch (EntryPointNotFoundException)
-                {
-                    // Native DLL older than the managed side: same two
-                    // rows through the generic menu.
-                    choice = _bridge.ShowContextMenu(
-                        x, y, bottomEdge: true, launchText, pinText);
-                }
+                string pinStart = L("lang_sm_pin",
+                    "Pin to Start Menu (Win7Taskbar)");
+                /* Separators do not increment the returned id
+                 * (ShowContextMenuEx): launch=1, pin=2, pin-to-start=3. */
+                string items = launchText + "\n" + pinText + "\n-\n" + pinStart;
+                int choice = _bridge.ShowContextMenuEx(
+                    x, y, bottomEdge: true, items, anchorAtCursor: false);
                 switch (choice)
                 {
                     case 1:
@@ -5106,6 +5097,20 @@ namespace Win7Taskbar
                         break;
                     case 2:
                         ToggleTaskPin(group);
+                        break;
+                    case 3:
+                        try
+                        {
+                            string pinPath = !string.IsNullOrEmpty(group.LaunchPath)
+                                ? group.LaunchPath : (group.ExePath ?? string.Empty);
+                            if (!string.IsNullOrEmpty(pinPath))
+                            {
+                                StartMenu.StartMenuStore.PinShortcut(pinPath);
+                            }
+                        }
+                        catch (Exception)
+                        {
+                        }
                         break;
                 }
             }

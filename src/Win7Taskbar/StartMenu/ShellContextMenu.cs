@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Win7Taskbar contributors
 // Licensed under the GNU General Public License version 3 or later.
 // Written from scratch. Public shell APIs only. No Open-Shell source copied.
+// Inspired by Open-Shell's use of IContextMenu (MIT; measurements/API only).
 
 using System;
 using System.Runtime.InteropServices;
@@ -21,14 +22,24 @@ namespace Win7Taskbar.StartMenu
         private const uint TPM_RIGHTBUTTON = 0x0002;
         private const uint TPM_RETURNCMD = 0x0100;
         private const uint MF_BYPOSITION = 0x0400;
+        private const uint MF_STRING = 0x00000000;
+        private const uint MF_SEPARATOR = 0x00000800;
         private const uint CMIC_MASK_UNICODE = 0x00004000;
         private const uint CMIC_MASK_PTINVOKE = 0x20000000;
         private const int SW_SHOWNORMAL = 1;
         private const uint idCmdFirst = 1;
         private const uint idCmdLast = 0x7FFF;
+        public const uint ExtraPinCommand = 0x9000;
+        public const uint ExtraUnpinCommand = 0x9001;
 
         public static bool TryShow(string path, int screenX, int screenY)
+            => TryShow(path, screenX, screenY, IntPtr.Zero, null, null, out _);
+
+        public static bool TryShow(string path, int screenX, int screenY,
+            IntPtr owner, string? extraPinLabel, string? extraUnpinLabel,
+            out uint extraCommand)
         {
+            extraCommand = 0;
             if (string.IsNullOrWhiteSpace(path))
             {
                 return false;
@@ -59,7 +70,7 @@ namespace Win7Taskbar.StartMenu
                     var folder = (IShellFolder)Marshal.GetObjectForIUnknown(folderPtr);
                     Guid iidMenu = new("000214E4-0000-0000-C000-000000000046");
                     IntPtr[] apidl = { child };
-                    hr = folder.GetUIObjectOf(IntPtr.Zero, 1, apidl, ref iidMenu,
+                    hr = folder.GetUIObjectOf(owner, 1, apidl, ref iidMenu,
                         IntPtr.Zero, out unk);
                     if (hr != 0 || unk == null)
                     {
@@ -91,7 +102,23 @@ namespace Win7Taskbar.StartMenu
                         return false;
                     }
 
-                    IntPtr owner = NativeMethods.GetForegroundWindow();
+                    if (!string.IsNullOrEmpty(extraPinLabel))
+                    {
+                        InsertMenuW(menu, 0, MF_BYPOSITION | MF_STRING,
+                            ExtraPinCommand, extraPinLabel);
+                        InsertMenuW(menu, 1, MF_BYPOSITION | MF_SEPARATOR, 0, null);
+                    }
+                    else if (!string.IsNullOrEmpty(extraUnpinLabel))
+                    {
+                        InsertMenuW(menu, 0, MF_BYPOSITION | MF_STRING,
+                            ExtraUnpinCommand, extraUnpinLabel);
+                        InsertMenuW(menu, 1, MF_BYPOSITION | MF_SEPARATOR, 0, null);
+                    }
+
+                    if (owner == IntPtr.Zero)
+                    {
+                        owner = NativeMethods.GetForegroundWindow();
+                    }
                     if (owner == IntPtr.Zero)
                     {
                         owner = GetDesktopWindow();
@@ -103,18 +130,30 @@ namespace Win7Taskbar.StartMenu
                     {
                         return false;
                     }
+                    if (cmd == ExtraPinCommand || cmd == ExtraUnpinCommand)
+                    {
+                        extraCommand = cmd;
+                        return true;
+                    }
 
                     var info = new CMINVOKECOMMANDINFOEX
                     {
                         cbSize = Marshal.SizeOf<CMINVOKECOMMANDINFOEX>(),
                         fMask = CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE,
-                        hwnd = IntPtr.Zero,
+                        hwnd = owner,
                         lpVerb = (IntPtr)(cmd - idCmdFirst),
                         lpVerbW = (IntPtr)(cmd - idCmdFirst),
                         nShow = SW_SHOWNORMAL,
                         ptInvokeX = screenX,
                         ptInvokeY = screenY
                     };
+                    hr = ctx.InvokeCommand(ref info);
+                    if (hr >= 0)
+                    {
+                        return true;
+                    }
+                    info.fMask = CMIC_MASK_PTINVOKE;
+                    info.lpVerbW = IntPtr.Zero;
                     hr = ctx.InvokeCommand(ref info);
                     return hr >= 0;
                 }
@@ -226,5 +265,10 @@ namespace Win7Taskbar.StartMenu
 
         [DllImport("user32.dll")]
         private static extern short GetKeyState(int nVirtKey);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool InsertMenuW(IntPtr hMenu, uint uPosition,
+            uint uFlags, uint uIDNewItem, string? lpNewItem);
     }
 }

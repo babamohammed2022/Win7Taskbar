@@ -3,11 +3,13 @@
 // Licensed under the GNU General Public License version 3 or later.
 // Written from scratch. No Microsoft assets. No Open-Shell source copied.
 //
-// Pin discovery (same folders Open-Shell / Explorer keep .lnk files in):
+// Pin READS merge:
+//   0. %AppData%\Win7Taskbar\Pinned\StartMenu   (ours; writes go here only)
 //   1. %AppData%\Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu
 //   2. %AppData%\Open-Shell\Pinned
 //   3. %AppData%\ClassicShell\Pinned
-// First non-empty folder wins. Superbar pins come from the native core.
+// Writes never touch Explorer / Open-Shell / Classic. Superbar pins come
+// from the native core.
 
 using System;
 using System.Collections.Generic;
@@ -20,6 +22,11 @@ namespace Win7Taskbar.StartMenu
     {
         public List<string> Pinned { get; set; } = new();
         public List<string> Recent { get; set; } = new();
+        /// <summary>
+        /// Explorer/Open-Shell pins the user hid from OUR menu. We never
+        /// write Explorer's User Pinned folder; hiding is local.
+        /// </summary>
+        public List<string> Unpinned { get; set; } = new();
         public Dictionary<string, int> Usage { get; set; } =
             new(StringComparer.OrdinalIgnoreCase);
 
@@ -70,6 +77,7 @@ namespace Win7Taskbar.StartMenu
                     {
                         loaded.Pinned ??= new List<string>();
                         loaded.Recent ??= new List<string>();
+                        loaded.Unpinned ??= new List<string>();
                         loaded.Usage ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                         return loaded;
                     }
@@ -88,24 +96,35 @@ namespace Win7Taskbar.StartMenu
         /// </summary>
         public static List<string> ReadPinnedShortcuts()
         {
+            /* Our folder first (user wins), then Explorer / Open-Shell /
+             * Classic discovery. Never write those foreign folders. */
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string[] folders =
             {
+                StartMenuPinFolder,
                 Path.Combine(appData,
                     @"Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu"),
                 Path.Combine(appData, @"Open-Shell\Pinned"),
                 Path.Combine(appData, @"ClassicShell\Pinned"),
-                StartMenuPinFolder,
             };
+            var merged = new List<string>();
+            StartMenuStore store = Load();
             foreach (string folder in folders)
             {
-                List<string> found = ReadLnkFolder(folder);
-                if (found.Count > 0)
+                foreach (string lnk in ReadLnkFolder(folder))
                 {
-                    return found;
+                    if (merged.Exists(p => SamePin(p, lnk)))
+                    {
+                        continue;
+                    }
+                    if (store.Unpinned.Exists(p => SamePin(p, lnk)))
+                    {
+                        continue;
+                    }
+                    merged.Add(lnk);
                 }
             }
-            return new List<string>();
+            return merged;
         }
 
         /// <summary>
@@ -178,17 +197,30 @@ namespace Win7Taskbar.StartMenu
 
         public static bool PinShortcut(string sourcePath)
         {
-            if (!CopyOrCreateShortcut(sourcePath, ExplorerPinFolder(), out string dest))
+            /* Writes only %AppData%\Win7Taskbar\Pinned\StartMenu. Never
+             * Explorer User Pinned / Open-Shell / Classic. */
+            if (!CopyOrCreateShortcut(sourcePath, StartMenuPinFolder, out string dest))
             {
                 return false;
             }
             try
             {
                 StartMenuStore store = Load();
+                bool dirty = false;
                 if (!store.Pinned.Exists(p =>
                         string.Equals(p, dest, StringComparison.OrdinalIgnoreCase)))
                 {
                     store.Pinned.Add(dest);
+                    dirty = true;
+                }
+                int hidden = store.Unpinned.RemoveAll(p => SamePin(p, sourcePath) ||
+                    SamePin(p, dest));
+                if (hidden > 0)
+                {
+                    dirty = true;
+                }
+                if (dirty)
+                {
                     store.Save();
                 }
             }
@@ -205,11 +237,9 @@ namespace Win7Taskbar.StartMenu
             {
                 return false;
             }
-            bool removed = DeleteMatchingShortcut(path, ExplorerPinFolder());
-            removed = DeleteMatchingShortcut(path, StartMenuPinFolder) || removed;
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            removed = DeleteMatchingShortcut(path, Path.Combine(appData, @"Open-Shell\Pinned")) || removed;
-            removed = DeleteMatchingShortcut(path, Path.Combine(appData, @"ClassicShell\Pinned")) || removed;
+            /* Delete only our .lnk. Foreign Explorer/Open-Shell/Classic
+             * pins stay on disk; they are hidden via Unpinned. */
+            bool removed = DeleteMatchingShortcut(path, StartMenuPinFolder);
             try
             {
                 StartMenuStore store = Load();
@@ -217,7 +247,12 @@ namespace Win7Taskbar.StartMenu
                 store.Pinned.RemoveAll(p =>
                     string.Equals(p, path, StringComparison.OrdinalIgnoreCase) ||
                     SamePin(p, path));
-                if (store.Pinned.Count != before)
+                bool hidden = !store.Unpinned.Exists(p => SamePin(p, path));
+                if (hidden)
+                {
+                    store.Unpinned.Add(path);
+                }
+                if (store.Pinned.Count != before || hidden)
                 {
                     store.Save();
                     removed = true;

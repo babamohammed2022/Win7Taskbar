@@ -76,3 +76,46 @@ integration used the `w7tb` namespace and was renamed/adapted to this
 project's `w7t` conventions; the snippet's vtable-offset map and its
 references to undocumented COM interfaces were deliberately not carried
 over (see the deviations section of the notes).
+
+## Open-Shell-Menu (inspiration only)
+
+Reference / inspiration for Start Menu pin storage, small folder icons,
+IContextMenu usage, and All Programs tree measurements:
+
+- Project: **Open-Shell-Menu**
+- Source: https://github.com/Open-Shell/Open-Shell-Menu
+- License: **MIT License**
+- Copyright: Copyright (c) 2017-2018 Open-Shell
+  (see https://github.com/Open-Shell/Open-Shell-Menu/blob/master/LICENSE)
+
+Win7Taskbar does **not** copy Open-Shell source code, assets, or bitmaps.
+Public shell APIs (`IContextMenu`, `SHGetFileInfo` with `SHGFI_SMALLICON`,
+`ShellExecuteEx`) and published measurements were used as inspiration.
+Start Menu pins are written only to `%AppData%\Win7Taskbar\Pinned\StartMenu`;
+Explorer's User Pinned folder is never written.
+
+MIT License text (verbatim from the Open-Shell LICENSE file):
+
+```
+MIT License
+
+Copyright (c) 2017-2018 Open-Shell
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

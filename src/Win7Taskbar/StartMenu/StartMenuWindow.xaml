@@ -29,32 +29,6 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <local:InverseBooleanToVisibilityConverter x:Key="InvBoolToVis"/>
         <local:NullToVisibilityConverter x:Key="NullToVis"/>
-        <local:NonEmptyStringToVisibilityConverter x:Key="NonEmptyToVis"/>
-
-        <Style x:Key="StartInfotipStyle" TargetType="ToolTip">
-            <Setter Property="Placement" Value="Right"/>
-            <Setter Property="HorizontalOffset" Value="8"/>
-            <Setter Property="HasDropShadow" Value="True"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="MaxWidth" Value="280"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ToolTip">
-                        <Border BorderBrush="#8BA0B5" BorderThickness="1"
-                                Background="#F7FBFF" Padding="10,8"
-                                SnapsToDevicePixels="True">
-                            <Border.Effect>
-                                <DropShadowEffect Color="#40000000" BlurRadius="8"
-                                                  ShadowDepth="2" Opacity="0.35"/>
-                            </Border.Effect>
-                            <ContentPresenter/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
 
         <SolidColorBrush x:Key="Win7Hairline" Color="#D2E2F1"/>
         <SolidColorBrush x:Key="Win7SearchBand" Color="#F1F6FB"/>
@@ -158,6 +132,7 @@
             <EventSetter Event="MouseLeftButtonUp" Handler="OnRightItemClick"/>
             <EventSetter Event="MouseRightButtonUp" Handler="OnRightItemContext"/>
             <EventSetter Event="MouseEnter" Handler="OnRightItemMouseEnter"/>
+            <EventSetter Event="MouseLeave" Handler="OnRightItemMouseLeave"/>
         </Style>
 
         <Style x:Key="AeroScrollBar" TargetType="ScrollBar">
@@ -260,14 +235,11 @@
                 HorizontalAlignment="Left" VerticalAlignment="Top"
                 Margin="10,25,0,0" CornerRadius="8,8,0,0" BorderThickness="1"
                 BorderBrush="#C06A8BB0">
-            <Border.Effect>
-                <DropShadowEffect Color="#A0000000" BlurRadius="18" ShadowDepth="0" Opacity="0.65"/>
-            </Border.Effect>
             <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                    <GradientStop Color="#55D0E8F8" Offset="0"/>
-                    <GradientStop Color="#4088B0C8" Offset="0.45"/>
-                    <GradientStop Color="#307098B0" Offset="1"/>
+                    <GradientStop Color="#E8B8D4EC" Offset="0"/>
+                    <GradientStop Color="#D07098B8" Offset="0.45"/>
+                    <GradientStop Color="#C0587898" Offset="1"/>
                 </LinearGradientBrush>
             </Border.Background>
             <Border CornerRadius="7,7,0,0" BorderThickness="1" BorderBrush="#90FFFFFF" Margin="1">
@@ -296,12 +268,16 @@
                                      BorderThickness="0"
                                      Background="Transparent"
                                      Padding="0,1,0,0"
+                                     AllowDrop="True"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                      VirtualizingPanel.IsVirtualizing="True"
                                      VirtualizingPanel.VirtualizationMode="Recycling"
                                      ItemContainerStyle="{StaticResource LeftRowStyle}"
                                      KeyDown="OnLeftKeyDown"
                                      MouseRightButtonUp="OnLeftListContext"
+                                     PreviewMouseMove="OnLeftPreviewMouseMove"
+                                     DragOver="OnLeftDragOver"
+                                     Drop="OnLeftDrop"
                                      Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}">
                                 <ListBox.Resources>
                                     <Style TargetType="ScrollBar" BasedOn="{StaticResource AeroScrollBar}"/>
@@ -387,8 +363,8 @@
                                                        RenderOptions.BitmapScalingMode="HighQuality">
                                                     <Image.Style>
                                                         <Style TargetType="Image">
-                                                            <Setter Property="Width" Value="32"/>
-                                                            <Setter Property="Height" Value="32"/>
+                                                            <Setter Property="Width" Value="34"/>
+                                                            <Setter Property="Height" Value="34"/>
                                                             <Style.Triggers>
                                                                 <DataTrigger Binding="{Binding IsTreeRow}" Value="True">
                                                                     <Setter Property="Width" Value="16"/>
@@ -481,11 +457,11 @@
                                           Stretch="Uniform" Margin="10,0,0,0"
                                           HorizontalAlignment="Left" VerticalAlignment="Center"
                                           Visibility="{Binding AllProgramsOpen, Converter={StaticResource BoolToVis}}"/>
-                                    <TextBlock Text="All Programs" FontSize="12" Foreground="#1A1A1A"
+                                    <TextBlock Text="{DynamicResource lang_sm_all_programs}" FontSize="12" Foreground="#1A1A1A"
                                                Margin="40,0,0,0" VerticalAlignment="Center"
                                                HorizontalAlignment="Left"
                                                Visibility="{Binding AllProgramsOpen, Converter={StaticResource InvBoolToVis}}"/>
-                                    <TextBlock Text="Back" FontSize="12" Foreground="#1A1A1A"
+                                    <TextBlock Text="{DynamicResource lang_sm_back}" FontSize="12" Foreground="#1A1A1A"
                                                Margin="40,0,0,0" VerticalAlignment="Center"
                                                HorizontalAlignment="Left"
                                                Visibility="{Binding AllProgramsOpen, Converter={StaticResource BoolToVis}}"/>
@@ -519,14 +495,14 @@
                                                      Padding="6,0,22,0"
                                                      FontSize="12"
                                                      Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
-                                            <!-- Handle points down-RIGHT (Win7). -->
+                                            <!-- Circle left, handle down-RIGHT (Win7 search). -->
                                             <Canvas Width="16" Height="16" HorizontalAlignment="Right"
                                                     VerticalAlignment="Center" Margin="0,0,3,0"
                                                     IsHitTestVisible="False">
-                                                <Ellipse Canvas.Left="1" Canvas.Top="1"
-                                                         Width="9" Height="9"
+                                                <Ellipse Canvas.Left="0.5" Canvas.Top="1.5"
+                                                         Width="8.5" Height="8.5"
                                                          Stroke="#1A73C7" StrokeThickness="1.7"/>
-                                                <Path Data="M8.2,8.2 L14.2,14.2"
+                                                <Path Data="M7.8,8.6 L14.8,14.5"
                                                       Stroke="#1A73C7" StrokeThickness="2"
                                                       StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
                                             </Canvas>
@@ -555,26 +531,7 @@
                                  MouseLeave="OnRightListMouseLeave">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid ToolTipService.InitialShowDelay="400"
-                                          ToolTipService.BetweenShowDelay="0"
-                                          ToolTipService.ShowDuration="60000"
-                                          ToolTipService.Placement="Right"
-                                          ToolTipService.HorizontalOffset="8"
-                                          ToolTipService.IsEnabled="{Binding HasInfotip}">
-                                        <Grid.ToolTip>
-                                            <ToolTip Style="{StaticResource StartInfotipStyle}"
-                                                     Visibility="{Binding Infotip, Converter={StaticResource NonEmptyToVis}}">
-                                                <StackPanel MaxWidth="252">
-                                                    <TextBlock Text="{Binding Name}"
-                                                               FontWeight="SemiBold" FontSize="12"
-                                                               Foreground="#1A1A1A"
-                                                               TextWrapping="Wrap"/>
-                                                    <TextBlock Text="{Binding Infotip}"
-                                                               FontSize="11" Foreground="#3A3A3A"
-                                                               TextWrapping="Wrap" Margin="0,4,0,0"/>
-                                                </StackPanel>
-                                            </ToolTip>
-                                        </Grid.ToolTip>
+                                    <Grid>
                                         <Grid.Style>
                                             <Style TargetType="Grid">
                                                 <Setter Property="Height" Value="35"/>
@@ -651,7 +608,7 @@
                                         </Style.Triggers>
                                     </Style>
                                 </Border.Style>
-                                <TextBlock x:Name="ShutdownLabel" Text="Shut down"
+                                <TextBlock x:Name="ShutdownLabel" Text="{DynamicResource lang_sm_shutdown}"
                                            Foreground="White" FontSize="12"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
@@ -688,9 +645,8 @@
                                         </Style.Triggers>
                                     </Style>
                                 </Border.Style>
-                                <Path Data="M0,0 L8,0 L4,5 Z" Fill="White"
-                                      HorizontalAlignment="Center" VerticalAlignment="Center"
-                                      Margin="0,2,0,0"/>
+                                <Path Data="M0,0 L5,4 L0,8 Z" Fill="White"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                         </StackPanel>
                     </Grid>
@@ -699,8 +655,8 @@
         </Border>
 
         <!-- Photo glass 55x57 at frame x 309, y -25. Window: 10+309=319, y=0. -->
-        <Grid Width="55" Height="57" HorizontalAlignment="Left" VerticalAlignment="Top"
-              Margin="319,0,0,0" Cursor="Hand" MouseLeftButtonUp="OnUserPictureClick">
+        <Grid x:Name="PhotoHost" Width="55" Height="57" HorizontalAlignment="Left" VerticalAlignment="Top"
+              Margin="310,0,0,0" Cursor="Hand" MouseLeftButtonUp="OnUserPictureClick">
             <Border x:Name="PhotoFrame" CornerRadius="2" BorderThickness="2"
                     IsHitTestVisible="False">
                 <Border.BorderBrush>

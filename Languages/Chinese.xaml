@@ -53,4 +53,47 @@
     <s:String x:Key="lang_close_tip">关闭</s:String>
     <!-- v1.21.7: the only managed string of the extra settings section -->
     <s:String x:Key="lang_icon_order_drag_hint">松开以更改顺序</s:String>
+    <!-- Start Menu (1.3.9) -->
+    <s:String x:Key="lang_sm_search">搜索程序和文件</s:String>
+    <s:String x:Key="lang_sm_all_programs">所有程序</s:String>
+    <s:String x:Key="lang_sm_back">返回</s:String>
+    <s:String x:Key="lang_sm_shutdown">关机</s:String>
+    <s:String x:Key="lang_sm_switch_user">切换用户</s:String>
+    <s:String x:Key="lang_sm_logoff">注销</s:String>
+    <s:String x:Key="lang_sm_lock">锁定</s:String>
+    <s:String x:Key="lang_sm_restart">重新启动</s:String>
+    <s:String x:Key="lang_sm_sleep">睡眠</s:String>
+    <s:String x:Key="lang_sm_hibernate">休眠</s:String>
+    <s:String x:Key="lang_sm_pin">锁定到“开始”菜单 (Win7Taskbar)</s:String>
+    <s:String x:Key="lang_sm_unpin">从“开始”菜单解锁 (Win7Taskbar)</s:String>
+    <s:String x:Key="lang_sm_open">打开</s:String>
+    <s:String x:Key="lang_sm_runas">以管理员身份运行</s:String>
+    <s:String x:Key="lang_sm_open_location">打开文件位置</s:String>
+    <s:String x:Key="lang_sm_properties">属性</s:String>
+    <s:String x:Key="lang_sm_delete">删除</s:String>
+    <s:String x:Key="lang_sm_remove_recent">从列表中删除</s:String>
+    <s:String x:Key="lang_sm_sort_name">按名称排序</s:String>
+    <s:String x:Key="lang_sm_open_all_users">打开所有用户</s:String>
+    <s:String x:Key="lang_sm_explore_all_users">浏览所有用户</s:String>
+    <s:String x:Key="lang_sm_explore">浏览</s:String>
+    <s:String x:Key="lang_sm_search_folder">搜索</s:String>
+    <s:String x:Key="lang_sm_documents">文档</s:String>
+    <s:String x:Key="lang_sm_pictures">图片</s:String>
+    <s:String x:Key="lang_sm_music">音乐</s:String>
+    <s:String x:Key="lang_sm_videos">视频</s:String>
+    <s:String x:Key="lang_sm_computer">计算机</s:String>
+    <s:String x:Key="lang_sm_control">控制面板</s:String>
+    <s:String x:Key="lang_sm_devices">设备和打印机</s:String>
+    <s:String x:Key="lang_sm_defaults">默认程序</s:String>
+    <s:String x:Key="lang_sm_help">帮助和支持</s:String>
+    <s:String x:Key="lang_sm_tip_user">打开此帐户的个人文件夹，其中包含文档、图片和其他文件。</s:String>
+    <s:String x:Key="lang_sm_tip_documents">打开文档库，用于存放信件、便笺、电子表格和类似文件。</s:String>
+    <s:String x:Key="lang_sm_tip_pictures">打开图片库，用于存放照片和其他图像。</s:String>
+    <s:String x:Key="lang_sm_tip_music">打开音乐库，用于存放歌曲和其他音频。</s:String>
+    <s:String x:Key="lang_sm_tip_videos">打开视频库，用于存放电影和其他视频文件。</s:String>
+    <s:String x:Key="lang_sm_tip_computer">打开窗口以查看此电脑上的磁盘驱动器、设备和其他硬件。</s:String>
+    <s:String x:Key="lang_sm_tip_control">打开控制面板，可在其中更改设置、添加或删除程序以及管理帐户。</s:String>
+    <s:String x:Key="lang_sm_tip_devices">打开“设备和打印机”，可在其中查看和管理打印机、扫描仪和其他硬件。</s:String>
+    <s:String x:Key="lang_sm_tip_defaults">选择 Windows 用于浏览网页、邮件、照片和媒体的程序。</s:String>
+    <s:String x:Key="lang_sm_tip_help">在浏览器中打开 Microsoft 支持，以获取帮助主题、教程和疑难解答。</s:String>
 </ResourceDictionary>

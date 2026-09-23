@@ -9,6 +9,7 @@
 
 using System;
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -56,10 +57,13 @@ namespace Win7Taskbar.StartMenu
         private readonly NativeBridge _bridge;
         private readonly StartMenuViewModel _vm;
         private readonly StartMenuClickAway _clickAway;
+        private readonly StartMenuWin32Tooltip _infotip = new();
         private bool _suppressDeactivate;
         private bool _glassApplied;
         private DispatcherTimer? _crossfadeTimer;
         private bool _showingUserPhoto = true;
+        private Point _dragOrigin;
+        private bool _dragArmed;
 
         internal StartMenuWindow(NativeBridge bridge)
         {
@@ -197,11 +201,29 @@ namespace Win7Taskbar.StartMenu
                 uint colorization = 0x00A8C8E0;
                 bool opaque = false;
                 DwmGetColorizationColor(out colorization, out opaque);
-                const uint gradientAlpha = 0x2C;
+                /* Win7 Start Menu used the system color but stayed readable.
+                 * 0x2C (~17%) washed the right pane out. 0xB4 (~70%) matches
+                 * AeroStyle::kReadableAlpha-and-then-some. Undocumented
+                 * SetWindowCompositionAttribute — flagged. */
+                const uint gradientAlpha = 0xB4;
                 uint gradientColor = (gradientAlpha << 24) |
                     ((colorization & 0xFFu) << 16) |
                     (colorization & 0xFF00u) |
                     ((colorization >> 16) & 0xFFu);
+
+                byte r = (byte)((colorization >> 16) & 0xFFu);
+                byte g = (byte)((colorization >> 8) & 0xFFu);
+                byte b = (byte)(colorization & 0xFFu);
+                try
+                {
+                    Chrome.Background = new LinearGradientBrush(
+                        Color.FromArgb(0xE0, r, g, b),
+                        Color.FromArgb(0xC8, (byte)(r / 2), (byte)(g / 2), (byte)(b / 2)),
+                        90);
+                }
+                catch (Exception)
+                {
+                }
 
                 var accent = new ACCENT_POLICY
                 {
@@ -342,8 +364,9 @@ namespace Win7Taskbar.StartMenu
                 bool dismiss = false;
                 try
                 {
+                    IntPtr hwnd = new WindowInteropHelper(this).Handle;
                     dismiss = _vm.ShowItemContextMenu(item, (int)Math.Round(pt.X),
-                        (int)Math.Round(pt.Y));
+                        (int)Math.Round(pt.Y), hwnd);
                 }
                 catch (Exception)
                 {
@@ -583,6 +606,136 @@ namespace Win7Taskbar.StartMenu
                 }
             }));
         }
+
+        private void ClipVisibleChrome()
+        {
+            /* DWM blur-behind applies to the whole HWND. The 25 DIP photo
+             * overhang is mostly empty; without a region it frosts desktop
+             * icons above the menu. Clip to chrome + photo glass. */
+            try
+            {
+                IntPtr hwnd = new WindowInteropHelper(this).Handle;
+                if (hwnd == IntPtr.Zero)
+                {
+                    return;
+                }
+                double scale = 1;
+                try
+                {
+                    PresentationSource? src = PresentationSource.FromVisual(this);
+                    if (src?.CompositionTarget != null)
+                    {
+                        scale = src.CompositionTarget.TransformToDevice.M11;
+                    }
+                }
+                catch (Exception)
+                {
+                }
+                int Dip(double v) => (int)Math.Round(v * scale);
+                IntPtr chrome = CreateRectRgn(Dip(10), Dip(25), Dip(10 + 411), Dip(25 + 476));
+                IntPtr photo = CreateRectRgn(Dip(310), Dip(0), Dip(310 + 55), Dip(57));
+                IntPtr combined = CreateRectRgn(0, 0, 0, 0);
+                CombineRgn(combined, chrome, photo, RGN_OR);
+                DeleteObject(chrome);
+                DeleteObject(photo);
+                if (SetWindowRgn(hwnd, combined, true) == 0)
+                {
+                    DeleteObject(combined);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void OnLeftPreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                _dragArmed = false;
+                return;
+            }
+            try
+            {
+                Point now = e.GetPosition(this);
+                if (!_dragArmed)
+                {
+                    _dragOrigin = now;
+                    _dragArmed = true;
+                    return;
+                }
+                Vector delta = now - _dragOrigin;
+                if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                    Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance)
+                {
+                    return;
+                }
+                if (LeftList.SelectedItem is not StartMenuItem item ||
+                    item.IsSeparator || item.IsFolder)
+                {
+                    return;
+                }
+                string path = !string.IsNullOrEmpty(item.Path) ? item.Path : item.Target;
+                if (string.IsNullOrEmpty(path) ||
+                    (!File.Exists(path) && !Directory.Exists(path)))
+                {
+                    return;
+                }
+                _dragArmed = false;
+                DragDrop.DoDragDrop(LeftList, new DataObject(DataFormats.FileDrop, new[] { path }),
+                    DragDropEffects.Copy);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void OnLeftDragOver(object sender, DragEventArgs e)
+        {
+            e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
+                ? DragDropEffects.Copy
+                : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void OnLeftDrop(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            try
+            {
+                if (!e.Data.GetDataPresent(DataFormats.FileDrop) ||
+                    e.Data.GetData(DataFormats.FileDrop) is not string[] files)
+                {
+                    return;
+                }
+                foreach (string file in files)
+                {
+                    if (!string.IsNullOrWhiteSpace(file))
+                    {
+                        StartMenuStore.PinShortcut(file);
+                    }
+                }
+                _vm.ShowDefaultList();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private const int RGN_OR = 2;
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateRectRgn(int x1, int y1, int x2, int y2);
+
+        [DllImport("gdi32.dll")]
+        private static extern int CombineRgn(IntPtr hrgnDest, IntPtr hrgnSrc1, IntPtr hrgnSrc2, int nCombineMode);
+
+        [DllImport("gdi32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool DeleteObject(IntPtr ho);
+
+        [DllImport("user32.dll")]
+        private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, [MarshalAs(UnmanagedType.Bool)] bool bRedraw);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MARGINS

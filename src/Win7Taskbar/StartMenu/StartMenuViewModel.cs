@@ -19,6 +19,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using Win7Taskbar.Interop;
+using Win7Taskbar.Utilities;
 
 namespace Win7Taskbar.StartMenu
 {
@@ -54,7 +55,24 @@ namespace Win7Taskbar.StartMenu
             };
             _filePoll.Tick += OnFilePollTick;
             LoadUser();
+            SearchHint = T("lang_sm_search", "Search programs and files");
             BuildRightLinks();
+        }
+
+        internal static string T(string key, string fallback)
+        {
+            try
+            {
+                string s = LocalizationManager.GetString(key);
+                if (!string.IsNullOrEmpty(s) && s != key)
+                {
+                    return s;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return fallback;
         }
 
         public string UserName
@@ -168,30 +186,103 @@ namespace Win7Taskbar.StartMenu
                 ToggleFolder(item);
                 return;
             }
-            string path = !string.IsNullOrEmpty(item.Path) ? item.Path : item.Target;
+            string path = PickLaunchPath(item);
             if (string.IsNullOrEmpty(path))
             {
                 return;
             }
-            if (_bridge.StartMenuLaunch(path))
+            if (TryLaunch(path))
             {
                 _store.RecordLaunch(path);
             }
-            else
+        }
+
+        private static string PickLaunchPath(StartMenuItem item)
+        {
+            string path = item.Path ?? string.Empty;
+            string target = item.Target ?? string.Empty;
+            try
             {
-                try
+                if (!string.IsNullOrEmpty(path) &&
+                    (File.Exists(path) || Directory.Exists(path) ||
+                     path.StartsWith("shell:", StringComparison.OrdinalIgnoreCase) ||
+                     path.StartsWith("::{", StringComparison.Ordinal) ||
+                     path.StartsWith("http", StringComparison.OrdinalIgnoreCase)))
                 {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = path,
-                        UseShellExecute = true
-                    });
-                    _store.RecordLaunch(path);
+                    return path;
                 }
-                catch (Exception)
+                if (!string.IsNullOrEmpty(target) &&
+                    (File.Exists(target) || Directory.Exists(target) ||
+                     target.StartsWith("shell:", StringComparison.OrdinalIgnoreCase)))
                 {
-                    /* launch failed: leave the menu as-is */
+                    return target;
                 }
+            }
+            catch (Exception)
+            {
+            }
+            return !string.IsNullOrEmpty(path) ? path : target;
+        }
+
+        private bool TryLaunch(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+            path = Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
+            try
+            {
+                if (_bridge.StartMenuLaunch(path))
+                {
+                    return true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                var info = new NativeMethods.SHELLEXECUTEINFO
+                {
+                    cbSize = Marshal.SizeOf<NativeMethods.SHELLEXECUTEINFO>(),
+                    fMask = NativeMethods.SEE_MASK_INVOKEIDLIST,
+                    lpFile = path,
+                    nShow = NativeMethods.SW_SHOWNORMAL
+                };
+                if (NativeMethods.ShellExecuteExW(ref info))
+                {
+                    return true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = path,
+                    UseShellExecute = true
+                });
+                return true;
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = path,
+                    UseShellExecute = true
+                });
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 
@@ -713,36 +804,34 @@ namespace Win7Taskbar.StartMenu
             RightLinks.Clear();
             string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             RightLinks.Add(FolderLink(UserName, "user", profile,
-                "Opens the personal folder for this account, with your documents, pictures, and other files.",
+                T("lang_sm_tip_user", "Opens the personal folder for this account, with your documents, pictures, and other files."),
                 isPrimary: true));
-            RightLinks.Add(FolderLink("Documents", "documents",
+            RightLinks.Add(FolderLink(T("lang_sm_documents", "Documents"), "documents",
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                "Opens the Documents library, where you keep letters, notes, spreadsheets, and similar files."));
-            RightLinks.Add(FolderLink("Pictures", "pictures",
+                T("lang_sm_tip_documents", "Opens the Documents library, where you keep letters, notes, spreadsheets, and similar files.")));
+            RightLinks.Add(FolderLink(T("lang_sm_pictures", "Pictures"), "pictures",
                 Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
-                "Opens the Pictures library, where you keep photos and other images."));
-            RightLinks.Add(FolderLink("Music", "music",
+                T("lang_sm_tip_pictures", "Opens the Pictures library, where you keep photos and other images.")));
+            RightLinks.Add(FolderLink(T("lang_sm_music", "Music"), "music",
                 Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
-                "Opens the Music library, where you keep songs and other audio."));
+                T("lang_sm_tip_music", "Opens the Music library, where you keep songs and other audio.")));
             RightLinks.Add(new StartMenuItem { IsSeparator = true });
-            /* FOLDERID_Games / shell:Games is dead on Windows 10/11.
-             * Videos is a real user library that still opens. */
-            RightLinks.Add(FolderLink("Videos", "videos",
+            RightLinks.Add(FolderLink(T("lang_sm_videos", "Videos"), "videos",
                 Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
-                "Opens the Videos library, where you keep movies and other video files."));
-            RightLinks.Add(FolderLink("Computer", "computer",
+                T("lang_sm_tip_videos", "Opens the Videos library, where you keep movies and other video files.")));
+            RightLinks.Add(FolderLink(T("lang_sm_computer", "Computer"), "computer",
                 "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
-                "Opens a window for the disk drives, devices, and other hardware attached to this PC."));
+                T("lang_sm_tip_computer", "Opens a window for the disk drives, devices, and other hardware attached to this PC.")));
             RightLinks.Add(new StartMenuItem { IsSeparator = true });
-            RightLinks.Add(FolderLink("Control Panel", "control",
+            RightLinks.Add(FolderLink(T("lang_sm_control", "Control Panel"), "control",
                 "::{26EE0668-A00A-44D7-9371-BEB064C98683}",
-                "Opens Control Panel, where you change settings, add or remove programs, and manage accounts."));
-            RightLinks.Add(FolderLink("Devices and Printers", "devices",
+                T("lang_sm_tip_control", "Opens Control Panel, where you change settings, add or remove programs, and manage accounts.")));
+            RightLinks.Add(FolderLink(T("lang_sm_devices", "Devices and Printers"), "devices",
                 "shell:::{A8A91A66-3A7D-4424-8D24-04E180695C7A}",
-                "Opens Devices and Printers, where you view and manage printers, scanners, and other hardware."));
-            RightLinks.Add(FolderLink("Default Programs", "defaults",
+                T("lang_sm_tip_devices", "Opens Devices and Printers, where you view and manage printers, scanners, and other hardware.")));
+            RightLinks.Add(FolderLink(T("lang_sm_defaults", "Default Programs"), "defaults",
                 @"::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{17CD9488-1228-4B2F-88CE-4298E93E0966}",
-                "Choose which program Windows uses for web browsing, mail, photos, and media."));
+                T("lang_sm_tip_defaults", "Choose which program Windows uses for web browsing, mail, photos, and media.")));
             RightLinks.Add(HelpLink());
         }
 
@@ -765,11 +854,11 @@ namespace Win7Taskbar.StartMenu
         {
             return new StartMenuItem
             {
-                Name = "Help and Support",
+                Name = T("lang_sm_help", "Help and Support"),
                 Folder = "help",
                 Path = "https://support.microsoft.com",
                 IsRightPane = true,
-                Infotip = "Opens Microsoft support in your browser for help topics, tutorials, and troubleshooting.",
+                Infotip = T("lang_sm_tip_help", "Opens Microsoft support in your browser for help topics, tutorials, and troubleshooting."),
                 Icon = IconFromDll("imageres.dll", 99)
                     ?? IconFromParsingName(@"%SystemRoot%\Help")
             };
@@ -829,6 +918,10 @@ namespace Win7Taskbar.StartMenu
         /// Looked-up Open-Shell verbs; no Open-Shell source copied.
         /// </summary>
         public bool ShowItemContextMenu(StartMenuItem item, int screenX, int screenY)
+            => ShowItemContextMenu(item, screenX, screenY, IntPtr.Zero);
+
+        public bool ShowItemContextMenu(StartMenuItem item, int screenX, int screenY,
+            IntPtr owner)
         {
             if (item == null || item.IsSeparator)
             {
@@ -848,43 +941,72 @@ namespace Win7Taskbar.StartMenu
             }
 
             string path = FirstExisting(item.Path, item.Target);
+            string pinLabel = T("lang_sm_pin", "Pin to Start Menu (Win7Taskbar)");
+            string unpinLabel = T("lang_sm_unpin", "Unpin from Start Menu (Win7Taskbar)");
+            bool pinned = item.IsPinned || StartMenuStore.IsStartMenuPinned(path);
             if (!string.IsNullOrEmpty(path) &&
-                (File.Exists(path) || Directory.Exists(path)) &&
-                ShellContextMenu.TryShow(path, screenX, screenY))
+                (File.Exists(path) || Directory.Exists(path)))
             {
-                return true;
+                uint extra = 0;
+                if (ShellContextMenu.TryShow(path, screenX, screenY, owner,
+                        pinned ? null : pinLabel,
+                        pinned ? unpinLabel : null,
+                        out extra))
+                {
+                    if (extra == ShellContextMenu.ExtraPinCommand)
+                    {
+                        StartMenuStore.PinShortcut(path);
+                        RebuildLeft();
+                        return false;
+                    }
+                    if (extra == ShellContextMenu.ExtraUnpinCommand)
+                    {
+                        StartMenuStore.UnpinShortcut(path);
+                        RebuildLeft();
+                        return false;
+                    }
+                    return true;
+                }
             }
 
-            bool pinned = item.IsPinned || StartMenuStore.IsStartMenuPinned(path);
             bool recent = item.IsRecent && !pinned;
             bool allPrograms = AllProgramsOpen && !pinned && !recent;
             bool underStart = IsUnderStartMenu(path);
 
-            var lines = new List<string> { "Open", "Run as administrator" };
+            string open = T("lang_sm_open", "Open");
+            string runas = T("lang_sm_runas", "Run as administrator");
+            string loc = T("lang_sm_open_location", "Open file location");
+            string props = T("lang_sm_properties", "Properties");
+            string del = T("lang_sm_delete", "Delete");
+            string remove = T("lang_sm_remove_recent", "Remove from this list");
+            string pinTb = T("lang_menu_pin", "Pin this program to taskbar");
+            string unpinTb = T("lang_menu_unpin", "Unpin this program from taskbar");
+
+            var lines = new List<string> { open, runas };
             if (pinned)
             {
-                lines.Add("Unpin from Start Menu");
+                lines.Add(unpinLabel);
                 lines.Add(TaskbarPinLabel(path));
-                lines.Add("Open file location");
-                lines.Add("Properties");
+                lines.Add(loc);
+                lines.Add(props);
             }
             else if (recent)
             {
-                lines.Add("Pin to Start Menu");
-                lines.Add("Pin to Taskbar");
-                lines.Add("Remove from this list");
-                lines.Add("Open file location");
-                lines.Add("Properties");
+                lines.Add(pinLabel);
+                lines.Add(pinTb);
+                lines.Add(remove);
+                lines.Add(loc);
+                lines.Add(props);
             }
             else
             {
-                lines.Add("Pin to Start Menu");
-                lines.Add("Open file location");
+                lines.Add(pinLabel);
+                lines.Add(loc);
                 if (allPrograms && underStart)
                 {
-                    lines.Add("Delete");
+                    lines.Add(del);
                 }
-                lines.Add("Properties");
+                lines.Add(props);
             }
 
             int choice = PopupAtCursor(screenX, screenY, string.Join("\n", lines));
@@ -894,48 +1016,63 @@ namespace Win7Taskbar.StartMenu
             }
 
             string verb = lines[choice - 1];
-            switch (verb)
+            if (verb == open)
             {
-                case "Open":
-                    Launch(item);
-                    return true;
-                case "Run as administrator":
-                    ShellVerb(path, "runas");
-                    return true;
-                case "Unpin from Start Menu":
-                    StartMenuStore.UnpinShortcut(path);
-                    RebuildLeft();
-                    return false;
-                case "Pin to Start Menu":
-                    StartMenuStore.PinShortcut(path);
-                    RebuildLeft();
-                    return false;
-                case "Pin to Taskbar":
-                case "Unpin from Taskbar":
-                    ToggleTaskbarPin(path, pin: verb.StartsWith("Pin", StringComparison.Ordinal));
-                    return false;
-                case "Remove from this list":
-                    _store.RemoveRecent(path);
-                    RebuildLeft();
-                    return false;
-                case "Open file location":
-                    OpenFileLocation(path);
-                    return true;
-                case "Delete":
-                    TryDeleteShortcut(path);
-                    RefreshCatalog();
-                    return false;
-                case "Properties":
-                    ShellVerb(path, "properties");
-                    return true;
-                default:
-                    return false;
+                Launch(item);
+                return true;
             }
+            if (verb == runas)
+            {
+                ShellVerb(path, "runas");
+                return true;
+            }
+            if (verb == unpinLabel)
+            {
+                StartMenuStore.UnpinShortcut(path);
+                RebuildLeft();
+                return false;
+            }
+            if (verb == pinLabel)
+            {
+                StartMenuStore.PinShortcut(path);
+                RebuildLeft();
+                return false;
+            }
+            if (verb == pinTb || verb == unpinTb ||
+                verb == TaskbarPinLabel(path))
+            {
+                ToggleTaskbarPin(path, pin: verb == pinTb);
+                return false;
+            }
+            if (verb == remove)
+            {
+                _store.RemoveRecent(path);
+                RebuildLeft();
+                return false;
+            }
+            if (verb == loc)
+            {
+                OpenFileLocation(path);
+                return true;
+            }
+            if (verb == del)
+            {
+                TryDeleteShortcut(path);
+                RefreshCatalog();
+                return false;
+            }
+            if (verb == props)
+            {
+                ShellVerb(path, "properties");
+                return true;
+            }
+            return false;
         }
 
         public void ShowEmptyLeftContextMenu(int screenX, int screenY)
         {
-            const string items = "Sort by Name\nProperties";
+            string items = T("lang_sm_sort_name", "Sort by Name") + "\n" +
+                T("lang_sm_properties", "Properties");
             int choice = PopupAtCursor(screenX, screenY, items);
             if (choice == 1)
             {
@@ -950,8 +1087,11 @@ namespace Win7Taskbar.StartMenu
 
         private bool ShowAllProgramsFooterMenu(int screenX, int screenY)
         {
-            const string items =
-                "Open All Users\nExplore All Users\nSort by Name\nProperties";
+            string items =
+                T("lang_sm_open_all_users", "Open All Users") + "\n" +
+                T("lang_sm_explore_all_users", "Explore All Users") + "\n" +
+                T("lang_sm_sort_name", "Sort by Name") + "\n" +
+                T("lang_sm_properties", "Properties");
             int choice = PopupAtCursor(screenX, screenY, items);
             string common = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu);
             switch (choice)
@@ -974,7 +1114,9 @@ namespace Win7Taskbar.StartMenu
         private bool ShowRightPaneMenu(StartMenuItem item, int screenX, int screenY)
         {
             bool computer = string.Equals(item.Folder, "computer", StringComparison.Ordinal);
-            string items = computer ? "Open\nProperties" : "Open";
+            string items = computer
+                ? T("lang_sm_open", "Open") + "\n" + T("lang_sm_properties", "Properties")
+                : T("lang_sm_open", "Open");
             int choice = PopupAtCursor(screenX, screenY, items);
             if (choice == 1)
             {
@@ -1037,7 +1179,10 @@ namespace Win7Taskbar.StartMenu
             {
                 return true;
             }
-            const string items = "Open\nExplore\nSearch\nProperties";
+            string items = T("lang_sm_open", "Open") + "\n" +
+                T("lang_sm_explore", "Explore") + "\n" +
+                T("lang_sm_search_folder", "Search") + "\n" +
+                T("lang_sm_properties", "Properties");
             int choice = PopupAtCursor(screenX, screenY, items);
             string path = item.Path;
             switch (choice)
@@ -1127,8 +1272,8 @@ namespace Win7Taskbar.StartMenu
         private static string TaskbarPinLabel(string path)
         {
             return StartMenuStore.IsTaskbarPinned(path)
-                ? "Unpin from Taskbar"
-                : "Pin to Taskbar";
+                ? T("lang_menu_unpin", "Unpin this program from taskbar")
+                : T("lang_menu_pin", "Pin this program to taskbar");
         }
 
         private void ToggleTaskbarPin(string path, bool pin)

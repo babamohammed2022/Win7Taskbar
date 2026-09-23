@@ -254,15 +254,74 @@ extern "C" W7T_API int32_t W7T_CALL W7T_StartMenuPower(int32_t action) {
     return result;
 }
 
+namespace {
+
+bool ShellExec(const wchar_t* file, const wchar_t* parameters, DWORD extraMask) {
+    SHELLEXECUTEINFOW info{};
+    info.cbSize = sizeof(info);
+    info.fMask = SEE_MASK_FLAG_DDEWAIT | SEE_MASK_NOASYNC | extraMask;
+    info.lpVerb = nullptr;
+    info.lpFile = file;
+    info.lpParameters = parameters;
+    info.nShow = SW_SHOWNORMAL;
+    if (ShellExecuteExW(&info)) {
+        if (info.hProcess != nullptr) {
+            CloseHandle(info.hProcess);
+        }
+        return true;
+    }
+    info.lpVerb = L"open";
+    if (ShellExecuteExW(&info)) {
+        if (info.hProcess != nullptr) {
+            CloseHandle(info.hProcess);
+        }
+        return true;
+    }
+    return false;
+}
+
+bool LaunchPath(const wchar_t* path) {
+    if (path == nullptr || path[0] == L'\0') {
+        return false;
+    }
+    try {
+        if (ShellExec(path, nullptr, SEE_MASK_DOENVSUBST | SEE_MASK_INVOKEIDLIST)) {
+            return true;
+        }
+        if (ShellExec(path, nullptr, SEE_MASK_DOENVSUBST)) {
+            return true;
+        }
+        /* Documented explorer.exe parsing names: shell:, ::{CLSID}, AppsFolder. */
+        if (_wcsnicmp(path, L"shell:", 6) == 0 ||
+            wcsncmp(path, L"::{", 3) == 0 ||
+            wcsstr(path, L"AppsFolder") != nullptr) {
+            if (ShellExec(L"explorer.exe", path, 0)) {
+                return true;
+            }
+        }
+        std::wstring quoted = L"\"";
+        quoted += path;
+        quoted += L"\"";
+        if (ShellExec(L"explorer.exe", quoted.c_str(), 0)) {
+            return true;
+        }
+        HINSTANCE r = ShellExecuteW(nullptr, L"open", path, nullptr, nullptr,
+                                    SW_SHOWNORMAL);
+        return reinterpret_cast<intptr_t>(r) > 32;
+    } catch (...) {
+        return false;
+    }
+}
+
+} /* namespace */
+
 extern "C" W7T_API int32_t W7T_CALL W7T_StartMenuLaunch(const wchar_t* path) {
     if (path == nullptr || path[0] == L'\0') {
         return W7T_ERR_INVALID_ARG;
     }
     int32_t result = W7T_ERR_NOT_FOUND;
     W7T_SEH_TRY {
-        HINSTANCE r = ShellExecuteW(nullptr, L"open", path, nullptr, nullptr,
-                                    SW_SHOWNORMAL);
-        result = (reinterpret_cast<intptr_t>(r) > 32) ? W7T_OK : W7T_ERR_NOT_FOUND;
+        result = LaunchPath(path) ? W7T_OK : W7T_ERR_NOT_FOUND;
     } W7T_SEH_CATCH {
         result = W7T_ERR_NOT_FOUND;
     } W7T_SEH_END

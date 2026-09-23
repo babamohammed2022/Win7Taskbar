@@ -53,4 +53,47 @@
     <s:String x:Key="lang_close_tip">Fechar</s:String>
     <!-- v1.21.7: the only managed string of the extra settings section -->
     <s:String x:Key="lang_icon_order_drag_hint">Solte para alterar a ordem</s:String>
+    <!-- Start Menu (1.3.9) -->
+    <s:String x:Key="lang_sm_search">Pesquisar programas e arquivos</s:String>
+    <s:String x:Key="lang_sm_all_programs">Todos os programas</s:String>
+    <s:String x:Key="lang_sm_back">Voltar</s:String>
+    <s:String x:Key="lang_sm_shutdown">Desligar</s:String>
+    <s:String x:Key="lang_sm_switch_user">Trocar de usuário</s:String>
+    <s:String x:Key="lang_sm_logoff">Fazer logoff</s:String>
+    <s:String x:Key="lang_sm_lock">Bloquear</s:String>
+    <s:String x:Key="lang_sm_restart">Reiniciar</s:String>
+    <s:String x:Key="lang_sm_sleep">Suspender</s:String>
+    <s:String x:Key="lang_sm_hibernate">Hibernar</s:String>
+    <s:String x:Key="lang_sm_pin">Fixar no Menu Iniciar (Win7Taskbar)</s:String>
+    <s:String x:Key="lang_sm_unpin">Desafixar do Menu Iniciar (Win7Taskbar)</s:String>
+    <s:String x:Key="lang_sm_open">Abrir</s:String>
+    <s:String x:Key="lang_sm_runas">Executar como administrador</s:String>
+    <s:String x:Key="lang_sm_open_location">Abrir local do arquivo</s:String>
+    <s:String x:Key="lang_sm_properties">Propriedades</s:String>
+    <s:String x:Key="lang_sm_delete">Excluir</s:String>
+    <s:String x:Key="lang_sm_remove_recent">Remover desta lista</s:String>
+    <s:String x:Key="lang_sm_sort_name">Classificar por nome</s:String>
+    <s:String x:Key="lang_sm_open_all_users">Abrir Todos os usuários</s:String>
+    <s:String x:Key="lang_sm_explore_all_users">Explorar Todos os usuários</s:String>
+    <s:String x:Key="lang_sm_explore">Explorar</s:String>
+    <s:String x:Key="lang_sm_search_folder">Pesquisar</s:String>
+    <s:String x:Key="lang_sm_documents">Documentos</s:String>
+    <s:String x:Key="lang_sm_pictures">Imagens</s:String>
+    <s:String x:Key="lang_sm_music">Música</s:String>
+    <s:String x:Key="lang_sm_videos">Vídeos</s:String>
+    <s:String x:Key="lang_sm_computer">Computador</s:String>
+    <s:String x:Key="lang_sm_control">Painel de Controle</s:String>
+    <s:String x:Key="lang_sm_devices">Dispositivos e Impressoras</s:String>
+    <s:String x:Key="lang_sm_defaults">Programas Padrão</s:String>
+    <s:String x:Key="lang_sm_help">Ajuda e Suporte</s:String>
+    <s:String x:Key="lang_sm_tip_user">Abre a pasta pessoal desta conta, com documentos, imagens e outros arquivos.</s:String>
+    <s:String x:Key="lang_sm_tip_documents">Abre a biblioteca Documentos, onde você guarda cartas, notas, planilhas e arquivos semelhantes.</s:String>
+    <s:String x:Key="lang_sm_tip_pictures">Abre a biblioteca Imagens, onde você guarda fotos e outras imagens.</s:String>
+    <s:String x:Key="lang_sm_tip_music">Abre a biblioteca Música, onde você guarda músicas e outros arquivos de áudio.</s:String>
+    <s:String x:Key="lang_sm_tip_videos">Abre a biblioteca Vídeos, onde você guarda filmes e outros arquivos de vídeo.</s:String>
+    <s:String x:Key="lang_sm_tip_computer">Abre uma janela para as unidades de disco, dispositivos e outro hardware deste PC.</s:String>
+    <s:String x:Key="lang_sm_tip_control">Abre o Painel de Controle, onde você altera configurações, adiciona ou remove programas e gerencia contas.</s:String>
+    <s:String x:Key="lang_sm_tip_devices">Abre Dispositivos e Impressoras, onde você vê e gerencia impressoras, scanners e outro hardware.</s:String>
+    <s:String x:Key="lang_sm_tip_defaults">Escolha qual programa o Windows usa para a Web, e-mail, fotos e mídia.</s:String>
+    <s:String x:Key="lang_sm_tip_help">Abre o suporte da Microsoft no navegador para tópicos de ajuda, tutoriais e solução de problemas.</s:String>
 </ResourceDictionary>
