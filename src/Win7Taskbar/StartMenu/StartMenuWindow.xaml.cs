@@ -57,6 +57,15 @@ namespace Win7Taskbar.StartMenu
             _vm = new StartMenuViewModel(bridge, Dispatcher);
             DataContext = _vm;
             Visibility = Visibility.Hidden;
+            _clickAway = new StartMenuClickAway(Dispatcher,
+                () => new WindowInteropHelper(this).Handle,
+                () =>
+                {
+                    if (!_suppressDeactivate)
+                    {
+                        Dismiss();
+                    }
+                });
         }
 
         internal bool IsMenuVisible => IsVisible && Visibility == Visibility.Visible;
@@ -530,28 +539,34 @@ namespace Win7Taskbar.StartMenu
             {
                 origin = ShutdownArrow.PointToScreen(Mouse.GetPosition(ShutdownArrow));
             }
-            catch (InvalidOperationException)
+            catch (Exception)
             {
-                origin = ShutdownArrow.PointToScreen(new Point(0, 0));
+                origin = new Point(Left + Width - 40, Top + Height - 40);
             }
-            _suppressDeactivate = true;
-            int choice = 0;
-            try
-            {
-                choice = _vm.ShowPowerMenu(
-                    (int)Math.Round(origin.X),
-                    (int)Math.Round(origin.Y));
-            }
-            finally
-            {
-                _suppressDeactivate = false;
-            }
-            if (choice > 0)
-            {
-                _vm.ApplyPowerChoice(choice);
-            }
-            Dismiss();
             e.Handled = true;
+            _suppressDeactivate = true;
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
+            {
+                int choice = 0;
+                try
+                {
+                    choice = _vm.ShowPowerMenu(
+                        (int)Math.Round(origin.X),
+                        (int)Math.Round(origin.Y));
+                }
+                catch (Exception)
+                {
+                }
+                finally
+                {
+                    _suppressDeactivate = false;
+                }
+                if (choice > 0)
+                {
+                    try { _vm.ApplyPowerChoice(choice); } catch (Exception) { }
+                    Dismiss();
+                }
+            }));
         }
 
         [StructLayout(LayoutKind.Sequential)]
