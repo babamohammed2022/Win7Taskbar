@@ -35,6 +35,9 @@ namespace Win7Taskbar.StartMenu
         private string _searchHint = "Search programs and files";
         private ImageSource? _hoveredLinkIcon;
         private readonly DispatcherTimer _filePoll;
+        private readonly HashSet<string> _expandedFolders =
+            new(StringComparer.OrdinalIgnoreCase);
+        private ImageSource? _folderIcon;
 
         public ObservableCollection<StartMenuItem> LeftItems { get; } = new();
         public ObservableCollection<StartMenuItem> SearchHits { get; } = new();
@@ -129,6 +132,23 @@ namespace Win7Taskbar.StartMenu
         public void ToggleAllPrograms()
         {
             AllProgramsOpen = !AllProgramsOpen;
+            if (!AllProgramsOpen)
+            {
+                _expandedFolders.Clear();
+            }
+            RebuildLeft();
+        }
+
+        public void ToggleFolder(StartMenuItem item)
+        {
+            if (item == null || !item.IsFolder || string.IsNullOrEmpty(item.Folder))
+            {
+                return;
+            }
+            if (!_expandedFolders.Add(item.Folder))
+            {
+                _expandedFolders.Remove(item.Folder);
+            }
             RebuildLeft();
         }
 
@@ -141,6 +161,11 @@ namespace Win7Taskbar.StartMenu
             if (item.IsAllPrograms)
             {
                 ToggleAllPrograms();
+                return;
+            }
+            if (item.IsFolder)
+            {
+                ToggleFolder(item);
                 return;
             }
             string path = !string.IsNullOrEmpty(item.Path) ? item.Path : item.Target;
@@ -268,10 +293,7 @@ namespace Win7Taskbar.StartMenu
             LeftItems.Clear();
             if (AllProgramsOpen)
             {
-                foreach (NativeMethods.W7TStartMenuEntry entry in _catalog)
-                {
-                    LeftItems.Add(FromEntry(entry));
-                }
+                AppendProgramsLevel(string.Empty, 0);
                 return;
             }
 
@@ -327,17 +349,154 @@ namespace Win7Taskbar.StartMenu
             };
         }
 
-        private StartMenuItem FromEntry(NativeMethods.W7TStartMenuEntry e)
+        private StartMenuItem FromEntry(NativeMethods.W7TStartMenuEntry e, int indent = 0)
         {
             var item = new StartMenuItem
             {
                 Name = e.Name ?? string.Empty,
                 Path = e.Path ?? string.Empty,
                 Target = e.Target ?? string.Empty,
-                Folder = e.Folder ?? string.Empty
+                Folder = e.Folder ?? string.Empty,
+                IndentLevel = indent
             };
             item.Icon = LoadIcon(item.Path, item.Target);
             return item;
+        }
+
+        /// <summary>
+        /// Win7 / Open-Shell All Programs tree: merged Programs folders
+        /// first, then shortcuts at this level. Folder click expands in
+        /// place; the catalog Folder field is a relative Programs path.
+        /// Written from scratch (layout looked up, source not copied).
+        /// </summary>
+        private void AppendProgramsLevel(string parentRelative, int indent)
+        {
+            var folders = new SortedDictionary<string, string>(
+                StringComparer.CurrentCultureIgnoreCase);
+            var files = new List<NativeMethods.W7TStartMenuEntry>();
+            string prefix = string.IsNullOrEmpty(parentRelative)
+                ? string.Empty
+                : parentRelative + "\\";
+
+            foreach (NativeMethods.W7TStartMenuEntry e in _catalog)
+            {
+                string folder = e.Folder ?? string.Empty;
+                if (string.IsNullOrEmpty(parentRelative))
+                {
+                    if (string.IsNullOrEmpty(folder))
+                    {
+                        files.Add(e);
+                    }
+                    else
+                    {
+                        int slash = folder.IndexOf('\\');
+                        string first = slash < 0 ? folder : folder.Substring(0, slash);
+                        if (!string.IsNullOrEmpty(first) && !folders.ContainsKey(first))
+                        {
+                            folders[first] = first;
+                        }
+                    }
+                }
+                else if (string.Equals(folder, parentRelative, StringComparison.OrdinalIgnoreCase))
+                {
+                    files.Add(e);
+                }
+                else if (folder.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    string rest = folder.Substring(prefix.Length);
+                    int slash = rest.IndexOf('\\');
+                    string first = slash < 0 ? rest : rest.Substring(0, slash);
+                    if (string.IsNullOrEmpty(first))
+                    {
+                        continue;
+                    }
+                    string full = parentRelative + "\\" + first;
+                    if (!folders.ContainsKey(first))
+                    {
+                        folders[first] = full;
+                    }
+                }
+            }
+
+            foreach (KeyValuePair<string, string> kv in folders)
+            {
+                bool expanded = _expandedFolders.Contains(kv.Value);
+                LeftItems.Add(MakeFolderItem(kv.Key, kv.Value, indent, expanded));
+                if (expanded)
+                {
+                    AppendProgramsLevel(kv.Value, indent + 1);
+                }
+            }
+
+            files.Sort((a, b) => string.Compare(a.Name, b.Name,
+                StringComparison.CurrentCultureIgnoreCase));
+            foreach (NativeMethods.W7TStartMenuEntry e in files)
+            {
+                LeftItems.Add(FromEntry(e, indent));
+            }
+        }
+
+        private StartMenuItem MakeFolderItem(string name, string relative, int indent,
+            bool expanded)
+        {
+            string fs = ProgramsFolderPath(relative);
+            return new StartMenuItem
+            {
+                Name = name,
+                Folder = relative,
+                Path = fs,
+                Target = fs,
+                IsFolder = true,
+                IsExpanded = expanded,
+                IndentLevel = indent,
+                Icon = FolderIcon(fs)
+            };
+        }
+
+        private static string ProgramsFolderPath(string relative)
+        {
+            foreach (Environment.SpecialFolder id in new[]
+            {
+                Environment.SpecialFolder.Programs,
+                Environment.SpecialFolder.CommonPrograms
+            })
+            {
+                try
+                {
+                    string root = Environment.GetFolderPath(id);
+                    if (string.IsNullOrEmpty(root))
+                    {
+                        continue;
+                    }
+                    string full = string.IsNullOrEmpty(relative)
+                        ? root
+                        : Path.Combine(root, relative);
+                    if (Directory.Exists(full))
+                    {
+                        return full;
+                    }
+                }
+                catch (Exception)
+                {
+                }
+            }
+            return relative ?? string.Empty;
+        }
+
+        private ImageSource? FolderIcon(string path)
+        {
+            ImageSource? icon = LoadIcon(path, path);
+            if (icon != null)
+            {
+                return icon;
+            }
+            if (_folderIcon != null)
+            {
+                return _folderIcon;
+            }
+            _folderIcon = IconFromDll("imageres.dll", 3)
+                ?? IconFromDll("shell32.dll", 3);
+            return _folderIcon;
         }
 
         private void RunSearch()
@@ -550,6 +709,7 @@ namespace Win7Taskbar.StartMenu
                 Folder = folder,
                 Path = iconPath ?? string.Empty,
                 IsPrimary = isPrimary,
+                IsRightPane = true,
                 Icon = IconFromParsingName(iconPath)
             };
         }
@@ -561,6 +721,7 @@ namespace Win7Taskbar.StartMenu
                 Name = "Help and Support",
                 Folder = "help",
                 Path = Environment.ExpandEnvironmentVariables(@"%SystemRoot%\Help"),
+                IsRightPane = true,
                 Icon = IconFromDll("imageres.dll", 99)
                     ?? IconFromParsingName(@"%SystemRoot%\Help")
             };
@@ -620,13 +781,17 @@ namespace Win7Taskbar.StartMenu
             {
                 return ShowAllProgramsFooterMenu(screenX, screenY);
             }
-            if (!string.IsNullOrEmpty(item.Folder))
+            if (item.IsFolder)
+            {
+                return ShowProgramsFolderMenu(item, screenX, screenY);
+            }
+            if (item.IsRightPane)
             {
                 return ShowRightPaneMenu(item, screenX, screenY);
             }
 
             string path = FirstExisting(item.Path, item.Target);
-            bool pinned = item.IsPinned || IsInExplorerPinFolder(path);
+            bool pinned = item.IsPinned || StartMenuStore.IsStartMenuPinned(path);
             bool recent = item.IsRecent && !pinned;
             bool allPrograms = AllProgramsOpen && !pinned && !recent;
             bool underStart = IsUnderStartMenu(path);
@@ -757,35 +922,13 @@ namespace Win7Taskbar.StartMenu
                     OpenRightLink(item);
                     return true;
                 case 2:
-                    if (!string.IsNullOrEmpty(path))
-                    {
-                        if (path.StartsWith("::", StringComparison.Ordinal))
-                        {
-                            StartProcess("explorer.exe", "shell:" + path);
-                        }
-                        else
-                        {
-                            StartProcess(path, null);
-                        }
-                    }
+                    OpenParsingName(path);
                     return true;
                 case 3:
-                    if (!string.IsNullOrEmpty(path) &&
-                        !path.StartsWith("::", StringComparison.Ordinal))
-                    {
-                        StartProcess("explorer.exe",
-                            "search-ms:displayname=Search&crumb=location:" + path);
-                    }
-                    else
-                    {
-                        OpenRightLink(item);
-                    }
+                    OpenSearchIn(path);
                     return true;
                 case 4:
-                    if (!string.IsNullOrEmpty(path))
-                    {
-                        ShellVerb(path, "properties");
-                    }
+                    ShellProperties(path);
                     return true;
                 default:
                     return false;
@@ -818,20 +961,72 @@ namespace Win7Taskbar.StartMenu
             return a ?? string.Empty;
         }
 
-        private static bool IsInExplorerPinFolder(string path)
+        private bool ShowProgramsFolderMenu(StartMenuItem item, int screenX, int screenY)
+        {
+            const string items = "Open\nExplore\nSearch\nProperties";
+            int choice = _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
+                items, anchorAtCursor: true);
+            string path = item.Path;
+            switch (choice)
+            {
+                case 1:
+                    ToggleFolder(item);
+                    return false;
+                case 2:
+                    OpenParsingName(path);
+                    return true;
+                case 3:
+                    OpenSearchIn(path);
+                    return true;
+                case 4:
+                    ShellProperties(path);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static void OpenParsingName(string path)
         {
             if (string.IsNullOrEmpty(path))
             {
-                return false;
+                return;
             }
-            try
+            if (path.StartsWith("::", StringComparison.Ordinal))
             {
-                string folder = StartMenuStore.ExplorerPinFolder();
-                return path.StartsWith(folder, StringComparison.OrdinalIgnoreCase);
+                StartProcess("explorer.exe", "shell:" + path);
             }
-            catch (Exception)
+            else
             {
-                return false;
+                StartProcess(path, null);
+            }
+        }
+
+        private static void OpenSearchIn(string path)
+        {
+            if (string.IsNullOrEmpty(path) ||
+                path.StartsWith("::", StringComparison.Ordinal))
+            {
+                StartProcess("explorer.exe", "search-ms:");
+                return;
+            }
+            StartProcess("explorer.exe",
+                "search-ms:displayname=Search&crumb=location:" + path);
+        }
+
+        private static void ShellProperties(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return;
+            }
+            if (path.StartsWith("::", StringComparison.Ordinal))
+            {
+                ShellVerb("shell:" + path, "properties");
+            }
+            else
+            {
+                ShellVerb(path, "properties");
             }
         }
 
@@ -856,58 +1051,27 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        private string TaskbarPinLabel(string path)
+        private static string TaskbarPinLabel(string path)
         {
-            string exe = ResolveExe(path);
-            if (string.IsNullOrEmpty(exe))
-            {
-                return "Pin to Taskbar";
-            }
-            try
-            {
-                foreach (NativeMethods.W7TPinnedInfo pin in _bridge.GetPinnedApps())
-                {
-                    if (!string.IsNullOrEmpty(pin.Target) &&
-                        string.Equals(pin.Target, exe, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return "Unpin from Taskbar";
-                    }
-                }
-            }
-            catch (Exception)
-            {
-            }
-            return "Pin to Taskbar";
+            return StartMenuStore.IsTaskbarPinned(path)
+                ? "Unpin from Taskbar"
+                : "Pin to Taskbar";
         }
 
-        private void ToggleTaskbarPin(string path, bool pin)
-        {
-            string exe = ResolveExe(path);
-            if (string.IsNullOrEmpty(exe))
-            {
-                return;
-            }
-            try
-            {
-                string name = Path.GetFileNameWithoutExtension(exe);
-                _bridge.ToggleTaskbarPin(exe, name, pin ? 1 : 0);
-            }
-            catch (Exception)
-            {
-            }
-        }
-
-        private static string ResolveExe(string path)
+        private static void ToggleTaskbarPin(string path, bool pin)
         {
             if (string.IsNullOrEmpty(path))
             {
-                return string.Empty;
+                return;
             }
-            if (path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(path))
+            if (pin)
             {
-                return path;
+                StartMenuStore.PinTaskbar(path);
             }
-            return path;
+            else
+            {
+                StartMenuStore.UnpinTaskbar(path);
+            }
         }
 
         private static void OpenFileLocation(string path)
@@ -918,6 +1082,11 @@ namespace Win7Taskbar.StartMenu
             }
             try
             {
+                if (path.StartsWith("::", StringComparison.Ordinal))
+                {
+                    StartProcess("explorer.exe", "shell:" + path);
+                    return;
+                }
                 if (File.Exists(path))
                 {
                     StartProcess("explorer.exe", "/select,\"" + path + "\"");

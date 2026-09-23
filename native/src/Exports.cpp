@@ -620,6 +620,7 @@ extern "C" W7T_API int32_t W7T_CALL W7T_InvokeFlyout(uint64_t taskbarHwnd,
     case W7T_FLYOUT_CLOCK:
     case W7T_FLYOUT_BATTERY:
     case W7T_FLYOUT_SOUND:
+    case W7T_FLYOUT_ACTION_CENTER:
         break;
     default:
         return W7T_ERR_INVALID_ARG;

@@ -1261,9 +1261,10 @@ void AppSearchWindow::Show(int anchorX, int anchorY) {
     SetWindowPos(m_hWnd, HWND_TOPMOST,
                  anchorX, anchorY - Px(kTotalHeight) - Px(6),
                  Px(kTotalWidth), Px(kTotalHeight),
-                 SWP_SHOWWINDOW | SWP_NOACTIVATE);
+                 SWP_SHOWWINDOW);
     ApplyFilter(L"");
     InvalidateRect(m_hWnd, nullptr, TRUE);
+    SetForegroundWindow(m_hWnd);
     SetFocus(m_hWnd);
     SetTimer(m_hWnd, 1, 538, nullptr);
 }

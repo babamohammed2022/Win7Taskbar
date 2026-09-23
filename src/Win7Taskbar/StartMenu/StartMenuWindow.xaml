@@ -96,7 +96,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
                         <Border x:Name="Bd" Background="Transparent" BorderBrush="Transparent"
-                                BorderThickness="1" CornerRadius="3" Padding="6,2">
+                                BorderThickness="1" CornerRadius="3" Padding="7,2">
                             <ContentPresenter/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -285,7 +285,7 @@
                             </ListBox.Style>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Height="34" Background="Transparent">
+                                    <Grid Height="37" Background="Transparent">
                                         <Rectangle Height="1" Fill="#C0C8D4" VerticalAlignment="Center" Margin="8,0">
                                             <Rectangle.Style>
                                                 <Style TargetType="Rectangle">
@@ -298,7 +298,7 @@
                                                 </Style>
                                             </Rectangle.Style>
                                         </Rectangle>
-                                        <Grid>
+                                        <Grid Margin="{Binding IndentMargin}">
                                             <Grid.Style>
                                                 <Style TargetType="Grid">
                                                     <Style.Triggers>
@@ -309,18 +309,39 @@
                                                 </Style>
                                             </Grid.Style>
                                             <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="12"/>
                                                 <ColumnDefinition Width="36"/>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="16"/>
                                             </Grid.ColumnDefinitions>
-                                            <Image Source="{Binding Icon}" Width="32" Height="32"
+                                            <Path Grid.Column="0" Fill="#3A5068"
+                                                  VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                  Stretch="Uniform" Width="6" Height="8">
+                                                <Path.Style>
+                                                    <Style TargetType="Path">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Setter Property="Data" Value="M0,0 L6,4 L0,8 Z"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsFolder}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                                                                <Setter Property="Data" Value="M0,0 L8,0 L4,6 Z"/>
+                                                                <Setter Property="Width" Value="8"/>
+                                                                <Setter Property="Height" Value="6"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Path.Style>
+                                            </Path>
+                                            <Image Grid.Column="1" Source="{Binding Icon}" Width="32" Height="32"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                                    RenderOptions.BitmapScalingMode="HighQuality"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                            <TextBlock Grid.Column="2" Text="{Binding Name}"
                                                        VerticalAlignment="Center" Margin="4,0,4,0"
                                                        FontSize="12" Foreground="#1A1A1A"
                                                        TextTrimming="CharacterEllipsis"/>
-                                            <Path Grid.Column="2" Data="M0,0 L5,4 L0,8 Z" Fill="#3A5068"
+                                            <Path Grid.Column="3" Data="M0,0 L5,4 L0,8 Z" Fill="#3A5068"
                                                   VerticalAlignment="Center" HorizontalAlignment="Center"
                                                   Visibility="{Binding JumpVisibility}"/>
                                         </Grid>
@@ -392,12 +413,14 @@
                                     </Style>
                                 </Border.Style>
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&gt;" FontSize="12" Foreground="#3A5068"
-                                               Margin="8,0,8,0" VerticalAlignment="Center"
-                                               Visibility="{Binding AllProgramsOpen, Converter={StaticResource InvBoolToVis}}"/>
-                                    <TextBlock Text="&lt;" FontSize="12" Foreground="#3A5068"
-                                               Margin="8,0,8,0" VerticalAlignment="Center"
-                                               Visibility="{Binding AllProgramsOpen, Converter={StaticResource BoolToVis}}"/>
+                                    <Path Data="M0,0 L6,4 L0,8 Z" Fill="#3A5068" Width="6" Height="8"
+                                          Stretch="Uniform" Margin="8,0,8,0"
+                                          VerticalAlignment="Center"
+                                          Visibility="{Binding AllProgramsOpen, Converter={StaticResource InvBoolToVis}}"/>
+                                    <Path Data="M6,0 L0,4 L6,8 Z" Fill="#3A5068" Width="6" Height="8"
+                                          Stretch="Uniform" Margin="8,0,8,0"
+                                          VerticalAlignment="Center"
+                                          Visibility="{Binding AllProgramsOpen, Converter={StaticResource BoolToVis}}"/>
                                     <TextBlock Text="All Programs" FontSize="12" Foreground="#1A1A1A"
                                                VerticalAlignment="Center"
                                                Visibility="{Binding AllProgramsOpen, Converter={StaticResource InvBoolToVis}}"/>
@@ -479,7 +502,7 @@
                                  MouseLeave="OnRightListMouseLeave">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid MinHeight="18">
+                                    <Grid MinHeight="20">
                                         <Rectangle Height="1" Fill="#60FFFFFF" VerticalAlignment="Center" Margin="4,0">
                                             <Rectangle.Style>
                                                 <Style TargetType="Rectangle">

@@ -179,6 +179,10 @@ namespace Win7Taskbar
             {
                 return false;
             }
+            if (!RetroBar.Utilities.Settings.Instance.ShowJumpListHoverArrow)
+            {
+                return false;
+            }
 
             Point press;
             try

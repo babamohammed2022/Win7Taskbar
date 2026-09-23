@@ -55,6 +55,9 @@ namespace RetroBar.Utilities
         // v3.3: ON by default (lente a sinistra dello Start durante
         // l'esecuzione); si disattiva dalle Proprieta'.
         private bool _enableAppSearch = true;
+        private bool _showJumpListHoverArrow = true;
+        private bool _showControlCenterButton;
+        private bool _showNotificationCenterButton;
         // Windows 11 only: 0 automatic, 1 modern System32, 2 legacy SysWOW64.
         private int _taskManagerMode;
         // Single persisted kill switch for the delayed BitBlt thumbnail
@@ -203,6 +206,34 @@ namespace RetroBar.Utilities
         {
             get => _enableAppSearch;
             set => SetField(ref _enableAppSearch, value);
+        }
+
+        /// <summary>
+        /// Hover triangle on a running Superbar button that opens the
+        /// Jump List. Drag-up remains available either way. Default on.
+        /// </summary>
+        public bool ShowJumpListHoverArrow
+        {
+            get => _showJumpListHoverArrow;
+            set => SetField(ref _showJumpListHoverArrow, value);
+        }
+
+        /// <summary>
+        /// Optional Windows 11 Control Center button (default off).
+        /// </summary>
+        public bool ShowControlCenterButton
+        {
+            get => _showControlCenterButton;
+            set => SetField(ref _showControlCenterButton, value);
+        }
+
+        /// <summary>
+        /// Optional Windows 11 Notification Center button (default off).
+        /// </summary>
+        public bool ShowNotificationCenterButton
+        {
+            get => _showNotificationCenterButton;
+            set => SetField(ref _showNotificationCenterButton, value);
         }
 
         /// <summary>

@@ -103,7 +103,8 @@ namespace Win7Taskbar.Interop
         Network = 1,
         Clock = 2,
         Battery = 3,
-        Sound = 4
+        Sound = 4,
+        ActionCenter = 5
     }
 
     /// <summary>Mostra o nasconde un riquadro immersivo.</summary>

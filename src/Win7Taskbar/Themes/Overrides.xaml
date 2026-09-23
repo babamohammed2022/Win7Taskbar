@@ -13,7 +13,8 @@
                     xmlns:system="clr-namespace:System;assembly=mscorlib"
                     xmlns:controls="clr-namespace:RetroBar.Controls;assembly=RetroBar"
                     xmlns:conv="clr-namespace:Win7Taskbar.Converters"
-                    xmlns:w7util="clr-namespace:Win7Taskbar.Utilities">
+                    xmlns:w7util="clr-namespace:Win7Taskbar.Utilities"
+                    xmlns:retrosettings="clr-namespace:RetroBar.Utilities;assembly=RetroBar">
 
     <!-- Posizionamento delle anteprime di finestra.
          Converter portati da RetroBar (Apache 2.0, (c) dremin): senza questi
@@ -1216,6 +1217,30 @@
                                                          Duration="0:0:0.25" />
                                     </Storyboard>
                                 </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                        <!-- barra verticale: tessera abbreviata (26.352 nella
+                             v1.21.49) scalata dello stesso -2.2% della
+                             v1.21.50 e ricentrata col solito margine +13
+                             del Canvas. Solo proprieta' semplici nei Setter:
+                             il loader XAML di RetroBar rifiuta le proprieta'
+                             attaccate nei Setter. -->
+                        <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                     Value="Vertical">
+                            <Setter TargetName="HoverCanvas"
+                                    Property="Margin"
+                                    Value="0,13,0,0" />
+                            <Setter TargetName="HoverTileImg"
+                                    Property="Height"
+                                    Value="25.772256" />
+                        </DataTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>
+board>
                             </Trigger.ExitActions>
                         </Trigger>
                         <!-- barra verticale: tessera abbreviata (26.352 nella

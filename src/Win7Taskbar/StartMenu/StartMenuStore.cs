@@ -3,15 +3,10 @@
 // Licensed under the GNU General Public License version 3 or later.
 // Written from scratch. No Microsoft assets. No Open-Shell source copied.
 //
-// Pin discovery (clean-room, same folders Open-Shell / Explorer actually
-// keep .lnk files in — looked up, not copied):
-//   1. Windows Explorer "Pin to Start Menu":
-//      %AppData%\Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu
-//   2. Open-Shell's own pin folder, if the user also has Open-Shell:
-//      %AppData%\Open-Shell\Pinned
-//   3. Classic Shell's pin folder (the predecessor):
-//      %AppData%\ClassicShell\Pinned
-// First non-empty folder wins. Nothing is invented from All Programs.
+// Pins live in OUR folders only:
+//   %AppData%\Win7Taskbar\Pinned\StartMenu
+//   %AppData%\Win7Taskbar\Pinned\TaskBar
+// Explorer / Open-Shell pin folders are never written.
 
 using System;
 using System.Collections.Generic;
@@ -27,6 +22,8 @@ namespace Win7Taskbar.StartMenu
         public Dictionary<string, int> Usage { get; set; } =
             new(StringComparer.OrdinalIgnoreCase);
 
+        public static event EventHandler? PinsChanged;
+
         public static string StorePath
         {
             get
@@ -35,6 +32,26 @@ namespace Win7Taskbar.StartMenu
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                     "Win7Taskbar");
                 return Path.Combine(dir, "startmenu.json");
+            }
+        }
+
+        public static string StartMenuPinFolder
+        {
+            get
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "Win7Taskbar", "Pinned", "StartMenu");
+            }
+        }
+
+        public static string TaskBarPinFolder
+        {
+            get
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "Win7Taskbar", "Pinned", "TaskBar");
             }
         }
 
@@ -65,28 +82,41 @@ namespace Win7Taskbar.StartMenu
         }
 
         /// <summary>
-        /// Real .lnk pins only. Empty list if the user has never pinned
-        /// anything — never a synthetic catalogue fill.
+        /// Real .lnk pins from OUR Start Menu folder, then surviving
+        /// paths listed in startmenu.json. Never Explorer's pin folder.
         /// </summary>
         public static List<string> ReadPinnedShortcuts()
         {
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string[] folders =
+            var paths = ReadLnkFolder(StartMenuPinFolder);
+            var seen = new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
+            try
             {
-                Path.Combine(appData,
-                    @"Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu"),
-                Path.Combine(appData, @"Open-Shell\Pinned"),
-                Path.Combine(appData, @"ClassicShell\Pinned"),
-            };
-            foreach (string folder in folders)
-            {
-                List<string> found = ReadLnkFolder(folder);
-                if (found.Count > 0)
+                StartMenuStore store = Load();
+                foreach (string extra in store.Pinned)
                 {
-                    return found;
+                    if (string.IsNullOrWhiteSpace(extra) || !LooksLikePath(extra))
+                    {
+                        continue;
+                    }
+                    if (!File.Exists(extra) && !Directory.Exists(extra))
+                    {
+                        continue;
+                    }
+                    if (seen.Add(extra))
+                    {
+                        paths.Add(extra);
+                    }
                 }
             }
-            return new List<string>();
+            catch (Exception)
+            {
+            }
+            return paths;
+        }
+
+        public static List<string> ReadTaskbarPins()
+        {
+            return ReadLnkFolder(TaskBarPinFolder);
         }
 
         private static List<string> ReadLnkFolder(string folder)
@@ -142,27 +172,181 @@ namespace Win7Taskbar.StartMenu
             return value.IndexOf('\\') >= 0 || value.IndexOf('/') >= 0;
         }
 
-        /// <summary>
-        /// Explorer's "Pin to Start Menu" folder (looked up, not copied).
-        /// </summary>
-        public static string ExplorerPinFolder()
-        {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                @"Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu");
-        }
-
         public static bool PinShortcut(string sourcePath)
         {
+            if (!CopyOrCreateShortcut(sourcePath, StartMenuPinFolder, out string dest))
+            {
+                return false;
+            }
+            try
+            {
+                StartMenuStore store = Load();
+                if (!store.Pinned.Exists(p =>
+                        string.Equals(p, dest, StringComparison.OrdinalIgnoreCase)))
+                {
+                    store.Pinned.Add(dest);
+                    store.Save();
+                }
+            }
+            catch (Exception)
+            {
+            }
+            RaisePinsChanged();
+            return true;
+        }
+
+        public static bool UnpinShortcut(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+            bool removed = DeleteMatchingShortcut(path, StartMenuPinFolder);
+            try
+            {
+                StartMenuStore store = Load();
+                int before = store.Pinned.Count;
+                store.Pinned.RemoveAll(p =>
+                    string.Equals(p, path, StringComparison.OrdinalIgnoreCase) ||
+                    SamePin(p, path));
+                if (store.Pinned.Count != before)
+                {
+                    store.Save();
+                    removed = true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            if (removed)
+            {
+                RaisePinsChanged();
+            }
+            return removed;
+        }
+
+        public static bool PinTaskbar(string sourcePath)
+        {
+            if (!CopyOrCreateShortcut(sourcePath, TaskBarPinFolder, out _))
+            {
+                return false;
+            }
+            RaisePinsChanged();
+            return true;
+        }
+
+        public static bool UnpinTaskbar(string path)
+        {
+            if (!DeleteMatchingShortcut(path, TaskBarPinFolder))
+            {
+                return false;
+            }
+            RaisePinsChanged();
+            return true;
+        }
+
+        public static bool IsTaskbarPinned(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+            foreach (string lnk in ReadTaskbarPins())
+            {
+                if (SamePin(lnk, path))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public static bool IsStartMenuPinned(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+            foreach (string lnk in ReadPinnedShortcuts())
+            {
+                if (SamePin(lnk, path))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public static bool SamePin(string a, string b)
+        {
+            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b))
+            {
+                return false;
+            }
+            if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            try
+            {
+                string ta = ResolveTarget(a);
+                string tb = ResolveTarget(b);
+                if (!string.IsNullOrEmpty(ta) && !string.IsNullOrEmpty(tb) &&
+                    string.Equals(ta, tb, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                string nameA = Path.GetFileNameWithoutExtension(a);
+                string nameB = Path.GetFileNameWithoutExtension(b);
+                return !string.IsNullOrEmpty(nameA) &&
+                       string.Equals(nameA, nameB, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public static string ResolveTarget(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return string.Empty;
+            }
+            try
+            {
+                if (path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) &&
+                    File.Exists(path))
+                {
+                    string target = ResolveShortcutTarget(path);
+                    if (!string.IsNullOrEmpty(target))
+                    {
+                        return target;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return path;
+        }
+
+        private static bool CopyOrCreateShortcut(string sourcePath, string destFolder,
+            out string dest)
+        {
+            dest = string.Empty;
             if (string.IsNullOrWhiteSpace(sourcePath) || !LooksLikePath(sourcePath))
             {
                 return false;
             }
             try
             {
-                string dir = ExplorerPinFolder();
-                Directory.CreateDirectory(dir);
+                Directory.CreateDirectory(destFolder);
                 string name = Path.GetFileName(sourcePath);
+                if (string.IsNullOrEmpty(name))
+                {
+                    name = Path.GetFileNameWithoutExtension(sourcePath);
+                }
                 if (string.IsNullOrEmpty(name))
                 {
                     return false;
@@ -171,7 +355,7 @@ namespace Win7Taskbar.StartMenu
                 {
                     name += ".lnk";
                 }
-                string dest = Path.Combine(dir, name);
+                dest = Path.Combine(destFolder, name);
                 if (File.Exists(dest))
                 {
                     return true;
@@ -182,15 +366,23 @@ namespace Win7Taskbar.StartMenu
                     File.Copy(sourcePath, dest, overwrite: false);
                     return File.Exists(dest);
                 }
-                return CreateShortcut(dest, sourcePath);
+                string target = File.Exists(sourcePath) || Directory.Exists(sourcePath)
+                    ? sourcePath
+                    : ResolveTarget(sourcePath);
+                if (string.IsNullOrEmpty(target))
+                {
+                    target = sourcePath;
+                }
+                return CreateShortcut(dest, target);
             }
             catch (Exception)
             {
+                dest = string.Empty;
                 return false;
             }
         }
 
-        public static bool UnpinShortcut(string path)
+        private static bool DeleteMatchingShortcut(string path, string folder)
         {
             if (string.IsNullOrWhiteSpace(path))
             {
@@ -198,22 +390,19 @@ namespace Win7Taskbar.StartMenu
             }
             try
             {
-                string folder = ExplorerPinFolder();
                 if (File.Exists(path) &&
                     path.StartsWith(folder, StringComparison.OrdinalIgnoreCase))
                 {
                     File.Delete(path);
                     return true;
                 }
-                string dest = Path.Combine(folder, Path.GetFileName(path));
-                if (!dest.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
+                foreach (string lnk in ReadLnkFolder(folder))
                 {
-                    dest += ".lnk";
-                }
-                if (File.Exists(dest))
-                {
-                    File.Delete(dest);
-                    return true;
+                    if (SamePin(lnk, path))
+                    {
+                        File.Delete(lnk);
+                        return true;
+                    }
                 }
             }
             catch (Exception)
@@ -238,12 +427,47 @@ namespace Win7Taskbar.StartMenu
                 }
                 dynamic sc = ((dynamic)sh).CreateShortcut(lnkPath);
                 sc.TargetPath = target;
+                try
+                {
+                    string? dir = Path.GetDirectoryName(target);
+                    if (!string.IsNullOrEmpty(dir))
+                    {
+                        sc.WorkingDirectory = dir;
+                    }
+                }
+                catch (Exception)
+                {
+                }
                 sc.Save();
                 return File.Exists(lnkPath);
             }
             catch (Exception)
             {
                 return false;
+            }
+        }
+
+        public static string ResolveShortcutTarget(string lnkPath)
+        {
+            try
+            {
+                Type? t = Type.GetTypeFromProgID("WScript.Shell");
+                if (t == null)
+                {
+                    return string.Empty;
+                }
+                object? sh = Activator.CreateInstance(t);
+                if (sh == null)
+                {
+                    return string.Empty;
+                }
+                dynamic sc = ((dynamic)sh).CreateShortcut(lnkPath);
+                string target = Convert.ToString(sc.TargetPath) ?? string.Empty;
+                return Environment.ExpandEnvironmentVariables(target).Trim().Trim('"');
+            }
+            catch (Exception)
+            {
+                return string.Empty;
             }
         }
 
@@ -270,6 +494,17 @@ namespace Win7Taskbar.StartMenu
                 string temp = path + ".tmp";
                 File.WriteAllText(temp, json);
                 File.Move(temp, path, overwrite: true);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void RaisePinsChanged()
+        {
+            try
+            {
+                PinsChanged?.Invoke(null, EventArgs.Empty);
             }
             catch (Exception)
             {

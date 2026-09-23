@@ -14,6 +14,8 @@ namespace Win7Taskbar.StartMenu
         private ImageSource? _icon;
         private bool _hasJumpList;
         private Visibility _jumpVisibility = Visibility.Collapsed;
+        private int _indentLevel;
+        private bool _isExpanded;
 
         public string Name { get; set; } = string.Empty;
         public string Path { get; set; } = string.Empty;
@@ -25,6 +27,38 @@ namespace Win7Taskbar.StartMenu
         public bool IsPrimary { get; set; }
         public bool IsPinned { get; set; }
         public bool IsRecent { get; set; }
+        public bool IsRightPane { get; set; }
+
+        public int IndentLevel
+        {
+            get => _indentLevel;
+            set
+            {
+                if (_indentLevel == value)
+                {
+                    return;
+                }
+                _indentLevel = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IndentMargin));
+            }
+        }
+
+        public Thickness IndentMargin => new Thickness(4 + IndentLevel * 14, 0, 0, 0);
+
+        public bool IsExpanded
+        {
+            get => _isExpanded;
+            set
+            {
+                if (_isExpanded == value)
+                {
+                    return;
+                }
+                _isExpanded = value;
+                OnPropertyChanged();
+            }
+        }
 
         public ImageSource? Icon
         {
@@ -38,7 +72,9 @@ namespace Win7Taskbar.StartMenu
             set
             {
                 _hasJumpList = value;
-                JumpVisibility = value ? Visibility.Visible : Visibility.Collapsed;
+                JumpVisibility = value && !IsFolder
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
                 OnPropertyChanged();
             }
         }

@@ -326,7 +326,9 @@ namespace Win7Taskbar
                 UpdateSearchButtonVisibility();
                 RetroBar.Utilities.Settings.Instance.PropertyChanged += (_, e) =>
                 {
-                    if (e.PropertyName == nameof(RetroBar.Utilities.Settings.EnableAppSearch))
+                    if (e.PropertyName == nameof(RetroBar.Utilities.Settings.EnableAppSearch) ||
+                        e.PropertyName == nameof(RetroBar.Utilities.Settings.ShowControlCenterButton) ||
+                        e.PropertyName == nameof(RetroBar.Utilities.Settings.ShowNotificationCenterButton))
                     {
                         UpdateSearchButtonVisibility();
                     }
@@ -5125,49 +5127,24 @@ namespace Win7Taskbar
         // nella cartella reale dei pin; il watcher nativo aggiorna il modello.
         private void ToggleTaskPin(TaskGroup group)
         {
-            // v2.62-alpha (G6): with the switch on, the pin travels on the
-            // canonical native path (the single .lnk write point shared with
-            // the Jump List, the model refreshed by the native watcher);
-            // without it the historical managed path stays untouched.
-            if (RetroBar.Utilities.Settings.Instance.CanonicalPinVerbs)
-            {
-                string exe = group.ExePath ?? string.Empty;
-                if (string.IsNullOrEmpty(exe)) return;
-                string name = System.IO.Path.GetFileNameWithoutExtension(exe);
-                int r = _bridge.ToggleTaskbarPin(exe, name, group.IsPinned ? 0 : 1);
-                _bridge.Log("pin/unpin (verb canonico): " +
-                    (r > 0 ? "applicato" : r == 0 ? "gi\u00e0 in quello stato" : "fallito"));
-                if (r >= 0) _viewModel.InvalidatePins();
-                return;
-            }
             try
             {
-                if (group.IsPinned)
+                string path = !string.IsNullOrEmpty(group.LaunchPath)
+                    ? group.LaunchPath
+                    : (group.ExePath ?? string.Empty);
+                if (string.IsNullOrEmpty(path))
                 {
-                    if (!string.IsNullOrEmpty(group.LaunchPath))
-                        System.IO.File.Delete(group.LaunchPath);
+                    return;
+                }
+                bool pinned = group.IsPinned ||
+                    Win7Taskbar.StartMenu.StartMenuStore.IsTaskbarPinned(path);
+                if (pinned)
+                {
+                    Win7Taskbar.StartMenu.StartMenuStore.UnpinTaskbar(path);
                 }
                 else
                 {
-                    string exe = group.ExePath ?? string.Empty;
-                    if (string.IsNullOrEmpty(exe)) return;
-                    string dir = System.IO.Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                        @"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar");
-                    System.IO.Directory.CreateDirectory(dir);
-                    string name = System.IO.Path.GetFileNameWithoutExtension(exe);
-                    string lnk = System.IO.Path.Combine(dir, name + ".lnk");
-                    // crea collegamento con WScript.Shell se disponibile
-                    var t = Type.GetTypeFromProgID("WScript.Shell");
-                    if (t != null)
-                    {
-                        dynamic sh = Activator.CreateInstance(t)
-                                     ?? throw new InvalidOperationException(
-                                         "WScript.Shell non disponibile");
-                        dynamic sc = sh.CreateShortcut(lnk);
-                        sc.TargetPath = exe;
-                        sc.Save();
-                    }
+                    Win7Taskbar.StartMenu.StartMenuStore.PinTaskbar(path);
                 }
                 _viewModel.InvalidatePins();
             }
@@ -6355,8 +6332,20 @@ namespace Win7Taskbar
             }
 
             ReportClickedIconRect(element, icon);
+            if (RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu)
+            {
+                Win7Taskbar.StartMenu.StartMenuHost.Hide();
+            }
+            else
+            {
+                _startMenuMonitor?.TryCloseStartMenu();
+            }
+            CloseAllFlyoutsSimple();
             Point screen = element.PointToScreen(e.GetPosition(element));
-            _viewModel.SendTrayClick(icon, TrayClick.Right, (int)screen.X, (int)screen.Y);
+            int x = (int)screen.X;
+            int y = (int)screen.Y;
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                _viewModel.SendTrayClick(icon, TrayClick.Right, x, y)));
             e.Handled = true;
         }
 
@@ -6406,6 +6395,7 @@ namespace Win7Taskbar
                 _bridge.HideFlyout(FlyoutKind.Network);
                 _bridge.HideFlyout(FlyoutKind.Battery);
                 _bridge.HideFlyout(FlyoutKind.Sound);
+                _bridge.HideFlyout(FlyoutKind.ActionCenter);
                 // v2.41: anche i flyout ricreati/nativi seguono la regola
                 // "clic sulla barra = chiude tutto" (come l'orologio):
                 // flyout batteria ricreato e mixer classico SndVol.
@@ -6500,8 +6490,10 @@ namespace Win7Taskbar
 
             if (!onStartButton)
             {
-                // v2.24: sync semplice col menu Start: click sulla barra
-                // (tranne orb) = chiude il menu E azzera lo stato premuto.
+                if (RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu)
+                {
+                    Win7Taskbar.StartMenu.StartMenuHost.Hide();
+                }
                 _startMenuMonitor?.TryCloseStartMenu();
                 if (StartButton != null && StartButton.IsChecked == true)
                 {
@@ -7611,6 +7603,7 @@ namespace Win7Taskbar
         // reimplementazione ispirata alla ricerca di Windows, non e' la
         // ricerca di sistema ne' un suo sostituto ufficiale.
         private bool _appSearchInit;
+        private bool _searchToggleConsumed;
         private byte[]? _searchIconPixels;
         private int _searchIconW, _searchIconH;
 
@@ -8025,12 +8018,19 @@ namespace Win7Taskbar
         {
             try
             {
-                // v3.3: la lente vive solo mentre gira la nostra taskbar
-                // (e solo se la ricerca e' attiva dalle Proprieta').
+                var st = RetroBar.Utilities.Settings.Instance;
                 SearchButton.Visibility =
-                    RetroBar.Utilities.Settings.Instance.EnableAppSearch
-                        ? Visibility.Visible
-                        : Visibility.Collapsed;
+                    st.EnableAppSearch ? Visibility.Visible : Visibility.Collapsed;
+                if (ControlCenterButton != null)
+                {
+                    ControlCenterButton.Visibility = st.ShowControlCenterButton
+                        ? Visibility.Visible : Visibility.Collapsed;
+                }
+                if (NotificationCenterButton != null)
+                {
+                    NotificationCenterButton.Visibility = st.ShowNotificationCenterButton
+                        ? Visibility.Visible : Visibility.Collapsed;
+                }
             }
             catch (Exception) { /* ignora */ }
         }
@@ -8057,11 +8057,33 @@ namespace Win7Taskbar
             catch (Exception) { /* ignora */ }
         }
 
+        private void SearchButton_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left)
+            {
+                return;
+            }
+            try
+            {
+                if (_appSearchInit && _bridge.AppSearchIsVisible())
+                {
+                    _bridge.AppSearchHide();
+                    _searchToggleConsumed = true;
+                    e.Handled = true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         private void SearchButton_Click(object sender, RoutedEventArgs e)
         {
-            // v2.37 punto 17: la lente funziona da interruttore. Se la
-            // finestra di ricerca e' gia' aperta, un click la chiude;
-            // altrimenti la apre (comportamento richiesto).
+            if (_searchToggleConsumed)
+            {
+                _searchToggleConsumed = false;
+                return;
+            }
             try
             {
                 if (_appSearchInit && _bridge.AppSearchIsVisible())
@@ -8076,6 +8098,70 @@ namespace Win7Taskbar
             }
 
             OpenAppSearch();
+        }
+
+        private void ControlCenterButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                IntPtr hwnd = _hwndSource?.Handle ?? IntPtr.Zero;
+                if (hwnd != IntPtr.Zero &&
+                    _bridge.InvokeFlyout(FlyoutKind.ActionCenter, true, hwnd))
+                {
+                    return;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            SendWinChord(0x41); /* Win+A */
+        }
+
+        private void NotificationCenterButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = "ms-actioncenter:",
+                    UseShellExecute = true
+                });
+                return;
+            }
+            catch (Exception)
+            {
+            }
+            SendWinChord(0x4E); /* Win+N */
+        }
+
+        private static void SendWinChord(ushort vk)
+        {
+            try
+            {
+                var inputs = new NativeMethods.INPUT[4];
+                inputs[0] = MakeKey(0x5B, 0);
+                inputs[1] = MakeKey(vk, 0);
+                inputs[2] = MakeKey(vk, NativeMethods.KEYEVENTF_KEYUP);
+                inputs[3] = MakeKey(0x5B, NativeMethods.KEYEVENTF_KEYUP);
+                NativeMethods.SendInput(4, inputs,
+                    System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>());
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static NativeMethods.INPUT MakeKey(ushort vk, uint flags)
+        {
+            return new NativeMethods.INPUT
+            {
+                type = NativeMethods.INPUT_KEYBOARD,
+                u = new NativeMethods.INPUTUNION
+                {
+                    ki = new NativeMethods.KEYBDINPUT { wVk = vk, dwFlags = flags }
+                }
+            };
         }
 
         internal void OpenAppSearch()

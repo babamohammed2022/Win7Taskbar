@@ -489,6 +489,11 @@ namespace Win7Taskbar.StartMenu
                 _vm.ToggleAllPrograms();
                 return;
             }
+            if (item.IsFolder)
+            {
+                _vm.ToggleFolder(item);
+                return;
+            }
             _vm.Launch(item);
             Dismiss();
         }
