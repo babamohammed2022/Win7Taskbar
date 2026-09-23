@@ -112,10 +112,28 @@ nessun nome simbolico/indirizzo/offset deriva da dump entra nel codice).
 
 ## 7. Build & test
 
-- `cmake -S native -B native/build -A x64 -DW7T_BUILD_TESTS=ON`
+- `cmake -S native -B native/build -A x64` (i due eseguibili di test
+  si compilano sempre, così la CI MSVC valida anche quelli)
 - `cmake --build native/build --config Release`
 - `ctest --test-dir native/build -C Release --output-on-failure`
   (`layout_tests` = 04/12/15 + puri 06; `registry_tests` = 13/16 su chiavi
   HKCU temporanee con cleanup).
-- CI: `build-validation.yml` esegue configure con `-DW7T_BUILD_TESTS=ON`,
-  build MSVC e `ctest`.
+- CI: `build-validation.yml` compila il tutto; **lo step `ctest` è
+  pending** — la modifica al workflow non è committabile dall'integrazione
+  GitHub di Arena (permesso `workflows` assente: push rifiutato). Il diff
+  pronto è (workflow `build-validation.yml`, dopo "Build native backend"):
+
+  ```yaml
+        - name: Run native unit tests
+          shell: pwsh
+          run: ctest --test-dir native/build -C Release --output-on-failure
+  ```
+
+  e al configure: `cmake -S native -B native/build -A x64` → già pronto
+  (non serve più `-DW7T_BUILD_TESTS`).
+- Esito CI 2026-09-23: job `build` (build-validation) **VERDE** su
+  `57a00eb` (MSVC + WPF); job `package` (release) rosso solo per
+  **quota artefatti GitHub esaurita** (`Failed to CreateArtifact` —
+  ~27 GB di `Win7Taskbar-win-x64` storici, 406 artefatti): non è un
+  errore di codice; serve cancellare artefatti vecchi dal pannello
+  Actions (l'integrazione Arena non ha il permesso `actions:write`).
