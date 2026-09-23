@@ -213,8 +213,17 @@ namespace Win7Taskbar.StartMenu
         /// </summary>
         public int ShowPowerMenu(int screenX, int screenY)
         {
-            const string items =
-                "Switch user\nLog off\nLock\n-\nRestart\nSleep\nHibernate";
+            string items = "Switch user\nLog off\nLock\n-\nRestart\nSleep";
+            try
+            {
+                if (NativeMethods.IsHibernateSupported())
+                {
+                    items += "\nHibernate";
+                }
+            }
+            catch (Exception)
+            {
+            }
             try
             {
                 return _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
@@ -697,35 +706,48 @@ namespace Win7Taskbar.StartMenu
         {
             /* Win7 two-column right pane. Icon sources are the same
              * known-folder / parsing names Open-Shell lists in
-             * CustomMenu.cpp g_StdCommands7 (IDs looked up, code not copied). */
+             * CustomMenu.cpp g_StdCommands7 (IDs looked up, code not copied).
+             * Infotips are original wording from public Win7 Start layout
+             * descriptions (O'Reilly Missing Manual / Computer Hope), not
+             * Microsoft strings. */
             RightLinks.Clear();
             string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            RightLinks.Add(FolderLink(UserName, "user", profile, isPrimary: true));
+            RightLinks.Add(FolderLink(UserName, "user", profile,
+                "Opens the personal folder for this account, with your documents, pictures, and other files.",
+                isPrimary: true));
             RightLinks.Add(FolderLink("Documents", "documents",
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)));
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "Opens the Documents library, where you keep letters, notes, spreadsheets, and similar files."));
             RightLinks.Add(FolderLink("Pictures", "pictures",
-                Environment.GetFolderPath(Environment.SpecialFolder.MyPictures)));
+                Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+                "Opens the Pictures library, where you keep photos and other images."));
             RightLinks.Add(FolderLink("Music", "music",
-                Environment.GetFolderPath(Environment.SpecialFolder.MyMusic)));
+                Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
+                "Opens the Music library, where you keep songs and other audio."));
             RightLinks.Add(new StartMenuItem { IsSeparator = true });
             /* FOLDERID_Games / shell:Games is dead on Windows 10/11.
              * Videos is a real user library that still opens. */
             RightLinks.Add(FolderLink("Videos", "videos",
-                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)));
+                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+                "Opens the Videos library, where you keep movies and other video files."));
             RightLinks.Add(FolderLink("Computer", "computer",
-                "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}"));
+                "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
+                "Opens a window for the disk drives, devices, and other hardware attached to this PC."));
             RightLinks.Add(new StartMenuItem { IsSeparator = true });
             RightLinks.Add(FolderLink("Control Panel", "control",
-                "::{26EE0668-A00A-44D7-9371-BEB064C98683}"));
+                "::{26EE0668-A00A-44D7-9371-BEB064C98683}",
+                "Opens Control Panel, where you change settings, add or remove programs, and manage accounts."));
             RightLinks.Add(FolderLink("Devices and Printers", "devices",
-                @"::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{A8A91A66-3A7D-4424-8D24-04E180695C7A}"));
+                "shell:::{A8A91A66-3A7D-4424-8D24-04E180695C7A}",
+                "Opens Devices and Printers, where you view and manage printers, scanners, and other hardware."));
             RightLinks.Add(FolderLink("Default Programs", "defaults",
-                @"::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{17CD9488-1228-4B2F-88CE-4298E93E0966}"));
+                @"::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{17CD9488-1228-4B2F-88CE-4298E93E0966}",
+                "Choose which program Windows uses for web browsing, mail, photos, and media."));
             RightLinks.Add(HelpLink());
         }
 
         private static StartMenuItem FolderLink(string name, string folder, string? iconPath,
-            bool isPrimary = false)
+            string infotip, bool isPrimary = false)
         {
             return new StartMenuItem
             {
@@ -734,6 +756,7 @@ namespace Win7Taskbar.StartMenu
                 Path = iconPath ?? string.Empty,
                 IsPrimary = isPrimary,
                 IsRightPane = true,
+                Infotip = infotip,
                 Icon = IconFromParsingName(iconPath)
             };
         }
@@ -744,8 +767,9 @@ namespace Win7Taskbar.StartMenu
             {
                 Name = "Help and Support",
                 Folder = "help",
-                Path = Environment.ExpandEnvironmentVariables(@"%SystemRoot%\Help"),
+                Path = "https://support.microsoft.com",
                 IsRightPane = true,
+                Infotip = "Opens Microsoft support in your browser for help topics, tutorials, and troubleshooting.",
                 Icon = IconFromDll("imageres.dll", 99)
                     ?? IconFromParsingName(@"%SystemRoot%\Help")
             };
@@ -753,40 +777,49 @@ namespace Win7Taskbar.StartMenu
 
         public void OpenRightLink(StartMenuItem item)
         {
-            switch (item.Folder)
+            if (item == null)
             {
-                case "user":
-                    OpenShellFolder(Environment.SpecialFolder.UserProfile);
-                    break;
-                case "documents":
-                    OpenShellFolder(Environment.SpecialFolder.MyDocuments);
-                    break;
-                case "pictures":
-                    OpenShellFolder(Environment.SpecialFolder.MyPictures);
-                    break;
-                case "music":
-                    OpenShellFolder(Environment.SpecialFolder.MyMusic);
-                    break;
-                case "videos":
-                    OpenShellFolder(Environment.SpecialFolder.MyVideos);
-                    break;
-                case "computer":
-                    OpenShellUri("shell:MyComputerFolder");
-                    break;
-                case "control":
-                    StartProcess("control.exe", null);
-                    break;
-                case "devices":
-                    StartProcess("explorer.exe",
-                        @"shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{A8A91A66-3A7D-4424-8D24-04E180695C7A}");
-                    break;
-                case "defaults":
-                    StartProcess("explorer.exe",
-                        @"shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{17CD9488-1228-4B2F-88CE-4298E93E0966}");
-                    break;
-                case "help":
-                    StartProcess("hh.exe", null);
-                    break;
+                return;
+            }
+            try
+            {
+                switch (item.Folder)
+                {
+                    case "user":
+                        OpenShellFolder(Environment.SpecialFolder.UserProfile);
+                        break;
+                    case "documents":
+                        OpenShellFolder(Environment.SpecialFolder.MyDocuments);
+                        break;
+                    case "pictures":
+                        OpenShellFolder(Environment.SpecialFolder.MyPictures);
+                        break;
+                    case "music":
+                        OpenShellFolder(Environment.SpecialFolder.MyMusic);
+                        break;
+                    case "videos":
+                        OpenShellFolder(Environment.SpecialFolder.MyVideos);
+                        break;
+                    case "computer":
+                        OpenShellUri("shell:MyComputerFolder");
+                        break;
+                    case "control":
+                        StartProcess("control.exe", null);
+                        break;
+                    case "devices":
+                        OpenShellUri("shell:::{A8A91A66-3A7D-4424-8D24-04E180695C7A}");
+                        break;
+                    case "defaults":
+                        StartProcess("explorer.exe",
+                            @"shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{17CD9488-1228-4B2F-88CE-4298E93E0966}");
+                        break;
+                    case "help":
+                        OpenShellUri("https://support.microsoft.com");
+                        break;
+                }
+            }
+            catch (Exception)
+            {
             }
         }
 

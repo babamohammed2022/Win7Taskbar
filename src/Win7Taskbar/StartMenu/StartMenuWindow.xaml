@@ -29,6 +29,32 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <local:InverseBooleanToVisibilityConverter x:Key="InvBoolToVis"/>
         <local:NullToVisibilityConverter x:Key="NullToVis"/>
+        <local:NonEmptyStringToVisibilityConverter x:Key="NonEmptyToVis"/>
+
+        <Style x:Key="StartInfotipStyle" TargetType="ToolTip">
+            <Setter Property="Placement" Value="Right"/>
+            <Setter Property="HorizontalOffset" Value="8"/>
+            <Setter Property="HasDropShadow" Value="True"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="MaxWidth" Value="280"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border BorderBrush="#8BA0B5" BorderThickness="1"
+                                Background="#F7FBFF" Padding="10,8"
+                                SnapsToDevicePixels="True">
+                            <Border.Effect>
+                                <DropShadowEffect Color="#40000000" BlurRadius="8"
+                                                  ShadowDepth="2" Opacity="0.35"/>
+                            </Border.Effect>
+                            <ContentPresenter/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
         <SolidColorBrush x:Key="Win7Hairline" Color="#D2E2F1"/>
         <SolidColorBrush x:Key="Win7SearchBand" Color="#F1F6FB"/>
@@ -529,7 +555,26 @@
                                  MouseLeave="OnRightListMouseLeave">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid>
+                                    <Grid ToolTipService.InitialShowDelay="400"
+                                          ToolTipService.BetweenShowDelay="0"
+                                          ToolTipService.ShowDuration="60000"
+                                          ToolTipService.Placement="Right"
+                                          ToolTipService.HorizontalOffset="8"
+                                          ToolTipService.IsEnabled="{Binding HasInfotip}">
+                                        <Grid.ToolTip>
+                                            <ToolTip Style="{StaticResource StartInfotipStyle}"
+                                                     Visibility="{Binding Infotip, Converter={StaticResource NonEmptyToVis}}">
+                                                <StackPanel MaxWidth="252">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               FontWeight="SemiBold" FontSize="12"
+                                                               Foreground="#1A1A1A"
+                                                               TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding Infotip}"
+                                                               FontSize="11" Foreground="#3A3A3A"
+                                                               TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                                </StackPanel>
+                                            </ToolTip>
+                                        </Grid.ToolTip>
                                         <Grid.Style>
                                             <Style TargetType="Grid">
                                                 <Setter Property="Height" Value="35"/>
@@ -573,7 +618,7 @@
                         <!-- Shutdown 94x22 at frame x 267-360, y 434-455. -->
                         <StackPanel Grid.Row="1" Orientation="Horizontal"
                                     HorizontalAlignment="Left" VerticalAlignment="Top"
-                                    Margin="8,10,0,0" Height="22">
+                                    Margin="10.5,10,0,0" Height="22">
                             <Border x:Name="ShutdownChrome" Width="72" Height="22"
                                     CornerRadius="3,0,0,3"
                                     BorderThickness="1,1,0,1" BorderBrush="#90FFFFFF"

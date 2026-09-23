@@ -445,9 +445,8 @@
                     </Image.RenderTransform>
                 </Image>
             </Grid>
-            <!-- Optional hover Jump List triangle (named for JumpList.cs).
-                 Drag-up stays available. Hidden when ShowJumpListHoverArrow
-                 is off. Visible on hover of a running program. -->
+            <!-- Named for JumpList.cs hit-testing. Always collapsed:
+                 jump lists open from left-press + drag-up only. -->
             <Path x:Name="JumpListArrow"
                   Data="M 0,5 L 8,5 L 4,1 Z"
                   Fill="#F0FFFFFF"
@@ -459,23 +458,8 @@
                   VerticalAlignment="Center"
                   Margin="0,0,2,0"
                   SnapsToDevicePixels="True"
-                  IsHitTestVisible="True">
-                <Path.Style>
-                    <Style TargetType="Path">
-                        <Setter Property="Visibility" Value="Collapsed"/>
-                        <Style.Triggers>
-                            <MultiDataTrigger>
-                                <MultiDataTrigger.Conditions>
-                                    <Condition Binding="{Binding IsRunning}" Value="True"/>
-                                    <Condition Binding="{Binding Path=ShowJumpListHoverArrow, Source={x:Static retrosettings:Settings.Instance}}" Value="True"/>
-                                    <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}" Value="True"/>
-                                </MultiDataTrigger.Conditions>
-                                <Setter Property="Visibility" Value="Visible"/>
-                            </MultiDataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Path.Style>
-            </Path>
+                  Visibility="Collapsed"
+                  IsHitTestVisible="False"/>
         </Grid>
     </DataTemplate>
 

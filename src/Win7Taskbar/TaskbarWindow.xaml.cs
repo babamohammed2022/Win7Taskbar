@@ -3029,7 +3029,7 @@ namespace Win7Taskbar
         }
 
         /// <summary>Finestra di tolleranza fra due click sull'orb.</summary>
-        private const int StartToggleDebounceMs = 300;
+        private const int StartToggleDebounceMs = 50;
 
         /// <summary>
         /// Ritardo del controllo di apertura del menu Start.

@@ -898,36 +898,61 @@ RECT JumpListWindow::WorkAreaForButton() const {
  * whole gesture (the cursor only moves the highlighted row). Gap and
  * margin are DPI-scaled; no unscaled offsets. */
 void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge) {
-    const int gap = Sc(kGap96);
-    const int margin = Sc(kEdgeMargin96);
-    const RECT wa = WorkAreaForButton();
+    /* Glue the popup to the Superbar button. The bar lives in the
+     * monitor reserved strip, which sits *outside* rcWork; clamping the
+     * attached axis to the work area lifted a bottom-bar list off the
+     * icon and made it float. Clamp only the free axis (horizontal for
+     * top/bottom bars, vertical for left/right bars). */
+    W7T_SEH_TRY {
+        try {
+            if (hwnd == nullptr || !IsWindow(hwnd)) {
+                return;
+            }
+            const int gap = Sc(kGap96);
+            const int margin = Sc(kEdgeMargin96);
+            const RECT wa = WorkAreaForButton();
 
-    const int w = m_width, h = m_totalH;
-    int x = button.left, y = button.top - h - gap;
-    switch (edge) {
-        case kEdgeTop:    /* bar at the top: the list opens BELOW */
-            y = button.bottom + gap;
-            break;
-        case kEdgeLeft:   /* vertical bar at the left: open to its right */
-            x = button.right + gap;
-            y = button.top;
-            break;
-        case kEdgeRight:  /* vertical bar at the right: open to its left */
-            x = button.left - w - gap;
-            y = button.top;
-            break;
-        case kEdgeBottom:
-        default:
-            break;
-    }
-    if (x + w > wa.right - margin)  x = wa.right - margin - w;
-    if (x < wa.left + margin)       x = wa.left + margin;
-    if (y + h > wa.bottom - margin) y = wa.bottom - margin - h;
-    if (y < wa.top + margin)        y = wa.top + margin;
+            const int w = m_width, h = m_totalH;
+            int x = button.left, y = button.top - h - gap;
+            switch (edge) {
+                case kEdgeTop:    /* bar at the top: the list opens BELOW */
+                    y = button.bottom + gap;
+                    break;
+                case kEdgeLeft:   /* vertical bar at the left: open to its right */
+                    x = button.right + gap;
+                    y = button.top;
+                    break;
+                case kEdgeRight:  /* vertical bar at the right: open to its left */
+                    x = button.left - w - gap;
+                    y = button.top;
+                    break;
+                case kEdgeBottom:
+                default:
+                    break;
+            }
+            switch (edge) {
+                case kEdgeLeft:
+                case kEdgeRight:
+                    if (y + h > wa.bottom - margin) y = wa.bottom - margin - h;
+                    if (y < wa.top + margin)        y = wa.top + margin;
+                    break;
+                case kEdgeTop:
+                case kEdgeBottom:
+                default:
+                    if (x + w > wa.right - margin)  x = wa.right - margin - w;
+                    if (x < wa.left + margin)       x = wa.left + margin;
+                    break;
+            }
 
-    SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    m_popupRect = RECT{ x, y, x + w, y + h };
+            SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
+                         SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            m_popupRect = RECT{ x, y, x + w, y + h };
+        } catch (...) {
+            LogTagged(L"JUMPLIST", L"Place threw - leaving the last rectangle");
+        }
+    } W7T_SEH_CATCH {
+        LogTagged(L"JUMPLIST", L"Place SEH - leaving the last rectangle");
+    } W7T_SEH_END
 }
 
 /* Interaction area of the gesture: popup, taskbar button and everything

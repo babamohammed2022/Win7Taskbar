@@ -21,6 +21,11 @@ namespace Win7Taskbar.StartMenu
         public string Path { get; set; } = string.Empty;
         public string Target { get; set; } = string.Empty;
         public string Folder { get; set; } = string.Empty;
+        /// <summary>
+        /// Right-pane hover flyout. Original wording; not a Microsoft string.
+        /// </summary>
+        public string? Infotip { get; set; }
+        public bool HasInfotip => !string.IsNullOrWhiteSpace(Infotip);
         public bool IsSeparator { get; set; }
         public bool IsAllPrograms { get; set; }
         public bool IsFolder { get; set; }

@@ -55,7 +55,7 @@ namespace RetroBar.Utilities
         // v3.3: ON by default (lente a sinistra dello Start durante
         // l'esecuzione); si disattiva dalle Proprieta'.
         private bool _enableAppSearch = true;
-        private bool _showJumpListHoverArrow = true;
+        private bool _showJumpListHoverArrow = false;
         private bool _showControlCenterButton;
         private bool _showNotificationCenterButton;
         // Windows 11 only: 0 automatic, 1 modern System32, 2 legacy SysWOW64.
@@ -210,7 +210,7 @@ namespace RetroBar.Utilities
 
         /// <summary>
         /// Hover triangle on a running Superbar button that opens the
-        /// Jump List. Drag-up remains available either way. Default on.
+        /// Jump List. Drag-up remains the only default trigger. Default off.
         /// </summary>
         public bool ShowJumpListHoverArrow
         {

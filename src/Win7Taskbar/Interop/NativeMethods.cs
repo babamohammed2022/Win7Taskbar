@@ -1680,5 +1680,44 @@ namespace Win7Taskbar.Interop
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool SendNotifyMessage(IntPtr hWnd, uint msg,
                                                     IntPtr wParam, IntPtr lParam);
+
+        /* Public powrprof GetPwrCapabilities. HiberFilePresent is the
+         * 9th BOOLEAN (offset 8); SystemS4 is offset 6. A byte buffer
+         * avoids packing SYSTEM_POWER_CAPABILITIES, which grew across
+         * Windows versions. */
+        [DllImport("powrprof.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetPwrCapabilities(IntPtr lpspc);
+
+        public static bool IsHibernateSupported()
+        {
+            IntPtr buf = IntPtr.Zero;
+            try
+            {
+                buf = Marshal.AllocHGlobal(256);
+                for (int i = 0; i < 256; i++)
+                {
+                    Marshal.WriteByte(buf, i, 0);
+                }
+                if (!GetPwrCapabilities(buf))
+                {
+                    return false;
+                }
+                byte systemS4 = Marshal.ReadByte(buf, 6);
+                byte hiberFile = Marshal.ReadByte(buf, 8);
+                return systemS4 != 0 && hiberFile != 0;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+            finally
+            {
+                if (buf != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(buf);
+                }
+            }
+        }
     }
 }

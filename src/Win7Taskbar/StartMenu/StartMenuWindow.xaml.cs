@@ -40,6 +40,17 @@ namespace Win7Taskbar.StartMenu
             => Binding.DoNothing;
     }
 
+    internal sealed class NonEmptyStringToVisibilityConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+            => !string.IsNullOrWhiteSpace(value as string)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => Binding.DoNothing;
+    }
+
     public partial class StartMenuWindow : Window
     {
         private readonly NativeBridge _bridge;
@@ -100,18 +111,18 @@ namespace Win7Taskbar.StartMenu
                 }
                 else
                 {
-                    /* Bottom (or top) bar: sit at the left screen corner.
+                    /* Bottom (or top) bar: sit above the Start button.
                      * Outer chrome has a 10 DIP shadow margin — pull left
-                     * so the visible frame is flush with the edge. */
-                    left = taskbarScreen.Left - 10;
+                     * so the visible frame is flush with the orb. Frame
+                     * 476 + photo overhang 25; window Height 511 includes
+                     * a 10 DIP gap that used to float the chrome. */
+                    left = (orbScreen.Width > 0 ? orbScreen.Left : taskbarScreen.Left) - 10;
                     bool topEdge = taskbarScreen.Top < 80;
+                    const double photoOverhangDip = 25;
+                    const double frameHeightDip = 476;
                     top = topEdge
                         ? taskbarScreen.Bottom
-                        : taskbarScreen.Top - height;
-                    if (top < 0)
-                    {
-                        top = 0;
-                    }
+                        : taskbarScreen.Top - photoOverhangDip - frameHeightDip;
                 }
                 Left = left;
                 Top = top;
@@ -121,6 +132,10 @@ namespace Win7Taskbar.StartMenu
                 try { _clickAway.Start(); } catch (Exception) { }
                 SearchBox.Focus();
                 Keyboard.Focus(SearchBox);
+            }
+            catch (Exception)
+            {
+                /* keep the last known placement */
             }
             finally
             {

@@ -3,8 +3,10 @@
 // Licensed under the GNU General Public License version 3 or later.
 // Written from scratch. No Microsoft bitmaps. No Open-Shell source copied.
 //
-// Extract the largest available shell icon, then downscale with GDI+
-// HighQualityBicubic. ExtractIconEx / SHGetFileInfo alone produced the
+// For sizes above 16px, extract the largest available shell icon, then
+// downscale with GDI+ HighQualityBicubic. At 16px (All Programs tree)
+// use SHIL_SMALL / SHGFI_SMALLICON so folders are native 16x16, not a
+// jumbo downscale. ExtractIconEx / SHGetFileInfo alone produced the
 // low-res hover fade the user reported.
 
 using System;
@@ -25,84 +27,127 @@ namespace Win7Taskbar.StartMenu
     internal static class StartMenuIcons
     {
         private const uint ShgfiSysIconIndex = 0x00004000;
-        private const int ShilJumbo = 4;
+        private const int ShilLarge = 0;
+        private const int ShilSmall = 1;
         private const int ShilExtraLarge = 2;
+        private const int ShilJumbo = 4;
         private const uint IldTransparent = 0x00000001;
         private static readonly Guid IidIImageList =
             new("46EB5926-582E-4017-9FDF-E8998DAA0950");
 
         public static ImageSource? FromPath(string? path, string? target, int size)
         {
-            size = size <= 0 ? 32 : size;
-            string probe = !string.IsNullOrEmpty(target) ? target : (path ?? string.Empty);
-            ImageSource? src = FromShellImageList(probe, size);
-            if (src != null)
+            try
             {
-                return src;
-            }
-
-            IntPtr native = NativeMethods.W7T_GetLinkIcon(
-                string.IsNullOrEmpty(path) ? null : path,
-                string.IsNullOrEmpty(target) ? null : target,
-                1);
-            src = FromHicon(native, size, destroy: true);
-            if (src != null)
-            {
-                return src;
-            }
-
-            if (!string.IsNullOrEmpty(probe))
-            {
-                src = FromShGetFileInfo(probe, File.Exists(probe), size);
+                size = size <= 0 ? 32 : size;
+                string probe = !string.IsNullOrEmpty(target) ? target : (path ?? string.Empty);
+                ImageSource? src = FromShellImageList(probe, size);
                 if (src != null)
                 {
                     return src;
                 }
-            }
 
-            if (!string.IsNullOrEmpty(path) &&
-                !string.Equals(path, probe, StringComparison.OrdinalIgnoreCase))
-            {
-                return FromShGetFileInfo(path, File.Exists(path), size);
-            }
-            return null;
-        }
+                IntPtr native = NativeMethods.W7T_GetLinkIcon(
+                    string.IsNullOrEmpty(path) ? null : path,
+                    string.IsNullOrEmpty(target) ? null : target,
+                    1);
+                src = FromHicon(native, size, destroy: true);
+                if (src != null)
+                {
+                    return src;
+                }
 
-        public static ImageSource? FromParsingName(string? probe, int size)
-        {
-            if (string.IsNullOrEmpty(probe))
-            {
+                if (!string.IsNullOrEmpty(probe))
+                {
+                    src = FromShGetFileInfo(probe, File.Exists(probe) || Directory.Exists(probe), size);
+                    if (src != null)
+                    {
+                        return src;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(path) &&
+                    !string.Equals(path, probe, StringComparison.OrdinalIgnoreCase))
+                {
+                    return FromShGetFileInfo(path, File.Exists(path) || Directory.Exists(path), size);
+                }
                 return null;
-            }
-            if (probe.StartsWith("::{", StringComparison.Ordinal) ||
-                probe.StartsWith("shell:", StringComparison.OrdinalIgnoreCase))
-            {
-                return FromPidl(probe, size) ?? FromShGetFileInfo(probe, exists: true, size);
-            }
-            string expanded = Environment.ExpandEnvironmentVariables(probe);
-            return FromPath(expanded, expanded, size);
-        }
-
-        public static ImageSource? FromDll(string dll, int index, int size)
-        {
-            try
-            {
-                string path = Path.Combine(Environment.SystemDirectory, dll);
-                uint n = NativeMethods.ExtractIconEx(path, index,
-                    out IntPtr large, out IntPtr small, 1);
-                if (small != IntPtr.Zero && small != large)
-                {
-                    NativeMethods.DestroyIcon(small);
-                }
-                if (n == 0 || large == IntPtr.Zero)
-                {
-                    return null;
-                }
-                return FromHicon(large, size, destroy: true);
             }
             catch (Exception)
             {
                 return null;
+            }
+        }
+
+        public static ImageSource? FromParsingName(string? probe, int size)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(probe))
+                {
+                    return null;
+                }
+                if (probe.StartsWith("::{", StringComparison.Ordinal) ||
+                    probe.StartsWith("shell:", StringComparison.OrdinalIgnoreCase))
+                {
+                    return FromPidl(probe, size) ?? FromShGetFileInfo(probe, exists: true, size);
+                }
+                string expanded = Environment.ExpandEnvironmentVariables(probe);
+                return FromPath(expanded, expanded, size);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        public static ImageSource? FromDll(string dll, int index, int size)
+        {
+            IntPtr large = IntPtr.Zero;
+            IntPtr small = IntPtr.Zero;
+            try
+            {
+                string path = Path.Combine(Environment.SystemDirectory, dll);
+                uint n = NativeMethods.ExtractIconEx(path, index,
+                    out large, out small, 1);
+                if (n == 0)
+                {
+                    return null;
+                }
+                IntPtr pick = (size <= 16 && small != IntPtr.Zero) ? small : large;
+                if (pick == IntPtr.Zero)
+                {
+                    return null;
+                }
+                if (large != IntPtr.Zero && large != pick)
+                {
+                    NativeMethods.DestroyIcon(large);
+                    large = IntPtr.Zero;
+                }
+                if (small != IntPtr.Zero && small != pick && small != large)
+                {
+                    NativeMethods.DestroyIcon(small);
+                    small = IntPtr.Zero;
+                }
+                large = IntPtr.Zero;
+                small = IntPtr.Zero;
+                return FromHicon(pick, size, destroy: true);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                if (small != IntPtr.Zero && small != large)
+                {
+                    NativeMethods.DestroyIcon(small);
+                    small = IntPtr.Zero;
+                }
+                if (large != IntPtr.Zero)
+                {
+                    NativeMethods.DestroyIcon(large);
+                }
             }
         }
 
@@ -164,7 +209,9 @@ namespace Win7Taskbar.StartMenu
                     }
                 }
                 flags = NativeMethods.SHGFI_PIDL | NativeMethods.SHGFI_ICON |
-                        NativeMethods.SHGFI_LARGEICON;
+                        (size <= 16
+                            ? NativeMethods.SHGFI_SMALLICON
+                            : NativeMethods.SHGFI_LARGEICON);
                 info = new NativeMethods.SHFILEINFOW();
                 result = NativeMethods.SHGetFileInfoPidl(
                     pidl, 0, ref info,
@@ -226,12 +273,27 @@ namespace Win7Taskbar.StartMenu
             try
             {
                 var info = new NativeMethods.SHFILEINFOW();
-                uint flags = NativeMethods.SHGFI_ICON | NativeMethods.SHGFI_LARGEICON;
+                uint flags = NativeMethods.SHGFI_ICON |
+                    (size <= 16
+                        ? NativeMethods.SHGFI_SMALLICON
+                        : NativeMethods.SHGFI_LARGEICON);
                 uint attr = 0;
                 if (!exists)
                 {
                     flags |= NativeMethods.SHGFI_USEFILEATTRIBUTES;
                     attr = NativeMethods.FILE_ATTRIBUTE_NORMAL;
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(probe) &&
+                            (probe.EndsWith("\\", StringComparison.Ordinal) ||
+                             Directory.Exists(probe)))
+                        {
+                            attr = NativeMethods.FILE_ATTRIBUTE_DIRECTORY;
+                        }
+                    }
+                    catch (Exception)
+                    {
+                    }
                 }
                 IntPtr result = NativeMethods.SHGetFileInfoW(
                     probe, attr, ref info,
@@ -254,6 +316,13 @@ namespace Win7Taskbar.StartMenu
             if (index < 0)
             {
                 return null;
+            }
+            if (size <= 16)
+            {
+                /* Open-Shell Programs tree uses SMALL_ICON (16px at 96 DPI).
+                 * Jumbo/XL downscale made All Programs folders look soft. */
+                return FromImageList(ShilSmall, index, size)
+                    ?? FromImageList(ShilLarge, index, size);
             }
             ImageSource? jumbo = FromImageList(ShilJumbo, index, size);
             if (jumbo != null)
@@ -300,6 +369,26 @@ namespace Win7Taskbar.StartMenu
             {
                 using Icon icon = Icon.FromHandle(hicon);
                 using Bitmap src = icon.ToBitmap();
+                if (src.Width == size && src.Height == size)
+                {
+                    IntPtr native = src.GetHbitmap(
+                        System.Drawing.Color.FromArgb(0, 0, 0, 0));
+                    try
+                    {
+                        BitmapSource bmp = Imaging.CreateBitmapSourceFromHBitmap(
+                            native, IntPtr.Zero, Int32Rect.Empty,
+                            BitmapSizeOptions.FromEmptyOptions());
+                        if (bmp.CanFreeze)
+                        {
+                            bmp.Freeze();
+                        }
+                        return bmp;
+                    }
+                    finally
+                    {
+                        NativeMethods.DeleteObject(native);
+                    }
+                }
                 using Bitmap dest = new(size, size, GdiPixelFormat.Format32bppPArgb);
                 using (Graphics g = Graphics.FromImage(dest))
                 {
