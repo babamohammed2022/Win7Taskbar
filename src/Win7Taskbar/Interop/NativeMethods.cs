@@ -484,7 +484,55 @@ namespace Win7Taskbar.Interop
             // v1.21.37: current autostart state (RetroBar logic, AutoStart.cs).
             int autoStart,
             // v1.21.43: taskbar position (0..3) + lock (RetroBar Edge/LockTaskbar).
-            int taskbarPosition, int lockTaskbar);
+            int taskbarPosition, int lockTaskbar,
+            // v1.3.0: Windows key opens our Start Menu (1) or Windows (0).
+            int windowsKeyOpensOurMenu);
+
+        [StructLayout(LayoutKind.Sequential, Pack = 8, CharSet = CharSet.Unicode)]
+        public struct W7TStartMenuEntry
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string Name;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string Path;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string Target;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string Folder;
+            public int Source;
+            public int UsageCount;
+        }
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_StartMenuScan();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_StartMenuGetCount();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_StartMenuGetEntry(int index, out W7TStartMenuEntry entry);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+        public static extern int W7T_StartMenuQuery(string query, [Out] int[] indices, int capacity);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_StartMenuPower(int action);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+        public static extern int W7T_StartMenuLaunch(string path);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+        public static extern int W7T_StartMenuHasJumpList(string path);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+        public static extern int W7T_StartMenuFileSearchStart(string query);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+        public static extern int W7T_StartMenuFileSearchPoll(
+            [Out] char[] buffer, int capacityChars);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_StartMenuFileSearchCancel();
 
         /// <summary>
         /// v1.21.7: publishes the extra settings. flyoutColorMode 0 = system
@@ -1026,6 +1074,8 @@ namespace Win7Taskbar.Interop
          * (stessa fonte della shell). */
         public const uint SHGFI_ICON = 0x000000100;
         public const uint SHGFI_SMALLICON = 0x000000001;
+        public const uint SHGFI_LARGEICON = 0x000000000;
+        public const uint SHGFI_USEFILEATTRIBUTES = 0x000000010;
         /* v2.6.1: riempie SHFILEINFOW.szDisplayName col nome che mostra
          * Explorer (nasconde le estensioni registrate: "File.lnk" -> "File"). */
         public const uint SHGFI_DISPLAYNAME = 0x000000200;

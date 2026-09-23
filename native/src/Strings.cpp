@@ -983,7 +983,10 @@ constexpr ExtraStrings kExtraIt = {
     L"In alto",
     L"A sinistra",
     L"A destra",
-    L"Blocca la barra delle applicazioni"
+    L"Blocca la barra delle applicazioni",
+    L"Tasto Windows apre:",
+    L"Il nostro menu Start",
+    L"Windows"
 
 };
 constexpr ExtraStrings kExtraEn = {
@@ -1014,7 +1017,10 @@ constexpr ExtraStrings kExtraEn = {
     L"Top",
     L"Left",
     L"Right",
-    L"Lock the taskbar"
+    L"Lock the taskbar",
+    L"Windows key opens:",
+    L"Our Start Menu",
+    L"Windows"
 
 };
 constexpr ExtraStrings kExtraEs = {
@@ -1046,7 +1052,10 @@ constexpr ExtraStrings kExtraEs = {
     L"Arriba",
     L"Izquierda",
     L"Derecha",
-    L"Bloquear la barra de tareas"
+    L"Bloquear la barra de tareas",
+    L"La tecla Windows abre:",
+    L"Nuestro menú Inicio",
+    L"Windows"
 
 };
 constexpr ExtraStrings kExtraFr = {
@@ -1078,7 +1087,10 @@ constexpr ExtraStrings kExtraFr = {
     L"En haut",
     L"À gauche",
     L"À droite",
-    L"Verrouiller la barre des tâches"
+    L"Verrouiller la barre des tâches",
+    L"La touche Windows ouvre :",
+    L"Notre menu Démarrer",
+    L"Windows"
 
 };
 constexpr ExtraStrings kExtraDe = {
@@ -1110,7 +1122,10 @@ constexpr ExtraStrings kExtraDe = {
     L"Oben",
     L"Links",
     L"Rechts",
-    L"Taskleiste sperren"
+    L"Taskleiste sperren",
+    L"Windows-Taste öffnet:",
+    L"Unser Startmenü",
+    L"Windows"
 
 };
 constexpr ExtraStrings kExtraPt = {
@@ -1142,7 +1157,10 @@ constexpr ExtraStrings kExtraPt = {
     L"Em cima",
     L"À esquerda",
     L"À direita",
-    L"Bloquear a barra de tarefas"
+    L"Bloquear a barra de tarefas",
+    L"A tecla Windows abre:",
+    L"O nosso menu Iniciar",
+    L"Windows"
 
 };
 constexpr ExtraStrings kExtraPl = {
@@ -1174,7 +1192,10 @@ constexpr ExtraStrings kExtraPl = {
     L"Na górze",
     L"Na lewo",
     L"Na prawo",
-    L"Zablokuj pasek zadań"
+    L"Zablokuj pasek zadań",
+    L"Klawisz Windows otwiera:",
+    L"Nasze menu Start",
+    L"Windows"
 
 };
 constexpr ExtraStrings kExtraRu = {
@@ -1206,7 +1227,10 @@ constexpr ExtraStrings kExtraRu = {
     L"Вверху",
     L"Слева",
     L"Справа",
-    L"Заблокировать панель задач"
+    L"Заблокировать панель задач",
+    L"Клавиша Windows открывает:",
+    L"Наше меню Пуск",
+    L"Windows"
 
 };
 constexpr ExtraStrings kExtraJa = {
@@ -1237,7 +1261,10 @@ constexpr ExtraStrings kExtraJa = {
     L"上",
     L"左",
     L"右",
-    L"タスク バーをロックする"
+    L"タスク バーをロックする",
+    L"Windows キーの動作:",
+    L"このスタート メニュー",
+    L"Windows"
 
 };
 constexpr ExtraStrings kExtraZh = {
@@ -1267,7 +1294,10 @@ constexpr ExtraStrings kExtraZh = {
     L"上",
     L"左",
     L"右",
-    L"锁定任务栏"
+    L"锁定任务栏",
+    L"Windows 键打开:",
+    L"我们的开始菜单",
+    L"Windows"
 
 };
 constexpr ExtraStrings kExtraAr = {
@@ -1298,7 +1328,10 @@ constexpr ExtraStrings kExtraAr = {
     L"أعلى",
     L"يسار",
     L"يمين",
-    L"قفل شريط المهام"
+    L"قفل شريط المهام",
+    L"مفتاح Windows يفتح:",
+    L"قائمة ابدأ الخاصة بنا",
+    L"Windows"
 
 };
 

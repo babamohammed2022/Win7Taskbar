@@ -189,30 +189,71 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
             break;
     }
 
-    /* ABM_QUERYPOS lascia che il sistema aggiusti il rettangolo tenendo
-     * conto delle altre AppBar gia' registrate. */
+    /* ABM_QUERYPOS leaves Explorer's still-registered taskbar in the way
+     * and would park us ON TOP of that bar. Re-pin to the physical monitor
+     * edge so our bar is anchored to the screen, not stacked above another
+     * taskbar. Native Explorer is hidden separately (ABS_AUTOHIDE). */
     SHAppBarMessage(ABM_QUERYPOS, &abd);
 
-    /* Dopo la query ricomponiamo lo spessore richiesto sul bordo scelto
-     * (l'aggiustamento del sistema sposta il lato opposto: lo riportiamo,
-     * come fa anche ManagedShell::ABSetPos). */
     switch (edge) {
         case W7T_EDGE_TOP:
-            abd.rc.bottom = abd.rc.top + sizePx;
+            abd.rc.left   = monitor.left;
+            abd.rc.top    = monitor.top;
+            abd.rc.right  = monitor.right;
+            abd.rc.bottom = monitor.top + sizePx;
             break;
         case W7T_EDGE_LEFT:
-            abd.rc.right = abd.rc.left + sizePx;
+            abd.rc.left   = monitor.left;
+            abd.rc.top    = monitor.top;
+            abd.rc.right  = monitor.left + sizePx;
+            abd.rc.bottom = monitor.bottom;
             break;
         case W7T_EDGE_RIGHT:
-            abd.rc.left = abd.rc.right - sizePx;
+            abd.rc.left   = monitor.right - sizePx;
+            abd.rc.top    = monitor.top;
+            abd.rc.right  = monitor.right;
+            abd.rc.bottom = monitor.bottom;
             break;
         case W7T_EDGE_BOTTOM:
         default:
-            abd.rc.top = abd.rc.bottom - sizePx;
+            abd.rc.left   = monitor.left;
+            abd.rc.top    = monitor.bottom - sizePx;
+            abd.rc.right  = monitor.right;
+            abd.rc.bottom = monitor.bottom;
             break;
     }
 
     SHAppBarMessage(ABM_SETPOS, &abd);
+
+    /* SETPOS can still shrink us off the edge; force the window onto the
+     * monitor side we asked for. */
+    switch (edge) {
+        case W7T_EDGE_TOP:
+            abd.rc.left   = monitor.left;
+            abd.rc.top    = monitor.top;
+            abd.rc.right  = monitor.right;
+            abd.rc.bottom = monitor.top + sizePx;
+            break;
+        case W7T_EDGE_LEFT:
+            abd.rc.left   = monitor.left;
+            abd.rc.top    = monitor.top;
+            abd.rc.right  = monitor.left + sizePx;
+            abd.rc.bottom = monitor.bottom;
+            break;
+        case W7T_EDGE_RIGHT:
+            abd.rc.left   = monitor.right - sizePx;
+            abd.rc.top    = monitor.top;
+            abd.rc.right  = monitor.right;
+            abd.rc.bottom = monitor.bottom;
+            break;
+        case W7T_EDGE_BOTTOM:
+        default:
+            abd.rc.left   = monitor.left;
+            abd.rc.top    = monitor.bottom - sizePx;
+            abd.rc.right  = monitor.right;
+            abd.rc.bottom = monitor.bottom;
+            break;
+    }
 
     m_edge = edge;
     m_size = sizePx;

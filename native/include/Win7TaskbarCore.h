@@ -432,7 +432,38 @@ W7T_API void    W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t autoStart,
         /* v1.21.43: taskbar edge and lock state, appended to preserve the ABI
          * ordering used by older managed callers. */
-        int32_t taskbarPosition, int32_t lockTaskbar);
+        int32_t taskbarPosition, int32_t lockTaskbar,
+        /* v1.3.0: Windows key opens our Start Menu (1) or Windows (0). */
+        int32_t windowsKeyOpensOurMenu);
+
+/* ------------------------------------------------------------------ */
+/*  Start Menu (in-process WPF host + native scan/index/power)         */
+/* ------------------------------------------------------------------ */
+
+#pragma pack(push, 8)
+typedef struct W7T_StartMenuEntry {
+    wchar_t name[W7T_MAX_TITLE];
+    wchar_t path[W7T_MAX_PATH_];
+    wchar_t target[W7T_MAX_PATH_];
+    wchar_t folder[W7T_MAX_PATH_];
+    int32_t source;       /* 0 per-user, 1 all-users, 2 UWP */
+    int32_t usageCount;
+} W7T_StartMenuEntry;
+#pragma pack(pop)
+
+W7T_API int32_t W7T_CALL W7T_StartMenuScan(void);
+W7T_API int32_t W7T_CALL W7T_StartMenuGetCount(void);
+W7T_API int32_t W7T_CALL W7T_StartMenuGetEntry(int32_t index,
+                                              W7T_StartMenuEntry* out);
+W7T_API int32_t W7T_CALL W7T_StartMenuQuery(const wchar_t* query,
+                                           int32_t* indices, int32_t capacity);
+W7T_API int32_t W7T_CALL W7T_StartMenuPower(int32_t action);
+W7T_API int32_t W7T_CALL W7T_StartMenuLaunch(const wchar_t* path);
+W7T_API int32_t W7T_CALL W7T_StartMenuHasJumpList(const wchar_t* path);
+W7T_API int32_t W7T_CALL W7T_StartMenuFileSearchStart(const wchar_t* query);
+W7T_API int32_t W7T_CALL W7T_StartMenuFileSearchPoll(wchar_t* buffer,
+                                                    int32_t capacityChars);
+W7T_API void    W7T_CALL W7T_StartMenuFileSearchCancel(void);
 
 /* v1.21.7: secondary settings published by the frontend (which stores them
  * in its own configuration: the core writes no file). The privacy mode

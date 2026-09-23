@@ -182,6 +182,10 @@ namespace Win7Taskbar
                 _taskbar = new TaskbarWindow(_bridge);
                 _taskbar.Show();
 
+                StartupGuard.Enter("start-menu");
+                StartMenu.StartMenuHost.Start(_bridge);
+                _taskbar.ReassertAppBar();
+
                 StartupGuard.Enter("pronto");
                 StartupGuard.Complete();
                 StartupGuard.Note("avvio completato" +
@@ -263,6 +267,7 @@ namespace Win7Taskbar
         {
             // L'ordine conta: prima la finestra (che deregistra l'AppBar e
             // ripristina la taskbar nativa), poi il core.
+            StartMenu.StartMenuHost.Stop();
             _taskbar?.ShutdownTaskbar();
             _bridge?.Dispose();
 
@@ -395,6 +400,7 @@ namespace Win7Taskbar
 
             if (Current is App app)
             {
+                StartMenu.StartMenuHost.Stop();
                 app._taskbar?.ShutdownTaskbar();
             }
             forceExit.Dispose();   // pulizia riuscita: annulla la guardia

@@ -338,6 +338,11 @@ namespace Win7Taskbar.Utilities
                 return false;
             }
             string cls = sb.ToString();
+            if (cls.StartsWith("HwndWrapper", StringComparison.Ordinal))
+            {
+                return IsOurStartMenu(hwnd);
+            }
+
             if (!StartHostClasses.Contains(cls))
             {
                 return false;
@@ -372,6 +377,43 @@ namespace Win7Taskbar.Utilities
                 }
             }
             return true;
+        }
+
+        private static bool IsOurStartMenu(IntPtr hwnd)
+        {
+            if (!IsWindowVisible(hwnd))
+            {
+                return false;
+            }
+            var title = new StringBuilder(256);
+            if (GetWindowText(hwnd, title, title.Capacity) <= 0)
+            {
+                return false;
+            }
+            if (!string.Equals(title.ToString(), "Win7Taskbar Start Menu",
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+            try
+            {
+                GetWindowThreadProcessId(hwnd, out uint pid);
+                if (pid == 0)
+                {
+                    return false;
+                }
+                using Process p = Process.GetProcessById((int)pid);
+                return string.Equals(p.ProcessName, "Win7Taskbar",
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
         }
 
         /// <summary>

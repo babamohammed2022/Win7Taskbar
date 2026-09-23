@@ -1021,6 +1021,24 @@ bool IsTaskbarWindow(HWND hwnd) {
         return false;
     }
 
+    /* Our Start Menu is a top-level WPF window in this process. It must
+     * never appear as a Superbar app, even if ShowInTaskbar/TOOLWINDOW
+     * did not stick on a given Windows build. */
+    wchar_t caption[64] = {};
+    if (GetWindowTextW(hwnd, caption, 64) > 0 &&
+        wcscmp(caption, L"Win7Taskbar Start Menu") == 0) {
+        return false;
+    }
+    wchar_t cls[64] = {};
+    if (GetClassNameW(hwnd, cls, 64) > 0 &&
+        wcsncmp(cls, L"HwndWrapper[", 12) == 0) {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(hwnd, &pid);
+        if (pid == GetCurrentProcessId()) {
+            return false;
+        }
+    }
+
     /* Regola di RetroBar/ManagedShell (ApplicationWindow.CanAddToTaskbar):
      * le finestre WS_EX_NOACTIVATE non compaiono nella taskbar, a meno che
      * WS_EX_APPWINDOW non lo imponga. E' cosi' che RetroBar non scambia per

@@ -148,6 +148,14 @@ if ($SkipNative) {
     if ($builtInject.Count -gt 0) {
         Copy-Item $builtInject[0] (Join-Path $dist 'W7TInject.dll') -Force
     }
+    $builtHelper = @(@(
+        (Join-Path $buildDir "$Configuration/Win7StartHelper.exe"),
+        (Join-Path $buildDir 'Win7StartHelper.exe')
+    ) | Where-Object { Test-Path $_ } |
+        Sort-Object { (Get-Item $_).LastWriteTimeUtc } -Descending)
+    if ($builtHelper.Count -gt 0) {
+        Copy-Item $builtHelper[0] (Join-Path $dist 'Win7StartHelper.exe') -Force
+    }
 }
 
 $coreDll = Join-Path $dist 'Win7TaskbarCore.dll'
@@ -202,6 +210,12 @@ if (Test-Path $inject) {
 } else {
     Write-Host '    (W7TInject.dll not present in dist/: the frozen clock flyout will be skipped)' -ForegroundColor Yellow
 }
+$helper = Join-Path $dist 'Win7StartHelper.exe'
+if (Test-Path $helper) {
+    Copy-Item $helper $out -Force
+} else {
+    Fail 'dist/Win7StartHelper.exe not found: the Windows-key helper is required'
+}
 
 $readme = @'
 Win7Taskbar - ready to run
@@ -223,7 +237,7 @@ Set-Content -Path (Join-Path $out 'LEGGIMI.txt') -Value $readme -Encoding UTF8
 Step 'Verifying the package'
 $exe = Join-Path $out 'Win7Taskbar.exe'
 if (-not (Test-Path $exe)) { Fail 'Win7Taskbar.exe is missing from the package' }
-foreach ($required in @('Win7TaskbarCore.dll', 'System.Private.CoreLib.dll', 'PresentationFramework.dll', 'PresentationCore.dll', 'WindowsBase.dll')) {
+foreach ($required in @('Win7TaskbarCore.dll', 'Win7StartHelper.exe', 'System.Private.CoreLib.dll', 'PresentationFramework.dll', 'PresentationCore.dll', 'WindowsBase.dll')) {
     if (-not (Test-Path (Join-Path $out $required))) {
         Fail "$required is missing: the package is NOT self-contained"
     }

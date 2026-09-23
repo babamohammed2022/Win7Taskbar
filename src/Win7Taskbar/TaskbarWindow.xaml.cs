@@ -113,41 +113,8 @@ namespace Win7Taskbar
             }
         }
 
-        /* =====================================================================
-         * ROTAZIONE TASKBAR (1.21.28) - DISATTIVATA.
-         *
-         * La barra resta sempre in BASSO: geometria, AppBar, orientamento del
-         * tema e anchor delle anteprime DWM sono quelli di sempre. Il codice
-         * della rotazione e' tenuto qui commentato, non cancellato.
-         *
-         * Perche' era rotta: il valore salvato ("posizione") e' codificato
-         * 0=Basso, 1=Alto, 2=Sinistra, 3=Destra, mentre l'enum esistente e'
-         * TaskbarEdge { Left=0, Top=1, Right=2, Bottom=3 }. Il cast diretto
-         * (TaskbarEdge)position spostava ogni scelta di una posizione - con
-         * "A destra" (3) si finiva su Bottom - e SetThumbnailEdge riceveva
-         * l'edge sbagliato, quindi le anteprime DWM erano ancorate al lato
-         * sbagliato. Prima di riattivare qualunque cosa serve una conversione
-         * esplicita, mai un cast:
-         *
-         *     // posizione (persistita)   -> TaskbarEdge / AppBarEdgeValue
-         *     // 0 Basso                  -> TaskbarEdge.Bottom (3)
-         *     // 1 Alto                   -> TaskbarEdge.Top    (1)
-         *     // 2 Sinistra               -> TaskbarEdge.Left   (0)
-         *     // 3 Destra                 -> TaskbarEdge.Right  (2)
-         *     private static TaskbarEdge EdgeFromPosition(int position) =>
-         *         position switch
-         *         {
-         *             1 => TaskbarEdge.Top,
-         *             2 => TaskbarEdge.Left,
-         *             3 => TaskbarEdge.Right,
-         *             _ => TaskbarEdge.Bottom,
-         *         };
-         *
-         * Il resto dell'infrastruttura (AppBarService accetta i 4 edge,
-         * ComputeTaskPreviewPlacement ragiona gia' per TaskbarEdge, i temi
-         * hanno i DataTrigger su Orientation) resta dov'e' e non e' stato
-         * toccato: la sola cosa che mancava era la traduzione dei valori.
-         * ===================================================================== */
+        /* Rotation Bottom/Top/Left/Right is live (EdgeFromPosition).
+         * User-controlled thickness resize was removed. */
 
         internal TaskbarWindow(NativeBridge bridge)
         {
@@ -163,11 +130,9 @@ namespace Win7Taskbar
             DataContext = _viewModel;
 
             Loaded += OnLoaded;
-            // v1.21.43: resize col drag quando la barra e' sbloccata.
-            MouseMove += ResizeGrip_MouseMove;
-            MouseLeftButtonDown += ResizeGrip_MouseDown;
-            MouseLeftButtonUp += ResizeGrip_MouseUp;
             Closing += OnClosing;
+            LocationChanged += (_, _) => PublishStartMenuAnchor();
+            SizeChanged += (_, _) => PublishStartMenuAnchor();
         }
 
         // ===============================================================
@@ -1941,159 +1906,21 @@ namespace Win7Taskbar
             };
 
         /// <summary>
-        /// Spessore barra in DIP: resize in corso (transiente) > impostazione
-        /// dell'utente (TaskbarHeight) > altezza del tema. Su Sinistra/Destra
-        /// e' la LARGHEZZA della barra.
+        /// Fixed theme thickness in DIP. Left/Right use this as WIDTH.
+        /// User-controlled resizing was removed: the bar is always the
+        /// Windows 7 Superbar height from the active theme.
         /// </summary>
-        private double TaskbarThicknessDip
-        {
-            get
-            {
-                if (_resizeThicknessDip > 0) return _resizeThicknessDip;
-                var st = RetroBar.Utilities.Settings.Instance;
-                double saved = st.TaskbarHeight;
-                double thickness = saved > 0 ? saved : ThemeTaskbarHeightDip;
-                return Math.Max(24.0, thickness);
-            }
-        }
-
-        // v1.21.43 - resize col drag (semantica RetroBar: barra SBLOCCATA ->
-        // trascinando il bordo libero si cambia spessore; su Basso/Alto cresce
-        // in righe, su Sinistra/Destra in larghezza). Transiente durante il
-        // drag; si salva in Settings.TaskbarHeight solo al MouseUp.
-        private double _resizeThicknessDip;
-        private Point _resizeStartPos;
-        private double _resizeStartThickness;
-        private bool _resizing;
+        private double TaskbarThicknessDip => Math.Max(1.0, ThemeTaskbarHeightDip);
 
         /// <summary>
         /// Riga "Blocca la barra": lo stato vive in Settings.LockTaskbar
-        /// (persistente, stessa semantica di RetroBar LockTaskbar) e il menu
-        /// contestuale lo spunta/toglie come in Windows 7.
+        /// (persistente) e il menu contestuale lo spunta/toglie come in Windows 7.
+        /// Rotation (Bottom/Top/Left/Right) stays available from Properties.
         /// </summary>
         private bool _taskbarLocked
         {
             get => RetroBar.Utilities.Settings.Instance.LockTaskbar;
             set => RetroBar.Utilities.Settings.Instance.LockTaskbar = value;
-        }
-
-        /// <summary>Distanza (DIP) dal bordo libero in cui il drag e' attivo.</summary>
-        private const double ResizeGripDip = 5.0;
-
-        private bool IsOverResizeGrip(Point p, TaskbarEdge edge)
-        {
-            switch (edge)
-            {
-                case TaskbarEdge.Top: return Math.Abs(p.Y - Height) <= ResizeGripDip;
-                case TaskbarEdge.Left: return Math.Abs(p.X - Width) <= ResizeGripDip;
-                case TaskbarEdge.Right: return p.X <= ResizeGripDip;
-                default: return p.Y <= ResizeGripDip; /* Bottom */
-            }
-        }
-
-        private void ResizeGrip_MouseMove(object sender, MouseEventArgs e)
-        {
-            try
-            {
-                var st = RetroBar.Utilities.Settings.Instance;
-                TaskbarEdge edge = EdgeFromPosition(st.TaskbarPosition);
-                Point p = e.GetPosition(this);
-
-                if (_resizing && e.LeftButton == MouseButtonState.Pressed)
-                {
-                    /* Delta positivo = il bordo libero si allontana dal bordo
-                     * fisso (l'origine della barra): spessore cresce. */
-                    double delta = edge switch
-                    {
-                        TaskbarEdge.Top => p.Y - _resizeStartPos.Y,
-                        TaskbarEdge.Left => p.X - _resizeStartPos.X,
-                        TaskbarEdge.Right => _resizeStartPos.X - p.X,
-                        _ => _resizeStartPos.Y - p.Y,
-                    };
-                    double maxDip = Orientation == Orientation.Vertical
-                        ? SystemParameters.PrimaryScreenWidth * 0.6
-                        : SystemParameters.PrimaryScreenHeight * 0.6;
-                    _resizeThicknessDip = Math.Min(maxDip,
-                        Math.Max(24.0, _resizeStartThickness + delta));
-                    ApplyTaskbarGeometry();
-                    e.Handled = true;
-                    return;
-                }
-
-                if (_taskbarLocked)
-                {
-                    return;
-                }
-                if (IsOverResizeGrip(p, edge))
-                {
-                    Cursor = Orientation == Orientation.Vertical
-                        ? Cursors.SizeWE : Cursors.SizeNS;
-                }
-                else if (ReferenceEquals(Cursor, Cursors.SizeNS) ||
-                         ReferenceEquals(Cursor, Cursors.SizeWE))
-                {
-                    Cursor = Cursors.Arrow;
-                }
-            }
-            catch (Exception ex)
-            {
-                _bridge.Log($"resize grip move: {ex.Message}");
-            }
-        }
-
-        private void ResizeGrip_MouseDown(object sender, MouseButtonEventArgs e)
-        {
-            try
-            {
-                if (_taskbarLocked || e.LeftButton != MouseButtonState.Pressed)
-                {
-                    return;
-                }
-                var st = RetroBar.Utilities.Settings.Instance;
-                TaskbarEdge edge = EdgeFromPosition(st.TaskbarPosition);
-                Point p = e.GetPosition(this);
-                if (!IsOverResizeGrip(p, edge))
-                {
-                    return;
-                }
-                _resizing = true;
-                _resizeStartPos = p;
-                _resizeStartThickness = TaskbarThicknessDip;
-                _resizeThicknessDip = _resizeStartThickness;
-                CaptureMouse();
-                e.Handled = true;
-            }
-            catch (Exception ex)
-            {
-                _bridge.Log($"resize grip down: {ex.Message}");
-            }
-        }
-
-        private void ResizeGrip_MouseUp(object sender, MouseButtonEventArgs e)
-        {
-            try
-            {
-                if (!_resizing)
-                {
-                    return;
-                }
-                _resizing = false;
-                if (IsMouseCaptured)
-                {
-                    ReleaseMouseCapture();
-                }
-                double final = _resizeThicknessDip;
-                _resizeThicknessDip = 0;
-                if (final > 0)
-                {
-                    RetroBar.Utilities.Settings.Instance.TaskbarHeight = Math.Round(final, 1);
-                }
-                ApplyTaskbarGeometry();
-            }
-            catch (Exception ex)
-            {
-                _bridge.Log($"resize grip up: {ex.Message}");
-            }
         }
 
         /// <summary>
@@ -2187,7 +2014,7 @@ namespace Win7Taskbar
             double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
             int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
             var st = RetroBar.Utilities.Settings.Instance;
-            AppBarEdgeValue edge = AppBarEdgeFromPosition(st.TaskbarPosition);
+            int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
 
             _appBarRegistered = _bridge.RegisterAppBar(
                 _hwndSource.Handle, edge, sizePx);
@@ -2197,6 +2024,22 @@ namespace Win7Taskbar
                 // sposta la finestra sul rettangolo confermato dalla shell.
                 _appBarCallbackMessage = _bridge.AppBarCallbackMessage();
                 UpdateAppBarPosition();   // registra _appBarRect
+            }
+        }
+
+        /// <summary>
+        /// Re-apply the AppBar edge after the Start Menu host starts so the
+        /// bar stays on the configured edge (default bottom) instead of
+        /// drifting when a second STA window is created.
+        /// </summary>
+        internal void ReassertAppBar()
+        {
+            try
+            {
+                UpdateAppBarPosition();
+            }
+            catch (Exception)
+            {
             }
         }
 
@@ -2222,7 +2065,7 @@ namespace Win7Taskbar
             }
             int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
             var st = RetroBar.Utilities.Settings.Instance;
-            AppBarEdgeValue edge = AppBarEdgeFromPosition(st.TaskbarPosition);
+            int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
 
             // Il rettangolo confermato dalla shell e' in PIXEL FISICI: il core
             // ci sposta lui stesso la finestra (SetWindowPos con SWP_NOZORDER,
@@ -2573,6 +2416,12 @@ namespace Win7Taskbar
                     int lockTaskbar = System.Runtime.InteropServices.Marshal
                         .ReadInt32(cds.lpData, 84);
                     st.LockTaskbar = lockTaskbar != 0;
+                }
+                if (cds.cbData >= 92)
+                {
+                    int winKey = System.Runtime.InteropServices.Marshal
+                        .ReadInt32(cds.lpData, 88);
+                    st.WindowsKeyOpensOurMenu = winKey != 0;
                 }
                 if (geometryChanged)
                 {
@@ -3080,14 +2929,34 @@ namespace Win7Taskbar
                 }
                 _lastStartToggleUtc = now;
 
+                bool ourMenu = RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu;
+                if (ourMenu)
+                {
+                    /* Orb must toggle OUR window only. Injecting Win here
+                     * opened native Start as well (both menus, too high). */
+                    CancelStartWatchdog();
+                    bool visible = Win7Taskbar.StartMenu.StartMenuHost.IsVisible;
+                    PublishStartMenuAnchor();
+                    if (visible)
+                    {
+                        Win7Taskbar.StartMenu.StartMenuHost.Hide();
+                        toggle.IsChecked = false;
+                    }
+                    else
+                    {
+                        Win7Taskbar.StartMenu.StartMenuHost.Show();
+                        toggle.IsChecked = true;
+                        _startMenuMonitor?.NotifyStartMenuOpened();
+                    }
+                    StartTaskbarGuard();
+                    return;
+                }
+
                 bool menuOpen = _startMenuMonitor?.IsPressed == true ||
                                 toggle.IsChecked == true;
 
                 if (menuOpen)
                 {
-                    // Il menu e' aperto: questo click lo chiude. Il tasto Win
-                    // e' gia' il "toggle" che chiude il menu aperto su Windows
-                    // 10/11, e non serve armare alcun ripiego.
                     CancelStartWatchdog();
                     toggle.IsChecked = false;
                     _bridge.ShowStartMenu();
@@ -3095,12 +2964,9 @@ namespace Win7Taskbar
                     return;
                 }
 
-                // Aprire
                 _bridge.ShowStartMenu();
                 StartTaskbarGuard();
 
-                // Lo stato premuto resta finche' il menu e' visibile: lo
-                // spegne il monitor quando il menu si chiude.
                 toggle.IsChecked = true;
                 _startMenuMonitor?.NotifyStartMenuOpened();
                 ArmStartWatchdog();
@@ -3114,6 +2980,49 @@ namespace Win7Taskbar
                 {
                     StartButton.IsChecked = false;
                 }
+            }
+        }
+
+        private void ToggleStartMenu()
+        {
+            if (RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu)
+            {
+                PublishStartMenuAnchor();
+                Win7Taskbar.StartMenu.StartMenuHost.Toggle();
+            }
+            else
+            {
+                _bridge.ShowStartMenu();
+            }
+        }
+
+        /// <summary>
+        /// Pass the live taskbar/orb rectangles (DIP) to the Start Menu STA
+        /// so it sits on the orb, not on a guessed work area.
+        /// </summary>
+        private void PublishStartMenuAnchor()
+        {
+            try
+            {
+                System.Windows.Media.Matrix fromDevice = System.Windows.Media.Matrix.Identity;
+                if (_hwndSource?.CompositionTarget != null)
+                {
+                    fromDevice = _hwndSource.CompositionTarget.TransformFromDevice;
+                }
+                Point barPhys = PointToScreen(new Point(0, 0));
+                Point bar = fromDevice.Transform(barPhys);
+                Point orbPhys = StartButton != null
+                    ? StartButton.PointToScreen(new Point(0, 0))
+                    : barPhys;
+                Point orb = fromDevice.Transform(orbPhys);
+                double orbW = StartButton?.ActualWidth ?? 54;
+                double orbH = StartButton?.ActualHeight ?? ActualHeight;
+                Win7Taskbar.StartMenu.StartMenuHost.SetAnchor(
+                    new Rect(bar.X, bar.Y, ActualWidth, ActualHeight),
+                    new Rect(orb.X, orb.Y, orbW, orbH));
+            }
+            catch (Exception)
+            {
             }
         }
 
@@ -5077,8 +4986,6 @@ namespace Win7Taskbar
                 // from the button projection's window list directly: the two
                 // views are allowed to diverge when the model grows
                 // child/hosted-window relations. Selection is unchanged today.
-                ItemsSource = _viewModel.PickerWindows(group),
-                ItemTemplate = TryFindResource("WindowPickerItemTemplate") as DataTemplate,
                 ItemsSource = _viewModel.PickerWindows(group),
                 ItemTemplate = TryFindResource("WindowPickerItemTemplate") as DataTemplate,
                 BorderThickness = new Thickness(0),
@@ -8232,7 +8139,8 @@ namespace Win7Taskbar
                     /* v1.21.43: posizione barra (0..3) + blocco (sezione
                      * "Impostazioni extra", riga "Posizione"). */
                     st.TaskbarPosition,
-                    st.LockTaskbar ? 1 : 0);
+                    st.LockTaskbar ? 1 : 0,
+                    st.WindowsKeyOpensOurMenu ? 1 : 0);
             }
             catch (Exception ex)
             {
