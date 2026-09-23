@@ -45,6 +45,7 @@ add_library(Win7TaskbarCore SHARED
     src/TrayPrefsStore.cpp
     src/DpiMetrics.cpp src/WindowSubclass.cpp
     src/AppBarPositioner.cpp src/TaskbarWindow.cpp src/BandLayout.cpp
+    src/TraySizer.cpp
     resources/app.rc)
 target_include_directories(Win7TaskbarCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # v1.21.18: the revision the DLL is built from, compiled into the binary and
