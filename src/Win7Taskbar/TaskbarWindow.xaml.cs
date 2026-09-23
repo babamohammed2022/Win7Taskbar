@@ -1931,7 +1931,7 @@ namespace Win7Taskbar
             };
 
         /// <summary>Stesso bordo in valori AppBar (ABE_*) per il core nativo.</summary>
-        private static AppBarEdgeValue AppBarEdgeFromPosition(int position) =>
+        private static int AppBarEdgeFromPosition(int position) =>
             position switch
             {
                 1 => AppBarEdgeValue.Top,
