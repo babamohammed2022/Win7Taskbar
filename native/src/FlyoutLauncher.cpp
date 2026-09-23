@@ -334,6 +334,7 @@ const wchar_t* KindName(FlyoutKind kind) {
         case FlyoutKind::Clock:   return L"clock";
         case FlyoutKind::Battery: return L"battery";
         case FlyoutKind::Sound:   return L"sound";
+        case FlyoutKind::ActionCenter: return L"action-center";
         default:                  return L"?";
     }
 }
@@ -681,4 +682,3 @@ void FlyoutLauncher::Shutdown() {
 }
 
 } /* namespace w7t */
-*/
