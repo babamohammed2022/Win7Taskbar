@@ -12,6 +12,7 @@
 
 #include <cstdio>
 #include <string>
+#include <cstring>
 
 #include "../src/LocalAppDataStore.h"
 #include "../src/RegistryPolicy.h"

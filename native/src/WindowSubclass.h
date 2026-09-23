@@ -12,6 +12,7 @@
 #pragma once
 
 #include <windows.h>
+#include <commctrl.h>   /* SetWindowSubclass / DefSubclassProc (comctl32 v6) */
 #include <cstdint>
 #include <utility>
 

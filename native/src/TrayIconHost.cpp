@@ -5,6 +5,7 @@
 #include "TrayIconHost.h"
 
 #include <algorithm>
+#include <cwchar>
 
 #include "PrivateWindowMessages.h"
 

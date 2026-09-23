@@ -4,6 +4,8 @@
 
 #include "RegistryShadow.h"
 
+#include <cstring>
+
 #include "LocalAppDataStore.h"
 #include "RegistryPolicy.h"
 

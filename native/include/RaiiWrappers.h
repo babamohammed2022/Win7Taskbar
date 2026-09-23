@@ -261,8 +261,8 @@ scope_guard<std::decay_t<F>> on_scope_exit(F&& f) {
 // ------------------------------------------------------------
 // Typed deleters for the handles that recur in the taskbar code,
 // plus unique_handle aliases and adopt helpers (01_raii_win32).
+// IconDeleter is the one defined above (line with IconHandle).
 // ------------------------------------------------------------
-struct IconDeleter   { void operator()(HICON h)   const noexcept { if (h)   DestroyIcon(h); } };
 struct HookDeleter   { void operator()(HHOOK h)   const noexcept { if (h)   UnhookWindowsHookEx(h); } };
 struct FontDeleter   { void operator()(HFONT h)   const noexcept { if (h)   DeleteObject(h); } };
 struct LocalDeleter  { void operator()(HLOCAL h)  const noexcept { if (h)   LocalFree(h); } };

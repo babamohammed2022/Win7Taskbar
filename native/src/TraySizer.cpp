@@ -4,6 +4,8 @@
 
 #include "TraySizer.h"
 
+#include <windowsx.h>   /* GET_X_LPARAM / GET_Y_LPARAM */
+
 #include "DpiMetrics.h"
 
 namespace w7t {

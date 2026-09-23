@@ -5,6 +5,7 @@
 #include "RegistryPolicy.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace w7t {
 
