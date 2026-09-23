@@ -54,19 +54,20 @@ static void TestEdgeRotation() {
 }
 
 static void TestBandLayout() {
-    /* 12: split ordinario tasks|tray|clock lungo un bordo orizzontale. */
+    /* 12: split ordinario tasks|tray|clock lungo un bordo orizzontale.
+     * Il task list assorbe il resto (1000-300=700): clock a filo. */
     const RectI bar{ 0, 1040, 1000, 1080 };
     BandSizes sizes;
     sizes.task_list = 600;
     sizes.tray = 200;
     sizes.clock = 100;
     const BandRects r = LayoutBandsOnEdge(Edge::Bottom, bar, sizes);
-    CHECK(r.task_list.width() == 600);
+    CHECK(r.task_list.width() == 700);
     CHECK(r.tray.width() == 200);
     CHECK(r.clock.width() == 100);
-    CHECK(r.task_list.left == 0 && r.task_list.right == 600);
-    CHECK(r.tray.left == 600 && r.tray.right == 800);
-    CHECK(r.clock.left == 800 && r.clock.right == 1000);
+    CHECK(r.task_list.left == 0 && r.task_list.right == 700);
+    CHECK(r.tray.left == 700 && r.tray.right == 900);
+    CHECK(r.clock.left == 900 && r.clock.right == 1000);
 
     /* 12: spazio insufficiente — le fisse stringono, il clock resta
      * almeno meta', il task list si azzera per ultimo.

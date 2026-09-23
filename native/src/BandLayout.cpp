@@ -49,6 +49,12 @@ BandRects LayoutBandsOnEdge(Edge edge, const RectI& bar_area,
         tasks = tasks > overflow ? tasks - overflow : 0;
     }
 
+    /* Regola Win7 (e contratto dell'header): il task list assorbe il
+     * resto della barra, le bande fisse restano alle loro dimensioni
+     * desiderate all'estremita' esterna. */
+    tasks = total - tray - clock;
+    if (tasks < 0) tasks = 0;
+
     /* Win7 order along the edge: tasks first, then tray, then clock. */
     BandRects out;
     int cursor = 0;
