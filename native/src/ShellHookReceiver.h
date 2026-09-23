@@ -20,29 +20,14 @@
 
 namespace w7t {
 
-/* HSHELL_* (public winuser values). Fallbacks cover SDKs where the
- * newer names are missing. */
-#ifndef HSHELL_WINDOWCREATED
+/* HSHELL_* codes (documented shell hook values; names vary across
+ * SDKs, the numbers are the public contract). */
 constexpr int kShellHookWindowCreated   = 1;
 constexpr int kShellHookWindowDestroyed = 2;
 constexpr int kShellHookActivated       = 4;
 constexpr int kShellHookWindowMoved     = 11;
-#else
-constexpr int kShellHookWindowCreated   = HSHELL_WINDOWCREATED;
-constexpr int kShellHookWindowDestroyed = HSHELL_WINDOWDESTROYED;
-constexpr int kShellHookActivated       = HSHELL_ACTIVATED;
-constexpr int kShellHookWindowMoved     = HSHELL_WINDOWMOVED;
-#endif
-#ifdef HSHELL_MONITORCHANGED
-constexpr int kShellHookMonitorChanged  = HSHELL_MONITORCHANGED;
-#else
 constexpr int kShellHookMonitorChanged  = 17;   /* Win10+ (docs) */
-#endif
-#ifdef HSHELL_RUDEAPP
-constexpr int kShellHookRudeApp         = HSHELL_RUDEAPP;
-#else
 constexpr int kShellHookRudeApp         = 0x8003;   /* HSHELL_HIGHBIT|3 */
-#endif
 
 struct ShellHookEvent {
     int code = 0;          /* HSHELL_* */
