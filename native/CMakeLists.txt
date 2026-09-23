@@ -134,3 +134,23 @@ add_custom_command(TARGET W7TInject POST_BUILD
     COMMENT "Copy W7TInject.dll to dist/")
 install(TARGETS Win7TaskbarCore W7TInject RUNTIME DESTINATION bin)
 install(FILES include/Win7TaskbarCore.h DESTINATION include)
+
+# Unit tests (pure layout + registry policy on temp keys). Off by
+# default: enable with -DW7T_BUILD_TESTS=ON and run with ctest.
+option(W7T_BUILD_TESTS "Build Win7TaskbarCore unit tests" OFF)
+
+if(W7T_BUILD_TESTS)
+    enable_testing()
+
+    add_executable(w7t_layout_tests
+        tests/layout_tests.cpp
+        src/BandLayout.cpp src/ClockTrayLayout.cpp src/TraySizer.cpp)
+    target_link_libraries(w7t_layout_tests PRIVATE kernel32 user32)
+    add_test(NAME layout_tests COMMAND w7t_layout_tests)
+
+    add_executable(w7t_registry_tests
+        tests/registry_tests.cpp
+        src/RegistryPolicy.cpp src/RegistryShadow.cpp src/LocalAppDataStore.cpp)
+    target_link_libraries(w7t_registry_tests PRIVATE kernel32 user32 advapi32)
+    add_test(NAME registry_tests COMMAND w7t_registry_tests)
+endif()
