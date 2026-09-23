@@ -142,6 +142,117 @@ namespace Win7Taskbar.StartMenu
             return value.IndexOf('\\') >= 0 || value.IndexOf('/') >= 0;
         }
 
+        /// <summary>
+        /// Explorer's "Pin to Start Menu" folder (looked up, not copied).
+        /// </summary>
+        public static string ExplorerPinFolder()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                @"Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu");
+        }
+
+        public static bool PinShortcut(string sourcePath)
+        {
+            if (string.IsNullOrWhiteSpace(sourcePath) || !LooksLikePath(sourcePath))
+            {
+                return false;
+            }
+            try
+            {
+                string dir = ExplorerPinFolder();
+                Directory.CreateDirectory(dir);
+                string name = Path.GetFileName(sourcePath);
+                if (string.IsNullOrEmpty(name))
+                {
+                    return false;
+                }
+                if (!name.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
+                {
+                    name += ".lnk";
+                }
+                string dest = Path.Combine(dir, name);
+                if (File.Exists(dest))
+                {
+                    return true;
+                }
+                if (sourcePath.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) &&
+                    File.Exists(sourcePath))
+                {
+                    File.Copy(sourcePath, dest, overwrite: false);
+                    return File.Exists(dest);
+                }
+                return CreateShortcut(dest, sourcePath);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public static bool UnpinShortcut(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+            try
+            {
+                string folder = ExplorerPinFolder();
+                if (File.Exists(path) &&
+                    path.StartsWith(folder, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Delete(path);
+                    return true;
+                }
+                string dest = Path.Combine(folder, Path.GetFileName(path));
+                if (!dest.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
+                {
+                    dest += ".lnk";
+                }
+                if (File.Exists(dest))
+                {
+                    File.Delete(dest);
+                    return true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return false;
+        }
+
+        public static bool CreateShortcut(string lnkPath, string target)
+        {
+            try
+            {
+                Type? t = Type.GetTypeFromProgID("WScript.Shell");
+                if (t == null)
+                {
+                    return false;
+                }
+                object? sh = Activator.CreateInstance(t);
+                if (sh == null)
+                {
+                    return false;
+                }
+                dynamic sc = ((dynamic)sh).CreateShortcut(lnkPath);
+                sc.TargetPath = target;
+                sc.Save();
+                return File.Exists(lnkPath);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public void RemoveRecent(string path)
+        {
+            Recent.RemoveAll(x => string.Equals(x, path, StringComparison.OrdinalIgnoreCase));
+            Save();
+        }
+
         public void Save()
         {
             try

@@ -82,20 +82,21 @@
                 </Setter.Value>
             </Setter>
             <EventSetter Event="MouseLeftButtonUp" Handler="OnLeftItemClick"/>
+            <EventSetter Event="MouseRightButtonUp" Handler="OnLeftItemContext"/>
         </Style>
 
         <!-- Win7 right pane: white text, brighter hover on the glass. -->
         <Style x:Key="RightRowStyle" TargetType="ListBoxItem">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Padding" Value="0"/>
-            <Setter Property="Margin" Value="2,1,6,1"/>
+            <Setter Property="Margin" Value="2,0,6,0"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
                         <Border x:Name="Bd" Background="Transparent" BorderBrush="Transparent"
-                                BorderThickness="1" CornerRadius="3" Padding="8,4">
+                                BorderThickness="1" CornerRadius="3" Padding="6,2">
                             <ContentPresenter/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -124,7 +125,102 @@
                 </Setter.Value>
             </Setter>
             <EventSetter Event="MouseLeftButtonUp" Handler="OnRightItemClick"/>
+            <EventSetter Event="MouseRightButtonUp" Handler="OnRightItemContext"/>
             <EventSetter Event="MouseEnter" Handler="OnRightItemMouseEnter"/>
+        </Style>
+
+        <!-- Drawn Aero scrollbar (no Microsoft bitmaps). Used by All Programs. -->
+        <Style x:Key="AeroScrollBar" TargetType="ScrollBar">
+            <Setter Property="Width" Value="17"/>
+            <Setter Property="MinWidth" Value="17"/>
+            <Setter Property="Background" Value="#FFE8E8E8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="#FFE4E4E4">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="17"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="17"/>
+                            </Grid.RowDefinitions>
+                            <RepeatButton Grid.Row="0" Command="ScrollBar.LineUpCommand"
+                                          Focusable="False">
+                                <RepeatButton.Template>
+                                    <ControlTemplate TargetType="RepeatButton">
+                                        <Border Background="#FFF0F0F0" BorderBrush="#FFA0A0A0" BorderThickness="1">
+                                            <Path Data="M0,4 L4,0 L8,4 Z" Fill="#FF404040"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </RepeatButton.Template>
+                            </RepeatButton>
+                            <Track x:Name="PART_Track" Grid.Row="1" IsDirectionReversed="True">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand" Focusable="False">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Background="#FFE8E8E8"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb>
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border x:Name="ThumbBd" Margin="1,0" CornerRadius="2"
+                                                        BorderBrush="#FF8AA0B8" BorderThickness="1">
+                                                    <Border.Background>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                            <GradientStop Color="#FFF8FBFF" Offset="0"/>
+                                                            <GradientStop Color="#FFD0DCE8" Offset="0.45"/>
+                                                            <GradientStop Color="#FFB8C8D8" Offset="1"/>
+                                                        </LinearGradientBrush>
+                                                    </Border.Background>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="ThumbBd" Property="BorderBrush" Value="#FF5A9FD4"/>
+                                                        <Setter TargetName="ThumbBd" Property="Background">
+                                                            <Setter.Value>
+                                                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                                    <GradientStop Color="#FFE8F4FC" Offset="0"/>
+                                                                    <GradientStop Color="#FF7EC0F0" Offset="0.5"/>
+                                                                    <GradientStop Color="#FF4A9AD8" Offset="1"/>
+                                                                </LinearGradientBrush>
+                                                            </Setter.Value>
+                                                        </Setter>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand" Focusable="False">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Background="#FFE8E8E8"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                            <RepeatButton Grid.Row="2" Command="ScrollBar.LineDownCommand"
+                                          Focusable="False">
+                                <RepeatButton.Template>
+                                    <ControlTemplate TargetType="RepeatButton">
+                                        <Border Background="#FFF0F0F0" BorderBrush="#FFA0A0A0" BorderThickness="1">
+                                            <Path Data="M0,0 L8,0 L4,4 Z" Fill="#FF404040"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </RepeatButton.Template>
+                            </RepeatButton>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
 
@@ -172,7 +268,11 @@
                                  VirtualizingPanel.VirtualizationMode="Recycling"
                                  ItemContainerStyle="{StaticResource LeftRowStyle}"
                                  KeyDown="OnLeftKeyDown"
+                                 MouseRightButtonUp="OnLeftListContext"
                                  Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}">
+                            <ListBox.Resources>
+                                <Style TargetType="ScrollBar" BasedOn="{StaticResource AeroScrollBar}"/>
+                            </ListBox.Resources>
                             <ListBox.Style>
                                 <Style TargetType="ListBox">
                                     <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Hidden"/>
@@ -239,6 +339,9 @@
                                  VirtualizingPanel.VirtualizationMode="Recycling"
                                  ItemContainerStyle="{StaticResource LeftRowStyle}"
                                  Visibility="{Binding IsSearching, Converter={StaticResource BoolToVis}}">
+                            <ListBox.Resources>
+                                <Style TargetType="ScrollBar" BasedOn="{StaticResource AeroScrollBar}"/>
+                            </ListBox.Resources>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
                                     <Grid Height="28">
@@ -256,33 +359,78 @@
                             </ListBox.ItemTemplate>
                         </ListBox>
 
-                        <Button Grid.Row="1" Margin="6,2,6,2" Padding="6,4"
-                                HorizontalContentAlignment="Left"
-                                Background="Transparent" BorderThickness="0"
-                                Cursor="Hand" Click="OnAllProgramsFooter"
-                                Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="All Programs" FontWeight="SemiBold"
-                                           Visibility="{Binding AllProgramsOpen, Converter={StaticResource InvBoolToVis}}"/>
-                                <TextBlock Text="Back" FontWeight="SemiBold"
-                                           Visibility="{Binding AllProgramsOpen, Converter={StaticResource BoolToVis}}"/>
-                            </StackPanel>
-                        </Button>
+                        <!-- Programs, a hairline, then "> All Programs" as a row. -->
+                        <Grid Grid.Row="1"
+                              Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Rectangle Height="1" Fill="#C0C8D4" Margin="8,4,8,2"/>
+                            <Border x:Name="AllProgramsRow" Grid.Row="1"
+                                    Background="Transparent" BorderBrush="Transparent"
+                                    BorderThickness="1" CornerRadius="3"
+                                    Padding="4,3" Margin="1,0,1,2" Cursor="Hand"
+                                    MouseLeftButtonUp="OnAllProgramsFooter"
+                                    MouseRightButtonUp="OnAllProgramsContext">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="BorderBrush" Value="#A07BA7CE"/>
+                                                <Setter Property="Background">
+                                                    <Setter.Value>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                            <GradientStop Color="#E8F4FCFF" Offset="0"/>
+                                                            <GradientStop Color="#C0D4F0FC" Offset="0.5"/>
+                                                            <GradientStop Color="#A8C4E8F8" Offset="1"/>
+                                                        </LinearGradientBrush>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&gt;" FontSize="12" Foreground="#3A5068"
+                                               Margin="8,0,8,0" VerticalAlignment="Center"
+                                               Visibility="{Binding AllProgramsOpen, Converter={StaticResource InvBoolToVis}}"/>
+                                    <TextBlock Text="&lt;" FontSize="12" Foreground="#3A5068"
+                                               Margin="8,0,8,0" VerticalAlignment="Center"
+                                               Visibility="{Binding AllProgramsOpen, Converter={StaticResource BoolToVis}}"/>
+                                    <TextBlock Text="All Programs" FontSize="12" Foreground="#1A1A1A"
+                                               VerticalAlignment="Center"
+                                               Visibility="{Binding AllProgramsOpen, Converter={StaticResource InvBoolToVis}}"/>
+                                    <TextBlock Text="Back" FontSize="12" Foreground="#1A1A1A"
+                                               VerticalAlignment="Center"
+                                               Visibility="{Binding AllProgramsOpen, Converter={StaticResource BoolToVis}}"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
 
                         <!-- Search lives under the left pane, as on Windows 7. -->
                         <Border Grid.Row="2" Margin="6,2,6,6" Background="#C0FFFFFF"
                                 BorderBrush="#90A0B4C8" BorderThickness="1" CornerRadius="2">
                             <Grid>
                                 <TextBlock Text="{Binding SearchHint}" Foreground="#808080"
-                                           Margin="8,0,0,0" VerticalAlignment="Center"
+                                           Margin="8,0,26,0" VerticalAlignment="Center"
                                            IsHitTestVisible="False"
                                            Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}"/>
                                 <TextBox x:Name="SearchBox"
                                          BorderThickness="0" Background="Transparent"
                                          VerticalContentAlignment="Center"
-                                         Padding="6,0"
+                                         Padding="6,0,26,0"
                                          FontSize="12"
                                          Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+                                <Grid HorizontalAlignment="Right" Width="22" Margin="0,0,4,0"
+                                      IsHitTestVisible="False">
+                                    <Ellipse Width="9" Height="9" Stroke="#1A73C7" StrokeThickness="1.7"
+                                             HorizontalAlignment="Left" VerticalAlignment="Center"
+                                             Margin="2,0,0,2"/>
+                                    <Path Data="M10,12 L14.5,16.5" Stroke="#1A73C7" StrokeThickness="2"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                          HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                </Grid>
                             </Grid>
                         </Border>
                     </Grid>
@@ -331,7 +479,7 @@
                                  MouseLeave="OnRightListMouseLeave">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid MinHeight="22">
+                                    <Grid MinHeight="18">
                                         <Rectangle Height="1" Fill="#60FFFFFF" VerticalAlignment="Center" Margin="4,0">
                                             <Rectangle.Style>
                                                 <Style TargetType="Rectangle">
@@ -367,16 +515,16 @@
 
                         <StackPanel Grid.Row="2" Orientation="Horizontal"
                                     HorizontalAlignment="Center" VerticalAlignment="Center"
-                                    Margin="0,0,0,4">
+                                    Margin="0,0,5,4">
                             <Border x:Name="ShutdownChrome" CornerRadius="3,0,0,3"
-                                    BorderThickness="1,1,0,1" BorderBrush="#80202838"
+                                    BorderThickness="1,1,0,1" BorderBrush="#90FFFFFF"
                                     Cursor="Hand" MouseLeftButtonUp="OnShutdown">
                                 <Border.Background>
                                     <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                        <GradientStop Color="#FF6A7A90" Offset="0"/>
-                                        <GradientStop Color="#FF3A4860" Offset="0.49"/>
-                                        <GradientStop Color="#FF2A3848" Offset="0.5"/>
-                                        <GradientStop Color="#FF1A2838" Offset="1"/>
+                                        <GradientStop Color="#90D0E4F4" Offset="0"/>
+                                        <GradientStop Color="#7088A8C0" Offset="0.49"/>
+                                        <GradientStop Color="#60607090" Offset="0.5"/>
+                                        <GradientStop Color="#50405068" Offset="1"/>
                                     </LinearGradientBrush>
                                 </Border.Background>
                                 <TextBlock x:Name="ShutdownLabel" Text="Shut down"
@@ -384,15 +532,15 @@
                                            Margin="12,4,10,4" VerticalAlignment="Center"/>
                             </Border>
                             <Border x:Name="ShutdownArrow" CornerRadius="0,3,3,0"
-                                    BorderThickness="1" BorderBrush="#80202838"
+                                    BorderThickness="1" BorderBrush="#90FFFFFF"
                                     Width="22" Cursor="Hand"
                                     MouseLeftButtonUp="OnShutdownArrow">
                                 <Border.Background>
                                     <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                        <GradientStop Color="#FF6A7A90" Offset="0"/>
-                                        <GradientStop Color="#FF3A4860" Offset="0.49"/>
-                                        <GradientStop Color="#FF2A3848" Offset="0.5"/>
-                                        <GradientStop Color="#FF1A2838" Offset="1"/>
+                                        <GradientStop Color="#90D0E4F4" Offset="0"/>
+                                        <GradientStop Color="#7088A8C0" Offset="0.49"/>
+                                        <GradientStop Color="#60607090" Offset="0.5"/>
+                                        <GradientStop Color="#50405068" Offset="1"/>
                                     </LinearGradientBrush>
                                 </Border.Background>
                                 <Path Data="M0,0 L8,0 L4,5 Z" Fill="White"

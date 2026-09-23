@@ -9,11 +9,11 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Windows;
-using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -276,13 +276,16 @@ namespace Win7Taskbar.StartMenu
             }
 
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string pinPath in StartMenuStore.ReadPinnedShortcuts())
+            var pinSet = new HashSet<string>(StartMenuStore.ReadPinnedShortcuts(),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (string pinPath in pinSet)
             {
                 StartMenuItem? item = FromExistingShortcut(pinPath);
                 if (item == null || !seen.Add(item.Path))
                 {
                     continue;
                 }
+                item.IsPinned = true;
                 LeftItems.Add(item);
             }
 
@@ -298,6 +301,8 @@ namespace Win7Taskbar.StartMenu
                 {
                     continue;
                 }
+                item.IsRecent = true;
+                item.IsPinned = pinSet.Contains(item.Path);
                 if (!addedRecent)
                 {
                     LeftItems.Add(new StartMenuItem { IsSeparator = true });
@@ -520,8 +525,10 @@ namespace Win7Taskbar.StartMenu
             RightLinks.Add(FolderLink("Music", "music",
                 Environment.GetFolderPath(Environment.SpecialFolder.MyMusic)));
             RightLinks.Add(new StartMenuItem { IsSeparator = true });
-            RightLinks.Add(FolderLink("Games", "games",
-                "::{CAC52C1A-B53D-4EDC-92D7-6B2E8AC19434}"));
+            /* FOLDERID_Games / shell:Games is dead on Windows 10/11.
+             * Videos is a real user library that still opens. */
+            RightLinks.Add(FolderLink("Videos", "videos",
+                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)));
             RightLinks.Add(FolderLink("Computer", "computer",
                 "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}"));
             RightLinks.Add(new StartMenuItem { IsSeparator = true });
@@ -541,6 +548,7 @@ namespace Win7Taskbar.StartMenu
             {
                 Name = name,
                 Folder = folder,
+                Path = iconPath ?? string.Empty,
                 IsPrimary = isPrimary,
                 Icon = IconFromParsingName(iconPath)
             };
@@ -552,6 +560,7 @@ namespace Win7Taskbar.StartMenu
             {
                 Name = "Help and Support",
                 Folder = "help",
+                Path = Environment.ExpandEnvironmentVariables(@"%SystemRoot%\Help"),
                 Icon = IconFromDll("imageres.dll", 99)
                     ?? IconFromParsingName(@"%SystemRoot%\Help")
             };
@@ -573,8 +582,8 @@ namespace Win7Taskbar.StartMenu
                 case "music":
                     OpenShellFolder(Environment.SpecialFolder.MyMusic);
                     break;
-                case "games":
-                    OpenShellUri("shell:Games");
+                case "videos":
+                    OpenShellFolder(Environment.SpecialFolder.MyVideos);
                     break;
                 case "computer":
                     OpenShellUri("shell:MyComputerFolder");
@@ -596,162 +605,386 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        private static ImageSource? LoadIcon(string path, string target)
+        /// <summary>
+        /// Win32 item menu via ShowContextMenuEx. Returns true when the
+        /// Start Menu should close (Open, Run as, location, delete, …).
+        /// Looked-up Open-Shell verbs; no Open-Shell source copied.
+        /// </summary>
+        public bool ShowItemContextMenu(StartMenuItem item, int screenX, int screenY)
         {
-            ImageSource? fromNative = IconFromHicon(
-                NativeMethods.W7T_GetLinkIcon(
-                    string.IsNullOrEmpty(path) ? null : path,
-                    string.IsNullOrEmpty(target) ? null : target,
-                    1));
-            if (fromNative != null)
+            if (item == null || item.IsSeparator)
             {
-                return fromNative;
+                return false;
+            }
+            if (item.IsAllPrograms)
+            {
+                return ShowAllProgramsFooterMenu(screenX, screenY);
+            }
+            if (!string.IsNullOrEmpty(item.Folder))
+            {
+                return ShowRightPaneMenu(item, screenX, screenY);
             }
 
-            string probe = !string.IsNullOrEmpty(target) ? target : path;
-            if (string.IsNullOrEmpty(probe))
+            string path = FirstExisting(item.Path, item.Target);
+            bool pinned = item.IsPinned || IsInExplorerPinFolder(path);
+            bool recent = item.IsRecent && !pinned;
+            bool allPrograms = AllProgramsOpen && !pinned && !recent;
+            bool underStart = IsUnderStartMenu(path);
+
+            var lines = new List<string> { "Open", "Run as administrator" };
+            if (pinned)
             {
-                return null;
+                lines.Add("Unpin from Start Menu");
+                lines.Add(TaskbarPinLabel(path));
+                lines.Add("Open file location");
+                lines.Add("Properties");
             }
-            ImageSource? fromShell = IconFromShell(probe, File.Exists(probe));
-            if (fromShell != null)
+            else if (recent)
             {
-                return fromShell;
+                lines.Add("Pin to Start Menu");
+                lines.Add("Pin to Taskbar");
+                lines.Add("Remove from this list");
+                lines.Add("Open file location");
+                lines.Add("Properties");
             }
-            if (!string.Equals(probe, path, StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrEmpty(path))
+            else
             {
-                return IconFromShell(path, File.Exists(path));
+                lines.Add("Pin to Start Menu");
+                lines.Add("Open file location");
+                if (allPrograms && underStart)
+                {
+                    lines.Add("Delete");
+                }
+                lines.Add("Properties");
             }
-            return null;
+
+            int choice = _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
+                string.Join("\n", lines), anchorAtCursor: true);
+            if (choice <= 0)
+            {
+                return false;
+            }
+
+            string verb = lines[choice - 1];
+            switch (verb)
+            {
+                case "Open":
+                    Launch(item);
+                    return true;
+                case "Run as administrator":
+                    ShellVerb(path, "runas");
+                    return true;
+                case "Unpin from Start Menu":
+                    StartMenuStore.UnpinShortcut(path);
+                    RebuildLeft();
+                    return false;
+                case "Pin to Start Menu":
+                    StartMenuStore.PinShortcut(path);
+                    RebuildLeft();
+                    return false;
+                case "Pin to Taskbar":
+                case "Unpin from Taskbar":
+                    ToggleTaskbarPin(path, pin: verb.StartsWith("Pin", StringComparison.Ordinal));
+                    return false;
+                case "Remove from this list":
+                    _store.RemoveRecent(path);
+                    RebuildLeft();
+                    return false;
+                case "Open file location":
+                    OpenFileLocation(path);
+                    return true;
+                case "Delete":
+                    TryDeleteShortcut(path);
+                    RefreshCatalog();
+                    return false;
+                case "Properties":
+                    ShellVerb(path, "properties");
+                    return true;
+                default:
+                    return false;
+            }
         }
 
-        private static ImageSource? IconFromHicon(IntPtr hicon)
+        public void ShowEmptyLeftContextMenu(int screenX, int screenY)
         {
-            if (hicon == IntPtr.Zero)
+            const string items = "Sort by Name\nProperties";
+            int choice = _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
+                items, anchorAtCursor: true);
+            if (choice == 1)
             {
-                return null;
+                SortLeftByName();
+            }
+            else if (choice == 2)
+            {
+                string folder = Environment.GetFolderPath(Environment.SpecialFolder.StartMenu);
+                ShellVerb(folder, "properties");
+            }
+        }
+
+        private bool ShowAllProgramsFooterMenu(int screenX, int screenY)
+        {
+            const string items =
+                "Open All Users\nExplore All Users\nSort by Name\nProperties";
+            int choice = _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
+                items, anchorAtCursor: true);
+            string common = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu);
+            switch (choice)
+            {
+                case 1:
+                case 2:
+                    StartProcess(common, null);
+                    return true;
+                case 3:
+                    SortLeftByName();
+                    return false;
+                case 4:
+                    ShellVerb(common, "properties");
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private bool ShowRightPaneMenu(StartMenuItem item, int screenX, int screenY)
+        {
+            const string items = "Open\nExplore\nSearch\nProperties";
+            int choice = _bridge.ShowContextMenuEx(screenX, screenY, bottomEdge: true,
+                items, anchorAtCursor: true);
+            string path = item.Path;
+            switch (choice)
+            {
+                case 1:
+                    OpenRightLink(item);
+                    return true;
+                case 2:
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        if (path.StartsWith("::", StringComparison.Ordinal))
+                        {
+                            StartProcess("explorer.exe", "shell:" + path);
+                        }
+                        else
+                        {
+                            StartProcess(path, null);
+                        }
+                    }
+                    return true;
+                case 3:
+                    if (!string.IsNullOrEmpty(path) &&
+                        !path.StartsWith("::", StringComparison.Ordinal))
+                    {
+                        StartProcess("explorer.exe",
+                            "search-ms:displayname=Search&crumb=location:" + path);
+                    }
+                    else
+                    {
+                        OpenRightLink(item);
+                    }
+                    return true;
+                case 4:
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        ShellVerb(path, "properties");
+                    }
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private void SortLeftByName()
+        {
+            var ordered = LeftItems
+                .Where(i => !i.IsSeparator)
+                .OrderBy(i => i.Name, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+            LeftItems.Clear();
+            foreach (StartMenuItem row in ordered)
+            {
+                LeftItems.Add(row);
+            }
+        }
+
+        private static string FirstExisting(string a, string b)
+        {
+            if (!string.IsNullOrEmpty(a) && (File.Exists(a) || Directory.Exists(a)))
+            {
+                return a;
+            }
+            if (!string.IsNullOrEmpty(b))
+            {
+                return b;
+            }
+            return a ?? string.Empty;
+        }
+
+        private static bool IsInExplorerPinFolder(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return false;
             }
             try
             {
-                ImageSource src = Imaging.CreateBitmapSourceFromHIcon(
-                    hicon, Int32Rect.Empty,
-                    BitmapSizeOptions.FromEmptyOptions());
-                src.Freeze();
-                return src;
+                string folder = StartMenuStore.ExplorerPinFolder();
+                return path.StartsWith(folder, StringComparison.OrdinalIgnoreCase);
             }
             catch (Exception)
             {
-                return null;
-            }
-            finally
-            {
-                NativeMethods.DestroyIcon(hicon);
+                return false;
             }
         }
+
+        private static bool IsUnderStartMenu(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return false;
+            }
+            try
+            {
+                string user = Environment.GetFolderPath(Environment.SpecialFolder.StartMenu);
+                string common = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu);
+                return (!string.IsNullOrEmpty(user) &&
+                        path.StartsWith(user, StringComparison.OrdinalIgnoreCase)) ||
+                       (!string.IsNullOrEmpty(common) &&
+                        path.StartsWith(common, StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private string TaskbarPinLabel(string path)
+        {
+            string exe = ResolveExe(path);
+            if (string.IsNullOrEmpty(exe))
+            {
+                return "Pin to Taskbar";
+            }
+            try
+            {
+                foreach (NativeMethods.W7TPinnedInfo pin in _bridge.GetPinnedApps())
+                {
+                    if (!string.IsNullOrEmpty(pin.Target) &&
+                        string.Equals(pin.Target, exe, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return "Unpin from Taskbar";
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return "Pin to Taskbar";
+        }
+
+        private void ToggleTaskbarPin(string path, bool pin)
+        {
+            string exe = ResolveExe(path);
+            if (string.IsNullOrEmpty(exe))
+            {
+                return;
+            }
+            try
+            {
+                string name = Path.GetFileNameWithoutExtension(exe);
+                _bridge.ToggleTaskbarPin(exe, name, pin ? 1 : 0);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static string ResolveExe(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return string.Empty;
+            }
+            if (path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(path))
+            {
+                return path;
+            }
+            return path;
+        }
+
+        private static void OpenFileLocation(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return;
+            }
+            try
+            {
+                if (File.Exists(path))
+                {
+                    StartProcess("explorer.exe", "/select,\"" + path + "\"");
+                    return;
+                }
+                string? dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                {
+                    StartProcess(dir, null);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void TryDeleteShortcut(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !IsUnderStartMenu(path))
+            {
+                return;
+            }
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static bool ShellVerb(string path, string verb)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return false;
+            }
+            try
+            {
+                var info = new NativeMethods.SHELLEXECUTEINFO
+                {
+                    cbSize = Marshal.SizeOf<NativeMethods.SHELLEXECUTEINFO>(),
+                    fMask = NativeMethods.SEE_MASK_INVOKEIDLIST,
+                    hwnd = IntPtr.Zero,
+                    lpVerb = verb,
+                    lpFile = path,
+                    nShow = NativeMethods.SW_SHOWNORMAL
+                };
+                return NativeMethods.ShellExecuteExW(ref info);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static ImageSource? LoadIcon(string path, string target)
+            => StartMenuIcons.FromPath(path, target, 48);
 
         private static ImageSource? IconFromParsingName(string? probe)
-        {
-            if (string.IsNullOrEmpty(probe))
-            {
-                return null;
-            }
-            if (probe.StartsWith("::{", StringComparison.Ordinal) ||
-                probe.StartsWith("shell:", StringComparison.OrdinalIgnoreCase))
-            {
-                return IconFromPidl(probe) ?? IconFromShell(probe, exists: true);
-            }
-            string expanded = Environment.ExpandEnvironmentVariables(probe);
-            return LoadIcon(expanded, expanded);
-        }
-
-        private static ImageSource? IconFromPidl(string parsingName)
-        {
-            IntPtr pidl = IntPtr.Zero;
-            try
-            {
-                int hr = NativeMethods.SHParseDisplayName(parsingName, IntPtr.Zero,
-                    out pidl, 0, IntPtr.Zero);
-                if (hr != 0 || pidl == IntPtr.Zero)
-                {
-                    return null;
-                }
-                var info = new NativeMethods.SHFILEINFOW();
-                uint flags = NativeMethods.SHGFI_PIDL | NativeMethods.SHGFI_ICON |
-                             NativeMethods.SHGFI_LARGEICON;
-                IntPtr result = NativeMethods.SHGetFileInfoPidl(
-                    pidl, 0, ref info,
-                    (uint)Marshal.SizeOf<NativeMethods.SHFILEINFOW>(),
-                    flags);
-                if (result == IntPtr.Zero || info.hIcon == IntPtr.Zero)
-                {
-                    return null;
-                }
-                return IconFromHicon(info.hIcon);
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-            finally
-            {
-                if (pidl != IntPtr.Zero)
-                {
-                    NativeMethods.ILFree(pidl);
-                }
-            }
-        }
+            => StartMenuIcons.FromParsingName(probe, 48);
 
         private static ImageSource? IconFromDll(string dll, int index)
-        {
-            try
-            {
-                string path = Path.Combine(Environment.SystemDirectory, dll);
-                uint n = NativeMethods.ExtractIconEx(path, index,
-                    out IntPtr large, out IntPtr small, 1);
-                if (small != IntPtr.Zero && small != large)
-                {
-                    NativeMethods.DestroyIcon(small);
-                }
-                if (n == 0 || large == IntPtr.Zero)
-                {
-                    return null;
-                }
-                return IconFromHicon(large);
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-        }
-
-        private static ImageSource? IconFromShell(string probe, bool exists)
-        {
-            try
-            {
-                var info = new NativeMethods.SHFILEINFOW();
-                uint flags = NativeMethods.SHGFI_ICON | NativeMethods.SHGFI_LARGEICON;
-                uint attr = 0;
-                if (!exists)
-                {
-                    flags |= NativeMethods.SHGFI_USEFILEATTRIBUTES;
-                    attr = NativeMethods.FILE_ATTRIBUTE_NORMAL;
-                }
-                IntPtr result = NativeMethods.SHGetFileInfoW(
-                    probe, attr, ref info,
-                    (uint)Marshal.SizeOf<NativeMethods.SHFILEINFOW>(),
-                    flags);
-                if (result == IntPtr.Zero || info.hIcon == IntPtr.Zero)
-                {
-                    return null;
-                }
-                return IconFromHicon(info.hIcon);
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-        }
+            => StartMenuIcons.FromDll(dll, index, 48);
 
         private void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

@@ -225,7 +225,14 @@ namespace Win7Taskbar.Utilities
             const uint VK_ESCAPE = 0x1B;
             PostMessageW(host, WM_KEYDOWN, new UIntPtr(VK_ESCAPE), new IntPtr(0x00010001));
             PostMessageW(host, WM_KEYUP, new UIntPtr(VK_ESCAPE), new IntPtr(0xC0010001));
+            bool ours = IsOurStartMenu(host);
             _currentHost = IntPtr.Zero;
+            if (ours)
+            {
+                /* A Win-key tap 220 ms later dismissed our taskbar context
+                 * menu (and opened native Start). Our window already got ESC. */
+                return;
+            }
 
             // 2) v2.26: gli host immersivi (Win11 XamlExplorerHostIslandWindow)
             //    spesso ignorano l'ESC recapitato via PostMessage. Se dopo

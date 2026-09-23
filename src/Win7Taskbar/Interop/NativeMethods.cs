@@ -1080,6 +1080,7 @@ namespace Win7Taskbar.Interop
         /* v2.6.1: riempie SHFILEINFOW.szDisplayName col nome che mostra
          * Explorer (nasconde le estensioni registrate: "File.lnk" -> "File"). */
         public const uint SHGFI_DISPLAYNAME = 0x000000200;
+        public const uint SHGFI_SYSICONINDEX = 0x00004000;
         public const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
         public const uint FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
 
@@ -1114,6 +1115,33 @@ namespace Win7Taskbar.Interop
         public static extern uint ExtractIconEx(string lpszFile, int nIconIndex,
                                                 out IntPtr phiconLarge, out IntPtr phiconSmall,
                                                 uint nIcons);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct SHELLEXECUTEINFO
+        {
+            public int cbSize;
+            public uint fMask;
+            public IntPtr hwnd;
+            public string? lpVerb;
+            public string? lpFile;
+            public string? lpParameters;
+            public string? lpDirectory;
+            public int nShow;
+            public IntPtr hInstApp;
+            public IntPtr lpIDList;
+            public string? lpClass;
+            public IntPtr hkeyClass;
+            public uint dwHotKey;
+            public IntPtr hIcon;
+            public IntPtr hProcess;
+        }
+
+        public const uint SEE_MASK_INVOKEIDLIST = 0x0000000C;
+        public const int SW_SHOWNORMAL = 1;
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool ShellExecuteExW(ref SHELLEXECUTEINFO lpExecInfo);
 
         /* v2.4: disposizione finestre del menu contestuale della barra,
          * come le voci equivalenti del menu vero di Windows 7. */

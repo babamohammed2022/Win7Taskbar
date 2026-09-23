@@ -87,12 +87,10 @@ namespace Win7Taskbar.StartMenu
                 }
                 else
                 {
-                    /* Slightly further left than the orb; do not move the bar. */
-                    left = (orbScreen.Width > 0 ? orbScreen.Left : taskbarScreen.Left) - 16;
-                    if (left < 0)
-                    {
-                        left = 0;
-                    }
+                    /* Bottom (or top) bar: sit at the left screen corner.
+                     * Outer chrome has a 10 DIP shadow margin — pull left
+                     * so the visible frame is flush with the edge. */
+                    left = taskbarScreen.Left - 10;
                     bool topEdge = taskbarScreen.Top < 80;
                     top = topEdge
                         ? taskbarScreen.Bottom
@@ -104,6 +102,7 @@ namespace Win7Taskbar.StartMenu
                 }
                 Left = left;
                 Top = top;
+                Topmost = true;
                 Show();
                 Activate();
                 SearchBox.Focus();
@@ -119,6 +118,7 @@ namespace Win7Taskbar.StartMenu
         internal void Dismiss()
         {
             _vm.SearchText = string.Empty;
+            Topmost = false;
             Hide();
         }
 
@@ -247,6 +247,35 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
+        private void OnLeftItemContext(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is ListBoxItem { DataContext: StartMenuItem item } &&
+                !item.IsSeparator)
+            {
+                RunItemMenu(item);
+                e.Handled = true;
+            }
+        }
+
+        private void OnLeftListContext(object sender, MouseButtonEventArgs e)
+        {
+            if (e.Handled)
+            {
+                return;
+            }
+            Point pt = CursorScreenPoint();
+            _suppressDeactivate = true;
+            try
+            {
+                _vm.ShowEmptyLeftContextMenu((int)Math.Round(pt.X), (int)Math.Round(pt.Y));
+            }
+            finally
+            {
+                _suppressDeactivate = false;
+            }
+            e.Handled = true;
+        }
+
         private void OnRightItemClick(object sender, MouseButtonEventArgs e)
         {
             if (sender is ListBoxItem { DataContext: StartMenuItem item } &&
@@ -255,6 +284,58 @@ namespace Win7Taskbar.StartMenu
                 _vm.OpenRightLink(item);
                 Dismiss();
                 e.Handled = true;
+            }
+        }
+
+        private void OnRightItemContext(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is ListBoxItem { DataContext: StartMenuItem item } &&
+                !item.IsSeparator)
+            {
+                RunItemMenu(item);
+                e.Handled = true;
+            }
+        }
+
+        private void RunItemMenu(StartMenuItem item)
+        {
+            Point pt = CursorScreenPoint();
+            _suppressDeactivate = true;
+            bool dismiss = false;
+            try
+            {
+                dismiss = _vm.ShowItemContextMenu(item, (int)Math.Round(pt.X),
+                    (int)Math.Round(pt.Y));
+            }
+            finally
+            {
+                _suppressDeactivate = false;
+            }
+            if (dismiss)
+            {
+                Dismiss();
+            }
+        }
+
+        private Point CursorScreenPoint()
+        {
+            try
+            {
+                if (NativeMethods.GetCursorPos(out NativeMethods.POINT p))
+                {
+                    return new Point(p.x, p.y);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                return PointToScreen(Mouse.GetPosition(this));
+            }
+            catch (InvalidOperationException)
+            {
+                return new Point(Left, Top);
             }
         }
 
@@ -341,9 +422,16 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        private void OnAllProgramsFooter(object sender, RoutedEventArgs e)
+        private void OnAllProgramsFooter(object sender, MouseButtonEventArgs e)
         {
             _vm.ToggleAllPrograms();
+            e.Handled = true;
+        }
+
+        private void OnAllProgramsContext(object sender, MouseButtonEventArgs e)
+        {
+            RunItemMenu(new StartMenuItem { IsAllPrograms = true, Name = "All Programs" });
+            e.Handled = true;
         }
 
         private void OnUserPictureClick(object sender, MouseButtonEventArgs e)

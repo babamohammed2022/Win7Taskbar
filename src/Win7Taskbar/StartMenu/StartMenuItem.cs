@@ -23,6 +23,8 @@ namespace Win7Taskbar.StartMenu
         public bool IsAllPrograms { get; set; }
         public bool IsFolder { get; set; }
         public bool IsPrimary { get; set; }
+        public bool IsPinned { get; set; }
+        public bool IsRecent { get; set; }
 
         public ImageSource? Icon
         {

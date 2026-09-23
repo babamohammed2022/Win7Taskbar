@@ -6531,9 +6531,43 @@ namespace Win7Taskbar
             {
                 DesktopBandPopup.IsOpen = false;
             }
-            _startMenuMonitor?.TryCloseStartMenu();
+            if (RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu)
+            {
+                Win7Taskbar.StartMenu.StartMenuHost.Hide();
+            }
+            else
+            {
+                _startMenuMonitor?.TryCloseStartMenu();
+            }
 
-            ShowTaskbarContextMenu(sender as FrameworkElement);
+            /* Show after this mouse-up has left the queue. TrackPopupMenu
+             * on RBUTTONUP otherwise swallows itself (menu "sometimes
+             * missing"). */
+            Point origin = TaskbarCursorScreenPoint();
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+                ShowTaskbarContextMenuAt(origin)));
+        }
+
+        private Point TaskbarCursorScreenPoint()
+        {
+            try
+            {
+                if (NativeMethods.GetCursorPos(out NativeMethods.POINT p))
+                {
+                    return new Point(p.x, p.y);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                return PointToScreen(Mouse.GetPosition(this));
+            }
+            catch (InvalidOperationException)
+            {
+                return new Point(Left, Top);
+            }
         }
 
         private void Clock_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
@@ -7477,19 +7511,12 @@ namespace Win7Taskbar
         /// </summary>
         private void ShowTaskbarContextMenu(FrameworkElement? target)
         {
-            Point origin;
-            try
-            {
-                origin = (target ?? (FrameworkElement)this).PointToScreen(
-                    Mouse.GetPosition(target ?? (FrameworkElement)this));
-            }
-            catch (InvalidOperationException)
-            {
-                origin = Mouse.GetPosition(this);
-                try { origin = this.PointToScreen(origin); }
-                catch (InvalidOperationException) { return; }
-            }
+            ShowTaskbarContextMenuAt(TaskbarCursorScreenPoint());
+            _ = target;
+        }
 
+        private void ShowTaskbarContextMenuAt(Point origin)
+        {
             try
             {
                 // Spunte: tre barre visibili + "Blocca la barra" quando bloccata.
@@ -7519,10 +7546,11 @@ namespace Win7Taskbar
                 // esattamente come quello dell'orologio. I menu delle APP
                 // (finestra di sistema, gruppo, pin) NON passano da qui e
                 // restano ancorati sopra il pulsante.
+                bool bottomEdge = RetroBar.Utilities.Settings.Instance.TaskbarPosition == 0;
                 int choice = _bridge.ShowContextMenuEx(
                     (int)Math.Round(origin.X),
                     (int)Math.Round(origin.Y),
-                    bottomEdge: true,
+                    bottomEdge,
                     items,
                     anchorAtCursor: true);
 
