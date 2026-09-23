@@ -1906,6 +1906,72 @@ namespace Win7Taskbar
             Win7Taskbar.Utilities.StartFlagAssets.ApplyToResources(scale);
         }
 
+        /// <summary>
+        /// v1.21.43 - CONVERSIONE ESPLICITA posizione persistita -> bordo:
+        ///   // posizione (persistita)   -> TaskbarEdge / AppBarEdgeValue
+        ///   // 0 Basso                  -> TaskbarEdge.Bottom (3)
+        ///   // 1 Alto                   -> TaskbarEdge.Top    (1)
+        ///   // 2 Sinistra               -> TaskbarEdge.Left   (0)
+        ///   // 3 Destra                 -> TaskbarEdge.Right  (2)
+        /// Era il pezzo mancante quando l'opzione "Posizione" fu ritirata
+        /// (v1.21.28): il cast diretto (TaskbarEdge)position spostava ogni
+        /// scelta e le anteprime DWM restavano sul lato sbagliato.
+        /// </summary>
+        private static TaskbarEdge EdgeFromPosition(int position) =>
+            position switch
+            {
+                1 => TaskbarEdge.Top,
+                2 => TaskbarEdge.Left,
+                3 => TaskbarEdge.Right,
+                _ => TaskbarEdge.Bottom,
+            };
+
+        /// <summary>Stesso bordo in valori AppBar (ABE_*) per il core nativo.</summary>
+        private static AppBarEdgeValue AppBarEdgeFromPosition(int position) =>
+            position switch
+            {
+                1 => AppBarEdgeValue.Top,
+                2 => AppBarEdgeValue.Left,
+                3 => AppBarEdgeValue.Right,
+                _ => AppBarEdgeValue.Bottom,
+            };
+
+        /// <summary>
+        /// Spessore barra in DIP: impostazione dell'utente (resize) se valorizzata,
+        /// altrimenti l'altezza del tema. Su Left/Right e' la LARGHEZZA della barra.
+        /// </summary>
+        private double TaskbarThicknessDip
+        {
+            get
+            {
+                var st = RetroBar.Utilities.Settings.Instance;
+                double saved = st.TaskbarHeight;
+                double thickness = saved > 0 ? saved : ThemeTaskbarHeightDip;
+                return Math.Max(24.0, thickness);
+            }
+        }
+
+        /// <summary>
+        /// v1.21.43: applica la geometria corrente (posizione + spessore) alla
+        /// finestra e all'area riservata in shell. Punto unico, chiamato
+        /// all'avvio, da Proprietà e dai cambi di schermo/DPI.
+        /// </summary>
+        internal void ApplyTaskbarGeometry()
+        {
+            try
+            {
+                PositionOnScreen();
+                if (_appBarRegistered)
+                {
+                    UpdateAppBarPosition();
+                }
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log($"geometria barra: {ex.Message}");
+            }
+        }
+
         private void PositionOnScreen()
         {
             if (_hwndSource == null)
@@ -1922,18 +1988,46 @@ namespace Win7Taskbar
             double screenWidthDip = SystemParameters.PrimaryScreenWidth;
             double screenHeightDip = SystemParameters.PrimaryScreenHeight;
 
-            double heightDip = ThemeTaskbarHeightDip;
+            double thicknessDip = TaskbarThicknessDip;
+            var st = RetroBar.Utilities.Settings.Instance;
+            TaskbarEdge edge = EdgeFromPosition(st.TaskbarPosition);
 
-            Width = screenWidthDip;
-            Height = heightDip;
-            Left = 0;
-            Top = screenHeightDip - heightDip;
+            switch (edge)
+            {
+                case TaskbarEdge.Top:
+                    Width = screenWidthDip;
+                    Height = thicknessDip;
+                    Left = 0;
+                    Top = 0;
+                    Orientation = Orientation.Horizontal;
+                    break;
+                case TaskbarEdge.Left:
+                    Width = thicknessDip;
+                    Height = screenHeightDip;
+                    Left = 0;
+                    Top = 0;
+                    Orientation = Orientation.Vertical;
+                    break;
+                case TaskbarEdge.Right:
+                    Width = thicknessDip;
+                    Height = screenHeightDip;
+                    Left = screenWidthDip - thicknessDip;
+                    Top = 0;
+                    Orientation = Orientation.Vertical;
+                    break;
+                default: /* Bottom */
+                    Width = screenWidthDip;
+                    Height = thicknessDip;
+                    Left = 0;
+                    Top = screenHeightDip - thicknessDip;
+                    Orientation = Orientation.Horizontal;
+                    break;
+            }
 
-            AppBarEdge = "Bottom";
-            AppBarEdgeIndex = (int)TaskbarEdge.Bottom;
-            Orientation = Orientation.Horizontal;
+            AppBarEdge = edge.ToString();
+            AppBarEdgeIndex = (int)edge;
 
-            SetThumbnailEdge(this, (int)TaskbarEdge.Bottom);
+            SetThumbnailEdge(this, (int)edge);
             SetThumbnailScale(this,
                 _hwndSource?.CompositionTarget?.TransformToDevice.M11 ?? 1.0);
         }
@@ -1946,10 +2040,12 @@ namespace Win7Taskbar
             }
 
             double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-            int sizePx = Math.Max(1, (int)Math.Round(ThemeTaskbarHeightDip * scale));
+            int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
+            var st = RetroBar.Utilities.Settings.Instance;
+            AppBarEdgeValue edge = AppBarEdgeFromPosition(st.TaskbarPosition);
 
             _appBarRegistered = _bridge.RegisterAppBar(
-                _hwndSource.Handle, AppBarEdgeValue.Bottom, sizePx);
+                _hwndSource.Handle, edge, sizePx);
             if (_appBarRegistered)
             {
                 // Il core, dentro la Register, esegue gia' QUERYPOS/SETPOS e
@@ -1979,12 +2075,14 @@ namespace Win7Taskbar
             {
                 scale = 1.0;
             }
-            int sizePx = Math.Max(1, (int)Math.Round(ThemeTaskbarHeightDip * scale));
+            int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
+            var st = RetroBar.Utilities.Settings.Instance;
+            AppBarEdgeValue edge = AppBarEdgeFromPosition(st.TaskbarPosition);
 
             // Il rettangolo confermato dalla shell e' in PIXEL FISICI: il core
             // ci sposta lui stesso la finestra (SetWindowPos con SWP_NOZORDER,
             // lo stato topresta intatto) e notifica ABM_WINDOWPOSCHANGED.
-            if (_bridge.SetAppBarPos(_hwndSource.Handle, AppBarEdgeValue.Bottom,
+            if (_bridge.SetAppBarPos(_hwndSource.Handle, edge,
                                      sizePx, out Rect reserved) && !reserved.IsEmpty)
             {
                 _appBarRect = reserved;
@@ -2309,6 +2407,31 @@ namespace Win7Taskbar
                     _bridge.Log("proprieta': avvio automatico " +
                                 (autoStart == 1 ? "attivato" : "disattivato") +
                                 " (logica RetroBar)");
+                }
+                /* v1.21.43 - rotazione della barra + blocco (schema RetroBar
+                 * Edge/LockTaskbar). Campi in CODA: offset 80/84, pacchetto da
+                 * 88 byte; si leggono solo se il nativo li contiene davvero. */
+                bool geometryChanged = false;
+                if (cds.cbData >= 84)
+                {
+                    int taskbarPosition = System.Runtime.InteropServices.Marshal
+                        .ReadInt32(cds.lpData, 80);
+                    if (taskbarPosition is < 0 or > 3) taskbarPosition = 0;
+                    if (taskbarPosition != st.TaskbarPosition)
+                    {
+                        st.TaskbarPosition = taskbarPosition;
+                        geometryChanged = true;
+                    }
+                }
+                if (cds.cbData >= 88)
+                {
+                    int lockTaskbar = System.Runtime.InteropServices.Marshal
+                        .ReadInt32(cds.lpData, 84);
+                    st.LockTaskbar = lockTaskbar != 0;
+                }
+                if (geometryChanged)
+                {
+                    ApplyTaskbarGeometry();
                 }
                 if (hasToolbars)
                 {
@@ -7957,7 +8080,11 @@ namespace Win7Taskbar
                      * Windows, letto dal registro con la logica di RetroBar
                      * (LoadAutoStart), per la casella della scheda
                      * Informazioni. */
-                    Win7Taskbar.Utilities.AutoStart.IsEnabled() ? 1 : 0);
+                    Win7Taskbar.Utilities.AutoStart.IsEnabled() ? 1 : 0,
+                    /* v1.21.43: posizione barra (0..3) + blocco (sezione
+                     * "Impostazioni extra", riga "Posizione"). */
+                    st.TaskbarPosition,
+                    st.LockTaskbar ? 1 : 0);
             }
             catch (Exception ex)
             {

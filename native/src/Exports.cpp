@@ -1053,15 +1053,16 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t inputLanguageMode, int32_t taskManagerMode,
         int32_t flyoutColorMode, int32_t flyoutColorRgb,
         int32_t connectionPrivacyMode, int32_t themeSelection,
-        int32_t autoStart) {
+        int32_t autoStart,
+        int32_t taskbarPosition, int32_t lockTaskbar) {
     try {
         /* v3.6: l'ordine DEVE essere quello della firma Show(): nativeFlyout,
          * enableSearch, netFlyout. Prima erano invertiti (netFlyout al posto
          * di enableSearch e viceversa): la spunta "ricerca" accendeva il
          * flyout di rete e il selettore flyout di rete accendeva la ricerca.
-         * v1.21.37: ultimo parametro = stato corrente dell'avvio automatico
+         * v1.21.37: parametro = stato corrente dell'avvio automatico
          * con Windows, letto dal registro dal gestito (AutoStart.cs, logica
-         * di RetroBar). */
+         * di RetroBar). v1.21.43: posizione barra (0..3) + blocco. */
         g_properties.Show(reinterpret_cast<HWND>(ownerTaskbar), lang,
                           seconds, nativeFlyout, enableSearch,
                           netFlyout, classicVolume, batteryFlyout, aeroPeek,
@@ -1069,7 +1070,7 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
                           inputLanguageMode, taskManagerMode,
                           flyoutColorMode, flyoutColorRgb,
                           connectionPrivacyMode, themeSelection,
-                          autoStart);
+                          autoStart, taskbarPosition, lockTaskbar);
     } catch (...) { /* mai propagare */ }
 }
 

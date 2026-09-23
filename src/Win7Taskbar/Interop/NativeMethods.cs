@@ -482,7 +482,9 @@ namespace Win7Taskbar.Interop
             int flyoutColorMode, int flyoutColorRgb,
             int connectionPrivacyMode, int themeSelection,
             // v1.21.37: current autostart state (RetroBar logic, AutoStart.cs).
-            int autoStart);
+            int autoStart,
+            // v1.21.43: taskbar position (0..3) + lock (RetroBar Edge/LockTaskbar).
+            int taskbarPosition, int lockTaskbar);
 
         /// <summary>
         /// v1.21.7: publishes the extra settings. flyoutColorMode 0 = system

@@ -38,3 +38,6 @@ __pycache__/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# foto di riferimento per il design (non nel repo)
+image-search/

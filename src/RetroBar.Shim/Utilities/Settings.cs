@@ -123,6 +123,31 @@ namespace RetroBar.Utilities
             set => SetField(ref _taskbarHeight, value);
         }
 
+        // v1.21.43 - rotazione della barra + blocco (copia semantica da
+        // RetroBar: Settings.Edge + Settings.LockTaskbar). TaskbarPosition:
+        // 0 = Basso, 1 = Alto, 2 = Sinistra, 3 = Destra (ordine della combo
+        // nelle Proprieta', vedi Strings.cpp ExtraStrings).
+
+        private int _taskbarPosition = 0;
+        private bool _lockTaskbar = true;
+
+        public int TaskbarPosition
+        {
+            get => _taskbarPosition;
+            set => SetField(ref _taskbarPosition,
+                            value < 0 ? 0 : (value > 3 ? 3 : value));
+        }
+
+        /// <summary>
+        /// true = barra bloccata (default, come Win7): niente resize col drag
+        /// e niente trascinamento su un altro bordo. false = sbloccata.
+        /// </summary>
+        public bool LockTaskbar
+        {
+            get => _lockTaskbar;
+            set => SetField(ref _lockTaskbar, value);
+        }
+
         /// <summary>
         /// Clock flyout choice: true = native Windows immersive flyout, false = WPF recreated / Scelta calendario: true = nativo, false = ricreato
         /// </summary>

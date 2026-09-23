@@ -128,6 +128,8 @@ enum CtrlId {
     IDC_LBL_EX_PRIVACY, IDC_CMB_EX_PRIVACY, IDC_TXT_PRIVACY_HINT,
     IDC_GRP_EX_TASKBAR, IDC_LBL_EX_THEME, IDC_CMB_EX_THEME,
     IDC_LBL_EX_ICON_ORDER, IDC_TXT_ORDER_HINT,
+    /* v1.21.43: riga "Posizione" + blocco barra (rotazione riattivata). */
+    IDC_LBL_EX_POSITION, IDC_CMB_EX_POSITION, IDC_CHK_EX_LOCK,
     IDC_BTN_APPLY = 3000,
 };
 
@@ -235,6 +237,8 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_TXT_PRIVACY_HINT, p4);
     vis(IDC_GRP_EX_TASKBAR, p4); vis(IDC_LBL_EX_THEME, p4);
     vis(IDC_CMB_EX_THEME, p4);
+    vis(IDC_LBL_EX_POSITION, p4); vis(IDC_CMB_EX_POSITION, p4);
+    vis(IDC_CHK_EX_LOCK, p4);
     vis(IDC_LBL_EX_ICON_ORDER, p4); vis(IDC_TXT_ORDER_HINT, p4);
 }
 
@@ -504,7 +508,8 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                             int32_t taskManagerMode,
                             int32_t flyoutColorMode, int32_t flyoutColorRgb,
                             int32_t connectionPrivacyMode, int32_t themeSelection,
-                            int32_t autoStart) {
+                            int32_t autoStart,
+                            int32_t taskbarPosition, int32_t lockTaskbar) {
     try {
         if (m_hWnd && IsWindow(m_hWnd)) {
             return;
@@ -547,6 +552,11 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         /* v1.21.37: stato dell'avvio automatico letto dal registro dal gestito
          * prima di aprire il dialogo (come LoadAutoStart di RetroBar). */
         m_autoStart = autoStart ? 1 : 0;
+        /* v1.21.43: posizione della barra (0..3) e blocco. Fuori elenco ->
+         * Basso/bloccata, mai uno stato inventato. */
+        m_taskbarPosition =
+            (taskbarPosition >= 0 && taskbarPosition <= 3) ? taskbarPosition : 0;
+        m_lockTaskbar = lockTaskbar ? 1 : 0;
         RefreshExtraSwatchColor();
 
         /* v2.47: oltre alle schede e ai controlli standard serve la classe
@@ -748,12 +758,21 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 134, PAGE_TEXT_WIDTH, 24,
                 IDC_TXT_PRIVACY_HINT, L"Static", L"");
 
-        addCtrl(BS_GROUPBOX, 0, 12, 176, GROUP_WIDTH, 94, IDC_GRP_EX_TASKBAR, L"Button", L"");
+        addCtrl(BS_GROUPBOX, 0, 12, 176, GROUP_WIDTH, 120, IDC_GRP_EX_TASKBAR, L"Button", L"");
         addCtrl(SS_LEFT, 0, 18, 188, 60, 10, IDC_LBL_EX_THEME, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 84, 186, 218, 80,
                 IDC_CMB_EX_THEME, L"ComboBox", L"");
-        addCtrl(SS_LEFT, 0, 18, 206, 200, 10, IDC_LBL_EX_ICON_ORDER, L"Static", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 220, PAGE_TEXT_WIDTH, 42,
+        /* v1.21.43: riga "Posizione" (rotazione riattivata, ricetta v1.21.28)
+         * + casella di blocco (schema RetroBar LockTaskbar). */
+        addCtrl(SS_LEFT, 0, 18, 206, 90, 10,
+                IDC_LBL_EX_POSITION, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
+                0, 112, 204, 190, 80,
+                IDC_CMB_EX_POSITION, L"ComboBox", L"");
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 222, PAGE_TEXT_WIDTH, 12,
+                IDC_CHK_EX_LOCK, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 240, 200, 10, IDC_LBL_EX_ICON_ORDER, L"Static", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 254, PAGE_TEXT_WIDTH, 26,
                 IDC_TXT_ORDER_HINT, L"Static", L"");
 
         /* v1.21.28 - OPZIONE "POSIZIONE DELLA BARRA" DISATTIVATA.
@@ -895,6 +914,16 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
             SendDlgItemMessageW(m_hWnd, IDC_CMB_EX_THEME, CB_GETCURSEL, 0, 0));
         msg.themeSelection = ThemeIsAvailable(themeSel) ? themeSel : 0;
     }
+    /* v1.21.43: posizione della barra + blocco (riga "Posizione" della
+     * scheda extra). CB_ERR -> 0 (Basso), come per le altre tendine. */
+    {
+        const int32_t posSel = static_cast<int32_t>(
+            SendDlgItemMessageW(m_hWnd, IDC_CMB_EX_POSITION, CB_GETCURSEL, 0, 0));
+        msg.taskbarPosition = (posSel >= 0 && posSel <= 3) ? posSel : 0;
+    }
+    msg.lockTaskbar =
+        (SendDlgItemMessageW(m_hWnd, IDC_CHK_EX_LOCK, BM_GETCHECK, 0, 0)
+            & BST_CHECKED) ? 1 : 0;
     /* v1.21.37: avvio automatico con Windows (casella della scheda
      * Informazioni, logica copiata da RetroBar). Il pacchetto porta solo la
      * scelta; a scrivere/togliere il valore Run nel registro e' il gestito. */
@@ -1053,6 +1082,23 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SetDlgItemTextW(hwnd, IDC_LBL_EX_PRIVACY, X.lblPrivacy);
         SetDlgItemTextW(hwnd, IDC_TXT_PRIVACY_HINT, X.txtPrivacyHint);
         SetDlgItemTextW(hwnd, IDC_LBL_EX_THEME, X.lblTheme);
+        /* v1.21.43: posizione barra + blocco (riga "Posizione" della
+         * scheda extra, rotazione riattivata). */
+        SetDlgItemTextW(hwnd, IDC_LBL_EX_POSITION, X.lblPosition);
+        SetDlgItemTextW(hwnd, IDC_CHK_EX_LOCK, X.chkLock);
+        {
+            HWND hPos = GetDlgItem(hwnd, IDC_CMB_EX_POSITION);
+            ComboBox_AddString(hPos, X.posBottom);   /* 0 */
+            ComboBox_AddString(hPos, X.posTop);      /* 1 */
+            ComboBox_AddString(hPos, X.posLeft);     /* 2 */
+            ComboBox_AddString(hPos, X.posRight);    /* 3 */
+            ComboBox_SetCurSel(hPos, (self->m_taskbarPosition >= 0 &&
+                                      self->m_taskbarPosition <= 3)
+                                     ? self->m_taskbarPosition : 0);
+        }
+        SendDlgItemMessageW(hwnd, IDC_CHK_EX_LOCK, BM_SETCHECK,
+                            self->m_lockTaskbar ? BST_CHECKED
+                                                : BST_UNCHECKED, 0);
         SetDlgItemTextW(hwnd, IDC_GRP_EX_TASKBAR, X.grpTaskbar);
         SetDlgItemTextW(hwnd, IDC_LBL_EX_ICON_ORDER, X.lblIconOrder);
         SetDlgItemTextW(hwnd, IDC_TXT_ORDER_HINT, X.txtIconOrderHint);

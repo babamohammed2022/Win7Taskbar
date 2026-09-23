@@ -785,7 +785,7 @@ namespace Win7Taskbar.Interop
             int inputLanguageMode, int taskManagerMode,
             int flyoutColorMode, int flyoutColorRgb,
             int connectionPrivacyMode, int themeSelection,
-            int autoStart)
+            int autoStart, int taskbarPosition, int lockTaskbar)
         {
             try
             {
@@ -795,7 +795,7 @@ namespace Win7Taskbar.Interop
                     inputLanguageMode, taskManagerMode,
                     flyoutColorMode, flyoutColorRgb,
                     connectionPrivacyMode, themeSelection,
-                    autoStart);
+                    autoStart, taskbarPosition, lockTaskbar);
             }
             catch { }
         }
