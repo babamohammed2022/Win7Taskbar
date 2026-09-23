@@ -66,13 +66,15 @@ static void TestBandLayout() {
     CHECK(r.clock.left == 800 && r.clock.right == 1000);
 
     /* 12: spazio insufficiente — le fisse stringono, il clock resta
-     * almeno meta', il task list si azzera per ultimo. */
-    const RectI small{ 0, 0, 200, 40 };
+     * almeno meta', il task list si azzera per ultimo.
+     * (Nota: "small" e' una macro di rpcndr.h: niente identificatori
+     * che si chiamano così.) */
+    const RectI tight{ 0, 0, 200, 40 };
     BandSizes big;
     big.task_list = 500;
     big.tray = 200;
     big.clock = 100;
-    const BandRects s = LayoutBandsOnEdge(Edge::Top, small, big);
+    const BandRects s = LayoutBandsOnEdge(Edge::Top, tight, big);
     CHECK(s.clock.width() >= 50);           /* mai sotto meta' */
     CHECK(s.task_list.width() + s.tray.width() + s.clock.width() == 200);
     CHECK(s.task_list.left == 0);

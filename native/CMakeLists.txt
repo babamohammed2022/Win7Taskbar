@@ -144,11 +144,15 @@ enable_testing()
 add_executable(w7t_layout_tests
     tests/layout_tests.cpp
     src/BandLayout.cpp src/ClockTrayLayout.cpp src/TraySizer.cpp)
+target_include_directories(w7t_layout_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(w7t_layout_tests PRIVATE kernel32 user32)
 add_test(NAME layout_tests COMMAND w7t_layout_tests)
 
 add_executable(w7t_registry_tests
     tests/registry_tests.cpp
     src/RegistryPolicy.cpp src/RegistryShadow.cpp src/LocalAppDataStore.cpp)
+target_include_directories(w7t_registry_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(w7t_registry_tests PRIVATE kernel32 user32 advapi32)
 add_test(NAME registry_tests COMMAND w7t_registry_tests)
