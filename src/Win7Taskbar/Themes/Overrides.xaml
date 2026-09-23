@@ -445,11 +445,37 @@
                     </Image.RenderTransform>
                 </Image>
             </Grid>
-            <!-- v2.62: the small up-arrow trigger of v2.61 was removed on
-                 request - the Jump List opens with the Windows 7 drag (left
-                 press + drag away from the bar); the trigger code in
-                 TaskbarWindow.JumpList.cs simply finds no arrow element
-                 anymore and stays inert. -->
+            <!-- Optional hover Jump List triangle (named for JumpList.cs).
+                 Drag-up stays available. Hidden when ShowJumpListHoverArrow
+                 is off. Visible on hover of a running program. -->
+            <Path x:Name="JumpListArrow"
+                  Data="M 0,5 L 8,5 L 4,1 Z"
+                  Fill="#F0FFFFFF"
+                  Stroke="#80FFFFFF"
+                  StrokeThickness="0.6"
+                  Width="10" Height="7"
+                  Stretch="Uniform"
+                  HorizontalAlignment="Right"
+                  VerticalAlignment="Center"
+                  Margin="0,0,2,0"
+                  SnapsToDevicePixels="True"
+                  IsHitTestVisible="True">
+                <Path.Style>
+                    <Style TargetType="Path">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsRunning}" Value="True"/>
+                                    <Condition Binding="{Binding Path=ShowJumpListHoverArrow, Source={x:Static retrosettings:Settings.Instance}}" Value="True"/>
+                                    <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Path.Style>
+            </Path>
         </Grid>
     </DataTemplate>
 
@@ -1217,30 +1243,6 @@
                                                          Duration="0:0:0.25" />
                                     </Storyboard>
                                 </BeginStoryboard>
-                            </Trigger.ExitActions>
-                        </Trigger>
-                        <!-- barra verticale: tessera abbreviata (26.352 nella
-                             v1.21.49) scalata dello stesso -2.2% della
-                             v1.21.50 e ricentrata col solito margine +13
-                             del Canvas. Solo proprieta' semplici nei Setter:
-                             il loader XAML di RetroBar rifiuta le proprieta'
-                             attaccate nei Setter. -->
-                        <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
-                                     Value="Vertical">
-                            <Setter TargetName="HoverCanvas"
-                                    Property="Margin"
-                                    Value="0,13,0,0" />
-                            <Setter TargetName="HoverTileImg"
-                                    Property="Height"
-                                    Value="25.772256" />
-                        </DataTrigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
-</ResourceDictionary>
-board>
                             </Trigger.ExitActions>
                         </Trigger>
                         <!-- barra verticale: tessera abbreviata (26.352 nella
