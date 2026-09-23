@@ -42,7 +42,9 @@ add_library(Win7TaskbarCore SHARED
     src/LanguageSwitcher.cpp src/AeroThumbnailFrame.cpp src/PreviewPolicy.cpp src/TaskbarButtonNotify.cpp src/PinVerbs.cpp
     src/Strings.cpp src/LocalizationExports.cpp
     src/TrayFallbackIcons.cpp src/CrashHandler.cpp
-    src/TrayPrefsStore.cpp resources/app.rc)
+    src/TrayPrefsStore.cpp
+    src/DpiMetrics.cpp src/WindowSubclass.cpp
+    resources/app.rc)
 target_include_directories(Win7TaskbarCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # v1.21.18: the revision the DLL is built from, compiled into the binary and
 # written to log-core.txt at the first log line ("=== Win7Taskbar core build:
