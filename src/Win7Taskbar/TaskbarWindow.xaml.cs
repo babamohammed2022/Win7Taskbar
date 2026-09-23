@@ -2187,7 +2187,7 @@ namespace Win7Taskbar
             double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
             int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
             var st = RetroBar.Utilities.Settings.Instance;
-            AppBarEdgeValue edge = AppBarEdgeFromPosition(st.TaskbarPosition);
+            int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
 
             _appBarRegistered = _bridge.RegisterAppBar(
                 _hwndSource.Handle, edge, sizePx);
@@ -5131,8 +5131,6 @@ namespace Win7Taskbar
                 // from the button projection's window list directly: the two
                 // views are allowed to diverge when the model grows
                 // child/hosted-window relations. Selection is unchanged today.
-                ItemsSource = _viewModel.PickerWindows(group),
-                ItemTemplate = TryFindResource("WindowPickerItemTemplate") as DataTemplate,
                 ItemsSource = _viewModel.PickerWindows(group),
                 ItemTemplate = TryFindResource("WindowPickerItemTemplate") as DataTemplate,
                 BorderThickness = new Thickness(0),
