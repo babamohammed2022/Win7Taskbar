@@ -2231,6 +2231,60 @@ namespace Win7Taskbar
                                      sizePx, out Rect reserved) && !reserved.IsEmpty)
             {
                 _appBarRect = reserved;
+
+                // The native AppBar protocol is authoritative for the final
+                // physical rectangle. Keep WPF's DIP geometry synchronized
+                // with the exact rectangle returned by ABM_SETPOS.
+                ApplyReservedAppBarRect(reserved);
+            }
+        }
+
+        /// <summary>
+        /// Synchronizes the managed WPF window with the physical rectangle
+        /// confirmed by the native AppBar service. This avoids a small
+        /// vertical/horizontal offset caused by independently recomputing
+        /// screen geometry in DIPs after resize or DPI changes.
+        /// </summary>
+        private void ApplyReservedAppBarRect(Rect reserved)
+        {
+            try
+            {
+                if (_hwndSource == null || reserved.IsEmpty)
+                {
+                    return;
+                }
+
+                var transform = _hwndSource.CompositionTarget?.TransformFromDevice;
+                if (transform == null)
+                {
+                    return;
+                }
+
+                Point topLeft = transform.Value.Transform(
+                    new Point(reserved.X, reserved.Y));
+                Point bottomRight = transform.Value.Transform(
+                    new Point(reserved.X + reserved.Width,
+                              reserved.Y + reserved.Height));
+
+                double width = Math.Max(1.0, bottomRight.X - topLeft.X);
+                double height = Math.Max(1.0, bottomRight.Y - topLeft.Y);
+
+                // Do not re-enter the geometry pipeline unnecessarily when
+                // the WPF values already match the native rectangle.
+                if (Math.Abs(Left - topLeft.X) > 0.01 ||
+                    Math.Abs(Top - topLeft.Y) > 0.01 ||
+                    Math.Abs(Width - width) > 0.01 ||
+                    Math.Abs(Height - height) > 0.01)
+                {
+                    Left = topLeft.X;
+                    Top = topLeft.Y;
+                    Width = width;
+                    Height = height;
+                }
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log($"sync rettangolo AppBar: {ex.Message}");
             }
         }
 
