@@ -5078,9 +5078,7 @@ namespace Win7Taskbar
                 // views are allowed to diverge when the model grows
                 // child/hosted-window relations. Selection is unchanged today.
                 ItemsSource = _viewModel.PickerWindows(group),
-                ItemTemplate = TryFindResource("WindowPickerIto
-                // views are allowed to diverge when the model grows
-                // child/hosted-window relations. Selection is unchanged today.
+                ItemTemplate = TryFindResource("WindowPickerItemTemplate") as DataTemplate,
                 ItemsSource = _viewModel.PickerWindows(group),
                 ItemTemplate = TryFindResource("WindowPickerItemTemplate") as DataTemplate,
                 BorderThickness = new Thickness(0),
