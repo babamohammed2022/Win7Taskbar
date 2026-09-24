@@ -265,9 +265,10 @@ HRESULT CreateSearchScope(IShellItemArray** scopeOut) {
     }
     HRESULT hr = E_FAIL;
     if (!pidls.empty()) {
+        /* 3 parametri (documentato): niente IID_PPV_ARGS, scopeOut e'
+         * gia' il puntatore di uscita tipizzato. */
         hr = SHCreateShellItemArrayFromIDLists(
-            static_cast<UINT>(pidls.size()), pidls.data(),
-            IID_PPV_ARGS(scopeOut));
+            static_cast<UINT>(pidls.size()), pidls.data(), scopeOut);
     }
     for (UniquePidl* u : owned) {
         delete u; /* la ShellItemArray tiene i suoi riferimenti */
@@ -470,9 +471,13 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ShellItemIconBitmap(
         if (FAILED(hr) || !item) {
             return W7T_ERR_NOT_FOUND;
         }
+        /* IShellItemImageFactory diretta da SHCreateItemFromParsingName:
+         * rotta documentata dai campioni della documentazione e senza
+         * BHID_ImageFactory, che su alcune versioni dell'intestazione
+         * shobjidl non e' dichiarato. */
         UniqueCom<IShellItemImageFactory> imageFactory;
-        hr = item->BindToHandler(nullptr, BHID_ImageFactory,
-                                 IID_PPV_ARGS(imageFactory.put()));
+        hr = SHCreateItemFromParsingName(
+            parsingName, nullptr, IID_PPV_ARGS(imageFactory.put()));
         if (FAILED(hr) || !imageFactory) {
             return W7T_ERR_NOT_FOUND;
         }
@@ -530,7 +535,7 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ShellItemIconBitmap(
                 }
                 bitmap.obj = resized.obj;
                 resized.obj = nullptr;
-                rawBitmap = bitmap.obj;
+                rawBitmap = static_cast<HBITMAP>(bitmap.obj);
             } else {
                 if (oldDst != nullptr) {
                     SelectObject(dstDc.dc, oldDst);
