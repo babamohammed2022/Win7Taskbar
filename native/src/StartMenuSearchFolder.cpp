@@ -56,7 +56,6 @@
 namespace {
 
 template <typename T>
-template <typename T>
 class UniqueCom {
 public:
     UniqueCom() noexcept = default;
@@ -95,6 +94,7 @@ struct UniqueComInit {
 
 struct UniquePidl {
     PIDLIST_ABSOLUTE p = nullptr;
+    UniquePidl() noexcept = default;
     ~UniquePidl() {
         if (p != nullptr) {
             CoTaskMemFree(p);
@@ -106,6 +106,7 @@ struct UniquePidl {
 
 struct UniqueScHandle {
     SC_HANDLE h = nullptr;
+    UniqueScHandle() noexcept = default;
     ~UniqueScHandle() {
         if (h != nullptr) {
             CloseServiceHandle(h);
@@ -117,6 +118,7 @@ struct UniqueScHandle {
 
 struct UniqueDc {
     HDC dc = nullptr;
+    UniqueDc() noexcept = default;
     ~UniqueDc() {
         if (dc != nullptr) {
             DeleteDC(dc);
@@ -128,6 +130,7 @@ struct UniqueDc {
 
 struct UniqueGdiObj {
     HGDIOBJ obj = nullptr;
+    UniqueGdiObj() noexcept = default;
     ~UniqueGdiObj() {
         if (obj != nullptr) {
             DeleteObject(obj);

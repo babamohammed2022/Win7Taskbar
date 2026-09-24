@@ -152,6 +152,7 @@ struct UniqueHandle {
  * rilascio con CoTaskMemFree come da documentazione della libreria shell). */
 struct UniquePidl {
     PIDLIST_ABSOLUTE p = nullptr;
+    UniquePidl() noexcept = default;
     ~UniquePidl() {
         if (p != nullptr) {
             CoTaskMemFree(p);
