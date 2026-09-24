@@ -104,7 +104,16 @@ namespace Win7Taskbar.Models
                     .CreateBitmapSourceFromHIcon(
                         hicon, System.Windows.Int32Rect.Empty,
                         BitmapSizeOptions.FromEmptyOptions());
-                return icon != null;
+                if (icon == null || !DrawsSomething(icon))
+                {
+                    // A fully transparent result is what an empty taskbar
+                    // button looks like, and on a pinned group it would
+                    // override the real window icon: treat it as a failure so
+                    // the caller tries the next candidate.
+                    icon = null;
+                    return false;
+                }
+                return true;
             }
             catch
             {
@@ -116,6 +125,50 @@ namespace Win7Taskbar.Models
                 {
                     Interop.NativeMethods.DestroyIcon(hicon);
                 }
+            }
+        }
+
+        /// <summary>
+        /// True when the converted bitmap really draws at least one pixel.
+        /// The HICON to BitmapSource conversion can hand back a well-formed
+        /// but completely transparent image; on screen that is an empty
+        /// button, and in the pin path it would win over the icon of the
+        /// running window. Mirrors the native BitmapHasContent check.
+        /// </summary>
+        private static bool DrawsSomething(BitmapSource icon)
+        {
+            try
+            {
+                if (icon.Format != System.Windows.Media.PixelFormats.Bgra32 &&
+                    icon.Format != System.Windows.Media.PixelFormats.Pbgra32)
+                {
+                    // Not a 32-bit source: there is nothing to inspect here,
+                    // so the icon is kept rather than thrown away.
+                    return true;
+                }
+
+                int stride = icon.PixelWidth * 4;
+                if (stride <= 0 || icon.PixelHeight <= 0)
+                {
+                    return false;
+                }
+
+                byte[] pixels = new byte[stride * icon.PixelHeight];
+                icon.CopyPixels(pixels, stride, 0);
+                for (int i = 3; i < pixels.Length; i += 4)
+                {
+                    if (pixels[i] != 0 &&
+                        (pixels[i - 3] | pixels[i - 2] | pixels[i - 1]) != 0)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            catch
+            {
+                // A bitmap that cannot even be read is not usable.
+                return false;
             }
         }
 

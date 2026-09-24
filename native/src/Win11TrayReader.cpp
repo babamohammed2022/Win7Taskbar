@@ -405,7 +405,8 @@ bool LoadImageIcon(const std::wstring& exePath, ArgbBitmap& out) {
             if (ExtractIconExW(exePath.c_str(), 0, nullptr, &iconSmall, 1) > 0 &&
                 iconSmall != nullptr) {
                 ArgbBitmap bmp;
-                if (IconToArgb(iconSmall, bmp) && BitmapSane(bmp)) {
+                if (IconToArgb(iconSmall, bmp) && BitmapSane(bmp) &&
+                    BitmapHasContent(bmp)) {
                     out = std::move(bmp);
                 }
             }

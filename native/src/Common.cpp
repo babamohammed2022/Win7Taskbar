@@ -147,8 +147,16 @@ bool IconToArgb(HICON icon, ArgbBitmap& out) {
     }
 
     const int width  = bm.bmWidth;
-    /* Le icone monocromatiche impacchettano AND+XOR nella stessa bitmap. */
-    const int height = info.hbmColor ? bm.bmHeight : bm.bmHeight / 2;
+    /* The colour bitmap of an icon can be stored top-down, i.e. with a
+     * NEGATIVE height: CreateIconIndirect and LoadIconWithScaleDown both
+     * build their icon from a DIB section, and a DIB section created with a
+     * negative height is top-down. Such a height used to be rejected here,
+     * which silently dropped every icon produced that way (the window keeps
+     * a perfectly good HICON that this function refuses to convert).
+     * Monochrome icons instead pack AND+XOR into one bitmap, so their
+     * height is halved. */
+    const int colorHeight = bm.bmHeight < 0 ? -bm.bmHeight : bm.bmHeight;
+    const int height = info.hbmColor ? colorHeight : bm.bmHeight / 2;
     if (width <= 0 || height <= 0 || width > 1024 || height > 1024) {
         return false;
     }
@@ -1451,6 +1459,20 @@ bool w7t::BitmapSane(const ArgbBitmap& bmp) {
         return false;
     }
     return bmp.pixels.size() == static_cast<size_t>(bmp.width) * bmp.height * 4u;
+}
+
+bool w7t::BitmapHasContent(const ArgbBitmap& bmp) {
+    const size_t pixels = bmp.pixels.size() / 4u;
+    for (size_t i = 0; i < pixels; ++i) {
+        const uint8_t* px = bmp.pixels.data() + i * 4u;
+        if (px[3] == 0) {
+            continue;                       /* fully transparent */
+        }
+        if ((px[0] | px[1] | px[2]) != 0) {
+            return true;                    /* at least one drawn pixel */
+        }
+    }
+    return false;
 }
 
 void w7t::AppendCoreLog(const wchar_t* line) {

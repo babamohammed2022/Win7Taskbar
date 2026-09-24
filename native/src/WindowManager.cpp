@@ -20,6 +20,7 @@
 #include "TaskbarButtonNotify.h"
 #include <algorithm>
 #include <objbase.h>
+#include <shellapi.h>   /* SHGetFileInfoW / ExtractIconExW */
 #include <shlobj.h>
 
 namespace w7t {
@@ -527,8 +528,48 @@ void WindowManager::EnsureIcon(TrackedWindow& win, int32_t desiredSize) {
     }
 
     const bool large = desiredSize > 16;
-    HICON icon = nullptr;
-    bool destroyIcon = false;
+    const UINT type   = large ? ICON_BIG : ICON_SMALL;
+    const UINT altType = large ? ICON_SMALL : ICON_BIG;
+
+    /* One icon candidate. "owned" means this process has to destroy the
+     * handle, which is true for everything that was extracted or asked for
+     * from the shell, and false for the icons a window or a class owns. */
+    struct Candidate {
+        HICON icon = nullptr;
+        bool  owned = false;
+    };
+    std::vector<Candidate> candidates;
+    candidates.reserve(8);
+
+    auto add = [&candidates](HICON icon, bool owned) {
+        if (icon != nullptr) {
+            candidates.push_back(Candidate{ icon, owned });
+        }
+    };
+
+    /* Converts the candidates in order and keeps the first one that really
+     * draws something. Stopping at the first source that fails to convert is
+     * what used to leave a button blank for good: the icon existed, the
+     * conversion did not survive it, and no other source was ever tried. */
+    auto firstUsable = [&win](std::vector<Candidate>& list) {
+        for (const Candidate& c : list) {
+            ArgbBitmap bmp;
+            if (IconToArgb(c.icon, bmp) && BitmapSane(bmp) && BitmapHasContent(bmp)) {
+                win.icon = std::move(bmp);
+                win.iconRevision++;
+                return true;
+            }
+        }
+        return false;
+    };
+    auto releaseAll = [](std::vector<Candidate>& list) {
+        for (const Candidate& c : list) {
+            if (c.owned && c.icon != nullptr) {
+                DestroyIcon(c.icon);
+            }
+        }
+        list.clear();
+    };
 
     /* Explorer-hosted Control Panel pages often expose Explorer's window
      * icon as well as its AUMID. Once ComputeAppId has positively identified
@@ -545,94 +586,103 @@ void WindowManager::EnsureIcon(TrackedWindow& win, int32_t desiredSize) {
                 (large ? SHGFI_LARGEICON : SHGFI_SMALLICON);
             if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &sfi,
                                sizeof(sfi), flags) != 0) {
-                icon = sfi.hIcon;
-                destroyIcon = icon != nullptr;
+                add(sfi.hIcon, true);
             }
             CoTaskMemFree(pidl);
         }
     }
 
-    /* WM_GETICON con timeout: una finestra bloccata non deve bloccare noi. */
-    DWORD_PTR result = 0;
-    const UINT type = large ? ICON_BIG : ICON_SMALL;
-    if (icon == nullptr &&
-        SendMessageTimeoutW(win.hwnd, WM_GETICON, type, 0,
-                            SMTO_ABORTIFHUNG | SMTO_BLOCK, 250, &result) && result != 0) {
-        icon = reinterpret_cast<HICON>(result);
-    }
-
-    if (icon == nullptr) {
-        if (SendMessageTimeoutW(win.hwnd, WM_GETICON, large ? ICON_SMALL : ICON_BIG, 0,
-                                SMTO_ABORTIFHUNG | SMTO_BLOCK, 250, &result) && result != 0) {
-            icon = reinterpret_cast<HICON>(result);
-        }
-    }
-
-    if (icon == nullptr) {
-        icon = reinterpret_cast<HICON>(
-            GetClassLongPtrW(win.hwnd, large ? GCLP_HICON : GCLP_HICONSM));
-    }
-    if (icon == nullptr) {
-        icon = reinterpret_cast<HICON>(
-            GetClassLongPtrW(win.hwnd, large ? GCLP_HICONSM : GCLP_HICON));
-    }
-
     /* v1.7.2: icone reali delle app PACCHETTIZZATE (UWP). Le loro
      * finestre vivono in ApplicationFrameHost.exe: WM_GETICON e la classe
-     * consegnano il glifo generico dell'host. Se l'host e' quello (o se
-     * non e' arrivata nessuna icona) si chiede l'icona al pacchetto via
-     * AppUserModelID + cartella shell:AppsFolder (API pubbliche). */
-    {
-        const size_t slash = win.exePath.find_last_of(L"\\/");
-        const std::wstring exeName = (slash == std::wstring::npos)
-            ? win.exePath : win.exePath.substr(slash + 1);
-        const bool hostedFrame =
-            _wcsicmp(exeName.c_str(), L"applicationframehost.exe") == 0;
-        if (icon == nullptr || hostedFrame) {
-            HICON packaged = GetWindowPackagedIcon(win.hwnd, large ? 48 : 32);
-            if (packaged != nullptr) {
-                icon = packaged;
-                destroyIcon = true;
+     * consegnano il glifo generico dell'host. Se l'host e' quello si chiede
+     * l'icona al pacchetto via AppUserModelID + cartella shell:AppsFolder
+     * (API pubbliche), e quella icona viene provata PER PRIMA perche' e'
+     * l'unica corretta per quel tipo di finestra. */
+    const size_t slash = win.exePath.find_last_of(L"\\/");
+    const std::wstring exeName = (slash == std::wstring::npos)
+        ? win.exePath : win.exePath.substr(slash + 1);
+    const bool hostedFrame =
+        _wcsicmp(exeName.c_str(), L"applicationframehost.exe") == 0;
+    if (hostedFrame) {
+        add(GetWindowPackagedIcon(win.hwnd, large ? 48 : 32), true);
+    }
+
+    /* WM_GETICON con timeout: una finestra bloccata non deve bloccare noi.
+     * ICON_SMALL2 is the small icon at the window's own DPI and is the one
+     * modern frameworks (Tauri, Electron, Qt) actually set, so it is tried
+     * as well: without it a window that only sets that slot has no icon at
+     * all as far as this loop is concerned. The first slot that answers
+     * wins, so a window that does expose its icon is asked only once. */
+    HICON windowIcon = nullptr;
+    const UINT types[3] = { type, altType, ICON_SMALL2 };
+    for (UINT t : types) {
+        DWORD_PTR result = 0;
+        if (SendMessageTimeoutW(win.hwnd, WM_GETICON, t, 0,
+                                SMTO_ABORTIFHUNG | SMTO_BLOCK, 250, &result) &&
+            result != 0) {
+            windowIcon = reinterpret_cast<HICON>(result);
+            break;
+        }
+    }
+    add(windowIcon, false);
+
+    /* Then the class icon, in the same order. */
+    int cls = large ? GCLP_HICON : GCLP_HICONSM;
+    HICON classIcon = reinterpret_cast<HICON>(GetClassLongPtrW(win.hwnd, cls));
+    if (classIcon == nullptr) {
+        cls = large ? GCLP_HICONSM : GCLP_HICON;
+        classIcon = reinterpret_cast<HICON>(GetClassLongPtrW(win.hwnd, cls));
+    }
+    add(classIcon, false);
+
+    bool haveIcon = firstUsable(candidates);
+    releaseAll(candidates);
+
+    if (!haveIcon) {
+        /* Fallback: l'icona associata all'eseguibile. Prima si chiede alla
+         * shell (la stessa che usa Explorer, quindi anche per i file che non
+         * sono risorse proprie), poi si leggono le risorse dell'eseguibile.
+         * ExtractIconExW viene chiamato con indice -1 solo per CONTARE le
+         * icone: l'indice 0 non e' sempre quello giusto, e una risorsa che
+         * non si riesce a convertire non deve interrompere la ricerca. */
+        if (!win.exePath.empty()) {
+            SHFILEINFOW sfi{};
+            if (SHGetFileInfoW(win.exePath.c_str(), 0, &sfi, sizeof(sfi),
+                               SHGFI_ICON |
+                                   (large ? SHGFI_LARGEICON : SHGFI_SMALLICON)) != 0) {
+                add(sfi.hIcon, true);
+            }
+            const int iconCount = static_cast<int>(
+                ExtractIconExW(win.exePath.c_str(), -1, nullptr, nullptr, 0));
+            for (int index = 0; index < iconCount && index < 8; ++index) {
+                HICON extracted = nullptr;
+                if (large) {
+                    ExtractIconExW(win.exePath.c_str(), index, &extracted,
+                                   nullptr, 1);
+                } else {
+                    ExtractIconExW(win.exePath.c_str(), index, nullptr,
+                                   &extracted, 1);
+                }
+                add(extracted, true);
             }
         }
+
+        /* Ultima spiaggia: l'icona generica di applicazione.
+         *
+         * Windows non lascia mai un pulsante vuoto nella barra; capita con le
+         * finestre che non definiscono alcuna icona ne' a livello di finestra
+         * ne' di classe (tipicamente programmi minimali o scritti a mano).
+         * Senza questo ripiego il pulsante resterebbe un rettangolo vuoto. */
+        add(LoadIconW(nullptr, IDI_APPLICATION), false);
+
+        firstUsable(candidates);
+        releaseAll(candidates);
     }
 
-    /* Fallback finale: icona associata all'eseguibile. */
-    if (icon == nullptr && !win.exePath.empty()) {
-        HICON extracted = nullptr;
-        if (large) {
-            ExtractIconExW(win.exePath.c_str(), 0, &extracted, nullptr, 1);
-        } else {
-            ExtractIconExW(win.exePath.c_str(), 0, nullptr, &extracted, 1);
-        }
-        if (extracted != nullptr) {
-            icon = extracted;
-            destroyIcon = true;
-        }
-    }
-
-    /* Ultima spiaggia: l'icona generica di applicazione.
-     *
-     * Windows non lascia mai un pulsante vuoto nella barra; capita con le
-     * finestre che non definiscono alcuna icona ne' a livello di finestra
-     * ne' di classe (tipicamente programmi minimali o scritti a mano).
-     * Senza questo ripiego il pulsante resterebbe un rettangolo vuoto. */
-    if (icon == nullptr) {
-        icon = LoadIconW(nullptr, IDI_APPLICATION);
-        /* Le icone predefinite sono condivise: non vanno distrutte. */
-    }
-
-    if (icon != nullptr) {
-        ArgbBitmap bmp;
-        if (IconToArgb(icon, bmp) && BitmapSane(bmp)) {
-            win.icon = std::move(bmp);
-            win.iconRevision++;
-        }
-        if (destroyIcon) {
-            DestroyIcon(icon);
-        }
-    }
-    win.iconLoaded = true;
+    /* Only a bitmap that really draws something is worth caching. When every
+     * source failed the icon stays empty and iconLoaded stays false, so the
+     * next request tries again instead of serving the blank for good. */
+    win.iconLoaded = !win.icon.empty();
 }
 
 int32_t WindowManager::GetIconBitmap(HWND hwnd, int32_t desiredSize,
