@@ -481,7 +481,7 @@
                              [search box]  [Arresta]
                              ________________________ -->
                         <Border x:Name="SearchShutWash" Grid.Row="1"
-                                Margin="0,0,8,0"
+                                Margin="0,-1,8,0"
                                 Background="#FFFFFFFF" Opacity="0"
                                 IsHitTestVisible="False"/>
 
