@@ -235,6 +235,8 @@ under `Resources/`) are included from the upstream theme. Credits
 declared by the theme author: WinBoeing 777 (show-desktop button icon),
 Traindere (supervision), 3Ds (inspiration).
 
+Windows, the Windows logo and the Windows 7 visual design are trademarks and/or copyrighted works of Microsoft Corporation.
+
 ### Language contributions
 
 The translations of the interface are not third-party code: they are
