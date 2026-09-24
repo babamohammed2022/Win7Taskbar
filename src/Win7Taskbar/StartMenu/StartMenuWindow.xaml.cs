@@ -470,14 +470,14 @@ namespace Win7Taskbar.StartMenu
             {
                 if (NativeMethods.GetCursorPos(out NativeMethods.POINT cursor))
                 {
-                    _infotipX = cursor.x + 20;
-                    _infotipY = cursor.y + 28;
+                    _infotipX = cursor.x;
+                    _infotipY = cursor.y;
                 }
                 else
                 {
                     Point pt = host.PointToScreen(new Point(0, host.ActualHeight));
-                    _infotipX = (int)Math.Round(pt.X) + 20;
-                    _infotipY = (int)Math.Round(pt.Y) + 8;
+                    _infotipX = (int)Math.Round(pt.X);
+                    _infotipY = (int)Math.Round(pt.Y);
                 }
                 _infotipOwner = new WindowInteropHelper(this).Handle;
                 _infotipTitle = item.Name;

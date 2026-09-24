@@ -540,20 +540,26 @@ namespace Win7Taskbar.Models
             var list = new List<PinInfo>();
             foreach (var pn in _bridge.GetPinnedApps())
             {
-                var icon = PinReader.ReadIcon(pn.LnkPath ?? string.Empty,
-                                              pn.Target ?? string.Empty);
-                if (icon != null)
+                try
                 {
-                    _icons.Put(AppIconCache.PinKey(pn.LnkPath ?? string.Empty), icon);
-                }
+                    var icon = PinReader.ReadIcon(pn.LnkPath ?? string.Empty,
+                                                  pn.Target ?? string.Empty);
+                    if (icon != null)
+                    {
+                        _icons.Put(AppIconCache.PinKey(pn.LnkPath ?? string.Empty), icon);
+                    }
 
-                list.Add(new PinInfo
+                    list.Add(new PinInfo
+                    {
+                        AppId = pn.Identity ?? string.Empty,
+                        LnkPath = pn.LnkPath ?? string.Empty,
+                        TargetPath = pn.Target ?? string.Empty,
+                        Icon = icon,
+                    });
+                }
+                catch (Exception)
                 {
-                    AppId = pn.Identity ?? string.Empty,
-                    LnkPath = pn.LnkPath ?? string.Empty,
-                    TargetPath = pn.Target ?? string.Empty,
-                    Icon = icon,
-                });
+                }
             }
             return list;
         }

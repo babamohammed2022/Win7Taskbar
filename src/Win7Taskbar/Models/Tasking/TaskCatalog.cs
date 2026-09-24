@@ -389,6 +389,8 @@ namespace Win7Taskbar.Models.Tasking
         {
             foreach (PinInfo pin in pins)
             {
+                try
+                {
                 AppGroup? group = null;
                 foreach (AppGroup candidate in _groups)
                 {
@@ -436,6 +438,10 @@ namespace Win7Taskbar.Models.Tasking
                     // windows' content icon (Esplora file opening "This PC"
                     // must show Explorer's icon, not the content's).
                     group.PinIconKey = AppIconCache.PinKey(pin.LnkPath ?? string.Empty);
+                }
+                }
+                catch (Exception)
+                {
                 }
             }
 

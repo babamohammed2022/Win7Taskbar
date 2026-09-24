@@ -378,31 +378,41 @@ HICON GetAppsFolderIcon(const wchar_t* aumid, int size) {
     if (aumid == nullptr || aumid[0] == 0) {
         return nullptr;
     }
-    std::wstring path = L"shell:AppsFolder\\";
-    path += aumid;
+    try {
+        std::wstring path = L"shell:AppsFolder\\";
+        path += aumid;
 
-    IShellItem* item = nullptr;
-    if (FAILED(SHCreateItemFromParsingName(path.c_str(), nullptr,
-                                           IID_PPV_ARGS(&item))) ||
-        item == nullptr) {
+        IShellItem* item = nullptr;
+        if (FAILED(SHCreateItemFromParsingName(path.c_str(), nullptr,
+                                               IID_PPV_ARGS(&item))) ||
+            item == nullptr) {
+            return nullptr;
+        }
+        struct ReleaseItem {
+            IShellItem* p;
+            ~ReleaseItem() { if (p) p->Release(); }
+        } itemGuard{ item };
+
+        HICON out = nullptr;
+        IShellItemImageFactory* factory = nullptr;
+        if (SUCCEEDED(item->QueryInterface(IID_PPV_ARGS(&factory))) &&
+            factory != nullptr) {
+            struct ReleaseFactory {
+                IShellItemImageFactory* p;
+                ~ReleaseFactory() { if (p) p->Release(); }
+            } factoryGuard{ factory };
+            HBITMAP bmp = nullptr;
+            const SIZE box = { size > 0 ? size : 32, size > 0 ? size : 32 };
+            if (SUCCEEDED(factory->GetImage(box, SIIGBF_ICONONLY, &bmp)) &&
+                bmp != nullptr) {
+                UniqueGdiObject bmpGuard(bmp);
+                out = HiconFromArgbDib(bmp);
+            }
+        }
+        return out;
+    } catch (...) {
         return nullptr;
     }
-
-    HICON out = nullptr;
-    IShellItemImageFactory* factory = nullptr;
-    if (SUCCEEDED(item->QueryInterface(IID_PPV_ARGS(&factory))) &&
-        factory != nullptr) {
-        HBITMAP bmp = nullptr;
-        const SIZE box = { size > 0 ? size : 32, size > 0 ? size : 32 };
-        if (SUCCEEDED(factory->GetImage(box, SIIGBF_ICONONLY, &bmp)) &&
-            bmp != nullptr) {
-            out = HiconFromArgbDib(bmp);
-            DeleteObject(bmp);
-        }
-        factory->Release();
-    }
-    item->Release();
-    return out;
 }
 
 /* COM per-thread: se il thread non l'ha ancora, lo inizializza MTA (le

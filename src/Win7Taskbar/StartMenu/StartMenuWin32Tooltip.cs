@@ -17,6 +17,15 @@ namespace Win7Taskbar.StartMenu
         private const int WS_POPUP = unchecked((int)0x80000000);
         private const int WS_EX_TOPMOST = 0x00000008;
         private const int WS_EX_LAYERED = 0x00080000;
+        private const int WS_EX_TRANSPARENT = 0x00000020;
+        private const int WS_EX_TOOLWINDOW = 0x00000080;
+        private const int WS_EX_NOACTIVATE = unchecked((int)0x08000000);
+        private const int SWP_NOSIZE = 0x0001;
+        private const int SWP_NOZORDER = 0x0004;
+        private const int SWP_NOACTIVATE = 0x0010;
+        private const int MONITOR_DEFAULTTONEAREST = 2;
+        private const int SM_CXCURSOR = 13;
+        private const int SM_CYCURSOR = 14;
         private const int TTS_ALWAYSTIP = 0x01;
         private const int TTS_NOPREFIX = 0x02;
         private const int TTF_IDISHWND = 0x0001;
@@ -67,10 +76,13 @@ namespace Win7Taskbar.StartMenu
                 {
                     SendMessage(_hwnd, TTM_SETTITLEW, (IntPtr)0, head);
                 }
-                SendMessage(_hwnd, TTM_TRACKPOSITION, IntPtr.Zero,
-                    (IntPtr)((screenY << 16) | (screenX & 0xFFFF)));
+                Clearance(out int padX, out int padY);
+                int x = screenX + padX;
+                int y = screenY + padY;
+                SendMessage(_hwnd, TTM_TRACKPOSITION, IntPtr.Zero, PackPoint(x, y));
                 SendMessage(_hwnd, TTM_TRACKACTIVATE, (IntPtr)1, ref ti);
                 _shown = true;
+                NudgeOffCursor(screenX, screenY);
             }
             catch (Exception)
             {
@@ -160,6 +172,88 @@ namespace Win7Taskbar.StartMenu
             return (IntPtr)(unchecked((uint)(ushort)x) | (unchecked((uint)(ushort)y) << 16));
         }
 
+        /* The cursor glyph (typically 32 px) plus a gap so the tip never
+         * sits on the hotspot. Sitting on the hotspot is what tilts the
+         * flyout: the mouse then leaves the row, the tip fights the
+         * pointer, and it looks like it is leaning. */
+        private static void Clearance(out int padX, out int padY)
+        {
+            int cx = 32;
+            int cy = 32;
+            try
+            {
+                int mx = GetSystemMetrics(SM_CXCURSOR);
+                int my = GetSystemMetrics(SM_CYCURSOR);
+                if (mx > 0) cx = mx;
+                if (my > 0) cy = my;
+            }
+            catch (Exception)
+            {
+            }
+            padX = cx + 20;
+            padY = cy + 24;
+        }
+
+        private void NudgeOffCursor(int cursorX, int cursorY)
+        {
+            if (_hwnd == IntPtr.Zero)
+            {
+                return;
+            }
+            try
+            {
+                if (!GetWindowRect(_hwnd, out RECT tip) ||
+                    tip.right <= tip.left || tip.bottom <= tip.top)
+                {
+                    return;
+                }
+                int w = tip.right - tip.left;
+                int h = tip.bottom - tip.top;
+                int x = tip.left;
+                int y = tip.top;
+                if (cursorX >= x && cursorX < x + w &&
+                    cursorY >= y && cursorY < y + h)
+                {
+                    Clearance(out int padX, out int padY);
+                    x = cursorX + padX;
+                    y = cursorY + padY;
+                }
+                var pt = new POINT { x = cursorX, y = cursorY };
+                IntPtr mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+                var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+                if (mon != IntPtr.Zero && GetMonitorInfoW(mon, ref mi))
+                {
+                    RECT wa = mi.rcWork;
+                    if (x + w > wa.right) x = wa.right - w;
+                    if (y + h > wa.bottom) y = wa.bottom - h;
+                    if (x < wa.left) x = wa.left;
+                    if (y < wa.top) y = wa.top;
+                    if (cursorX >= x && cursorX < x + w &&
+                        cursorY >= y && cursorY < y + h)
+                    {
+                        if (cursorX - wa.left > wa.right - cursorX)
+                        {
+                            x = cursorX - w - 8;
+                        }
+                        else
+                        {
+                            x = cursorX + 8;
+                        }
+                        if (x + w > wa.right) x = wa.right - w;
+                        if (x < wa.left) x = wa.left;
+                    }
+                }
+                if (x != tip.left || y != tip.top)
+                {
+                    SetWindowPos(_hwnd, IntPtr.Zero, x, y, 0, 0,
+                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         private struct INITCOMMONCONTROLSEX
         {
@@ -185,6 +279,21 @@ namespace Win7Taskbar.StartMenu
         private struct RECT
         {
             public int left, top, right, bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int x, y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MONITORINFO
+        {
+            public int cbSize;
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public int dwFlags;
         }
 
         [DllImport("comctl32.dll")]
@@ -216,5 +325,24 @@ namespace Win7Taskbar.StartMenu
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr GetModuleHandleW(string? lpModuleName);
+
+        [DllImport("user32.dll")]
+        private static extern int GetSystemMetrics(int nIndex);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetWindowPos(
+            IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromPoint(POINT pt, int dwFlags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetMonitorInfoW(IntPtr hMonitor, ref MONITORINFO lpmi);
     }
 }
