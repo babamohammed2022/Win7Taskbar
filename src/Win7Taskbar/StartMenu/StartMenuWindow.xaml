@@ -242,7 +242,8 @@
                     <GradientStop Color="#50587898" Offset="1"/>
                 </LinearGradientBrush>
             </Border.Background>
-            <Border CornerRadius="7,7,0,0" BorderThickness="1" BorderBrush="#90FFFFFF" Margin="1">
+            <Border x:Name="ChromeInner" CornerRadius="7,7,0,0" BorderThickness="1"
+                    BorderBrush="#90FFFFFF" Margin="1">
                 <Grid x:Name="PaneGrid">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="250"/>

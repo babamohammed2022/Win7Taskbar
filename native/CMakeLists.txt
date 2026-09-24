@@ -80,7 +80,7 @@ message(STATUS "Win7TaskbarCore build stamp: ${W7T_BUILD_STAMP}")
 target_compile_definitions(Win7TaskbarCore PRIVATE W7T_BUILDING_DLL=1 UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00 "W7T_BUILD_STAMP=L\"${W7T_BUILD_STAMP}\"")
 # comdlg32: v1.21.7, ChooseColorW for the colour picker of the extra
 # settings tab (the standard Windows colour chooser).
-target_link_libraries(Win7TaskbarCore PRIVATE user32 gdi32 shell32 ole32 oleaut32 comctl32 wtsapi32 dwmapi uxtheme msimg32 propsys shlwapi advapi32 powrprof wlanapi iphlpapi uuid psapi windowscodecs comdlg32)
+target_link_libraries(Win7TaskbarCore PRIVATE user32 gdi32 gdiplus shell32 ole32 oleaut32 comctl32 wtsapi32 dwmapi uxtheme msimg32 propsys shlwapi advapi32 powrprof wlanapi iphlpapi uuid psapi windowscodecs comdlg32)
 set_source_files_properties(resources/app.ico PROPERTIES HEADER_FILE_ONLY TRUE)
 target_sources(Win7TaskbarCore PRIVATE resources/app.ico)
 set_target_properties(Win7TaskbarCore PROPERTIES PREFIX "" OUTPUT_NAME "Win7TaskbarCore")

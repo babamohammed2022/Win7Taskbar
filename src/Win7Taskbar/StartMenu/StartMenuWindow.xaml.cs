@@ -1065,6 +1065,8 @@ namespace Win7Taskbar.StartMenu
         /// search so it reads on the white wash (opaque same hue, not
         /// Transparent and not ClearValue — that wiped the arrow Fill).
         /// Size, gradient, hover and handlers stay untouched.
+        /// Search unites the two columns into one pane (no inner divider);
+        /// All Programs / normal keep the two-column chrome.
         /// </summary>
         private void ApplySearchShutdownInk(bool searching)
         {
@@ -1090,6 +1092,55 @@ namespace Win7Taskbar.StartMenu
                 ShutdownArrow.BorderBrush = outer;
                 ShutdownChromeInner.BorderBrush = inner;
                 ShutdownArrowInner.BorderBrush = inner;
+
+                ApplySearchUnionChrome(searching);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// Search: left+right are one rectangle. Inner column divider is
+        /// dropped; outer pane and chrome frames are redrawn as a single
+        /// inset. All Programs and every other section restore the normal
+        /// two-column LeftPane (column 0, margin 8,8,2,0).
+        /// </summary>
+        private void ApplySearchUnionChrome(bool searching)
+        {
+            try
+            {
+                Brush pane = FreezeArgb(0x90, 0xA0, 0xB4, 0xC8);
+                Brush chromeOuter = FreezeArgb(0xC0, 0x6A, 0x8B, 0xB0);
+                Brush chromeInner = FreezeArgb(0x90, 0xFF, 0xFF, 0xFF);
+                Chrome.BorderThickness = new Thickness(1);
+                Chrome.BorderBrush = chromeOuter;
+                ChromeInner.BorderThickness = new Thickness(1);
+                ChromeInner.BorderBrush = chromeInner;
+                if (searching)
+                {
+                    Grid.SetColumnSpan(LeftPane, 2);
+                    LeftPane.Margin = new Thickness(8, 8, 8, 0);
+                    LeftPane.BorderThickness = new Thickness(1);
+                    LeftPane.BorderBrush = pane;
+                    LeftPane.CornerRadius = new CornerRadius(2);
+                    SearchHost.Margin = new Thickness(9, 9, 9, 0);
+                    SearchHost.BorderThickness = new Thickness(0);
+                    SearchHost.BorderBrush = Brushes.Transparent;
+                    SearchHost.CornerRadius = new CornerRadius(1, 1, 0, 0);
+                }
+                else
+                {
+                    Grid.SetColumnSpan(LeftPane, 1);
+                    LeftPane.Margin = new Thickness(8, 8, 2, 0);
+                    LeftPane.BorderThickness = new Thickness(1);
+                    LeftPane.BorderBrush = pane;
+                    LeftPane.CornerRadius = new CornerRadius(2);
+                    SearchHost.Margin = new Thickness(8, 8, 0, 0);
+                    SearchHost.BorderThickness = new Thickness(1, 1, 1, 0);
+                    SearchHost.BorderBrush = pane;
+                    SearchHost.CornerRadius = new CornerRadius(2, 2, 0, 0);
+                }
             }
             catch (Exception)
             {

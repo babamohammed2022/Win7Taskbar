@@ -488,6 +488,11 @@ namespace Win7Taskbar.StartMenu
                 {
                     continue;
                 }
+                if (StartMenuLinkFilter.Hide(item.Name, item.Path,
+                    StartMenuStore.ResolveTarget(item.Path)))
+                {
+                    continue;
+                }
                 item.IsRecent = true;
                 item.IsPinned = StartMenuStore.IsStartMenuPinned(item.Path)
                     || StartMenuStore.IsStartMenuPinned(item.Target);
@@ -604,6 +609,10 @@ namespace Win7Taskbar.StartMenu
                 StringComparison.CurrentCultureIgnoreCase));
             foreach (NativeMethods.W7TStartMenuEntry e in files)
             {
+                if (StartMenuLinkFilter.Hide(e.Name, e.Path, e.Target))
+                {
+                    continue;
+                }
                 StartMenuItem row = FromEntry(e, indent);
                 row.IsTreeRow = true;
                 row.Icon = StartMenuIcons.FromPath(row.Path, row.Target, 16);
@@ -701,6 +710,10 @@ namespace Win7Taskbar.StartMenu
                 {
                     continue;
                 }
+                if (StartMenuLinkFilter.Hide(entry.Name, entry.Path, entry.Target))
+                {
+                    continue;
+                }
                 SearchHits.Add(FromEntry(entry));
             }
             _fileSearchActive = _bridge.StartMenuFileSearchStart(_searchText);
@@ -759,9 +772,15 @@ namespace Win7Taskbar.StartMenu
                             {
                                 continue;
                             }
+                            string fileName = StartMenuStore.ShellDisplayName(
+                                hit, Path.GetFileName(hit) ?? hit);
+                            if (StartMenuLinkFilter.Hide(fileName, hit, hit))
+                            {
+                                continue;
+                            }
                             InsertBeforeInternet(new StartMenuItem
                             {
-                                Name = StartMenuStore.ShellDisplayName(hit, Path.GetFileName(hit) ?? hit),
+                                Name = fileName,
                                 Path = hit,
                                 Target = hit,
                                 Icon = LoadIcon(hit, hit)
@@ -964,11 +983,7 @@ namespace Win7Taskbar.StartMenu
 
             string common = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                @"Microsoft\User Account Pictures");
-            paths.Add(Path.Combine(common, Environment.UserName + ".png"));
-            paths.Add(Path.Combine(common, Environment.UserName + ".bmp"));
-            paths.Add(Path.Combine(common, "user.png"));
-            paths.Add(Path.Combine(common, "user.bmp"));
+           paths.Add(Path.Combine(common, "user.bmp"));
 
             string roaming = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -1646,6 +1661,13 @@ namespace Win7Taskbar.StartMenu
             => StartMenuIcons.FromParsingName(probe, 50);
 
         private static ImageSource? IconFromDll(string dll, int index)
+            => StartMenuIcons.FromDll(dll, index, 50);
+
+        private void OnPropertyChanged([CallerMemberName] string? name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+}
+e? IconFromDll(string dll, int index)
             => StartMenuIcons.FromDll(dll, index, 50);
 
         private void OnPropertyChanged([CallerMemberName] string? name = null)
