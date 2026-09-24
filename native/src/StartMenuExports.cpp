@@ -85,6 +85,7 @@ private:
 
 struct UniqueCoStr {
     PWSTR p = nullptr;
+    UniqueCoStr() = default;
     ~UniqueCoStr() {
         if (p) {
             CoTaskMemFree(p);
