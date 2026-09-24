@@ -86,6 +86,7 @@
     <s:String x:Key="lang_sm_devices">Périphériques et imprimantes</s:String>
     <s:String x:Key="lang_sm_defaults">Programmes par défaut</s:String>
     <s:String x:Key="lang_sm_help">Aide et support</s:String>
+    <s:String x:Key="lang_sm_user_placeholder">Utilisateur</s:String>
     <s:String x:Key="lang_sm_tip_user">Ouvre le dossier personnel de ce compte, avec vos documents, images et autres fichiers.</s:String>
     <s:String x:Key="lang_sm_tip_documents">Ouvre la bibliothèque Documents, où vous conservez lettres, notes, feuilles de calcul et fichiers similaires.</s:String>
     <s:String x:Key="lang_sm_tip_pictures">Ouvre la bibliothèque Images, où vous conservez photos et autres images.</s:String>

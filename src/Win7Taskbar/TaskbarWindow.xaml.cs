@@ -3557,6 +3557,7 @@ namespace Win7Taskbar
 
         private FrameworkElement? _previewAnchor;
         private TaskGroup? _previewGroup;
+        private TaskGroup? _previewWindowsHooked;
         // Explicit item hover ownership keeps the layered popup alive while
         // the pointer is over a DWM destination (which is not WPF-painted).
         private bool _previewPointerInside;
@@ -3915,6 +3916,7 @@ namespace Win7Taskbar
                 }
 
                 TaskPreviewItems.ItemsSource = group.Windows;
+                HookPreviewWindows(group);
                 TaskPreviewPopup.PlacementTarget = anchor;
                 TaskPreviewPopup.Placement = PlacementMode.Custom;
                 TaskPreviewPopup.CustomPopupPlacementCallback = PlaceTaskPreview;
@@ -4559,6 +4561,7 @@ namespace Win7Taskbar
                 _previewGroup = null;
                 _previewPointerInside = false;
                 _openButtonTip = null;
+                HookPreviewWindows(null);
 
                 /* Sgancia i controlli TaskThumbnail, che deregistrano sempre
                  * il proprio handle DWM durante Unloaded. */
@@ -4936,15 +4939,88 @@ namespace Win7Taskbar
                  * interessa (il modello si riallinea al giro successivo). */
                 _viewModel.ExecuteWindowCommand(window, WindowCommand.Close);
 
-                if (_previewGroup == null || _previewGroup.Windows.Count == 0)
+                if (_previewGroup == null || _previewGroup.Windows.Count <= 1)
                 {
                     CloseTaskPreview();
+                }
+                else
+                {
+                    RelayoutPreviewPopup();
                 }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"chiusura da anteprima: {ex.Message}");
                 CloseTaskPreview();
+            }
+        }
+
+        private void HookPreviewWindows(TaskGroup? group)
+        {
+            try
+            {
+                if (_previewWindowsHooked != null)
+                {
+                    _previewWindowsHooked.Windows.CollectionChanged -= OnPreviewWindowsChanged;
+                    _previewWindowsHooked = null;
+                }
+                if (group != null)
+                {
+                    group.Windows.CollectionChanged += OnPreviewWindowsChanged;
+                    _previewWindowsHooked = group;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void OnPreviewWindowsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (_previewGroup == null || _previewGroup.Windows.Count == 0)
+                        {
+                            CloseTaskPreview();
+                            return;
+                        }
+                        RelayoutPreviewPopup();
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }), DispatcherPriority.Loaded);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void RelayoutPreviewPopup()
+        {
+            try
+            {
+                if (TaskPreviewPopup?.IsOpen != true || _previewGroup == null)
+                {
+                    return;
+                }
+                if (_previewGroup.Windows.Count == 0)
+                {
+                    CloseTaskPreview();
+                    return;
+                }
+                TaskPreviewItems?.UpdateLayout();
+                TaskPreviewPopupRoot?.UpdateLayout();
+                CustomPopupPlacementCallback? cb = TaskPreviewPopup.CustomPopupPlacementCallback;
+                TaskPreviewPopup.CustomPopupPlacementCallback = null;
+                TaskPreviewPopup.CustomPopupPlacementCallback = cb;
+            }
+            catch (Exception)
+            {
             }
         }
 
@@ -8327,6 +8403,65 @@ namespace Win7Taskbar
             {
                 try
                 {
+                    _bridge.Log($"ricerca: apertura fallita: {ex.Message}");
+                }
+                catch
+                {
+                    /* il log non e' mai un requisito */
+                }
+            }
+        }
+
+        /// <summary>v3.3: Proprietà = vera finestra Win32 nel core nativo
+        /// (schede classiche come la mod di riferimento). I valori tornano
+        /// indietro via WM_COPYDATA (vedi WndProc).</summary>
+        internal void ShowPropertiesWindow()
+        {
+            try
+            {
+                IntPtr hwnd = _hwndSource?.Handle ?? IntPtr.Zero;
+                if (hwnd == IntPtr.Zero) return;
+                var st = RetroBar.Utilities.Settings.Instance;
+                GetToolbarStates(out bool tbDesktop, out bool tbLinks, out bool tbAddress);
+                _bridge.PropertiesShow(hwnd,
+                    Math.Max(0, Array.IndexOf(kLangCodes,
+                        st.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode)),
+                    st.ShowClockSeconds ? 1 : 0,
+                    st.UseNativeClockFlyout ? 1 : 0,
+                    st.EnableAppSearch ? 1 : 0,
+                    st.NetworkFlyoutMode,
+                    st.UseClassicVolumeMixer ? 1 : 0,
+                    st.UseBatteryFlyout ? 1 : 0,
+                    st.AeroPeek ? 1 : 0,
+                    tbDesktop ? 1 : 0,
+                    tbAddress ? 1 : 0,
+                    tbLinks ? 1 : 0,
+                    st.InputLanguageMode,
+                    st.TaskManagerMode,
+                    /* v1.21.7: extra settings (fields appended at the end). */
+                    st.FlyoutColorMode,
+                    st.FlyoutCustomColorRgb,
+                    st.ConnectionFlyoutPrivacyMode,
+                    st.ThemeSelection,
+                    /* v1.21.37: stato corrente dell'avvio automatico con
+                     * Windows, letto dal registro con la logica di RetroBar
+                     * (LoadAutoStart), per la casella della scheda
+                     * Informazioni. */
+                    Win7Taskbar.Utilities.AutoStart.IsEnabled() ? 1 : 0,
+                    /* v1.21.43: posizione barra (0..3) + blocco (sezione
+                     * "Impostazioni extra", riga "Posizione"). */
+                    st.TaskbarPosition,
+                    st.LockTaskbar ? 1 : 0,
+                    st.WindowsKeyOpensOurMenu ? 1 : 0);
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log($"proprieta': errore apertura: {ex.Message}");
+            }
+        }
+    }
+}
+           {
                     _bridge.Log($"ricerca: apertura fallita: {ex.Message}");
                 }
                 catch

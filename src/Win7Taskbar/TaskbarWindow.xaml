@@ -1069,10 +1069,13 @@
                     </Grid>
 
                     <ItemsControl x:Name="TaskPreviewItems"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
                                   ItemTemplate="{StaticResource LiveThumbnailItemTemplate}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" />
+                                <StackPanel Orientation="Horizontal"
+                                            HorizontalAlignment="Center" />
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                     </ItemsControl>

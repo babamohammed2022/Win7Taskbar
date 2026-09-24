@@ -86,6 +86,7 @@
     <s:String x:Key="lang_sm_devices">Urządzenia i drukarki</s:String>
     <s:String x:Key="lang_sm_defaults">Programy domyślne</s:String>
     <s:String x:Key="lang_sm_help">Pomoc i obsługa techniczna</s:String>
+    <s:String x:Key="lang_sm_user_placeholder">Użytkownik</s:String>
     <s:String x:Key="lang_sm_tip_user">Otwiera folder osobisty tego konta z dokumentami, obrazami i innymi plikami.</s:String>
     <s:String x:Key="lang_sm_tip_documents">Otwiera bibliotekę Dokumenty, w której trzymasz listy, notatki, arkusze i podobne pliki.</s:String>
     <s:String x:Key="lang_sm_tip_pictures">Otwiera bibliotekę Obrazy, w której trzymasz zdjęcia i inne obrazy.</s:String>

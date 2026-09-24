@@ -143,13 +143,27 @@ namespace Win7Taskbar.StartMenu
                 Left = left;
                 Top = top;
                 Topmost = true;
-                Show();
-                Activate();
-                ClipVisibleChrome();
+                try
+                {
+                    Show();
+                    Activate();
+                }
+                catch (Exception)
+                {
+                }
+                try { ClipVisibleChrome(); } catch (Exception) { }
+                /* After Show: kill any hover fade that MouseEnter fired on open. */
+                try { ResetUserPhoto(animate: false); } catch (Exception) { }
                 try { _clickAway.Start(); } catch (Exception) { }
-                SearchBox.Focus();
-                Keyboard.Focus(SearchBox);
-                StartMenuHost.NotifyVisible(true);
+                try
+                {
+                    SearchBox.Focus();
+                    Keyboard.Focus(SearchBox);
+                }
+                catch (Exception)
+                {
+                }
+                try { StartMenuHost.NotifyVisible(true); } catch (Exception) { }
             }
             catch (Exception)
             {
@@ -200,7 +214,7 @@ namespace Win7Taskbar.StartMenu
                 double scale = 1;
                 try { scale = VisualTreeHelper.GetDpi(this).DpiScaleX; }
                 catch (Exception) { }
-                SearchGlyph.Source = LoadSearchGlyph(16, scale);
+                SearchGlyph.Source = LoadSearchGlyph(15.76, scale);
             }
             catch (Exception)
             {
@@ -218,7 +232,7 @@ namespace Win7Taskbar.StartMenu
             }
             try
             {
-                SearchGlyph.Source = LoadSearchGlyph(16, newDpi.DpiScaleX);
+                SearchGlyph.Source = LoadSearchGlyph(15.76, newDpi.DpiScaleX);
                 if (IsVisible)
                 {
                     ClipVisibleChrome();
@@ -549,46 +563,92 @@ namespace Win7Taskbar.StartMenu
 
         private void OnCrossfadeDone(object? sender, EventArgs e)
         {
-            if (_crossfadeTimer != null)
+            try
             {
-                _crossfadeTimer.Stop();
-                _crossfadeTimer.Tick -= OnCrossfadeDone;
+                if (_crossfadeTimer != null)
+                {
+                    _crossfadeTimer.Stop();
+                    _crossfadeTimer.Tick -= OnCrossfadeDone;
+                }
+                IconOld.BeginAnimation(OpacityProperty, null);
+                IconNew.BeginAnimation(OpacityProperty, null);
+                if (_showingUserPhoto)
+                {
+                    IconOld.Source = _vm.UserPicture;
+                    IconNew.Source = null;
+                }
+                else
+                {
+                    IconOld.Source = IconNew.Source;
+                }
+                IconOld.Opacity = 1;
+                IconNew.Opacity = 0;
             }
-            IconOld.BeginAnimation(OpacityProperty, null);
-            IconNew.BeginAnimation(OpacityProperty, null);
-            IconOld.Source = IconNew.Source;
-            IconOld.Opacity = 1;
-            IconNew.Opacity = 0;
+            catch (Exception)
+            {
+            }
         }
 
         private void ShowLinkIcon(ImageSource? icon)
         {
-            PhotoFrame.Visibility = Visibility.Collapsed;
-            _showingUserPhoto = false;
-            CrossfadeIcon(icon, TimeSpan.FromMilliseconds(200));
+            try
+            {
+                if (!IsVisible || PhotoHost.Opacity < 0.5 || icon == null)
+                {
+                    return;
+                }
+                PhotoFrame.Visibility = Visibility.Collapsed;
+                _showingUserPhoto = false;
+                CrossfadeIcon(icon, TimeSpan.FromMilliseconds(200));
+            }
+            catch (Exception)
+            {
+            }
         }
 
         private void ResetUserPhoto(bool animate)
         {
-            PhotoFrame.Visibility = Visibility.Visible;
-            if (_showingUserPhoto && IconOld.Source == _vm.UserPicture && animate)
+            try
             {
-                return;
-            }
-            _showingUserPhoto = true;
-            if (animate)
-            {
+                PhotoFrame.Visibility = Visibility.Visible;
+                _showingUserPhoto = true;
+                if (!animate)
+                {
+                    _fadeGeneration++;
+                    if (_crossfadeTimer != null)
+                    {
+                        _crossfadeTimer.Stop();
+                        _crossfadeTimer.Tick -= OnCrossfadeDone;
+                        _crossfadeTimer = null;
+                    }
+                    IconOld.BeginAnimation(OpacityProperty, null);
+                    IconNew.BeginAnimation(OpacityProperty, null);
+                    IconOld.Source = _vm.UserPicture;
+                    IconOld.Opacity = 1;
+                    IconNew.Source = null;
+                    IconNew.Opacity = 0;
+                    return;
+                }
+                if (ReferenceEquals(IconOld.Source, _vm.UserPicture) &&
+                    IconOld.Opacity >= 0.95)
+                {
+                    return;
+                }
                 CrossfadeIcon(_vm.UserPicture, TimeSpan.FromMilliseconds(200));
             }
-            else
+            catch (Exception)
             {
-                IconOld.BeginAnimation(OpacityProperty, null);
-                IconNew.BeginAnimation(OpacityProperty, null);
-                _crossfadeTimer?.Stop();
-                IconOld.Source = _vm.UserPicture;
-                IconOld.Opacity = 1;
-                IconNew.Source = null;
-                IconNew.Opacity = 0;
+                try
+                {
+                    _fadeGeneration++;
+                    IconOld.Source = _vm.UserPicture;
+                    IconOld.Opacity = 1;
+                    IconNew.Source = null;
+                    IconNew.Opacity = 0;
+                }
+                catch (Exception)
+                {
+                }
             }
         }
 
@@ -1004,10 +1064,33 @@ namespace Win7Taskbar.StartMenu
             {
                 ShutdownLabel.Foreground = searching ? Brushes.Black : Brushes.White;
                 ShutdownArrowGlyph.Fill = searching ? Brushes.Black : Brushes.White;
+                /* Search: drop the Aero button chrome so Arresta sits in the
+                 * white wash / menu frame. Restore the dark+highlight borders
+                 * when the default glass layout comes back. */
+                Brush outer = searching
+                    ? Brushes.Transparent
+                    : FreezeArgb(0xC0, 0x28, 0x4A, 0x78);
+                Brush inner = searching
+                    ? Brushes.Transparent
+                    : FreezeArgb(0x80, 0xFF, 0xFF, 0xFF);
+                ShutdownChrome.BorderBrush = outer;
+                ShutdownArrow.BorderBrush = outer;
+                ShutdownChromeInner.BorderBrush = inner;
+                ShutdownArrowInner.BorderBrush = inner;
             }
             catch (Exception)
             {
             }
+        }
+
+        private static Brush FreezeArgb(byte a, byte r, byte g, byte b)
+        {
+            var brush = new SolidColorBrush(Color.FromArgb(a, r, g, b));
+            if (brush.CanFreeze)
+            {
+                brush.Freeze();
+            }
+            return brush;
         }
 
         /// <summary>

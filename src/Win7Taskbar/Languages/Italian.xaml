@@ -87,6 +87,7 @@
     <s:String x:Key="lang_sm_devices">Dispositivi e stampanti</s:String>
     <s:String x:Key="lang_sm_defaults">Programmi predefiniti</s:String>
     <s:String x:Key="lang_sm_help">Guida e supporto</s:String>
+    <s:String x:Key="lang_sm_user_placeholder">Utente</s:String>
     <s:String x:Key="lang_sm_tip_user">Apre la cartella personale di questo account, con documenti, immagini e altri file.</s:String>
     <s:String x:Key="lang_sm_tip_documents">Apre la libreria Documenti, dove tieni lettere, note, fogli di calcolo e file simili.</s:String>
     <s:String x:Key="lang_sm_tip_pictures">Apre la libreria Immagini, dove tieni foto e altre immagini.</s:String>

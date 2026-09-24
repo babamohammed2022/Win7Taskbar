@@ -86,6 +86,7 @@
     <s:String x:Key="lang_sm_devices">デバイスとプリンター</s:String>
     <s:String x:Key="lang_sm_defaults">既定のプログラム</s:String>
     <s:String x:Key="lang_sm_help">ヘルプとサポート</s:String>
+    <s:String x:Key="lang_sm_user_placeholder">ユーザー</s:String>
     <s:String x:Key="lang_sm_tip_user">このアカウントの個人用フォルダーを開き、ドキュメント、ピクチャ、その他のファイルを表示します。</s:String>
     <s:String x:Key="lang_sm_tip_documents">ドキュメント ライブラリを開き、手紙、メモ、表計算などのファイルを表示します。</s:String>
     <s:String x:Key="lang_sm_tip_pictures">ピクチャ ライブラリを開き、写真やその他の画像を表示します。</s:String>

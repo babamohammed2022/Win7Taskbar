@@ -91,6 +91,7 @@
     <s:String x:Key="lang_sm_devices">الأجهزة والطابعات</s:String>
     <s:String x:Key="lang_sm_defaults">البرامج الافتراضية</s:String>
     <s:String x:Key="lang_sm_help">التعليمات والدعم</s:String>
+    <s:String x:Key="lang_sm_user_placeholder">مستخدم</s:String>
     <s:String x:Key="lang_sm_tip_user">يفتح المجلد الشخصي لهذا الحساب، مع المستندات والصور والملفات الأخرى.</s:String>
     <s:String x:Key="lang_sm_tip_documents">يفتح مكتبة المستندات حيث تحتفظ بالرسائل والملاحظات وجداول البيانات والملفات المشابهة.</s:String>
     <s:String x:Key="lang_sm_tip_pictures">يفتح مكتبة الصور حيث تحتفظ بالصور والصور الأخرى.</s:String>

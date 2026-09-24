@@ -162,13 +162,19 @@ namespace Win7Taskbar.StartMenu
             }
             d.BeginInvoke(new Action(() =>
             {
-                if (w.IsMenuVisible)
+                try
                 {
-                    w.Dismiss();
+                    if (w.IsMenuVisible)
+                    {
+                        w.Dismiss();
+                    }
+                    else
+                    {
+                        ShowCore(w);
+                    }
                 }
-                else
+                catch (Exception)
                 {
-                    ShowCore(w);
                 }
             }));
         }
@@ -199,29 +205,35 @@ namespace Win7Taskbar.StartMenu
         {
             try
             {
-                AllowSetForegroundWindow(NativeMethods.GetCurrentProcessId());
+                try
+                {
+                    AllowSetForegroundWindow(NativeMethods.GetCurrentProcessId());
+                }
+                catch (Exception)
+                {
+                }
+                Rect bar;
+                Rect orb;
+                bool haveAnchor;
+                lock (AnchorLock)
+                {
+                    haveAnchor = _anchorValid != 0;
+                    bar = _taskbarRect;
+                    orb = _orbRect;
+                }
+                if (!haveAnchor || bar.Width < 1 || bar.Height < 1)
+                {
+                    Rect work = SystemParameters.WorkArea;
+                    bar = new Rect(work.Left, work.Bottom, work.Width,
+                        Math.Max(40, SystemParameters.PrimaryScreenHeight - work.Bottom));
+                    orb = new Rect(bar.Left, bar.Top, 54, bar.Height);
+                }
+                w.PresentAbove(bar, orb);
+                w.FocusSearch();
             }
             catch (Exception)
             {
             }
-            Rect bar;
-            Rect orb;
-            bool haveAnchor;
-            lock (AnchorLock)
-            {
-                haveAnchor = _anchorValid != 0;
-                bar = _taskbarRect;
-                orb = _orbRect;
-            }
-            if (!haveAnchor || bar.Width < 1 || bar.Height < 1)
-            {
-                Rect work = SystemParameters.WorkArea;
-                bar = new Rect(work.Left, work.Bottom, work.Width,
-                    Math.Max(40, SystemParameters.PrimaryScreenHeight - work.Bottom));
-                orb = new Rect(bar.Left, bar.Top, 54, bar.Height);
-            }
-            w.PresentAbove(bar, orb);
-            w.FocusSearch();
         }
 
         internal static void NotifyVisible(bool visible)

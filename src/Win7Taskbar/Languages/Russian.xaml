@@ -86,6 +86,7 @@
     <s:String x:Key="lang_sm_devices">Устройства и принтеры</s:String>
     <s:String x:Key="lang_sm_defaults">Программы по умолчанию</s:String>
     <s:String x:Key="lang_sm_help">Справка и поддержка</s:String>
+    <s:String x:Key="lang_sm_user_placeholder">Пользователь</s:String>
     <s:String x:Key="lang_sm_tip_user">Открывает личную папку этой учётной записи с документами, изображениями и другими файлами.</s:String>
     <s:String x:Key="lang_sm_tip_documents">Открывает библиотеку «Документы», где хранятся письма, заметки, таблицы и похожие файлы.</s:String>
     <s:String x:Key="lang_sm_tip_pictures">Открывает библиотеку «Изображения», где хранятся фотографии и другие рисунки.</s:String>

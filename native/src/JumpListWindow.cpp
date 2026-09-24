@@ -944,10 +944,22 @@ void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge) {
                     break;
             }
 
+            /* The popup HWND is created once and reused. ApplyAeroFlyoutStyle
+             * subclasses it with FlyoutNoResizeProc, which forces SWP_NOSIZE
+             * on every resize unless the one-shot property W7T_AllowOneResize
+             * is set. Without it a later list with a different height kept
+             * the FIRST height: clipped bottom rows and a gap above the
+             * button. WM_WINDOWPOSCHANGING is sent synchronously inside
+             * SetWindowPos, so the property is set and removed around it. */
+            SetPropW(hwnd, L"W7T_AllowOneResize", reinterpret_cast<HANDLE>(1));
             SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
                          SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            RemovePropW(hwnd, L"W7T_AllowOneResize");
             m_popupRect = RECT{ x, y, x + w, y + h };
         } catch (...) {
+            if (hwnd != nullptr) {
+                RemovePropW(hwnd, L"W7T_AllowOneResize");
+            }
             LogTagged(L"JUMPLIST", L"Place threw - leaving the last rectangle");
         }
     } W7T_SEH_CATCH {

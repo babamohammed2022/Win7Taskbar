@@ -1074,6 +1074,28 @@ namespace Win7Taskbar
             }
         }
 
+        private static string StripShortcutExtension(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return string.Empty;
+            }
+            try
+            {
+                string name = text.Trim();
+                if (name.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) ||
+                    name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    name = System.IO.Path.GetFileNameWithoutExtension(name);
+                }
+                return name;
+            }
+            catch (ArgumentException)
+            {
+                return text;
+            }
+        }
+
         /// <summary>Opens the popup for the armed group. The representative
         /// window of the group (active window, else the first one - the
         /// same rule the wheel handler uses) is what the native side asks
@@ -1127,6 +1149,13 @@ namespace Win7Taskbar
                 if (string.IsNullOrWhiteSpace(title))
                 {
                     title = group.DisplayTitle;
+                }
+                // Never show a file extension: a pinned group can carry the
+                // shortcut file name ("file explorer.lnk") as its title.
+                title = StripShortcutExtension(title);
+                if (string.IsNullOrWhiteSpace(title))
+                {
+                    title = StripShortcutExtension(group.DisplayTitle);
                 }
 
                 string launchPath = !string.IsNullOrEmpty(group.LaunchPath)

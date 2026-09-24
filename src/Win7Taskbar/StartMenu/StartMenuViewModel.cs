@@ -54,9 +54,32 @@ namespace Win7Taskbar.StartMenu
                 Interval = TimeSpan.FromMilliseconds(120)
             };
             _filePoll.Tick += OnFilePollTick;
+            try
+            {
+                RetroBar.Utilities.Settings.Instance.PropertyChanged += OnSettingsChanged;
+            }
+            catch (Exception)
+            {
+            }
             LoadUser();
             SearchHint = T("lang_sm_search", "Search programs and files");
             BuildRightLinks();
+        }
+
+        private void OnSettingsChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            try
+            {
+                if (e.PropertyName != nameof(RetroBar.Utilities.Settings.ConnectionFlyoutPrivacyMode))
+                {
+                    return;
+                }
+                LoadUser();
+                BuildRightLinks();
+            }
+            catch (Exception)
+            {
+            }
         }
 
         internal static string T(string key, string fallback)
@@ -709,11 +732,21 @@ namespace Win7Taskbar.StartMenu
         {
             try
             {
-                UserName = Environment.UserName;
+                bool privacy = false;
+                try
+                {
+                    privacy = RetroBar.Utilities.Settings.Instance.ConnectionFlyoutPrivacyMode == 1;
+                }
+                catch (Exception)
+                {
+                }
+                UserName = privacy
+                    ? T("lang_sm_user_placeholder", "User")
+                    : Environment.UserName;
             }
             catch (Exception)
             {
-                UserName = "User";
+                UserName = T("lang_sm_user_placeholder", "User");
             }
             UserPicture = TryLoadUserPicture();
         }
@@ -1418,11 +1451,12 @@ namespace Win7Taskbar.StartMenu
         private static ImageSource? LoadIcon(string path, string target)
             => StartMenuIcons.FromPath(path, target, 48);
 
+        /* Photo-frame hover icons: jumbo shell extract + GDI+ bicubic to 50px. */
         private static ImageSource? IconFromParsingName(string? probe)
-            => StartMenuIcons.FromParsingName(probe, 48);
+            => StartMenuIcons.FromParsingName(probe, 50);
 
         private static ImageSource? IconFromDll(string dll, int index)
-            => StartMenuIcons.FromDll(dll, index, 48);
+            => StartMenuIcons.FromDll(dll, index, 50);
 
         private void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
