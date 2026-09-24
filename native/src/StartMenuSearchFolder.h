@@ -8,7 +8,8 @@
  * SearchFolder.dll: scope del connettore StartMenu, risultati come
  * IShellItem tramite la cartella di ricerca delegata). Nessun codice o
  * binario Microsoft viene copiato, incluso o caricato: qui si usano solo
- * API pubbliche (ISearchFolderItemFactory + IConditionFactory2 di shell32).
+ * API pubbliche (ISearchFolderItemFactory di shell32 + lo scope delle
+ * cartelle conosciute; wordwheel implementato col matcher del progetto).
  */
 #pragma once
 

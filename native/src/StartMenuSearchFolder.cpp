@@ -5,8 +5,8 @@
  * Licensed under the GNU General Public License version 3 or later.
  *
  * Written from scratch on the Microsoft documentation (Shell Search API,
- * ISearchFolderItemFactory, IConditionFactory2, SHGetKnownFolderIDList,
- * IShellItemImageFactory) and on the behavioural reconstruction of the
+ * ISearchFolderItemFactory, SHGetKnownFolderIDList, IShellItemImageFactory)
+ * and on the behavioural reconstruction of the
  * SearchFolder.dll search pipeline provided with the task. No Microsoft
  * source code is copied and no SearchFolder.dll is loaded or referenced:
  * the backend uses only public shell32 COM interfaces.
@@ -15,13 +15,6 @@
  * in ogni punto di confine: la scansione non deve mai buttare giu' il
  * menu per un risultato "impossibile".
  */
-/* ICondition2/IConditionFactory2 nelle intestazioni legacy del SDK sono
- * dietro NTDDI_VERSION >= NTDDI_WIN7: il file usa solo le API documentate
- * di Windows 7 (Structured Query v1 e' Vista+, la v2 e' Win7), quindi la
- * versione minima richiesta e' fissata prima di QUALUNQUE intestazione. */
-#ifndef NTDDI_VERSION
-#define NTDDI_VERSION 0x06010000
-#endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -49,15 +42,11 @@
 #include <shlguid.h>
 #include <knownfolders.h>
 #include <objbase.h>
-#include <propsys.h>
-#include <propkey.h>
-/* v3.10: structuredquerycondition.h (ICondition/Factory wordwheel) si
- * appoggia su PROPVARIANT co parse di propsys.h: senza quest'ultima
- * inclua il contenuto dell'header legacy risulta ASSENTE nella TU
- * e ogni nome documentato (IConditionFactory, CLSID_ConditionFactory,
- * le costanti COP e CT) diventa non dichiarato - visto come cascata
- * di errori in BuildWordwheelCondition. */
-#include <structuredquerycondition.h>
+/* niente propsys/propkey/structuredquerycondition: la rotta finale (v3.10)
+ * non usa piu' le condizioni strutturate della ricerca - il wordwheel e'
+ * il matcher condiviso del progetto sui risultati enumerati dallo scope.
+ * L'header legacy della Structured Query si e' rivelato non dichiarativo
+ * su alcune versioni del SDK usate dalla CI. */
 
 #include <atomic>
 #include <new>
@@ -70,13 +59,6 @@
 #include <vector>
 
 namespace {
-
-/* CLSID_ConditionFactory su ABI pubblico (la dichiarazione GUID delle
- * intestazioni legacy del SDK puo' risultare assente in questa TU a
- * seconda delle guardie di versione): ombra locale, stessi byte. */
-static const GUID W7T_CLSID_ConditionFactory = {
-    0xE03E85B0, 0x7BE2, 0x400B,
-    { 0x98, 0xFF, 0x03, 0x8B, 0x52, 0xF1, 0x80, 0x6B } };
 
 template <typename T>
 class UniqueCom {
@@ -232,69 +214,15 @@ struct SearchRowBudget {
     }
 };
 
-/* Condizione wordwheel documentata: per OGNI token della query servono
- * entrambi - prefisso di parola (il comportamento "mentre scrivi" della
- * ricerca di Windows 7) e sottostringa ("micro soft" trova Microsoft).
- * AND fra i token, OR fra le due foglie (autoWildcard della specifica). */
-HRESULT BuildWordwheelCondition(const std::wstring& query,
-                                ICondition** rootOut) {
-    if (rootOut == nullptr) {
-        return E_INVALIDARG;
-    }
-    *rootOut = nullptr;
-    /* Interfaccia v1 (Vista+): CreateStringLeaf e CreateCompoundFromArray
-     * bastano per la condizione wordwheel - dipendere dalla v2 (Win7) e'
-     * inutile e su alcune versioni dell'intestazione legacy del SDK la
-     * dichiarazione e' dietro guardie di versione piu' stringenti. */
-    UniqueCom<IConditionFactory> factory;
-    HRESULT hr = CoCreateInstance(W7T_CLSID_ConditionFactory, nullptr,
-                                  CLSCTX_INPROC_SERVER,
-                                  IID_PPV_ARGS(factory.put()));
-    if (FAILED(hr) || !factory) {
-        return FAILED(hr) ? hr : E_FAIL;
-    }
-    std::vector<std::wstring> tokens =
-        w7t::startmenu::SplitSearchTokens(query);
-    if (tokens.empty()) {
-        return E_INVALIDARG;
-    }
-    std::vector<ICondition*> andLeaves;
-    andLeaves.reserve(tokens.size());
-    std::vector<UniqueCom<ICondition>> owned;
-    owned.reserve(tokens.size() * 3);
-    for (const std::wstring& token : tokens) {
-        ICondition* wordLeaf = nullptr;
-        hr = factory->CreateStringLeaf(PKEY_ItemNameDisplay,
-                                       COP_WORD_STARTSWITH, token.c_str(),
-                                       nullptr, IID_PPV_ARGS(&wordLeaf));
-        if (FAILED(hr) || wordLeaf == nullptr) {
-            return FAILED(hr) ? hr : E_FAIL;
-        }
-        owned.emplace_back(wordLeaf);
-        ICondition* subLeaf = nullptr;
-        hr = factory->CreateStringLeaf(PKEY_ItemNameDisplay,
-                                       COP_VALUE_CONTAINS, token.c_str(),
-                                       nullptr, IID_PPV_ARGS(&subLeaf));
-        if (FAILED(hr) || subLeaf == nullptr) {
-            return FAILED(hr) ? hr : E_FAIL;
-        }
-        owned.emplace_back(subLeaf);
-        ICondition* orConds[2] = { wordLeaf, subLeaf };
-        ICondition* tokenRoot = nullptr;
-        hr = factory->CreateCompoundFromArray(CT_OR_CONDITION, orConds, 2,
-                                              CONDITION_CREATION_DEFAULT,
-                                              IID_PPV_ARGS(&tokenRoot));
-        if (FAILED(hr) || tokenRoot == nullptr) {
-            return FAILED(hr) ? hr : E_FAIL;
-        }
-        owned.emplace_back(tokenRoot);
-        andLeaves.push_back(tokenRoot);
-    }
-    return factory->CreateCompoundFromArray(
-        CT_AND_CONDITION, andLeaves.data(),
-        static_cast<ULONG>(andLeaves.size()), CONDITION_CREATION_DEFAULT,
-        IID_PPV_ARGS(rootOut));
-}
+/* Semantica wordwheel: ISearchFolderItemFactory SENZA condizione
+ * (explicitly documented empty condition = enumerates the whole scope);
+ * ogni candidato passa poi per il matcher del progetto
+ * (w7t::startmenu::NameMatchesQuery / RankMatchAll, lo stesso del walker
+ * e dei suoi test unitari): prefisso di parola o sottostringa per OGNI
+ * token della query, cioe' esattamente il comportamento "mentre scrivi"
+ * della ricerca di Windows 7. I filtri strutturati (IConditionFactory)
+ * richiedono un header legacy del SDK che in CI si rivela non
+ * dichiarativo: questa rotta li elimina del tutto senza perdere nulla. */
 
 /* Scope = le stesse radici della ricerca classica del menu Start /
  * Open-Shell / walking di riserva: Documenti, Immagini, Musica, Video,
@@ -413,15 +341,9 @@ int CollectShellSearchRows(const std::wstring& query,
         if (FAILED(hr)) {
             return 1;
         }
-        UniqueCom<ICondition> condition;
-        hr = BuildWordwheelCondition(query, condition.put());
-        if (FAILED(hr) || !condition) {
-            return 1;
-        }
-        hr = factory->SetCondition(condition.get());
-        if (FAILED(hr)) {
-            return 1;
-        }
+        /* Nessuna SetCondition: condizione vuota = enumerazione di tutto
+         * lo scope (documentato); il wordwheel e' il matcher condiviso
+         * del progetto applicato riga per riga piu' sotto. */
         UniqueCom<IShellItem> searchItem;
         hr = factory->GetShellItem(IID_PPV_ARGS(searchItem.put()));
         if (FAILED(hr) || !searchItem) {
@@ -471,6 +393,12 @@ int CollectShellSearchRows(const std::wstring& query,
                     (folderAttr & SFGAO_FOLDER) != 0;
                 const wchar_t* name = wcsrchr(path.c_str(), L'\\');
                 name = (name != nullptr) ? name + 1 : path.c_str();
+                /* Wordwheel: prefisso-di-parola o sottostringa per OGNI
+                 * token della query - lo stesso filtro del walker, quindi
+                 * i due backend non possono mai divergere. */
+                if (!w7t::startmenu::NameMatchesQuery(name, query)) {
+                    continue;
+                }
                 std::wstring line;
                 line.reserve(path.size() + 2);
                 line.push_back(isFolder
