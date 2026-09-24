@@ -1192,17 +1192,19 @@ namespace Win7Taskbar.StartMenu
                  * full-width border ran past the scrollbar and cut the
                  * bottom-right corner. */
                 Grid.SetColumnSpan(LeftPane, 1);
-                LeftPane.Margin = new Thickness(8, 8, 2, 0);
-                LeftPane.BorderThickness = new Thickness(1);
                 LeftPane.BorderBrush = pane;
                 LeftPane.CornerRadius = new CornerRadius(2);
                 if (searching)
                 {
-                    /* Same 8px glass + 1px #90A0B4C8 as the left.
-                     * Top 8 + height 416 = 424, which is the Arresta
-                     * row, so the scrollbar foot meets that strip
-                     * without a leftover pixel. No bottom border
-                     * (it used to sit on Arresta). */
+                    /* United bottom strip, same 8px right edge as
+                     * SearchHost: [search]  [Arresta]
+                     *             __________________
+                     * LeftPane drops the right/bottom stroke so it
+                     * does not cut the strip; SearchBand goes
+                     * transparent so the wash is one white. */
+                    LeftPane.Margin = new Thickness(8, 8, 0, 0);
+                    LeftPane.BorderThickness = new Thickness(1, 1, 0, 0);
+                    SearchBand.Background = Brushes.Transparent;
                     SearchHost.Margin = new Thickness(8, 8, 8, 0);
                     SearchHost.BorderThickness = new Thickness(1, 1, 1, 0);
                     SearchHost.BorderBrush = pane;
@@ -1212,6 +1214,10 @@ namespace Win7Taskbar.StartMenu
                 }
                 else
                 {
+                    LeftPane.Margin = new Thickness(8, 8, 2, 0);
+                    LeftPane.BorderThickness = new Thickness(1);
+                    SearchBand.Background =
+                        (Brush)FindResource("Win7SearchBand");
                     SearchHost.Margin = new Thickness(8, 8, 0, 0);
                     SearchHost.BorderThickness = new Thickness(1, 1, 1, 0);
                     SearchHost.BorderBrush = pane;

@@ -438,7 +438,7 @@
                             </StackPanel>
 
                             <!-- Search band y 424-466, RGB(241,246,251). Box 222x22. -->
-                            <Border Grid.Row="4" Background="{StaticResource Win7SearchBand}">
+                            <Border x:Name="SearchBand" Grid.Row="4" Background="{StaticResource Win7SearchBand}">
                                 <Grid Width="222" Height="22" Margin="12,10,0,11"
                                       HorizontalAlignment="Left" VerticalAlignment="Top">
                                     <Border BorderBrush="#424246" BorderThickness="1,1,0,0"/>
@@ -476,21 +476,14 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
-                        <!-- 65% of the Arresta strip (35% smaller) so the
-                             white wash does not run into the 8px pane /
-                             chrome edges. Top-left, under Arresta. -->
-                        <Grid Grid.Row="1" Grid.RowSpan="2" IsHitTestVisible="False">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="13*"/>
-                                <ColumnDefinition Width="7*"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="13*"/>
-                                <RowDefinition Height="7*"/>
-                            </Grid.RowDefinitions>
-                            <Border x:Name="SearchShutWash" Grid.Column="0" Grid.Row="0"
-                                    Background="#FFFFFFFF" Opacity="0"/>
-                        </Grid>
+                        <!-- Same width as SearchHost: 8px right inset, full
+                             Arresta row. With LeftPane it is one strip:
+                             [search box]  [Arresta]
+                             ________________________ -->
+                        <Border x:Name="SearchShutWash" Grid.Row="1"
+                                Margin="0,0,8,0"
+                                Background="#FFFFFFFF" Opacity="0"
+                                IsHitTestVisible="False"/>
 
                         <ListBox x:Name="RightList" Grid.Row="0"
                                  ItemsSource="{Binding RightLinks}"
