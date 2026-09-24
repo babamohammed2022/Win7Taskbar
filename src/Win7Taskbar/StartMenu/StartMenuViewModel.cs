@@ -352,12 +352,16 @@ namespace Win7Taskbar.StartMenu
         /// </summary>
         public int ShowPowerMenu(int screenX, int screenY)
         {
-            string items = "Switch user\nLog off\nLock\n-\nRestart\nSleep";
+            string items = T("lang_sm_switch_user", "Switch user") + "\n" +
+                T("lang_sm_logoff", "Log off") + "\n" +
+                T("lang_sm_lock", "Lock") + "\n-\n" +
+                T("lang_sm_restart", "Restart") + "\n" +
+                T("lang_sm_sleep", "Sleep");
             try
             {
                 if (NativeMethods.IsHibernateSupported())
                 {
-                    items += "\nHibernate";
+                    items += "\n" + T("lang_sm_hibernate", "Hibernate");
                 }
             }
             catch (Exception)

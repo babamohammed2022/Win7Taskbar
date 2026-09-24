@@ -64,6 +64,9 @@ namespace Win7Taskbar.StartMenu
         private bool _glassApplied;
         private DispatcherTimer? _crossfadeTimer;
         private DispatcherTimer? _infotipTimer;
+        private DispatcherTimer? _infotipHideTimer;
+        private StartMenuItem? _infotipItem;
+        private bool _infotipShown;
         private int _fadeGeneration;
         private bool _showingUserPhoto = true;
         private bool _searchLayoutOpen;
@@ -422,7 +425,9 @@ namespace Win7Taskbar.StartMenu
 
         private void OnRightItemMouseLeave(object sender, MouseEventArgs e)
         {
-            CancelInfotip();
+            /* Delay hide: the Win32 tip can fire Leave without the cursor
+             * having moved. Keep the open tip until we leave for real. */
+            ScheduleInfotipHide();
         }
 
         private void OnRightListMouseLeave(object sender, MouseEventArgs e)
@@ -433,11 +438,19 @@ namespace Win7Taskbar.StartMenu
 
         private void ShowWin32Infotip(FrameworkElement? host, StartMenuItem item)
         {
-            CancelInfotip();
+            StopInfotipHide();
             if (host == null || !item.HasInfotip)
             {
                 return;
             }
+            if (_infotipItem != null &&
+                string.Equals(_infotipItem.Path, item.Path, StringComparison.Ordinal) &&
+                string.Equals(_infotipItem.Infotip, item.Infotip, StringComparison.Ordinal) &&
+                (_infotipShown || _infotipTimer != null))
+            {
+                return;
+            }
+            CancelInfotip();
             try
             {
                 if (NativeMethods.GetCursorPos(out NativeMethods.POINT cursor))
@@ -454,6 +467,7 @@ namespace Win7Taskbar.StartMenu
                 _infotipOwner = new WindowInteropHelper(this).Handle;
                 _infotipTitle = item.Name;
                 _infotipText = item.Infotip;
+                _infotipItem = item;
                 _infotipTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
                 _infotipTimer.Tick += OnInfotipDelayElapsed;
                 _infotipTimer.Start();
@@ -479,6 +493,44 @@ namespace Win7Taskbar.StartMenu
                     _infotipY = cursor.y;
                 }
                 _infotip.Show(_infotipOwner, _infotipTitle, _infotipText, _infotipX, _infotipY);
+                _infotipShown = true;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void ScheduleInfotipHide()
+        {
+            try
+            {
+                StopInfotipHide();
+                _infotipHideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+                _infotipHideTimer.Tick += OnInfotipHideElapsed;
+                _infotipHideTimer.Start();
+            }
+            catch (Exception)
+            {
+                CancelInfotip();
+            }
+        }
+
+        private void OnInfotipHideElapsed(object? sender, EventArgs e)
+        {
+            StopInfotipHide();
+            CancelInfotip();
+        }
+
+        private void StopInfotipHide()
+        {
+            try
+            {
+                if (_infotipHideTimer != null)
+                {
+                    _infotipHideTimer.Stop();
+                    _infotipHideTimer.Tick -= OnInfotipHideElapsed;
+                    _infotipHideTimer = null;
+                }
             }
             catch (Exception)
             {
@@ -489,6 +541,7 @@ namespace Win7Taskbar.StartMenu
         {
             try
             {
+                StopInfotipHide();
                 if (_infotipTimer != null)
                 {
                     _infotipTimer.Stop();
@@ -500,6 +553,8 @@ namespace Win7Taskbar.StartMenu
             catch (Exception)
             {
             }
+            _infotipShown = false;
+            _infotipItem = null;
         }
 
         /// <summary>
@@ -1119,15 +1174,19 @@ namespace Win7Taskbar.StartMenu
                 ChromeInner.BorderBrush = chromeInner;
                 if (searching)
                 {
+                    /* White fills to the chrome inner right. No 8px glass
+                     * strip and no LeftPane right/bottom line that stopped
+                     * short of the frame. Window 431x511 / frame 411x476
+                     * stay put. */
                     Grid.SetColumnSpan(LeftPane, 2);
-                    LeftPane.Margin = new Thickness(8, 8, 8, 0);
-                    LeftPane.BorderThickness = new Thickness(1);
+                    LeftPane.Margin = new Thickness(8, 8, 0, 0);
+                    LeftPane.BorderThickness = new Thickness(1, 1, 0, 0);
                     LeftPane.BorderBrush = pane;
-                    LeftPane.CornerRadius = new CornerRadius(2);
-                    SearchHost.Margin = new Thickness(9, 9, 9, 0);
+                    LeftPane.CornerRadius = new CornerRadius(2, 0, 0, 0);
+                    SearchHost.Margin = new Thickness(8, 8, 0, 0);
                     SearchHost.BorderThickness = new Thickness(0);
-                    SearchHost.BorderBrush = Brushes.Transparent;
-                    SearchHost.CornerRadius = new CornerRadius(1, 1, 0, 0);
+                    SearchHost.BorderBrush = pane;
+                    SearchHost.CornerRadius = new CornerRadius(2, 0, 0, 0);
                 }
                 else
                 {

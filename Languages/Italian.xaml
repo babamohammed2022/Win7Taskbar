@@ -64,7 +64,7 @@
     <s:String x:Key="lang_sm_lock">Blocca</s:String>
     <s:String x:Key="lang_sm_restart">Riavvia</s:String>
     <s:String x:Key="lang_sm_sleep">Sospendi</s:String>
-    <s:String x:Key="lang_sm_hibernate">Iberna</s:String>
+    <s:String x:Key="lang_sm_hibernate">Ibernazione</s:String>
     <s:String x:Key="lang_sm_pin">Aggiungi al menu Start (Win7Taskbar)</s:String>
     <s:String x:Key="lang_sm_unpin">Rimuovi dal menu Start (Win7Taskbar)</s:String>
     <s:String x:Key="lang_sm_open">Apri</s:String>

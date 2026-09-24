@@ -114,8 +114,22 @@ namespace Win7Taskbar.StartMenu
                     _winKeyWaiter.Start();
 
                     StartHelperProcess();
-                    _window.PrepareCatalog();
+                    /* Do not block App.OnStartup on the program scan
+                     * (Resolve of every .lnk). Pins/recents still paint;
+                     * All Programs fills in on the menu STA. */
                     ready.Set();
+                    try
+                    {
+                        _dispatcher.BeginInvoke(DispatcherPriority.Background,
+                            new Action(() =>
+                            {
+                                try { _window?.PrepareCatalog(); }
+                                catch (Exception) { }
+                            }));
+                    }
+                    catch (Exception)
+                    {
+                    }
                     Dispatcher.Run();
                 }
                 catch (Exception)

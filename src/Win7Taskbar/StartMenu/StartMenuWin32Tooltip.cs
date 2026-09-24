@@ -139,7 +139,7 @@ namespace Win7Taskbar.StartMenu
             }
             SendMessage(_hwnd, TTM_SETMAXTIPWIDTH, IntPtr.Zero, (IntPtr)300);
             SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_INITIAL, (IntPtr)500);
-            SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_AUTOPOP, (IntPtr)10000);
+            SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_AUTOPOP, (IntPtr)32767);
             SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_RESHOW, (IntPtr)100);
         }
 
