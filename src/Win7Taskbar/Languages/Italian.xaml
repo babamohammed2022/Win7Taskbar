@@ -90,14 +90,14 @@
     <s:String x:Key="lang_sm_search_internet">Cerca in Internet</s:String>
     <s:String x:Key="lang_sm_settings">Impostazioni</s:String>
     <s:String x:Key="lang_sm_user_placeholder">Utente</s:String>
-    <s:String x:Key="lang_sm_tip_user">Apre la cartella personale di questo account, con documenti, immagini e altri file.</s:String>
-    <s:String x:Key="lang_sm_tip_documents">Apre la libreria Documenti, dove tieni lettere, note, fogli di calcolo e file simili.</s:String>
-    <s:String x:Key="lang_sm_tip_pictures">Apre la libreria Immagini, dove tieni foto e altre immagini.</s:String>
-    <s:String x:Key="lang_sm_tip_music">Apre la libreria Musica, dove tieni brani e altri file audio.</s:String>
-    <s:String x:Key="lang_sm_tip_videos">Apre la libreria Video, dove tieni filmati e altri file video.</s:String>
-    <s:String x:Key="lang_sm_tip_computer">Apre una finestra per le unità disco, i dispositivi e l'altra hardware collegata a questo PC.</s:String>
-    <s:String x:Key="lang_sm_tip_control">Apre il Pannello di controllo, dove cambi le impostazioni, aggiungi o rimuovi programmi e gestisci gli account.</s:String>
-    <s:String x:Key="lang_sm_tip_devices">Apre Dispositivi e stampanti, dove visualizzi e gestisci stampanti, scanner e altro hardware.</s:String>
-    <s:String x:Key="lang_sm_tip_defaults">Scegli quale programma Windows usa per il Web, la posta, le foto e i contenuti multimediali.</s:String>
-    <s:String x:Key="lang_sm_tip_help">Apre il supporto Microsoft nel browser per argomenti della guida, esercitazioni e risoluzione dei problemi.</s:String>
+    <s:String x:Key="lang_sm_tip_user">Apre la cartella personale di questo account, con i documenti, le immagini e gli altri file.</s:String>
+    <s:String x:Key="lang_sm_tip_documents">Apre la libreria Documenti, in cui è possibile archiviare lettere, note, fogli di calcolo e file analoghi.</s:String>
+    <s:String x:Key="lang_sm_tip_pictures">Apre la libreria Immagini, in cui è possibile archiviare foto e altri file grafici.</s:String>
+    <s:String x:Key="lang_sm_tip_music">Apre la libreria Musica, in cui è possibile archiviare brani e altri file audio.</s:String>
+    <s:String x:Key="lang_sm_tip_videos">Apre la libreria Video, in cui è possibile archiviare filmati e altri file video.</s:String>
+    <s:String x:Key="lang_sm_tip_computer">Apre una finestra per le unità disco, i dispositivi e l'altro hardware collegato al computer.</s:String>
+    <s:String x:Key="lang_sm_tip_control">Apre il Pannello di controllo, in cui è possibile modificare le impostazioni, aggiungere o rimuovere programmi e gestire gli account.</s:String>
+    <s:String x:Key="lang_sm_tip_devices">Apre Dispositivi e stampanti, in cui è possibile visualizzare e gestire stampanti, scanner e altro hardware.</s:String>
+    <s:String x:Key="lang_sm_tip_defaults">Consente di scegliere il programma che Windows utilizza per il Web, la posta, le foto e i contenuti multimediali.</s:String>
+    <s:String x:Key="lang_sm_tip_help">Apre il supporto Microsoft nel browser per gli argomenti della Guida, le esercitazioni e la risoluzione dei problemi.</s:String>
 </ResourceDictionary>

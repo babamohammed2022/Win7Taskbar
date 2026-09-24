@@ -219,6 +219,7 @@ namespace Win7Taskbar.StartMenu
             catch (Exception)
             {
             }
+            RestoreShutdownButtonChrome();
         }
 
         protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
@@ -983,7 +984,7 @@ namespace Win7Taskbar.StartMenu
                 RightList.BeginAnimation(OpacityProperty, null);
                 PhotoHost.BeginAnimation(OpacityProperty, null);
                 SearchShutWash.BeginAnimation(OpacityProperty, null);
-                ApplySearchShutdownInk(searching);
+                RestoreShutdownButtonChrome();
                 if (searching)
                 {
                     SearchHost.Visibility = Visibility.Visible;
@@ -1051,65 +1052,38 @@ namespace Win7Taskbar.StartMenu
                 PhotoHost.Opacity = searching ? 0 : 1;
                 PhotoHost.IsHitTestVisible = !searching;
                 SearchShutWash.Opacity = searching ? 1 : 0;
-                ApplySearchShutdownInk(searching);
+                RestoreShutdownButtonChrome();
             }
             catch (Exception)
             {
             }
         }
 
-        private void ApplySearchShutdownInk(bool searching)
+        /// <summary>
+        /// Arresta keeps its Aero fill, borders and white caption in every
+        /// layout (including search). 1.3.15 wrote local Transparent values
+        /// that hid that chrome; ClearValue returns the XAML style.
+        /// </summary>
+        private void RestoreShutdownButtonChrome()
         {
             try
             {
-                ShutdownLabel.Foreground = searching ? Brushes.Black : Brushes.White;
-                ShutdownArrowGlyph.Fill = searching ? Brushes.Black : Brushes.White;
-                /* Search: Open-Shell / Win7 drop the Aero button chrome so
-                 * Arresta sits in the white wash. Transparent borders alone
-                 * still left the glass gradient as a box — flatten fill and
-                 * thickness too. Restore when the default glass layout
-                 * comes back. Size, gradient, hover and handlers are
-                 * unchanged outside search. */
-                if (searching)
-                {
-                    ShutdownChrome.Background = Brushes.Transparent;
-                    ShutdownArrow.Background = Brushes.Transparent;
-                    ShutdownChrome.BorderBrush = Brushes.Transparent;
-                    ShutdownArrow.BorderBrush = Brushes.Transparent;
-                    ShutdownChromeInner.BorderBrush = Brushes.Transparent;
-                    ShutdownArrowInner.BorderBrush = Brushes.Transparent;
-                    ShutdownChrome.BorderThickness = new Thickness(0);
-                    ShutdownArrow.BorderThickness = new Thickness(0);
-                    ShutdownChromeInner.BorderThickness = new Thickness(0);
-                    ShutdownArrowInner.BorderThickness = new Thickness(0);
-                }
-                else
-                {
-                    ShutdownChrome.ClearValue(Border.BackgroundProperty);
-                    ShutdownArrow.ClearValue(Border.BackgroundProperty);
-                    ShutdownChrome.ClearValue(Border.BorderThicknessProperty);
-                    ShutdownArrow.ClearValue(Border.BorderThicknessProperty);
-                    ShutdownChromeInner.ClearValue(Border.BorderThicknessProperty);
-                    ShutdownArrowInner.ClearValue(Border.BorderThicknessProperty);
-                    ShutdownChrome.BorderBrush = FreezeArgb(0xC0, 0x28, 0x4A, 0x78);
-                    ShutdownArrow.BorderBrush = FreezeArgb(0xC0, 0x28, 0x4A, 0x78);
-                    ShutdownChromeInner.BorderBrush = FreezeArgb(0x80, 0xFF, 0xFF, 0xFF);
-                    ShutdownArrowInner.BorderBrush = FreezeArgb(0x80, 0xFF, 0xFF, 0xFF);
-                }
+                ShutdownChrome.ClearValue(Border.BackgroundProperty);
+                ShutdownArrow.ClearValue(Border.BackgroundProperty);
+                ShutdownChrome.ClearValue(Border.BorderBrushProperty);
+                ShutdownArrow.ClearValue(Border.BorderBrushProperty);
+                ShutdownChrome.ClearValue(Border.BorderThicknessProperty);
+                ShutdownArrow.ClearValue(Border.BorderThicknessProperty);
+                ShutdownChromeInner.ClearValue(Border.BorderBrushProperty);
+                ShutdownArrowInner.ClearValue(Border.BorderBrushProperty);
+                ShutdownChromeInner.ClearValue(Border.BorderThicknessProperty);
+                ShutdownArrowInner.ClearValue(Border.BorderThicknessProperty);
+                ShutdownLabel.ClearValue(TextBlock.ForegroundProperty);
+                ShutdownArrowGlyph.ClearValue(System.Windows.Shapes.Path.FillProperty);
             }
             catch (Exception)
             {
             }
-        }
-
-        private static Brush FreezeArgb(byte a, byte r, byte g, byte b)
-        {
-            var brush = new SolidColorBrush(Color.FromArgb(a, r, g, b));
-            if (brush.CanFreeze)
-            {
-                brush.Freeze();
-            }
-            return brush;
         }
 
         /// <summary>
@@ -1177,8 +1151,9 @@ namespace Win7Taskbar.StartMenu
 
         /* Vetro simulato: nessuna API DWM, nessun blur. Regola gli alpha a occhio:
          * piu' alti = menu piu' opaco e testo piu' leggibile. */
-        private const byte SimTopAlpha = 0xCD;
-        private const byte SimBottomAlpha = 0xB5;
+        /* 1.3.16: 2.5% less transparent than 0xCD/0xB5 (205/181 + round(255*0.025)). */
+        private const byte SimTopAlpha = 0xD3;
+        private const byte SimBottomAlpha = 0xBB;
 
         private void ApplySimulatedGlass()
         {

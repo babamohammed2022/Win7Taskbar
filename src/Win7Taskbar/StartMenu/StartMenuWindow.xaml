@@ -618,10 +618,14 @@
                     <!-- Full-width search overlay. Outer frame stays 411x476.
                          Inspired by Win7 / Open-Shell search bitmap (full
                          white pane); not copied from EJSnow's unlicensed skin. -->
+                    <!-- No bottom border: the 1px #90A0B4C8 hairline sat on the
+                         Arresta strip and read as a stray blue frame. Right
+                         margin 0 so glass does not show as a blue corridor
+                         beside the list. Height 416 meets the shutdown row. -->
                     <Border x:Name="SearchHost" Grid.Column="0" Grid.ColumnSpan="2"
-                            Margin="8,8,8,0" Height="415" VerticalAlignment="Top"
+                            Margin="8,8,0,0" Height="416" VerticalAlignment="Top"
                             Background="#FFFFFFFF" BorderBrush="#90A0B4C8"
-                            BorderThickness="1" CornerRadius="2"
+                            BorderThickness="1,1,1,0" CornerRadius="2,2,0,0"
                             Opacity="0" Visibility="Collapsed"
                             IsHitTestVisible="False">
                         <ListBox x:Name="SearchList"
