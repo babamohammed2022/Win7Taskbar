@@ -91,6 +91,27 @@ jobs:
         # un upload fallito non deve fermare il passo di attach sotto.
         continue-on-error: true
 
+      # Trial release: manual runs (workflow_dispatch) cannot rely on workflow
+      # artifacts (the Actions storage quota is often exhausted), so the zip is
+      # attached to a throw-away pre-release instead. Release assets do not
+      # count against Actions artifact storage.
+      - name: Attach the package to a trial pre-release (manual builds)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ci-trial-${{ github.run_number }}
+          files: ${{ env.ZIP_NAME }}
+          name: Win7Taskbar trial build ci-trial-${{ github.run_number }}
+          draft: false
+          prerelease: true
+          body: |
+            **Release di prova** generata da una run manuale della CI
+            (commit `${{ github.sha }}`). Non e' una release ufficiale.
+
+            Pacchetto **self-contained** per Windows 10/11 **x64**: scarica lo
+            zip, scompatta tutta la cartella e avvia `Win7Taskbar.exe`.
+            Non serve installare .NET.
+
       - name: Attach the package to the release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
