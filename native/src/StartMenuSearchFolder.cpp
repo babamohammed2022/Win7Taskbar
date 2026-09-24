@@ -49,7 +49,14 @@
 #include <shlguid.h>
 #include <knownfolders.h>
 #include <objbase.h>
+#include <propsys.h>
 #include <propkey.h>
+/* v3.10: structuredquerycondition.h (ICondition/Factory wordwheel) si
+ * appoggia su PROPVARIANT co parse di propsys.h: senza quest'ultima
+ * inclua il contenuto dell'header legacy risulta ASSENTE nella TU
+ * e ogni nome documentato (IConditionFactory, CLSID_ConditionFactory,
+ * COP_*/CT_*) diventa non dichiarato - visto come cascata di errori
+ * in BuildWordwheelCondition. */
 #include <structuredquerycondition.h>
 
 #include <atomic>
