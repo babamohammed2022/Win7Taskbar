@@ -62,7 +62,9 @@
 #include <atomic>
 #include <new>
 #include <cwchar>
-#include <cwctype>
+/* niente <cwctype>: non serve (nessuna funzione wctype usata) e su uno dei
+ * toolchain CI ha fatto saltare la TU inteira con errori sul namespace
+ * globale (wctrans_t/towctrans) prima ancora di entrare nel corpo. */
 #include <set>
 #include <string>
 #include <vector>
