@@ -133,6 +133,7 @@ namespace Win7Taskbar.StartMenu
                 Topmost = true;
                 Show();
                 Activate();
+                ClipVisibleChrome();
                 try { _clickAway.Start(); } catch (Exception) { }
                 SearchBox.Focus();
                 Keyboard.Focus(SearchBox);
@@ -151,6 +152,7 @@ namespace Win7Taskbar.StartMenu
         internal void Dismiss()
         {
             try { _clickAway.Stop(); } catch (Exception) { }
+            try { _infotip.Hide(); } catch (Exception) { }
             _vm.SearchText = string.Empty;
             Topmost = false;
             Hide();
@@ -410,12 +412,38 @@ namespace Win7Taskbar.StartMenu
                 !item.IsSeparator)
             {
                 ShowLinkIcon(item.Icon);
+                ShowWin32Infotip(sender as FrameworkElement, item);
             }
+        }
+
+        private void OnRightItemMouseLeave(object sender, MouseEventArgs e)
+        {
+            try { _infotip.Hide(); } catch (Exception) { }
         }
 
         private void OnRightListMouseLeave(object sender, MouseEventArgs e)
         {
+            try { _infotip.Hide(); } catch (Exception) { }
             ResetUserPhoto(animate: true);
+        }
+
+        private void ShowWin32Infotip(FrameworkElement? host, StartMenuItem item)
+        {
+            if (host == null || !item.HasInfotip)
+            {
+                try { _infotip.Hide(); } catch (Exception) { }
+                return;
+            }
+            try
+            {
+                Point pt = host.PointToScreen(new Point(host.ActualWidth + 8, 0));
+                IntPtr hwnd = new WindowInteropHelper(this).Handle;
+                _infotip.Show(hwnd, item.Name, item.Infotip,
+                    (int)Math.Round(pt.X), (int)Math.Round(pt.Y));
+            }
+            catch (Exception)
+            {
+            }
         }
 
         /// <summary>
