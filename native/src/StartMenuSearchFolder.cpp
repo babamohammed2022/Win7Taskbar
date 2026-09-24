@@ -55,8 +55,8 @@
  * appoggia su PROPVARIANT co parse di propsys.h: senza quest'ultima
  * inclua il contenuto dell'header legacy risulta ASSENTE nella TU
  * e ogni nome documentato (IConditionFactory, CLSID_ConditionFactory,
- * COP_*/CT_*) diventa non dichiarato - visto come cascata di errori
- * in BuildWordwheelCondition. */
+ * le costanti COP e CT) diventa non dichiarato - visto come cascata
+ * di errori in BuildWordwheelCondition. */
 #include <structuredquerycondition.h>
 
 #include <atomic>
