@@ -781,6 +781,22 @@ namespace Win7Taskbar.StartMenu
         }
 
         private const int RGN_OR = 2;
+        private const int DWM_BB_ENABLE = 0x1;
+        private const int DWM_BB_BLURREGION = 0x2;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct DWM_BLURBEHIND
+        {
+            public int dwFlags;
+            [MarshalAs(UnmanagedType.Bool)]
+            public bool fEnable;
+            public IntPtr hRgnBlur;
+            [MarshalAs(UnmanagedType.Bool)]
+            public bool fTransitionOnMaximized;
+        }
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmEnableBlurBehindWindow(IntPtr hwnd, ref DWM_BLURBEHIND bb);
 
         [DllImport("gdi32.dll")]
         private static extern IntPtr CreateRectRgn(int x1, int y1, int x2, int y2);
