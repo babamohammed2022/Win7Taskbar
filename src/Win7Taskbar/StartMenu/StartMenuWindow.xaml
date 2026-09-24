@@ -476,9 +476,21 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
-                        <Border x:Name="SearchShutWash" Grid.Row="1" Grid.RowSpan="2"
-                                Background="#FFFFFFFF" Opacity="0"
-                                IsHitTestVisible="False"/>
+                        <!-- 65% of the Arresta strip (35% smaller) so the
+                             white wash does not run into the 8px pane /
+                             chrome edges. Top-left, under Arresta. -->
+                        <Grid Grid.Row="1" Grid.RowSpan="2" IsHitTestVisible="False">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="13*"/>
+                                <ColumnDefinition Width="7*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="13*"/>
+                                <RowDefinition Height="7*"/>
+                            </Grid.RowDefinitions>
+                            <Border x:Name="SearchShutWash" Grid.Column="0" Grid.Row="0"
+                                    Background="#FFFFFFFF" Opacity="0"/>
+                        </Grid>
 
                         <ListBox x:Name="RightList" Grid.Row="0"
                                  ItemsSource="{Binding RightLinks}"
