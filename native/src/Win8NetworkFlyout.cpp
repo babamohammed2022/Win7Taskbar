@@ -246,6 +246,17 @@ static bool g_UseCharmsTestStyle = true;
 #define CHARMS_EXP_BTN_W         104
 #define CHARMS_EXP_BTN_H          30
 #define CHARMS_EXP_BOTTOM_PAD     16
+
+// v1.21.25 - Windows 8 key-entry page + back arrow (AdmXP's mod, metrics
+// rescaled to this port's compact CHARMS_* scale):
+#define CHARMS_TEXT_FADE_MS           280  // enter text fade duration
+#define CHARMS_TEXT_FADE_FROM          20  // starting opacity percent
+#define CHARMS_BACKARROW_SIZE          26  // drawn diameter at 100% scaling
+#define CHARMS_BACKARROW_GAP            8  // gap between arrow and title
+#define CHARMS_PWPAGE_GAP_NAME_LABEL   26  // network name -> key label
+#define CHARMS_PWPAGE_GAP_EDIT_BTN     14  // field -> Next/Cancel buttons
+#define CHARMS_PW_REVEAL_SIZE          16  // show/hide glyph inside the field
+#define CHARMS_PNG_BACKARROW_BASE64   L"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"
 #define CHARMS_BG_COLOR          RGB(31,0,104)
 #define CHARMS_KEY_COLOR         RGB(255,0,255)
 
@@ -335,6 +346,15 @@ static int      g_CharmsTitleFrom       = 0;
 static int      g_CharmsTitleTo         = 0;
 static int      g_CharmsTitleDurationMs = 0;
 static int      g_CharmsTitleDelayMs    = 0;
+
+// v1.21.25 - key-entry page + expanded row state. Defined here (instead of
+// in the flyout child-window block further down) because ShowFlyoutVisual()
+// below must reset it on every open; C++ has no tentative definitions for
+// statics, so the definitions live at the first use site.
+static BOOL g_CharmsPwPage     = FALSE;  // the Win8 key page is open
+static int  g_CharmsPwPageRow  = -1;     // ...for this network row
+static BOOL g_CharmsPwReveal   = FALSE;  // typed key is visible in the field
+static int  g_CharmsExpandedRow = -1;    // row currently expanded (checkbox + buttons)
 
 static void ShowFlyoutVisual(HWND hwnd);
 static void HideFlyoutVisual(HWND hwnd);
@@ -2207,6 +2227,7 @@ static HICON g_hIconNetworkCenterHomegroup = NULL;
 
 static HICON g_hIconRefreshNormal = NULL;
 static HICON g_hIconRefreshHover  = NULL;
+static HICON g_hIconCharmsBackArrow = NULL;   // v1.21.25 - key-entry page back arrow
 static INetworkListManager* g_pNLM = NULL;
 
 // -------------------------------------------------------
@@ -2625,6 +2646,7 @@ struct CharmsFontPair {
 static CharmsFontPair g_CharmsFonts[CHARMS_TEXT_COUNT] = {};
 static HFONT g_hFontCharmsEthernet = NULL;
 static HFONT g_hFontCharmsTick = NULL;
+static HFONT g_hFontCharmsReveal = NULL;  // v1.21.25: key-page show/hide glyph
 
 static HFONT CharmsStyleFont(CharmsTextStyle style, BOOL animating, HFONT fallback) {
     if (IsHighContrastActive()) return fallback;
@@ -3027,6 +3049,7 @@ typedef enum {
     STR_CHARMS_OFF,
     STR_CHARMS_VIEW_SETTINGS,
     STR_CHARMS_ENTER_KEY,
+    STR_CHARMS_NEXT,   // "Next" on the Windows 8 key-entry page (v1.21.25)
     STR_COUNT
 } LocaleStringId;
 
@@ -3090,6 +3113,7 @@ static const LocalePack g_Locales[] = {
         L"Off",
         L"View Connection Settings",
         L"Enter the network security key",
+        L"Next",
     }},
     { 0x0410, {
         L"Attualmente connesso a:",
@@ -3145,6 +3169,7 @@ static const LocalePack g_Locales[] = {
         L"Disattivata",
         L"Visualizza impostazioni connessione",
         L"Immettere la chiave di sicurezza di rete",
+        L"Avanti",
     }},
     { 0x040A, {
         L"Conectado actualmente a:",
@@ -3200,6 +3225,7 @@ static const LocalePack g_Locales[] = {
         L"Desactivado",
         L"Ver configuraci\u00F3n de conexi\u00F3n",
         L"Escriba la clave de seguridad de red",
+        L"Siguiente",
     }},
     { 0x040C, {
         L"Connect\u00E9 actuellement \u00E0 :",
@@ -3255,6 +3281,7 @@ static const LocalePack g_Locales[] = {
         L"D\u00E9sactiv\u00E9",
         L"Afficher les param\u00E8tres de connexion",
         L"Entrez la cl\u00E9 de s\u00E9curit\u00E9 r\u00E9seau",
+        L"Suivant",
     }},
     { 0x0419, {
         L"\u0422\u0435\u043A\u0443\u0449\u0435\u0435 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435:",
@@ -3310,6 +3337,7 @@ static const LocalePack g_Locales[] = {
         L"\u0412\u044B\u043A\u043B.",
         L"\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u043E\u0432 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F",
         L"\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043A\u043B\u044E\u0447 \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u043E\u0441\u0442\u0438 \u0441\u0435\u0442\u0438",
+        L"Далее",
     }},
     { 0x0407, {
         L"Verbunden mit:",
@@ -3365,6 +3393,7 @@ static const LocalePack g_Locales[] = {
         L"Aus",
         L"Verbindungseinstellungen anzeigen",
         L"Geben Sie den Netzwerksicherheitsschl\u00FCssel ein",
+        L"Weiter",
     }},
     { 0x0816, {
         L"Ligado a:",
@@ -3420,6 +3449,7 @@ static const LocalePack g_Locales[] = {
         L"Desativado",
         L"Ver configura\u00E7\u00F5es de conex\u00E3o",
         L"Digite a chave de seguran\u00E7a de rede",
+        L"Seguinte",
     }},
     { 0x0415, {
         L"Obecnie połączono z:",
@@ -3475,6 +3505,7 @@ static const LocalePack g_Locales[] = {
         L"Wy\u0142\u0105czone",
         L"Wy\u015Bwietl ustawienia po\u0142\u0105czenia",
         L"Wprowad\u017A klucz bezpiecze\u0144stwa sieci",
+        L"Dalej",
     }},
     { 0x0413, {
         L"Momenteel verbonden met:",
@@ -3530,6 +3561,7 @@ static const LocalePack g_Locales[] = {
         L"Uit",
         L"Verbindingsinstellingen weergeven",
         L"Voer de netwerkbeveiligingssleutel in",
+        L"Verder",
     }},
     { 0x0418, {
         L"Conectat în prezent la:",
@@ -3585,6 +3617,7 @@ static const LocalePack g_Locales[] = {
         L"Dezactivat",
         L"Afi\u0219a\u021Bi set\u0103rile de conexiune",
         L"Introduce\u021Bi cheia de securitate a re\u021Belei",
+        L"Înainte",
     }},
     { 0x041F, {
         L"Şu anda bağlı:",
@@ -3640,6 +3673,7 @@ static const LocalePack g_Locales[] = {
         L"Kapal\u0131",
         L"Ba\u011Flant\u0131 ayarlar\u0131n\u0131 g\u00F6r\u00FCnt\u00FCle",
         L"A\u011F g\u00FCvenlik anahtar\u0131n\u0131 girin",
+        L"İleri",
     }},
 };
 
@@ -4790,6 +4824,8 @@ void FreeSystemIcons() {
     if (g_hIconNetworkMap) { DestroyIcon(g_hIconNetworkMap); g_hIconNetworkMap = NULL; }
     if (g_hIconDisconnected) { DestroyIcon(g_hIconDisconnected); g_hIconDisconnected = NULL; }
     if (g_hIconAvailable) { DestroyIcon(g_hIconAvailable); g_hIconAvailable = NULL; }
+    // v1.21.25: key-entry page back arrow (AdmXP's mod, 32x32 PNG).
+    if (g_hIconCharmsBackArrow) { DestroyIcon(g_hIconCharmsBackArrow); g_hIconCharmsBackArrow = NULL; }
     if (g_hIconNetworkMapDUI) { DestroyIcon(g_hIconNetworkMapDUI); g_hIconNetworkMapDUI = NULL; }
     g_iconNetworkMapDUIW = g_iconNetworkMapDUIH = 0;
     if (g_hIconGlobeDUI) { DestroyIcon(g_hIconGlobeDUI); g_hIconGlobeDUI = NULL; }
@@ -4859,6 +4895,9 @@ static void InitCharmsStyleFonts() {
         FW_NORMAL, ANTIALIASED_QUALITY, L"Segoe MDL2 Assets");
     g_hFontCharmsTick = CreateCharmsFont(hdc, CHARMS_EXP_CHECKBOX_SIZE,
         FW_NORMAL, ANTIALIASED_QUALITY, L"Segoe MDL2 Assets");
+    // v1.21.25: show/hide (View / Hide) glyph of the key-entry page field.
+    g_hFontCharmsReveal = CreateCharmsFont(hdc, CHARMS_PW_REVEAL_SIZE,
+        FW_NORMAL, ANTIALIASED_QUALITY, L"Segoe MDL2 Assets");
     if (hdc) DeleteDC(hdc);
 }
 
@@ -4895,6 +4934,7 @@ void FreeGlobalFonts() {
     }
     if (g_hFontCharmsEthernet) { DeleteObject(g_hFontCharmsEthernet); g_hFontCharmsEthernet = NULL; }
     if (g_hFontCharmsTick) { DeleteObject(g_hFontCharmsTick); g_hFontCharmsTick = NULL; }
+    if (g_hFontCharmsReveal) { DeleteObject(g_hFontCharmsReveal); g_hFontCharmsReveal = NULL; }
     if (g_hFontNormal)    { DeleteObject(g_hFontNormal);    g_hFontNormal    = NULL; }
     if (g_hFontBold)      { DeleteObject(g_hFontBold);      g_hFontBold      = NULL; }
     if (g_hFontUnderline) { DeleteObject(g_hFontUnderline); g_hFontUnderline = NULL; }
@@ -5402,6 +5442,13 @@ static BOOL IsFlyoutOpenForToggle(void) {
 static void ShowFlyoutVisual(HWND hwnd) {
     if (!hwnd || !IsWindow(hwnd)) return;
     if (g_UseCharmsTestStyle) {
+        /* v1.21.25: every open starts on the list, never on a stale
+         * key-entry page left over from the previous session (the four
+         * variables are defined just above this function on purpose). */
+        g_CharmsPwPage = FALSE;
+        g_CharmsPwPageRow = -1;
+        g_CharmsPwReveal = FALSE;
+        g_CharmsExpandedRow = -1;
         CharmsAnimStart(hwnd, TRUE);
         return;
     }
@@ -9316,6 +9363,7 @@ void EnsureRowVisible(int index) {
 #define IDC_CHARMS_CONNECT_BUTTON 1101
 #define IDC_CHARMS_PW_EDIT        1102
 #define IDC_CHARMS_CANCEL_BUTTON  1103
+#define IDC_CHARMS_REVEAL_BUTTON  1104
 
 static RECT g_rcCharmsLink             = {0,0,0,0};
 static RECT g_rcCharmsAirplaneToggle   = {0,0,0,0};
@@ -9323,7 +9371,8 @@ static RECT g_rcCharmsWifiToggle       = {0,0,0,0};
 static RECT g_rcCharmsRows[50]         = {};
 static int  g_CharmsRowCount           = 0;
 static int  g_CharmsHoveredRow         = -1;
-static int  g_CharmsExpandedRow        = -1;  // row currently showing the inline password box
+// g_CharmsExpandedRow / g_CharmsPwPage / g_CharmsPwPageRow / g_CharmsPwReveal
+// are defined above ShowFlyoutVisual(), which resets them on every open.
 static BOOL g_CharmsAirplaneOn         = FALSE;
 static BOOL g_CharmsWifiRadioOn        = TRUE;
 static RECT g_rcCharmsAutoConnect      = {0,0,0,0};
@@ -9340,6 +9389,42 @@ static BOOL g_CharmsConnectHover       = FALSE;
 static BOOL g_CharmsCancelHover        = FALSE;
 static HBRUSH g_hBrCharmsPwEdit        = NULL;
 
+/* v1.21.25 - Windows 8 "Enter the network security key" page (AdmXP's mod):
+ * while the key is being typed the whole list is replaced by a dedicated
+ * page (network name + label + field + Next/Cancel) and a circled back
+ * arrow appears left of the "Networks" title. State lives here; the page is
+ * painted by DrawCharmsStyleFlyout() and driven from WM_COMMAND /
+ * WM_LBUTTONDOWN below. The reveal control is a real owner-drawn child
+ * (like Connect/Cancel) so it composites ABOVE the white field instead of
+ * being covered by it. */
+static RECT g_rcCharmsBackArrow        = {0,0,0,0};
+static BOOL g_CharmsHoverBackArrow     = FALSE;
+static BOOL g_CharmsHoverAirplaneToggle = FALSE;  /* v1.21.25: toggle hover */
+static BOOL g_CharmsHoverWifiToggle     = FALSE;  /* v1.21.25: toggle hover */
+static BOOL g_CharmsRevealHover        = FALSE;
+static HWND g_hWndCharmsRevealBtn      = NULL;
+/* v1.21.25 - Win8-style quick fade of the texts at the start of the enter
+ * slide: DrawCharmsStyleFlyout() recomputes this on every frame (white at
+ * rest, blended toward the pane colour while fading in). The signal bars
+ * read it so the whole page fades as one. */
+static COLORREF g_CharmsFadeTextColor  = RGB(255,255,255);
+
+static void CharmsPwPageReset() {
+    g_CharmsPwPage = FALSE;
+    g_CharmsPwPageRow = -1;
+    if (g_hWndCharmsPwEdit && IsWindow(g_hWndCharmsPwEdit)) {
+        if (g_CharmsPwReveal) {
+            // Restore the bullet masking before the field can be reused.
+            SendMessageW(g_hWndCharmsPwEdit, EM_SETPASSWORDCHAR, (WPARAM)L'\x25CF', 0);
+            g_CharmsPwReveal = FALSE;
+        }
+        SetWindowTextW(g_hWndCharmsPwEdit, L"");
+        ShowWindow(g_hWndCharmsPwEdit, SW_HIDE);
+    }
+    if (g_hWndCharmsRevealBtn && IsWindow(g_hWndCharmsRevealBtn))
+        ShowWindow(g_hWndCharmsRevealBtn, SW_HIDE);
+}
+
 static void CharmsBindControlFonts(bool resetToStock) {
     HFONT stock = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
     HFONT editFont = resetToStock ? stock
@@ -9355,6 +9440,12 @@ static void CharmsBindControlFonts(bool resetToStock) {
             SendMessageW(button, WM_SETFONT,
                          (WPARAM)(buttonFont ? buttonFont : stock), !resetToStock);
     }
+    /* v1.21.25: the show/hide glyph keeps its own MDL2 face, so it needs
+     * its own rebind (buttonFont would pick the wrong glyphs). */
+    if (g_hWndCharmsRevealBtn && IsWindow(g_hWndCharmsRevealBtn))
+        SendMessageW(g_hWndCharmsRevealBtn, WM_SETFONT,
+                     (WPARAM)(g_hFontCharmsReveal ? g_hFontCharmsReveal : stock),
+                     !resetToStock);
 }
 
 // --- Windows accent color ---------------------------------------------------
@@ -9616,7 +9707,9 @@ static COLORREF CharmsLighten(COLORREF color, int dr, int dg, int db) {
                (std::min)(255, (int)GetBValue(color) + db));
 }
 
-static bool TryDrawCharmsToggle(HDC hdc, int x, int y, BOOL on) {
+// v1.21.25 - hover: a slightly lighter toggle instead of a pointer cursor
+// (AdmXP's mod; same family as the row/link/checkbox hover veils).
+static bool TryDrawCharmsToggle(HDC hdc, int x, int y, BOOL on, BOOL hover) {
     if (!hdc || IsHighContrastActive()) return false;
     const int w = ScaleDpi(CHARMS_TOGGLE_W), h = ScaleDpi(CHARMS_TOGGLE_H);
     const int thumbW = ScaleDpi(CHARMS_TOGGLE_THUMB_W);
@@ -9625,11 +9718,17 @@ static bool TryDrawCharmsToggle(HDC hdc, int x, int y, BOOL on) {
         h <= 2 * (ringInset + gapInset)) return false;
 
     const COLORREF bg = CharmsPaneBg();
+    COLORREF ring = CharmsLighten(bg, 9, 26, 42);
+    COLORREF inner = on ? CharmsLighten(bg, 0, 10, 0)
+                        : CharmsLighten(bg, 26, 27, 29);
+    if (hover) {
+        ring = CharmsBlendWhite(ring, 20);
+        inner = CharmsBlendWhite(inner, 20);
+    }
     HBRUSH brushes[] = {
-        CreateSolidBrush(CharmsLighten(bg, 9, 26, 42)),
+        CreateSolidBrush(ring),
         CreateSolidBrush(bg),
-        CreateSolidBrush(on ? CharmsLighten(bg, 0, 10, 0)
-                            : CharmsLighten(bg, 26, 27, 29))
+        CreateSolidBrush(inner)
     };
     bool painted = false;
     if (brushes[0] && brushes[1] && brushes[2]) {
@@ -9652,8 +9751,8 @@ static bool TryDrawCharmsToggle(HDC hdc, int x, int y, BOOL on) {
     return painted;
 }
 
-static void DrawCharmsToggle(HDC hdc, int x, int y, BOOL on) {
-    if (!TryDrawCharmsToggle(hdc, x, y, on))
+static void DrawCharmsToggle(HDC hdc, int x, int y, BOOL on, BOOL hover) {
+    if (!TryDrawCharmsToggle(hdc, x, y, on, hover))
         DrawCharmsToggleLegacy(hdc, x, y, on);
 }
 
@@ -9744,11 +9843,40 @@ static void DrawCharmsSignalIcon(HDC hdc, int x, int y, ULONG signalQuality) {
     for (int i = 0; i < 5; i++) {
         int barH = ScaleDpi(4) + i * ScaleDpi(3);
         BOOL lit = (i < bars);
-        HBRUSH hBr = CreateSolidBrush(lit ? RGB(255,255,255) : dimColor);
+        /* v1.21.25: the lit bars follow the enter-slide text fade, so the
+         * whole page fades in as one (see g_CharmsFadeTextColor). */
+        HBRUSH hBr = CreateSolidBrush(lit ? g_CharmsFadeTextColor : dimColor);
         RECT rc = { x + i * (barW + gap), baseY - barH, x + i * (barW + gap) + barW, baseY };
         FillRect(hdc, &rc, hBr);
         DeleteObject(hBr);
     }
+}
+
+/* v1.21.25 - linear blend toward b by pctB percent (AdmXP's mod). Used by
+ * the enter-slide text fade; the fade never leaves this helper. */
+static COLORREF CharmsMixColor(COLORREF a, COLORREF b, int pctB) {
+    if (pctB <= 0) return a;
+    if (pctB >= 100) return b;
+    int r = GetRValue(a) + (GetRValue(b) - GetRValue(a)) * pctB / 100;
+    int g = GetGValue(a) + (GetGValue(b) - GetGValue(a)) * pctB / 100;
+    int bl = GetBValue(a) + (GetBValue(b) - GetBValue(a)) * pctB / 100;
+    return RGB(r, g, bl);
+}
+
+/* v1.21.25 - circled back arrow of the Windows 8 key-entry page (AdmXP's
+ * mod, 32x32 PNG, MIT). The decoded icon is cached once, like the other
+ * embedded artwork; it is scaled at draw time with high-quality halftone
+ * so it stays clean at any DPI. Returns FALSE when GDI+ is unavailable so
+ * the caller falls back to the plain title. */
+static BOOL DrawCharmsBackArrow(HDC hdc, int x, int y, int size) {
+    if (!hdc || size <= 0) return FALSE;
+    if (!g_hIconCharmsBackArrow)
+        g_hIconCharmsBackArrow = CreateIconFromBase64PNG(CHARMS_PNG_BACKARROW_BASE64, 0, 0);
+    if (!g_hIconCharmsBackArrow) return FALSE;
+    int oldMode = SetStretchBltMode(hdc, HALFTONE);
+    BOOL ok = DrawIconEx(hdc, x, y, g_hIconCharmsBackArrow, size, size, 0, NULL, DI_NORMAL) != FALSE;
+    SetStretchBltMode(hdc, oldMode);
+    return ok;
 }
 
 static COLORREF CharmsConnectedTextColor() {
@@ -9798,7 +9926,28 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     IntersectClipRect(hdc, px, 0, panelW, panelH);
 
     SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, RGB(255,255,255));
+
+    /* v1.21.25 - Win8-style quick fade of the texts at the start of the
+     * enter slide (AdmXP's mod): they start blended toward the pane colour
+     * and reach full opacity CHARMS_TEXT_FADE_MS after the slide begins.
+     * At rest (and outside the fade window) both colours are the plain
+     * white / connected shade, so settled frames are byte-identical to
+     * before. The signal bars read g_CharmsFadeTextColor, so the page
+     * fades as one. */
+    int fadePct = 100;
+    if (g_CharmsAnimState == CHARMS_ANIM_IN && g_CharmsAnimQpcFreq > 0) {
+        double ms = (double)(CharmsQpcNow() - g_CharmsAnimStartQpc) * 1000.0
+                      / (double)g_CharmsAnimQpcFreq;
+        double ft = ms / (double)CHARMS_TEXT_FADE_MS;
+        if (ft < 0) ft = 0; if (ft > 1) ft = 1;
+        fadePct = CHARMS_TEXT_FADE_FROM + (100 - CHARMS_TEXT_FADE_FROM) * (int)(ft * 100) / 100;
+    }
+    const COLORREF colText = (fadePct >= 100) ? RGB(255,255,255)
+        : CharmsMixColor(CharmsPaneBg(), RGB(255,255,255), fadePct);
+    const COLORREF colConn = (fadePct >= 100) ? CharmsConnectedTextColor()
+        : CharmsMixColor(CharmsPaneBg(), CharmsConnectedTextColor(), fadePct);
+    g_CharmsFadeTextColor = colText;
+    SetTextColor(hdc, colText);
 
     // While the pane is actively sliding, swap to the non-ClearType twins
     // so slow, sub-pixel-slow motion doesn't shimmer (see the comment on
@@ -9837,10 +9986,145 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     int cx = margin + ox;
     int cxTitle = margin + oxTitle;
 
+    /* v1.21.25: the snapshot is captured here (instead of further down)
+     * because the key-entry page under the title and the sections below
+     * must see the same network state within one frame. */
+    NetworkStateSnapshot paintState;
+    CaptureNetworkState(&paintState);
+
+    // Windows 8 shows a circled back arrow left of "Networks" while the
+    // key-entry page is open; clicking it returns to the list (AdmXP's mod).
     SelectObject(hdc, hFontTitle);
-    TextOutW(hdc, cxTitle, curY, LOC(STR_CHARMS_TITLE_NETWORKS),
+    SIZE titleSz;
+    GetTextExtentPoint32W(hdc, LOC(STR_CHARMS_TITLE_NETWORKS),
+                          lstrlenW(LOC(STR_CHARMS_TITLE_NETWORKS)), &titleSz);
+    int arrowSz = ScaleDpi(CHARMS_BACKARROW_SIZE);
+    int arrowY  = curY + (titleSz.cy - arrowSz) / 2;
+    int titleX  = cxTitle;
+    SetRectEmpty(&g_rcCharmsBackArrow);
+    if (g_CharmsPwPage) {
+        if (g_CharmsHoverBackArrow) {
+            // Round highlight, same shape as the circled arrow itself.
+            HRGN hRgn = CreateEllipticRgn(cxTitle - ScaleDpi(3), arrowY - ScaleDpi(3),
+                                          cxTitle + arrowSz + ScaleDpi(3),
+                                          arrowY + arrowSz + ScaleDpi(3));
+            HBRUSH hBrH = CreateSolidBrush(CharmsBlendWhite(CharmsPaneBg(), 14));
+            FillRgn(hdc, hRgn, hBrH);
+            DeleteObject(hBrH);
+            DeleteObject(hRgn);
+        }
+        if (DrawCharmsBackArrow(hdc, cxTitle, arrowY, arrowSz)) {
+            titleX = cxTitle + arrowSz + ScaleDpi(CHARMS_BACKARROW_GAP);
+            SetRect(&g_rcCharmsBackArrow, cxTitle - ScaleDpi(4), arrowY - ScaleDpi(4),
+                    cxTitle + arrowSz + ScaleDpi(4), arrowY + arrowSz + ScaleDpi(4));
+        }
+    }
+    TextOutW(hdc, titleX, curY, LOC(STR_CHARMS_TITLE_NETWORKS),
              lstrlenW(LOC(STR_CHARMS_TITLE_NETWORKS)));
     curY += ScaleDpi(CHARMS_GAP_TITLE_LINK);
+
+    /* v1.21.25 - Windows 8 key-entry page (AdmXP's mod): while a key is being
+     * typed the whole list is replaced by this page. It appears and
+     * disappears instantly - the only animation anywhere is the pane enter
+     * (title + back arrow). The field reuses the existing child edit and the
+     * Next/Cancel pair the expanded rows already use. */
+    if (g_CharmsPwPage && g_CharmsPwPageRow >= 0 &&
+        g_CharmsPwPageRow < paintState.networkCount) {
+        const WifiNetworkItem& pgNw = paintState.networks[g_CharmsPwPageRow];
+        // The row left the "waiting for a key" state under us (a refresh or
+        // another surface connected it): close the page instead of painting
+        // a stale prompt for a network that no longer needs one.
+        if (pgNw.connState != CONN_STATE_IDLE) {
+            CharmsPwPageReset();
+        } else {
+            WCHAR pgName[64] = {0};
+            FormatDisplaySSID(pgNw, g_CharmsPwPageRow, pgName, ARRAYSIZE(pgName));
+            SelectObject(hdc, hFontBodyBold);
+            SetTextColor(hdc, colText);
+            // Name on the left, signal bars right-aligned at the pane margin.
+            int barsX = panelW - margin - CharmsSignalIconWidth() + ox;
+            RECT pgNameRect = { cxTitle, curY, barsX - ScaleDpi(10), curY + ScaleDpi(18) };
+            DrawTextW(hdc, pgName, -1, &pgNameRect,
+                      DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            DrawCharmsSignalIcon(hdc, barsX, curY, pgNw.signalQuality);
+            curY += ScaleDpi(CHARMS_PWPAGE_GAP_NAME_LABEL);
+
+            SelectObject(hdc, hFontBody);
+            SetTextColor(hdc, colText);
+            const wchar_t* pwLabel = LOC(STR_CHARMS_ENTER_KEY);
+            TextOutW(hdc, cxTitle, curY, pwLabel, lstrlenW(pwLabel));
+            curY += ScaleDpi(CHARMS_PW_LABEL_GAP);
+
+            int editH = ScaleDpi(CHARMS_PW_EDIT_H);
+            int editX = cxTitle;
+            // The field stops short of the pane margin by exactly the width
+            // of the reveal glyph, so the eye sits inside the Win8 key box.
+            const BOOL showReveal = g_hWndCharmsRevealBtn &&
+                                    IsWindow(g_hWndCharmsRevealBtn) &&
+                                    !IsHighContrastActive();
+            int revealW = showReveal ? ScaleDpi(CHARMS_PW_REVEAL_SIZE) + ScaleDpi(4) : 0;
+            int editW = panelW - margin + ox - editX - revealW;
+            int editY = curY;
+            if (g_hWndCharmsPwEdit) {
+                MoveWindow(g_hWndCharmsPwEdit, editX, editY, editW, editH, TRUE);
+                // A single-line edit top-aligns its text, so in a field
+                // this tall the caret rode high and got clipped. Give the
+                // edit an explicit, vertically centred formatting rect.
+                RECT rcFmt;
+                GetClientRect(g_hWndCharmsPwEdit, &rcFmt);
+                HDC hdcEdit = GetDC(g_hWndCharmsPwEdit);
+                int lineH = ScaleDpi(14);
+                if (hdcEdit) {
+                    HFONT editFont = (HFONT)SendMessageW(g_hWndCharmsPwEdit, WM_GETFONT, 0, 0);
+                    HGDIOBJ oldF = SelectObject(hdcEdit, editFont ? editFont : g_hFontNormal);
+                    TEXTMETRICW tm;
+                    if (GetTextMetricsW(hdcEdit, &tm)) lineH = tm.tmHeight;
+                    SelectObject(hdcEdit, oldF);
+                    ReleaseDC(g_hWndCharmsPwEdit, hdcEdit);
+                }
+                int padY = ((rcFmt.bottom - rcFmt.top) - lineH) / 2;
+                if (padY < 0) padY = 0;
+                rcFmt.top    += padY;
+                rcFmt.bottom -= padY;
+                rcFmt.left   += ScaleDpi(6);
+                rcFmt.right  -= ScaleDpi(6);
+                SendMessageW(g_hWndCharmsPwEdit, EM_SETRECTNP, 0, (LPARAM)&rcFmt);
+                ShowWindow(g_hWndCharmsPwEdit, SW_SHOW);
+                EnableWindow(g_hWndCharmsPwEdit, TRUE);
+            }
+            if (showReveal) {
+                int revealSz = ScaleDpi(CHARMS_PW_REVEAL_SIZE);
+                MoveWindow(g_hWndCharmsRevealBtn,
+                           editX + editW + ScaleDpi(2), editY + (editH - revealSz) / 2,
+                           revealSz, revealSz, TRUE);
+                ShowWindow(g_hWndCharmsRevealBtn, SW_SHOW);
+            }
+            curY = editY + editH + ScaleDpi(CHARMS_PWPAGE_GAP_EDIT_BTN);
+
+            // Next + Cancel right-aligned as a pair (Windows 8 key page).
+            int btnW = ScaleDpi(CHARMS_EXP_BTN_W), btnH = ScaleDpi(CHARMS_EXP_BTN_H);
+            int cancelX = panelW - margin - btnW + ox;
+            if (g_hWndCharmsCancelBtn) {
+                MoveWindow(g_hWndCharmsCancelBtn, cancelX, curY, btnW, btnH, TRUE);
+                ShowWindow(g_hWndCharmsCancelBtn, SW_SHOW);
+            }
+            if (g_hWndCharmsConnectBtn) {
+                SetWindowTextW(g_hWndCharmsConnectBtn, LOC(STR_CHARMS_NEXT));
+                MoveWindow(g_hWndCharmsConnectBtn, cancelX - btnW - ScaleDpi(8),
+                           curY, btnW, btnH, TRUE);
+                ShowWindow(g_hWndCharmsConnectBtn, SW_SHOW);
+            }
+            // The list is not drawn on this page: clear every list hit rect
+            // so clicks/hovers cannot reach stale rows or controls.
+            g_CharmsRowCount = 0;
+            SetRectEmpty(&g_rcCharmsAutoConnect);
+            SetRectEmpty(&g_rcCharmsWifiToggle);
+            SetRectEmpty(&g_rcCharmsAirplaneToggle);
+            SetRectEmpty(&g_rcCharmsLink);
+            SelectClipRgn(hdc, NULL);
+            return;
+        }
+    }
 
     // Link: the hover state is a full-width lighter band (like every other
     // hit target in the pane), not an underline. The rect is measured from
@@ -9859,8 +10143,8 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
     SetRect(&g_rcCharmsLink, ox, curY - linkPadY, panelW + ox, curY + linkSz.cy + linkPadY);
     curY += ScaleDpi(CHARMS_GAP_LINK_SECTION);
 
-    NetworkStateSnapshot paintState;
-    CaptureNetworkState(&paintState);
+    /* paintState was captured at the top of the frame (v1.21.25): the
+     * key-entry page and every section below see the same snapshot. */
     const CharmsSectionVisibility sections = GetCharmsSectionVisibility(paintState);
     // Still search the entire list for the legacy/uncertain-detection case.
     const int connectedRow = FindConnectedNetworkRow(paintState);
@@ -9881,7 +10165,9 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
         }
         {
             int tx = panelW - margin - ScaleDpi(CHARMS_TOGGLE_W) + ox, ty = curY;
-            DrawCharmsToggle(hdc, tx, ty, g_CharmsAirplaneOn);
+            /* v1.21.25: the toggle lights up on hover (AdmXP's mod), same
+             * family as the row/link/checkbox hover veils. */
+            DrawCharmsToggle(hdc, tx, ty, g_CharmsAirplaneOn, g_CharmsHoverAirplaneToggle);
             SetRect(&g_rcCharmsAirplaneToggle, tx, ty, tx + ScaleDpi(CHARMS_TOGGLE_W), ty + ScaleDpi(CHARMS_TOGGLE_H));
         }
         curY += ScaleDpi(CHARMS_GAP_ROW_SECTION);
@@ -9933,10 +10219,10 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
             DrawTextW(hdc, displayName, -1, &nameRect,
                       DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
             SelectObject(hdc, hFontConnected);
-            SetTextColor(hdc, CharmsConnectedTextColor());
+            SetTextColor(hdc, colConn);
             TextOutW(hdc, textX, curY + ScaleDpi(18), LOC(STR_CONNECTED_TEXT),
                      lstrlenW(LOC(STR_CONNECTED_TEXT)));
-            SetTextColor(hdc, RGB(255,255,255));
+            SetTextColor(hdc, colText);
             curY += ScaleDpi(CHARMS_ROW_CONNECTED_H);
         } else {
             /* v1.21.18: nothing to show is a state, not an empty area. Windows 8
@@ -9970,7 +10256,8 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
         }
         {
             int tx = panelW - margin - ScaleDpi(CHARMS_TOGGLE_W) + ox, ty = curY;
-            DrawCharmsToggle(hdc, tx, ty, g_CharmsWifiRadioOn);
+            /* v1.21.25: hover, same as the airplane toggle above. */
+            DrawCharmsToggle(hdc, tx, ty, g_CharmsWifiRadioOn, g_CharmsHoverWifiToggle);
             SetRect(&g_rcCharmsWifiToggle, tx, ty, tx + ScaleDpi(CHARMS_TOGGLE_W), ty + ScaleDpi(CHARMS_TOGGLE_H));
         }
         curY += ScaleDpi(CHARMS_GAP_TOGGLE_LIST);
@@ -10003,12 +10290,11 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
             // Height of the whole expanded block, so the highlight band can
             // be painted in one piece behind it (Windows 8 highlights the
             // row AND its expanded content as a single selection).
+            // v1.21.25: the key field no longer lives here - secured
+            // networks open the dedicated key-entry page under the title,
+            // so every expanded row is the checkbox row plus the buttons.
             blockH = ScaleDpi(CHARMS_ROW_NETWORK_H);
-            if (needsPassword)
-                blockH += ScaleDpi(CHARMS_PW_LABEL_GAP)
-                        + ScaleDpi(CHARMS_PW_EDIT_H + CHARMS_PW_FIELD_GAP); // label + field
-            else
-                blockH += ScaleDpi(CHARMS_EXP_ROW_H);     // checkbox row
+            blockH += ScaleDpi(CHARMS_EXP_ROW_H);     // checkbox row
             blockH += ScaleDpi(CHARMS_EXP_BTN_H) + ScaleDpi(CHARMS_EXP_BOTTOM_PAD);
         }
 
@@ -10048,13 +10334,13 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
             // Keep room for the name even with an unusually long translation.
             const int statusW = (std::min)((int)connSz.cx, available / 2);
             RECT statusRect = { nameRight - statusW, curY, nameRight, curY + ScaleDpi(18) };
-            SetTextColor(hdc, CharmsConnectedTextColor());
+            SetTextColor(hdc, colConn);
             DrawTextW(hdc, connText, -1, &statusRect,
                       DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
             nameRight = statusRect.left - ScaleDpi(10);
         }
         SelectObject(hdc, isConnected ? hFontLight : hFontBody);
-        SetTextColor(hdc, RGB(255,255,255));
+        SetTextColor(hdc, colText);
         RECT nameRect = { cx, curY, (std::max)(cx, nameRight), curY + ScaleDpi(18) };
         DrawTextW(hdc, displayName, -1, &nameRect,
                   DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
@@ -10067,74 +10353,38 @@ static void DrawCharmsStyleFlyout(HWND hwnd, HDC hdc, int panelW, int panelH) {
         if (isExpanded) {
             g_CharmsExpandedConnected = isConnected;
 
-            if (needsPassword) {
-                // A network whose key isn't saved shows the key field only.
-                // "Connect automatically" belongs to already-saved networks,
-                // and including it here is what made this panel so tall.
-                SelectObject(hdc, hFontBody);
-                const wchar_t* pwLabel = LOC(STR_CHARMS_ENTER_KEY);
-                TextOutW(hdc, cx, curY, pwLabel, lstrlenW(pwLabel));
-                curY += ScaleDpi(CHARMS_PW_LABEL_GAP);
+            /* v1.21.25: "Connect automatically" is offered for every
+             * expanded network (AdmXP's mod). For unsaved secured networks
+             * the Connect button opens the Windows 8 key-entry page under
+             * the title instead of connecting right away - the key field
+             * moved there, so the row is checkbox + buttons for all cases.
+             * Custom drawn rather than a child control, so it can sit on
+             * the color-keyed layered pane without a theme fighting the
+             * Metro look. */
+            if (g_hWndCharmsPwEdit) ShowWindow(g_hWndCharmsPwEdit, SW_HIDE);
 
-                int editH = ScaleDpi(CHARMS_PW_EDIT_H);
-                int editW = panelW - margin * 2;
-                if (g_hWndCharmsPwEdit) {
-                    MoveWindow(g_hWndCharmsPwEdit, cx, curY, editW, editH, TRUE);
-                    // A single-line edit top-aligns its text, so in a field
-                    // this tall the caret rode high and got clipped. Give the
-                    // edit an explicit, vertically centred formatting rect.
-                    RECT rcFmt;
-                    GetClientRect(g_hWndCharmsPwEdit, &rcFmt);
-                    HDC hdcEdit = GetDC(g_hWndCharmsPwEdit);
-                    int lineH = ScaleDpi(14);
-                    if (hdcEdit) {
-                        HFONT editFont = (HFONT)SendMessageW(g_hWndCharmsPwEdit, WM_GETFONT, 0, 0);
-                        HGDIOBJ oldF = SelectObject(hdcEdit, editFont ? editFont : g_hFontNormal);
-                        TEXTMETRICW tm;
-                        if (GetTextMetricsW(hdcEdit, &tm)) lineH = tm.tmHeight;
-                        SelectObject(hdcEdit, oldF);
-                        ReleaseDC(g_hWndCharmsPwEdit, hdcEdit);
-                    }
-                    int padY = ((rcFmt.bottom - rcFmt.top) - lineH) / 2;
-                    if (padY < 0) padY = 0;
-                    rcFmt.top    += padY;
-                    rcFmt.bottom -= padY;
-                    rcFmt.left   += ScaleDpi(6);
-                    rcFmt.right  -= ScaleDpi(6);
-                    SendMessageW(g_hWndCharmsPwEdit, EM_SETRECTNP, 0, (LPARAM)&rcFmt);
-                    ShowWindow(g_hWndCharmsPwEdit, SW_SHOW);
-                    EnableWindow(g_hWndCharmsPwEdit, TRUE);
-                }
-                curY += editH + ScaleDpi(CHARMS_PW_FIELD_GAP);
-            } else {
-                if (g_hWndCharmsPwEdit) ShowWindow(g_hWndCharmsPwEdit, SW_HIDE);
-
-                // "Connect automatically" - custom drawn rather than a child
-                // control, so it can sit on the color-keyed layered pane
-                // without a theme fighting the Metro look.
-                /* v1.21.24 - hover: la riga si accende come le altre righe del
-                 * pannello quando il mouse ci passa sopra (stato tenuto da
-                 * WM_MOUSEMOVE). Prima non c'era alcun riscontro. */
-                if (g_CharmsAutoConnectHover) {
-                    RECT rcChkHi = { cx - ScaleDpi(2), curY - ScaleDpi(2),
-                                     panelW - margin + ox, curY + ScaleDpi(20) };
-                    if (rcChkHi.right > panelW) rcChkHi.right = panelW;
-                    if (rcChkHi.left  < 0)      rcChkHi.left  = 0;
-                    CharmsFillHover(hdc, &rcChkHi, 14);
-                }
-                int chkX = cx + ScaleDpi(6);
-                int chkY = curY + ScaleDpi(2);
-                DrawCharmsCheckbox(hdc, chkX, chkY, g_CharmsAutoConnect);
-                SelectObject(hdc, hFontBody);
-                SetTextColor(hdc, RGB(255,255,255));
-                const wchar_t* chkText = LOC(STR_CHK_CONNECT_AUTO);
-                SIZE chkSz;
-                GetTextExtentPoint32W(hdc, chkText, lstrlenW(chkText), &chkSz);
-                TextOutW(hdc, chkX + ScaleDpi(24), curY, chkText, lstrlenW(chkText));
-                SetRect(&g_rcCharmsAutoConnect, chkX, chkY,
-                        chkX + ScaleDpi(24) + chkSz.cx, chkY + ScaleDpi(18));
-                curY += ScaleDpi(CHARMS_EXP_ROW_H);
+            /* v1.21.24 - hover: la riga si accende come le altre righe del
+             * pannello quando il mouse ci passa sopra (stato tenuto da
+             * WM_MOUSEMOVE). Prima non c'era alcun riscontro. */
+            if (g_CharmsAutoConnectHover) {
+                RECT rcChkHi = { cx - ScaleDpi(2), curY - ScaleDpi(2),
+                                 panelW - margin + ox, curY + ScaleDpi(20) };
+                if (rcChkHi.right > panelW) rcChkHi.right = panelW;
+                if (rcChkHi.left  < 0)      rcChkHi.left  = 0;
+                CharmsFillHover(hdc, &rcChkHi, 14);
             }
+            int chkX = cx + ScaleDpi(6);
+            int chkY = curY + ScaleDpi(2);
+            DrawCharmsCheckbox(hdc, chkX, chkY, g_CharmsAutoConnect);
+            SelectObject(hdc, hFontBody);
+            SetTextColor(hdc, colText);
+            const wchar_t* chkText = LOC(STR_CHK_CONNECT_AUTO);
+            SIZE chkSz;
+            GetTextExtentPoint32W(hdc, chkText, lstrlenW(chkText), &chkSz);
+            TextOutW(hdc, chkX + ScaleDpi(24), curY, chkText, lstrlenW(chkText));
+            SetRect(&g_rcCharmsAutoConnect, chkX, chkY,
+                    chkX + ScaleDpi(24) + chkSz.cx, chkY + ScaleDpi(18));
+            curY += ScaleDpi(CHARMS_EXP_ROW_H);
 
             // Buttons right-aligned at the pane margin, as in Windows 8.
             // Cancel is only offered while a key is being typed - for a
@@ -10253,10 +10503,10 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
         SendMessageW(g_hWndCheckboxConnect, WM_SETFONT, (WPARAM)g_hFontCheckbox, TRUE);
         SendMessageW(g_hWndCheckboxConnect, BM_SETCHECK, BST_CHECKED, 0);
 
-        // TEST ONLY: inline password entry for the Charms-style layout -
-        // a real child edit control positioned under the clicked row by
-        // DrawCharmsStyleFlyout(), instead of AskForPasswordAndConnect's
-        // separate popup dialog.
+        // v1.21.25: the key field of the Windows 8 key-entry page (see
+        // DrawCharmsStyleFlyout) - a real child edit positioned on the page
+        // under the title, instead of AskForPasswordAndConnect's separate
+        // popup dialog.
         // No WS_EX_CLIENTEDGE: Windows 8's Charms pane used a flat white
         // field, not a 3D sunken one. The white fill itself comes from the
         // WM_CTLCOLOREDIT handler below.
@@ -10280,7 +10530,17 @@ LRESULT CALLBACK FlyoutWndProcInner(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             WS_CHILD | BS_OWNERDRAW,
             0,0,0,0, hwnd, (HMENU)IDC_CHARMS_CANCEL_BUTTON, GetModuleHandle(NULL), NULL);
         SendMessageW(g_hWndCharmsCancelBtn, WM_SETFONT, (WPARAM)g_hFontButton, TRUE);
-        
+
+        // v1.21.25: show/hide key glyph of the key-entry page. A real
+        // owner-drawn child (like Connect/Cancel) so it composites ABOVE
+        // the white field; the WM_DRAWITEM branch paints the MDL2 View /
+        // Hide glyph flat on the field colour.
+        g_hWndCharmsRevealBtn = CreateWindowExW(0, WC_BUTTONW, L"",
+            WS_CHILD | BS_OWNERDRAW,
+            0,0,0,0, hwnd, (HMENU)IDC_CHARMS_REVEAL_BUTTON, GetModuleHandle(NULL), NULL);
+        SendMessageW(g_hWndCharmsRevealBtn, WM_SETFONT,
+                     (WPARAM)(g_hFontCharmsReveal ? g_hFontCharmsReveal : g_hFontButton), TRUE);
+
         ApplyNativeControlsTheme();
         RecalcArrowRect();
         InterlockedIncrement(&g_Ctx.refCount);
@@ -11146,6 +11406,55 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             break;
         }
 
+        // v1.21.25 - key-entry page show/hide glyph: a flat MDL2 View /
+        // Hide eye on the field colour (it sits INSIDE the white field, so
+        // the fill matches the edit, not the pane). The MDL2 face keeps it
+        // crisp; without it a plain circle is drawn so the control is never
+        // an invisible blank.
+        if (pdis->CtlID == IDC_CHARMS_REVEAL_BUTTON) {
+            HDC  hdcBtn = pdis->hDC;
+            RECT rc = pdis->rcItem;
+            int  w = rc.right - rc.left, h = rc.bottom - rc.top;
+            if (w <= 0 || h <= 0) break;
+            /* v1.21.25: same shield as the other charms paint paths - a
+             * fault here is a lost frame on one glyph, never a crash. */
+            W7T_SEH_TRY {
+            BOOL isPressed  = (pdis->itemState & ODS_SELECTED) != 0;
+            BOOL isDisabled = (pdis->itemState & ODS_DISABLED) != 0;
+            BOOL isHover    = g_CharmsRevealHover && !isPressed && !isDisabled;
+
+            // The field is ALWAYS white in both themes (see the
+            // WM_CTLCOLOREDIT handler), so the fill and the glyph follow the
+            // field, not g_Settings.theme.
+            HBRUSH hBrBg = CreateSolidBrush(RGB(255, 255, 255));
+            FillRect(hdcBtn, &rc, hBrBg);
+            DeleteObject(hBrBg);
+
+            const COLORREF glyph = isDisabled        ? RGB(190, 190, 190)
+                                    : (isPressed || isHover) ? RGB(0, 0, 0)
+                                                             : RGB(70, 70, 70);
+            if (!TryDrawCharmsGlyph(hdcBtn, g_hFontCharmsReveal,
+                                     g_CharmsPwReveal ? 0xE7B0 : 0xE7B3, rc, glyph)) {
+                HPEN hPen = CreatePen(PS_SOLID, ScaleDpi(1), glyph);
+                HGDIOBJ oldPen = SelectObject(hdcBtn, hPen);
+                HGDIOBJ oldBr  = SelectObject(hdcBtn, GetStockObject(NULL_BRUSH));
+                RECT eye = rc;
+                eye.left += ScaleDpi(3);  eye.right -= ScaleDpi(3);
+                eye.top  += ScaleDpi(4);  eye.bottom -= ScaleDpi(4);
+                if (eye.right > eye.left && eye.bottom > eye.top)
+                    Ellipse(hdcBtn, eye.left, eye.top, eye.right, eye.bottom);
+                SelectObject(hdcBtn, oldBr);
+                SelectObject(hdcBtn, oldPen);
+                DeleteObject(hPen);
+            }
+            }
+            W7T_SEH_CATCH {
+                w7t::LogTagged(L"NET8", L"WM_DRAWITEM reveal: eccezione ignorata");
+            }
+            W7T_SEH_END
+            break;
+        }
+
         if (pdis->CtlID != IDC_CONN_BUTTON) break;
         if (g_Settings.theme != 1 && !IsHighContrastActive()) break;
         BOOL isPressed  = (pdis->itemState & ODS_SELECTED) != 0;
@@ -11343,9 +11652,18 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             BOOL wasLink = g_IsHoveringLink;
             int  wasRow  = g_CharmsHoveredRow;
             BOOL wasChkHover = g_CharmsAutoConnectHover;
+            /* v1.21.25: hover dei nuovi target (freccia indietro, toggle,
+             * reveal) tracciato qui come gli altri. */
+            BOOL wasBackArrow = g_CharmsHoverBackArrow;
+            BOOL wasAirHover  = g_CharmsHoverAirplaneToggle;
+            BOOL wasWifHover  = g_CharmsHoverWifiToggle;
+            BOOL wasRevealHover = g_CharmsRevealHover;
             g_IsHoveringLink = PtInRect(&g_rcCharmsLink, pt) != 0;
-            BOOL overToggle = PtInRect(&g_rcCharmsAirplaneToggle, pt) ||
-                              PtInRect(&g_rcCharmsWifiToggle, pt) ||
+            g_CharmsHoverBackArrow = PtInRect(&g_rcCharmsBackArrow, pt) != 0;
+            g_CharmsHoverAirplaneToggle = PtInRect(&g_rcCharmsAirplaneToggle, pt) != 0;
+            g_CharmsHoverWifiToggle     = PtInRect(&g_rcCharmsWifiToggle, pt) != 0;
+            BOOL overToggle = g_CharmsHoverAirplaneToggle ||
+                              g_CharmsHoverWifiToggle ||
                               PtInRect(&g_rcCharmsAutoConnect, pt);
             int newRow = -1;
             for (int i = 0; i < g_CharmsRowCount; i++) {
@@ -11364,16 +11682,23 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
             BOOL wasBtnHover = g_CharmsConnectHover;
             BOOL wasCancelHover = g_CharmsCancelHover;
             g_CharmsConnectHover = hoverOf(g_hWndCharmsConnectBtn);
-            g_CharmsCancelHover  = hoverOf(g_hWndCharmsCancelBtn);
+            g_CharmsCancelHover = hoverOf(g_hWndCharmsCancelBtn);
+            g_CharmsRevealHover = hoverOf(g_hWndCharmsRevealBtn);
             if (wasBtnHover != g_CharmsConnectHover)
                 InvalidateRect(g_hWndCharmsConnectBtn, NULL, FALSE);
             if (wasCancelHover != g_CharmsCancelHover)
                 InvalidateRect(g_hWndCharmsCancelBtn, NULL, FALSE);
+            if (wasRevealHover != g_CharmsRevealHover)
+                InvalidateRect(g_hWndCharmsRevealBtn, NULL, FALSE);
             SetCursor(LoadCursor(NULL, (g_IsHoveringLink || overToggle || newRow != -1 ||
                                         g_CharmsConnectHover ||
-                                        g_CharmsCancelHover) ? IDC_HAND : IDC_ARROW));
+                                        g_CharmsCancelHover ||
+                                        g_CharmsHoverBackArrow) ? IDC_HAND : IDC_ARROW));
             if (wasLink != g_IsHoveringLink || wasRow != g_CharmsHoveredRow ||
-                wasChkHover != g_CharmsAutoConnectHover) {
+                wasChkHover != g_CharmsAutoConnectHover ||
+                wasBackArrow != g_CharmsHoverBackArrow ||
+                wasAirHover != g_CharmsHoverAirplaneToggle ||
+                wasWifHover != g_CharmsHoverWifiToggle) {
                 InvalidateRect(hwnd, NULL, FALSE);
                 TRACKMOUSEEVENT tme = {sizeof(TRACKMOUSEEVENT),TME_LEAVE,hwnd,0};
                 TrackMouseEvent(&tme);
@@ -11431,6 +11756,15 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
         g_HoveredRowIndex = -1;
         g_CharmsHoveredRow = -1;
         g_CharmsAutoConnectHover = FALSE;   /* v1.21.24 */
+        /* v1.21.25: i nuovi target di hover tornano allo stato di riposo. */
+        g_CharmsHoverBackArrow = FALSE;
+        g_CharmsHoverAirplaneToggle = FALSE;
+        g_CharmsHoverWifiToggle = FALSE;
+        if (g_CharmsRevealHover) {
+            g_CharmsRevealHover = FALSE;
+            if (g_hWndCharmsRevealBtn && IsWindow(g_hWndCharmsRevealBtn))
+                InvalidateRect(g_hWndCharmsRevealBtn, NULL, FALSE);
+        }
         if (g_CharmsConnectHover) {
             g_CharmsConnectHover = FALSE;
             if (g_hWndCharmsConnectBtn && IsWindow(g_hWndCharmsConnectBtn))
@@ -11460,6 +11794,17 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
              * mouse. Le `break` interne escono dal case come prima (il frame
              * SEH lo stacca il pop RAII). */
             W7T_SEH_TRY {
+            /* v1.21.25: the circled back arrow left of "Networks" closes the
+             * key-entry page (or the expanded row, if no page is open). */
+            if (PtInRect(&g_rcCharmsBackArrow, pt)) {
+                if (g_CharmsPwPage) {
+                    CharmsPwPageReset();
+                } else {
+                    g_CharmsExpandedRow = -1;
+                }
+                InvalidateRect(hwnd, NULL, TRUE);
+                break;
+            }
             if (PtInRect(&g_rcCharmsLink, pt)) {
                 /* v1.21.17: launch and slide-out both guarded: a failure here
                  * must not take the taskbar down. */
@@ -11622,31 +11967,102 @@ TextOutW(hdc, ScaleDpi(11), wifiLabelY, LOC(STR_WIFI_HEADER), lstrlenW(LOC(STR_W
     }
     case WM_COMMAND: {
         int wid = LOWORD(wParam);
+        /* v1.21.25: the charms buttons drive pane state, the shell and the
+         * child windows: same SEH shield as the mouse paths, so a fault
+         * here drops one click instead of taking the process down. The
+         * C++ catch in FlyoutWndProc stays outside, as everywhere else. */
+        W7T_SEH_TRY {
+        if (wid == IDC_CHARMS_REVEAL_BUTTON) {
+            // Toggle show/hide of the typed key on the key-entry page.
+            g_CharmsPwReveal = !g_CharmsPwReveal;
+            if (g_hWndCharmsPwEdit && IsWindow(g_hWndCharmsPwEdit))
+                SendMessageW(g_hWndCharmsPwEdit, EM_SETPASSWORDCHAR,
+                             (WPARAM)(g_CharmsPwReveal ? 0 : L'\x25CF'), 0);
+            if (g_hWndCharmsRevealBtn && IsWindow(g_hWndCharmsRevealBtn))
+                InvalidateRect(g_hWndCharmsRevealBtn, NULL, FALSE);
+            break;
+        }
         if (wid == IDC_CHARMS_CANCEL_BUTTON) {
+            if (g_CharmsPwPage) {
+                // "Cancel" on the key page: back to the list, the row stays
+                // expanded (AdmXP's mod).
+                CharmsPwPageReset();
+                InvalidateRect(hwnd, NULL, TRUE);
+                break;
+            }
             g_CharmsExpandedRow = -1;
             if (g_hWndCharmsPwEdit) SetWindowTextW(g_hWndCharmsPwEdit, L"");
             InvalidateRect(hwnd, NULL, TRUE);
             break;
         }
-        if (wid == IDC_CHARMS_CONNECT_BUTTON && g_CharmsExpandedRow != -1) {
-            if (g_CharmsExpandedConnected) {
-                SafeDisconnectFromNetwork(g_CharmsExpandedRow);
-            } else {
-                // AskForPasswordAndConnect captures auto-connect from the
-                // Win7 checkbox control, so mirror the charms checkbox into
-                // it rather than duplicating the profile-building path.
-                if (g_hWndCheckboxConnect && IsWindow(g_hWndCheckboxConnect))
-                    SendMessageW(g_hWndCheckboxConnect, BM_SETCHECK,
-                                 g_CharmsAutoConnect ? BST_CHECKED : BST_UNCHECKED, 0);
-                WCHAR pwBuf[65] = {0};
-                if (g_hWndCharmsPwEdit) GetWindowTextW(g_hWndCharmsPwEdit, pwBuf, ARRAYSIZE(pwBuf));
-                SafeConnectToNetwork(g_CharmsExpandedRow, pwBuf[0] ? pwBuf : NULL);
-                SecureZeroMemory(pwBuf, sizeof(pwBuf));
+        if (wid == IDC_CHARMS_CONNECT_BUTTON) {
+            if (g_CharmsPwPage) {
+                // "Next" on the key page: connect with the typed key.
+                if (g_CharmsPwPageRow >= 0) {
+                    // AskForPasswordAndConnect captures auto-connect from
+                    // the Win7 checkbox control: mirror the charms checkbox
+                    // into it, same as the row-level Connect.
+                    if (g_hWndCheckboxConnect && IsWindow(g_hWndCheckboxConnect))
+                        SendMessageW(g_hWndCheckboxConnect, BM_SETCHECK,
+                                     g_CharmsAutoConnect ? BST_CHECKED : BST_UNCHECKED, 0);
+                    WCHAR pwBuf[65] = {0};
+                    if (g_hWndCharmsPwEdit) GetWindowTextW(g_hWndCharmsPwEdit, pwBuf, ARRAYSIZE(pwBuf));
+                    SafeConnectToNetwork(g_CharmsPwPageRow, pwBuf[0] ? pwBuf : NULL);
+                    SecureZeroMemory(pwBuf, sizeof(pwBuf));
+                }
+                CharmsPwPageReset();
+                g_CharmsExpandedRow = -1;
+                InvalidateRect(hwnd, NULL, TRUE);
+                break;
             }
-            g_CharmsExpandedRow = -1;
+            if (g_CharmsExpandedRow != -1) {
+                if (g_CharmsExpandedConnected) {
+                    SafeDisconnectFromNetwork(g_CharmsExpandedRow);
+                    g_CharmsExpandedRow = -1;
+                } else {
+                    // AskForPasswordAndConnect captures auto-connect from the
+                    // Win7 checkbox control, so mirror the charms checkbox into
+                    // it rather than duplicating the profile-building path.
+                    if (g_hWndCheckboxConnect && IsWindow(g_hWndCheckboxConnect))
+                        SendMessageW(g_hWndCheckboxConnect, BM_SETCHECK,
+                                     g_CharmsAutoConnect ? BST_CHECKED : BST_UNCHECKED, 0);
+                    // v1.21.25: a secured network whose key isn't saved opens
+                    // the Windows 8 key-entry page instead of connecting right
+                    // away (AdmXP's mod). Saved/open networks connect now.
+                    NetworkStateSnapshot cmdState;
+                    CaptureNetworkState(&cmdState);
+                    const BOOL openKeyPage =
+                        (g_CharmsExpandedRow < cmdState.networkCount)
+                        && cmdState.networks[g_CharmsExpandedRow].isSecured
+                        && !cmdState.networks[g_CharmsExpandedRow].hasProfile
+                        && cmdState.networks[g_CharmsExpandedRow].connState != CONN_STATE_CONNECTED;
+                    if (openKeyPage) {
+                        // The row stays expanded: the page overlays it, and
+                        // closing the page (back arrow / Cancel) returns to
+                        // the same expanded row.
+                        g_CharmsPwPage = TRUE;
+                        g_CharmsPwPageRow = g_CharmsExpandedRow;
+                        g_CharmsPwReveal = FALSE;
+                        if (g_hWndCharmsPwEdit) {
+                            SetWindowTextW(g_hWndCharmsPwEdit, L"");
+                            SendMessageW(g_hWndCharmsPwEdit, EM_SETPASSWORDCHAR, (WPARAM)L'\x25CF', 0);
+                            ShowWindow(g_hWndCharmsPwEdit, SW_SHOW);
+                            SetFocus(g_hWndCharmsPwEdit);
+                        }
+                    } else {
+                        SafeConnectToNetwork(g_CharmsExpandedRow);
+                        g_CharmsExpandedRow = -1;
+                    }
+                }
+            }
             InvalidateRect(hwnd, NULL, TRUE);
             break;
         }
+        }
+        W7T_SEH_CATCH {
+            w7t::LogTagged(L"NET8", L"WM_COMMAND (pulsanti charms): eccezione ignorata");
+        }
+        W7T_SEH_END
         if (wid == IDC_CONN_BUTTON && g_SelectedRowIndex != -1) {
             SafeConnectToNetwork(g_SelectedRowIndex);
             break;
