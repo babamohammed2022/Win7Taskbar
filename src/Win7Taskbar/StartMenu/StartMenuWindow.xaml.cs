@@ -1172,9 +1172,10 @@ namespace Win7Taskbar.StartMenu
 
         /// <summary>
         /// Search: left+right are one rectangle. Inner column divider is
-        /// dropped; outer pane and chrome frames are redrawn as a single
-        /// inset. All Programs and every other section restore the normal
-        /// two-column LeftPane (column 0, margin 8,8,2,0).
+        /// dropped; SearchHost draws the united inset. LeftPane stays in
+        /// column 0 so its 458px white frame does not wrap Arresta.
+        /// All Programs / normal restore two-column chrome.
+        /// Frame 411×476 is unchanged.
         /// </summary>
         private void ApplySearchUnionChrome(bool searching)
         {
@@ -1187,33 +1188,35 @@ namespace Win7Taskbar.StartMenu
                 Chrome.BorderBrush = chromeOuter;
                 ChromeInner.BorderThickness = new Thickness(1);
                 ChromeInner.BorderBrush = chromeInner;
+                /* LeftPane never spans the Arresta column: a 458px
+                 * full-width border ran past the scrollbar and cut the
+                 * bottom-right corner. */
+                Grid.SetColumnSpan(LeftPane, 1);
+                LeftPane.Margin = new Thickness(8, 8, 2, 0);
+                LeftPane.BorderThickness = new Thickness(1);
+                LeftPane.BorderBrush = pane;
+                LeftPane.CornerRadius = new CornerRadius(2);
                 if (searching)
                 {
-                    /* United pane: the RIGHT edge is the same recipe as
-                     * the LEFT — 8px glass inset, 1px #90A0B4C8, radius 2.
-                     * SearchHost sits 1px inside that border so the line
-                     * is not doubled. Frame 411x476 is unchanged. */
-                    Grid.SetColumnSpan(LeftPane, 2);
-                    LeftPane.Margin = new Thickness(8, 8, 8, 0);
-                    LeftPane.BorderThickness = new Thickness(1);
-                    LeftPane.BorderBrush = pane;
-                    LeftPane.CornerRadius = new CornerRadius(2);
-                    SearchHost.Margin = new Thickness(9, 9, 9, 0);
-                    SearchHost.BorderThickness = new Thickness(0);
+                    /* Same 8px glass + 1px #90A0B4C8 as the left.
+                     * Top 8 + height 416 = 424, which is the Arresta
+                     * row, so the scrollbar foot meets that strip
+                     * without a leftover pixel. No bottom border
+                     * (it used to sit on Arresta). */
+                    SearchHost.Margin = new Thickness(8, 8, 8, 0);
+                    SearchHost.BorderThickness = new Thickness(1, 1, 1, 0);
                     SearchHost.BorderBrush = pane;
                     SearchHost.CornerRadius = new CornerRadius(2, 2, 0, 0);
+                    SearchHost.SnapsToDevicePixels = true;
+                    SearchHost.ClipToBounds = true;
                 }
                 else
                 {
-                    Grid.SetColumnSpan(LeftPane, 1);
-                    LeftPane.Margin = new Thickness(8, 8, 2, 0);
-                    LeftPane.BorderThickness = new Thickness(1);
-                    LeftPane.BorderBrush = pane;
-                    LeftPane.CornerRadius = new CornerRadius(2);
                     SearchHost.Margin = new Thickness(8, 8, 0, 0);
                     SearchHost.BorderThickness = new Thickness(1, 1, 1, 0);
                     SearchHost.BorderBrush = pane;
                     SearchHost.CornerRadius = new CornerRadius(2, 2, 0, 0);
+                    SearchHost.ClipToBounds = false;
                 }
             }
             catch (Exception)
