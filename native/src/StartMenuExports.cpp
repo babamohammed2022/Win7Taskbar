@@ -148,6 +148,36 @@ struct UniqueHandle {
     UniqueHandle& operator=(const UniqueHandle&) = delete;
 };
 
+/* RAII per i PIDL assoluti restituiti da SHParseDisplayName (memoria COM,
+ * rilascio con CoTaskMemFree come da documentazione della libreria shell). */
+struct UniquePidl {
+    PIDLIST_ABSOLUTE p = nullptr;
+    ~UniquePidl() {
+        if (p != nullptr) {
+            CoTaskMemFree(p);
+        }
+    }
+    UniquePidl(const UniquePidl&) = delete;
+    UniquePidl& operator=(const UniquePidl&) = delete;
+};
+
+/* CoInit per il chiamante (il menu ci arriva da un thread P/Invoke su cui
+ * nulla e' garantito). CoUninitialize solo se QUESTO punto l'ha
+ * inizializzata. */
+struct UniqueComInit {
+    bool owned = false;
+    UniqueComInit() noexcept {
+        owned = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
+    }
+    ~UniqueComInit() {
+        if (owned) {
+            CoUninitialize();
+        }
+    }
+    UniqueComInit(const UniqueComInit&) = delete;
+    UniqueComInit& operator=(const UniqueComInit&) = delete;
+};
+
 bool HasJumpListFor(const wchar_t* path) {
     if (path == nullptr || path[0] == L'\0') {
         return false;
@@ -683,33 +713,6 @@ bool ExtractAppUserModelId(const wchar_t* path, std::wstring& out) {
  * server locale, quindi la macchina deve essere inizializzata sul thread
  * chiamante (il menu ci arriva da un thread P/Invoke su cui nulla e'
  * garantito). CoUninitialize solo se QUESTO punto l'ha inizializzata. */
-/* RAII per i PIDL assoluti restituiti da SHParseDisplayName (memoria COM,
- * rilascio con CoTaskMemFree come da documentazione della libreria shell). */
-struct UniquePidl {
-    PIDLIST_ABSOLUTE p = nullptr;
-    ~UniquePidl() {
-        if (p != nullptr) {
-            CoTaskMemFree(p);
-        }
-    }
-    UniquePidl(const UniquePidl&) = delete;
-    UniquePidl& operator=(const UniquePidl&) = delete;
-};
-
-struct UniqueComInit {
-    bool owned = false;
-    UniqueComInit() noexcept {
-        owned = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
-    }
-    ~UniqueComInit() {
-        if (owned) {
-            CoUninitialize();
-        }
-    }
-    UniqueComInit(const UniqueComInit&) = delete;
-    UniqueComInit& operator=(const UniqueComInit&) = delete;
-};
-
 bool LaunchUwpApp(const std::wstring& appUserModelId) {
     if (appUserModelId.empty()) {
         return false;

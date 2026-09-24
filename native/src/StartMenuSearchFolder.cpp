@@ -46,6 +46,7 @@
 #include <structuredquerycondition.h>
 
 #include <atomic>
+#include <new>
 #include <cwchar>
 #include <cwctype>
 #include <set>
@@ -54,6 +55,7 @@
 
 namespace {
 
+template <typename T>
 template <typename T>
 class UniqueCom {
 public:
