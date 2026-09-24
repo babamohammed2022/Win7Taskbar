@@ -94,7 +94,7 @@ Additional information and attribution details are available in the `docs` folde
 ## Note
 
 This software is not endorsed by, affiliated with, or sponsored by Microsoft Corporation.
-Windows and related trademarks are the property of Microsoft Corporation.
+Windows, the Windows logo and the Windows 7 visual design are trademarks and/or copyrighted works of Microsoft Corporation.
 
 ## Registry keys
 

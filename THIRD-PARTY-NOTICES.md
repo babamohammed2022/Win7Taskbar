@@ -76,3 +76,7 @@ integration used the `w7tb` namespace and was renamed/adapted to this
 project's `w7t` conventions; the snippet's vtable-offset map and its
 references to undocumented COM interfaces were deliberately not carried
 over (see the deviations section of the notes).
+
+## Trademarks
+
+Windows, the Windows logo and the Windows 7 visual design are trademarks and/or copyrighted works of Microsoft Corporation.
