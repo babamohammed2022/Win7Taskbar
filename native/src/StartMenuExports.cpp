@@ -97,6 +97,7 @@ struct UniqueCoStr {
 
 struct UniqueHandle {
     HANDLE h = nullptr;
+    UniqueHandle() = default;
     ~UniqueHandle() {
         if (h != nullptr && h != INVALID_HANDLE_VALUE) {
             CloseHandle(h);
