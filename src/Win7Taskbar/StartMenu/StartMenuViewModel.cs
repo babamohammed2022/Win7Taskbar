@@ -983,7 +983,11 @@ namespace Win7Taskbar.StartMenu
 
             string common = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-           paths.Add(Path.Combine(common, "user.bmp"));
+                @"Microsoft\User Account Pictures");
+            paths.Add(Path.Combine(common, Environment.UserName + ".png"));
+            paths.Add(Path.Combine(common, Environment.UserName + ".bmp"));
+            paths.Add(Path.Combine(common, "user.png"));
+            paths.Add(Path.Combine(common, "user.bmp"));
 
             string roaming = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -1661,13 +1665,6 @@ namespace Win7Taskbar.StartMenu
             => StartMenuIcons.FromParsingName(probe, 50);
 
         private static ImageSource? IconFromDll(string dll, int index)
-            => StartMenuIcons.FromDll(dll, index, 50);
-
-        private void OnPropertyChanged([CallerMemberName] string? name = null)
-            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-    }
-}
-e? IconFromDll(string dll, int index)
             => StartMenuIcons.FromDll(dll, index, 50);
 
         private void OnPropertyChanged([CallerMemberName] string? name = null)
