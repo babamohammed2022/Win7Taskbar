@@ -34,6 +34,7 @@ namespace Win7Taskbar.StartMenu
         private static Thread? _winKeyWaiter;
         private static Process? _helper;
         private static int _started;
+        private static int _scanReady;
         private static readonly object AnchorLock = new();
         private static Rect _taskbarRect;
         private static Rect _orbRect;
@@ -75,6 +76,38 @@ namespace Win7Taskbar.StartMenu
             }
             _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
 
+            try
+            {
+                var scanner = new Thread(() =>
+                {
+                    try { bridge.StartMenuScan(); } catch (Exception) { }
+                    Interlocked.Exchange(ref _scanReady, 1);
+                    try
+                    {
+                        Dispatcher? d = _dispatcher;
+                        StartMenuWindow? w = _window;
+                        if (d != null && w != null)
+                        {
+                            d.BeginInvoke(new Action(() =>
+                            {
+                                try { w.LoadCachedCatalog(); } catch (Exception) { }
+                            }));
+                        }
+                    }
+                    catch (Exception)
+                    {
+                    }
+                })
+                {
+                    IsBackground = true,
+                    Name = "Win7Taskbar.StartMenuScan"
+                };
+                scanner.Start();
+            }
+            catch (Exception)
+            {
+            }
+
             var ready = new ManualResetEventSlim(false);
             _thread = new Thread(() =>
             {
@@ -114,18 +147,13 @@ namespace Win7Taskbar.StartMenu
                     _winKeyWaiter.Start();
 
                     StartHelperProcess();
-                    /* Do not block App.OnStartup on the program scan
-                     * (Resolve of every .lnk). Pins/recents still paint;
-                     * All Programs fills in on the menu STA. */
                     ready.Set();
                     try
                     {
-                        _dispatcher.BeginInvoke(DispatcherPriority.Background,
-                            new Action(() =>
-                            {
-                                try { _window?.PrepareCatalog(); }
-                                catch (Exception) { }
-                            }));
+                        if (Volatile.Read(ref _scanReady) != 0)
+                        {
+                            _window?.LoadCachedCatalog();
+                        }
                     }
                     catch (Exception)
                     {

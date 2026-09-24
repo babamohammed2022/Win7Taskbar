@@ -10,6 +10,7 @@
 // low-res hover fade the user reported.
 
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -34,12 +35,41 @@ namespace Win7Taskbar.StartMenu
         private const uint IldTransparent = 0x00000001;
         private static readonly Guid IidIImageList =
             new("46EB5926-582E-4017-9FDF-E8998DAA0950");
+        private static readonly object CacheLock = new();
+        private static readonly Dictionary<string, ImageSource?> Cache =
+            new(StringComparer.OrdinalIgnoreCase);
 
         public static ImageSource? FromPath(string? path, string? target, int size)
         {
             try
             {
                 size = size <= 0 ? 32 : size;
+                string key = size.ToString() + "\n" + (path ?? string.Empty)
+                    + "\n" + (target ?? string.Empty);
+                lock (CacheLock)
+                {
+                    if (Cache.TryGetValue(key, out ImageSource? hit))
+                    {
+                        return hit;
+                    }
+                }
+                ImageSource? made = ExtractFromPath(path, target, size);
+                lock (CacheLock)
+                {
+                    Cache[key] = made;
+                }
+                return made;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static ImageSource? ExtractFromPath(string? path, string? target, int size)
+        {
+            try
+            {
                 string probe = !string.IsNullOrEmpty(target) ? target : (path ?? string.Empty);
                 ImageSource? src = FromShellImageList(probe, size);
                 if (src != null)

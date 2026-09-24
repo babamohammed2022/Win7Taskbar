@@ -174,9 +174,14 @@ namespace Win7Taskbar.StartMenu
 
         public void RefreshCatalog()
         {
+            try { _bridge.StartMenuScan(); } catch (Exception) { }
+            PullCatalog();
+        }
+
+        public void PullCatalog()
+        {
             try
             {
-                _bridge.StartMenuScan();
                 _catalog.Clear();
                 _catalog.AddRange(_bridge.StartMenuGetEntries());
             }
@@ -184,7 +189,32 @@ namespace Win7Taskbar.StartMenu
             {
                 _catalog.Clear();
             }
-            RebuildLeft();
+            try { RebuildLeft(); } catch (Exception) { }
+            if (IsSearching)
+            {
+                try { RunSearch(); } catch (Exception) { }
+            }
+        }
+
+        public void WarmIcons()
+        {
+            try
+            {
+                foreach (NativeMethods.W7TStartMenuEntry e in _catalog)
+                {
+                    try
+                    {
+                        StartMenuIcons.FromPath(e.Path, e.Target, 16);
+                        StartMenuIcons.FromPath(e.Path, e.Target, 48);
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
         }
 
         public void ShowDefaultList()

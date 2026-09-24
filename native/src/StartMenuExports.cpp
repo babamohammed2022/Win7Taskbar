@@ -57,31 +57,81 @@ void CopyW(wchar_t* dest, std::size_t cap, const std::wstring& src) {
     dest[n] = L'\0';
 }
 
+template <typename T>
+class UniqueCom {
+public:
+    UniqueCom() noexcept = default;
+    explicit UniqueCom(T* p) noexcept : p_(p) {}
+    ~UniqueCom() { reset(); }
+    UniqueCom(const UniqueCom&) = delete;
+    UniqueCom& operator=(const UniqueCom&) = delete;
+    void reset(T* p = nullptr) noexcept {
+        if (p_) {
+            p_->Release();
+        }
+        p_ = p;
+    }
+    T** put() noexcept {
+        reset();
+        return &p_;
+    }
+    T* get() const noexcept { return p_; }
+    T* operator->() const { return p_; }
+    explicit operator bool() const noexcept { return p_ != nullptr; }
+
+private:
+    T* p_ = nullptr;
+};
+
+struct UniqueCoStr {
+    PWSTR p = nullptr;
+    ~UniqueCoStr() {
+        if (p) {
+            CoTaskMemFree(p);
+        }
+    }
+    UniqueCoStr(const UniqueCoStr&) = delete;
+    UniqueCoStr& operator=(const UniqueCoStr&) = delete;
+};
+
+struct UniqueHandle {
+    HANDLE h = nullptr;
+    ~UniqueHandle() {
+        if (h != nullptr && h != INVALID_HANDLE_VALUE) {
+            CloseHandle(h);
+        }
+    }
+    UniqueHandle(const UniqueHandle&) = delete;
+    UniqueHandle& operator=(const UniqueHandle&) = delete;
+};
+
 bool HasJumpListFor(const wchar_t* path) {
     if (path == nullptr || path[0] == L'\0') {
         return false;
     }
-    IApplicationDocumentLists* lists = nullptr;
-    HRESULT hr = CoCreateInstance(CLSID_ApplicationDocumentLists, nullptr,
-                                  CLSCTX_INPROC_SERVER,
-                                  IID_IApplicationDocumentLists,
-                                  reinterpret_cast<void**>(&lists));
-    if (FAILED(hr) || lists == nullptr) {
+    try {
+        UniqueCom<IApplicationDocumentLists> lists;
+        HRESULT hr = CoCreateInstance(CLSID_ApplicationDocumentLists, nullptr,
+                                      CLSCTX_INPROC_SERVER,
+                                      IID_IApplicationDocumentLists,
+                                      reinterpret_cast<void**>(lists.put()));
+        if (FAILED(hr) || !lists) {
+            return false;
+        }
+        hr = lists->SetAppID(path);
+        UniqueCom<IObjectArray> recent;
+        if (SUCCEEDED(hr)) {
+            hr = lists->GetList(ADLT_RECENT, 1, IID_IObjectArray,
+                                reinterpret_cast<void**>(recent.put()));
+        }
+        UINT count = 0;
+        if (SUCCEEDED(hr) && recent) {
+            recent->GetCount(&count);
+        }
+        return count > 0;
+    } catch (...) {
         return false;
     }
-    hr = lists->SetAppID(path);
-    IObjectArray* recent = nullptr;
-    if (SUCCEEDED(hr)) {
-        hr = lists->GetList(ADLT_RECENT, 1, IID_IObjectArray,
-                            reinterpret_cast<void**>(&recent));
-    }
-    UINT count = 0;
-    if (SUCCEEDED(hr) && recent) {
-        recent->GetCount(&count);
-        recent->Release();
-    }
-    lists->Release();
-    return count > 0;
 }
 
 std::wstring PercentEncodeUtf8(const std::wstring& s) {
@@ -130,45 +180,46 @@ void FileSearchWorker(std::wstring query, uint32_t generation) {
     /* Documented Windows Search via the search-ms: shell namespace
      * (SHCreateItemFromParsingName). Only keep hits with a live
      * filesystem path. Cancellation is the generation counter. */
+    W7T_SEH_TRY {
     try {
         const std::wstring uri =
             L"search-ms:query=" + PercentEncodeUtf8(query) + L"&crumb=kind:file";
-        IShellItem* folder = nullptr;
+        UniqueCom<IShellItem> folder;
         HRESULT hr = SHCreateItemFromParsingName(uri.c_str(), nullptr,
                                                  IID_IShellItem,
-                                                 reinterpret_cast<void**>(&folder));
+                                                 reinterpret_cast<void**>(folder.put()));
         if (SUCCEEDED(hr) && folder) {
-            IEnumShellItems* enumerator = nullptr;
+            UniqueCom<IEnumShellItems> enumerator;
             hr = folder->BindToHandler(nullptr, BHID_EnumItems, IID_IEnumShellItems,
-                                       reinterpret_cast<void**>(&enumerator));
-            folder->Release();
+                                       reinterpret_cast<void**>(enumerator.put()));
+            folder.reset();
             if (SUCCEEDED(hr) && enumerator) {
-                IShellItem* item = nullptr;
+                IShellItem* raw = nullptr;
                 while (hits.size() < 32 &&
-                       enumerator->Next(1, &item, nullptr) == S_OK && item) {
+                       enumerator->Next(1, &raw, nullptr) == S_OK && raw) {
+                    UniqueCom<IShellItem> item(raw);
+                    raw = nullptr;
                     if (g_fileSearchGeneration.load(std::memory_order_acquire) !=
                         generation) {
-                        item->Release();
                         break;
                     }
-                    PWSTR path = nullptr;
-                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) &&
-                        path) {
-                        if (path[0] != L'\0' &&
-                            GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES) {
-                            hits.emplace_back(path);
+                    UniqueCoStr path;
+                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path.p)) &&
+                        path.p) {
+                        if (path.p[0] != L'\0' &&
+                            GetFileAttributesW(path.p) != INVALID_FILE_ATTRIBUTES) {
+                            hits.emplace_back(path.p);
                         }
-                        CoTaskMemFree(path);
                     }
-                    item->Release();
-                    item = nullptr;
                 }
-                enumerator->Release();
             }
         }
     } catch (...) {
         hits.clear();
     }
+    } W7T_SEH_CATCH {
+        hits.clear();
+    } W7T_SEH_END
 
     if (needUninit) {
         CoUninitialize();
@@ -274,25 +325,28 @@ extern "C" W7T_API int32_t W7T_CALL W7T_StartMenuPower(int32_t action) {
 namespace {
 
 bool ShellExec(const wchar_t* file, const wchar_t* parameters, DWORD extraMask) {
-    SHELLEXECUTEINFOW info{};
-    info.cbSize = sizeof(info);
-    info.fMask = SEE_MASK_FLAG_DDEWAIT | SEE_MASK_NOASYNC | extraMask;
-    info.lpVerb = nullptr;
-    info.lpFile = file;
-    info.lpParameters = parameters;
-    info.nShow = SW_SHOWNORMAL;
-    if (ShellExecuteExW(&info)) {
-        if (info.hProcess != nullptr) {
-            CloseHandle(info.hProcess);
+    try {
+        SHELLEXECUTEINFOW info{};
+        info.cbSize = sizeof(info);
+        info.fMask = SEE_MASK_FLAG_DDEWAIT | SEE_MASK_NOASYNC | extraMask;
+        info.lpVerb = nullptr;
+        info.lpFile = file;
+        info.lpParameters = parameters;
+        info.nShow = SW_SHOWNORMAL;
+        if (ShellExecuteExW(&info)) {
+            UniqueHandle proc;
+            proc.h = info.hProcess;
+            info.hProcess = nullptr;
+            return true;
         }
-        return true;
-    }
-    info.lpVerb = L"open";
-    if (ShellExecuteExW(&info)) {
-        if (info.hProcess != nullptr) {
-            CloseHandle(info.hProcess);
+        info.lpVerb = L"open";
+        if (ShellExecuteExW(&info)) {
+            UniqueHandle proc;
+            proc.h = info.hProcess;
+            info.hProcess = nullptr;
+            return true;
         }
-        return true;
+    } catch (...) {
     }
     return false;
 }

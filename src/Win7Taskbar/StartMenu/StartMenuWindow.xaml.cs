@@ -101,7 +101,22 @@ namespace Win7Taskbar.StartMenu
 
         internal void PrepareCatalog()
         {
-            _vm.RefreshCatalog();
+            try { _vm.RefreshCatalog(); } catch (Exception) { }
+        }
+
+        internal void LoadCachedCatalog()
+        {
+            try { _vm.PullCatalog(); } catch (Exception) { }
+            try
+            {
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                {
+                    try { _vm.WarmIcons(); } catch (Exception) { }
+                }));
+            }
+            catch (Exception)
+            {
+            }
         }
 
         internal void PresentAbove(Rect taskbarScreen, Rect orbScreen)
@@ -455,14 +470,14 @@ namespace Win7Taskbar.StartMenu
             {
                 if (NativeMethods.GetCursorPos(out NativeMethods.POINT cursor))
                 {
-                    _infotipX = cursor.x;
-                    _infotipY = cursor.y;
+                    _infotipX = cursor.x + 20;
+                    _infotipY = cursor.y + 28;
                 }
                 else
                 {
                     Point pt = host.PointToScreen(new Point(0, host.ActualHeight));
-                    _infotipX = (int)Math.Round(pt.X);
-                    _infotipY = (int)Math.Round(pt.Y);
+                    _infotipX = (int)Math.Round(pt.X) + 20;
+                    _infotipY = (int)Math.Round(pt.Y) + 8;
                 }
                 _infotipOwner = new WindowInteropHelper(this).Handle;
                 _infotipTitle = item.Name;
@@ -1174,19 +1189,19 @@ namespace Win7Taskbar.StartMenu
                 ChromeInner.BorderBrush = chromeInner;
                 if (searching)
                 {
-                    /* White fills to the chrome inner right. No 8px glass
-                     * strip and no LeftPane right/bottom line that stopped
-                     * short of the frame. Window 431x511 / frame 411x476
-                     * stay put. */
+                    /* United pane: the RIGHT edge is the same recipe as
+                     * the LEFT — 8px glass inset, 1px #90A0B4C8, radius 2.
+                     * SearchHost sits 1px inside that border so the line
+                     * is not doubled. Frame 411x476 is unchanged. */
                     Grid.SetColumnSpan(LeftPane, 2);
-                    LeftPane.Margin = new Thickness(8, 8, 0, 0);
-                    LeftPane.BorderThickness = new Thickness(1, 1, 0, 0);
+                    LeftPane.Margin = new Thickness(8, 8, 8, 0);
+                    LeftPane.BorderThickness = new Thickness(1);
                     LeftPane.BorderBrush = pane;
-                    LeftPane.CornerRadius = new CornerRadius(2, 0, 0, 0);
-                    SearchHost.Margin = new Thickness(8, 8, 0, 0);
+                    LeftPane.CornerRadius = new CornerRadius(2);
+                    SearchHost.Margin = new Thickness(9, 9, 9, 0);
                     SearchHost.BorderThickness = new Thickness(0);
                     SearchHost.BorderBrush = pane;
-                    SearchHost.CornerRadius = new CornerRadius(2, 0, 0, 0);
+                    SearchHost.CornerRadius = new CornerRadius(2, 2, 0, 0);
                 }
                 else
                 {
