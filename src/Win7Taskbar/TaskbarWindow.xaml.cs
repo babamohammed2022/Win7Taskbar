@@ -364,14 +364,54 @@ namespace Win7Taskbar
                 UpdateOverflowState();
 
                 OverflowPopup.Placement = PlacementMode.Custom;
+                /* v3.9: il pannello WPF di riserva (usato se la finestra
+                 * nativa non si crea) apre dal lato leggibile: barra in
+                 * basso -> sopra la freccetta (comportamento storico),
+                 * barra IN ALTO -> SOTTO, barre verticali -> di fianco.
+                 * Prima puntava sempre in alto e con la barra in alto
+                 * finiva fuori schermo ("overflow ruotato/illeggibile"). */
                 OverflowPopup.CustomPopupPlacementCallback =
                     (System.Windows.Size size, System.Windows.Size target, System.Windows.Point offset) =>
-                        new[]
+                    {
+                        int pos = 0;
+                        try { pos = RetroBar.Utilities.Settings.Instance.TaskbarPosition; }
+                        catch (Exception) { pos = 0; }
+                        switch (pos)
                         {
-                            new CustomPopupPlacement(
-                                new Point((target.Width - size.Width) / 2, -size.Height - 1),
-                                PopupPrimaryAxis.Vertical)
-                        };
+                            case 1: /* Top: apri sotto la freccetta */
+                                return new[]
+                                {
+                                    new CustomPopupPlacement(
+                                        new Point((target.Width - size.Width) / 2,
+                                                  target.Height + 1),
+                                        PopupPrimaryAxis.Vertical)
+                                };
+                            case 2: /* Left: a destra della freccetta */
+                                return new[]
+                                {
+                                    new CustomPopupPlacement(
+                                        new Point(target.Width + 1,
+                                                  (target.Height - size.Height) / 2),
+                                        PopupPrimaryAxis.Horizontal)
+                                };
+                            case 3: /* Right: a sinistra della freccetta */
+                                return new[]
+                                {
+                                    new CustomPopupPlacement(
+                                        new Point(-size.Width - 1,
+                                                  (target.Height - size.Height) / 2),
+                                        PopupPrimaryAxis.Horizontal)
+                                };
+                            default: /* Bottom: sopra la freccetta (storico) */
+                                return new[]
+                                {
+                                    new CustomPopupPlacement(
+                                        new Point((target.Width - size.Width) / 2,
+                                                  -size.Height - 1),
+                                        PopupPrimaryAxis.Vertical)
+                                };
+                        }
+                    };
 
                 ReportShellRects();
                 // Unico aggancio per i cambi di forma/posizione: riporta le
@@ -649,17 +689,42 @@ namespace Win7Taskbar
 
             double natural = 0;
             int measured = 0;
+            double[] naturalWidths = new double[count];
             for (int i = 0; i < count; i++)
             {
                 if (TaskList.ItemContainerGenerator.ContainerFromIndex(i) is FrameworkElement container)
                 {
-                    natural += container.DesiredSize.Width;
+                    naturalWidths[i] = container.DesiredSize.Width;
+                    natural += naturalWidths[i];
                     measured++;
                 }
             }
 
             if (measured == count && natural <= available)
             {
+                /* v3.10: app con 3+ schede aperte — la parte con bordi si
+                 * allarga del 2% (2 o meno schede: nessuna differenza).
+                 * Modifica conservativa: solo quando TUTTO ci stava gia',
+                 * mai spingendo un gruppo oltre la misura che serve. */
+                bool bonus = false;
+                double scale0 = DevicePixelScale();
+                for (int i = 0; i < count; i++)
+                {
+                    if (groups[i].WindowCount >= 3 && naturalWidths[i] > 0)
+                    {
+                        double widened = Math.Ceiling(naturalWidths[i] * 1.02 * scale0) / scale0;
+                        if (widened > naturalWidths[i])
+                        {
+                            groups[i].ButtonWidth = widened;
+                            groups[i].ButtonMinWidth = widened;
+                            bonus = true;
+                        }
+                    }
+                }
+                if (bonus)
+                {
+                    TaskListScroller.UpdateLayout();
+                }
                 // C'e' posto: nessun vincolo, esattamente come prima della
                 // v2.60 (larghezza decisa dal contenuto fra minimo e
                 // imbottitura della cornice).
@@ -717,6 +782,23 @@ namespace Win7Taskbar
                     g.ButtonMinWidth = w;
                 }
                 applied = singleWidth;
+            }
+
+            /* v3.10: stesso bonus conservativo +2% per i gruppi con 3+
+             * finestre anche quando i pulsanti sono compattati: la cornice
+             * delle schede impilate conserva la sua aria extra. */
+            foreach (TaskGroup g in groups)
+            {
+                if (g.WindowCount < 3 || double.IsNaN(g.ButtonWidth))
+                {
+                    continue;
+                }
+                double widened = SnapDown(g.ButtonWidth * 1.02);
+                if (widened > g.ButtonWidth)
+                {
+                    g.ButtonWidth = widened;
+                    g.ButtonMinWidth = widened;
+                }
             }
 
             if (!_taskButtonCompactLogged ||

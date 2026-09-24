@@ -2429,6 +2429,21 @@
                                     Property="Source"
                                     Value="{DynamicResource OverflowTileHoverImage}" />
                         </Trigger>
+                        <!-- v3.9: taskbar on the TOP edge - the chevron points
+                             STRAIGHT DOWN (into the panel that opens downwards):
+                             exactly 180 degrees from its bottom-edge look (which
+                             points up), like the real Windows 7 overflow arrow. -->
+                        <DataTrigger Binding="{Binding Path=AppBarEdge, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                     Value="Top">
+                            <DataTrigger.Setters>
+                                <Setter TargetName="ChevronImg"
+                                        Property="LayoutTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="180" />
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger.Setters>
+                        </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

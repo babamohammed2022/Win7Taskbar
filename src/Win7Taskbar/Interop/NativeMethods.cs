@@ -536,6 +536,16 @@ namespace Win7Taskbar.Interop
         public static extern void W7T_StartMenuFileSearchCancel();
 
         /// <summary>
+        /// v3.10: high-quality shell icon (IShellItemImageFactory) for a
+        /// parsing name (file path, "shell:...", "::{CLSID}\...", AppsFolder):
+        /// 32bpp premultiplied BGRA, top-down, size x size. With pixels null
+        /// and pixelsBytes 0 returns the needed byte count; 0 = ok.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+        public static extern int W7T_ShellItemIconBitmap(string parsingName, int size,
+            byte[]? pixels, int pixelsBytes);
+
+        /// <summary>
         /// v1.21.7: publishes the extra settings. flyoutColorMode 0 = system
         /// colour, 1 = custom; flyoutColorRgb = 0x00RRGGBB;
         /// connectionPrivacyMode 0 = normal, 1 = privacy (presentation only,

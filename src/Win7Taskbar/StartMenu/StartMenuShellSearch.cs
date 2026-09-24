@@ -5,6 +5,7 @@
 // SHCreateItemFromParsingName, FileVersionInfo). Open-Shell inspired the
 // result classes (bSearchSettings / God Mode / Search the Internet as a
 // clickable provider row) — no Open-Shell source is copied.
+// v3.10: 24px icons, the Open-Shell (MIT) Win7 search row metric.
 
 using System;
 using System.Collections.Generic;
@@ -224,7 +225,7 @@ namespace Win7Taskbar.StartMenu
                 {
                     Name = name,
                     Path = cpl,
-                    Icon = StartMenuIcons.FromPath(cpl, cpl, 48)
+                    Icon = StartMenuIcons.FromPath(cpl, cpl, 24)
                 });
             }
         }
@@ -326,8 +327,8 @@ namespace Win7Taskbar.StartMenu
             {
                 Name = name,
                 Path = parse,
-                Icon = StartMenuIcons.FromParsingName(parse, 48)
-                    ?? StartMenuIcons.FromDll("imageres.dll", 22, 48)
+                Icon = StartMenuIcons.FromParsingName(parse, 24)
+                    ?? StartMenuIcons.FromDll("imageres.dll", 22, 24)
             });
         }
 

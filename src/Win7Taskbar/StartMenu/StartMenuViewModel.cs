@@ -253,9 +253,25 @@ namespace Win7Taskbar.StartMenu
             {
                 return;
             }
+            if (item.IsSectionHeader)
+            {
+                /* Open-Shell click on a section: collapse / expand. */
+                ToggleSearchSection(item);
+                return;
+            }
             if (item.IsAllPrograms)
             {
                 ToggleAllPrograms();
+                return;
+            }
+            if (string.Equals(item.Folder, "seemore", StringComparison.Ordinal))
+            {
+                /* "See more results": the full query in Explorer, exactly
+                 * like Open-Shell's LaunchExternalSearch on the category. */
+                if (!string.IsNullOrEmpty(item.Path))
+                {
+                    OpenShellUri(item.Path);
+                }
                 return;
             }
             if (item.IsFolder)
@@ -498,8 +514,16 @@ namespace Win7Taskbar.StartMenu
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var pinSet = new HashSet<string>(StartMenuStore.ReadPinnedShortcuts(),
                 StringComparer.OrdinalIgnoreCase);
+            /* v3.10: colonna sinistra misurata come il menu di Windows 7 -
+             * al massimo 5 programmi pinnati e 9 piu' frequenti: oltre, la
+             * lista supererebbe la cornice del menu. */
+            int shownPins = 0;
             foreach (string pinPath in pinSet)
             {
+                if (shownPins >= MaxPinnedShown)
+                {
+                    break;
+                }
                 StartMenuItem? item = FromExistingShortcut(pinPath);
                 if (item == null || !seen.Add(item.Path))
                 {
@@ -507,12 +531,18 @@ namespace Win7Taskbar.StartMenu
                 }
                 item.IsPinned = true;
                 LeftItems.Add(item);
+                shownPins++;
             }
 
             int pinCount = LeftItems.Count;
             bool addedRecent = false;
+            int shownRecent = 0;
             foreach (string recent in _store.Recent)
             {
+                if (shownRecent >= MaxRecentShown)
+                {
+                    break;
+                }
                 if (!StartMenuStore.LooksLikePath(recent) || !File.Exists(recent))
                 {
                     continue;
@@ -539,6 +569,7 @@ namespace Win7Taskbar.StartMenu
                     addedRecent = true;
                 }
                 LeftItems.Add(item);
+                shownRecent++;
             }
         }
 
@@ -558,7 +589,8 @@ namespace Win7Taskbar.StartMenu
             };
         }
 
-        private StartMenuItem FromEntry(NativeMethods.W7TStartMenuEntry e, int indent = 0)
+        private StartMenuItem FromEntry(NativeMethods.W7TStartMenuEntry e, int indent = 0,
+            int iconSize = 24)
         {
             string path = e.Path ?? string.Empty;
             string fallback = e.Name ?? string.Empty;
@@ -570,7 +602,7 @@ namespace Win7Taskbar.StartMenu
                 Folder = e.Folder ?? string.Empty,
                 IndentLevel = indent
             };
-            item.Icon = LoadIcon(item.Path, item.Target);
+            item.Icon = LoadIcon(item.Path, item.Target, iconSize);
             return item;
         }
 
@@ -647,7 +679,7 @@ namespace Win7Taskbar.StartMenu
                 {
                     continue;
                 }
-                StartMenuItem row = FromEntry(e, indent);
+                StartMenuItem row = FromEntry(e, indent, 16);
                 row.IsTreeRow = true;
                 row.Icon = StartMenuIcons.FromPath(row.Path, row.Target, 16);
                 LeftItems.Add(row);
@@ -717,46 +749,119 @@ namespace Win7Taskbar.StartMenu
                 ?? StartMenuIcons.FromDll("shell32.dll", 3, 16);
             return _folderIcon;
         }
+        /* ================= RICERCA A SEZIONI (v3.9) =================
+         *
+         * Riscritta partendo dal comportamento pubblico di Open-Shell
+         * (SearchManager: sezione Programmi, sezione Impostazioni, sezione
+         * File con intestazioni "Nome (N)", "Visualizza altri risultati" e
+         * "Cerca in Internet"; nessuna riga di codice copiata) e dalla
+         * foto di riferimento.
+         *
+         * Stato in cache: i tre elenchi sotto vengono (ri)emessi dalla
+         * ricerca (testo cambiato, poll del file search, catalogo settings
+         * pronto) e RebuildSearchView() ricompone la lista visibile
+         * applicando le SEZIONI collassabili. La ricerca file vera gira
+         * nel core nativo (cartelle note, token, prefisso per famiglia);
+         * qui contano solo i prefissi D/P/M/V/F gia' pronti.
+         */
+
+        private const int MaxProgramsShown = 8;
+        private const int MaxPerFileKindShown = 5;   /* anche Cartelle */
+        private const int MaxSettingsShown = 8;
+        private const int MaxPinnedShown = 5;   /* v3.10: 4-5 pinnate max */
+        private const int MaxRecentShown = 9;   /* v3.10: piu' frequenti   */
+
+        private sealed class FileSearchRow
+        {
+            public char Kind;
+            public string Path = string.Empty;
+        }
+
+        private readonly List<StartMenuItem> _programResults = new();
+        private readonly List<StartMenuItem> _settingResults = new();
+        private readonly List<FileSearchRow> _fileRows = new();
+        private bool _fileTruncated;
+        private int _filePollTicks;
+        /* v3.10: anti-race (stessa regola di Open-Shell / della specifica):
+         * una risposta della ricerca file vale solo per la query che l'ha
+         * avviata - se nel frattempo l'utente ha digitato altro, il poll
+         * vecchio viene ignorato e mai sovrascrive i risultati nuovi. */
+        private string _activeFileQuery = string.Empty;
+        private readonly HashSet<string> _collapsedSections =
+            new(StringComparer.Ordinal);
 
         private void RunSearch()
         {
             try
             {
-            SearchHits.Clear();
-            _filePoll.Stop();
-            _fileSearchActive = false;
-            if (!IsSearching)
-            {
-                _bridge.StartMenuFileSearchCancel();
-                return;
-            }
+                _filePoll.Stop();
+                _fileSearchActive = false;
 
-            int[] indices = _bridge.StartMenuQuery(_searchText, 64);
-            foreach (int index in indices)
-            {
-                if (index < 0 || index >= _catalog.Count)
+                if (!IsSearching)
                 {
-                    continue;
+                    try { _bridge.StartMenuFileSearchCancel(); }
+                    catch (Exception) { }
+                    _programResults.Clear();
+                    _settingResults.Clear();
+                    _fileRows.Clear();
+                    _fileTruncated = false;
+                    RebuildSearchView();
+                    return;
                 }
-                NativeMethods.W7TStartMenuEntry entry = _catalog[index];
-                if (string.IsNullOrWhiteSpace(entry.Path) &&
-                    string.IsNullOrWhiteSpace(entry.Target))
+
+                /* Programmi: indice del core (programmi classici + app UWP da
+                 * AppsFolder). Ogni voce apre anche le app UWP: il path e' un
+                 * nome di parsing ::{AppsFolder}\Pkg!App e il lancio passa da
+                 * IApplicationActivationManager nel core. */
+                _programResults.Clear();
+                try
                 {
-                    continue;
+                    foreach (int index in _bridge.StartMenuQuery(_searchText, 64))
+                    {
+                        if (index < 0 || index >= _catalog.Count)
+                        {
+                            continue;
+                        }
+                        NativeMethods.W7TStartMenuEntry entry = _catalog[index];
+                        if (string.IsNullOrWhiteSpace(entry.Path) &&
+                            string.IsNullOrWhiteSpace(entry.Target))
+                        {
+                            continue;
+                        }
+                        if (StartMenuLinkFilter.Hide(entry.Name, entry.Path,
+                                entry.Target))
+                        {
+                            continue;
+                        }
+                        _programResults.Add(FromEntry(entry));
+                    }
                 }
-                if (StartMenuLinkFilter.Hide(entry.Name, entry.Path, entry.Target))
+                catch (Exception)
                 {
-                    continue;
                 }
-                SearchHits.Add(FromEntry(entry));
-            }
-            _fileSearchActive = _bridge.StartMenuFileSearchStart(_searchText);
-            if (_fileSearchActive || !StartMenuShellSearch.IsReady)
-            {
-                _filePoll.Start();
-            }
-            AppendSettingsHits();
-            AppendInternetHit();
+
+                _fileRows.Clear();
+                _fileTruncated = false;
+
+                CollectSettingsHits();
+
+                /* Ricerca file nativa: le righe "K|path" arrivano dal poll. */
+                try
+                {
+                    _activeFileQuery = _searchText;
+                    _fileSearchActive = _bridge.StartMenuFileSearchStart(_searchText);
+                }
+                catch (Exception)
+                {
+                    _fileSearchActive = false;
+                }
+                if (_fileSearchActive || !StartMenuShellSearch.IsReady)
+                {
+                    _filePollTicks = 0;
+                    _filePoll.Start();
+                }
+
+                RebuildSearchView();
             }
             catch (Exception)
             {
@@ -767,64 +872,47 @@ namespace Win7Taskbar.StartMenu
         {
             try
             {
+                if (!IsSearching)
+                {
+                    _filePoll.Stop();
+                    return;
+                }
+                /* Anti-race: la query e' cambiata dopo l'avvio di questo
+                 * file-search ("calc" -> "calcu"): i suoi risultati sono
+                 * obsoleti, si ferma senza toccare le liste. */
+                if (!string.Equals(_activeFileQuery, _searchText, StringComparison.Ordinal))
+                {
+                    _fileSearchActive = false;
+                    _filePoll.Stop();
+                    return;
+                }
+                /* Guard: mai un poll infinito se il core muore col
+                 * risultato ancora marcato "non pronto" (bridge azzerato,
+                 * DLL corrotta). 100 tick x 120 ms = 12 s di kappa. */
+                if (++_filePollTicks > 100)
+                {
+                    _fileSearchActive = false;
+                    _filePoll.Stop();
+                }
                 string? joined = _fileSearchActive
                     ? _bridge.StartMenuFileSearchPoll()
                     : string.Empty;
                 if (joined == null)
                 {
-                    AppendSettingsHits();
-                    AppendInternetHit();
+                    /* Non pronto: le impostazioni potrebbero pero' essersi
+                     * caricate nel frattempo (primo avvio). */
+                    CollectSettingsHits();
+                    RebuildSearchView();
                     return;
                 }
                 if (_fileSearchActive)
                 {
                     _fileSearchActive = false;
-                    if (!string.IsNullOrEmpty(joined))
-                    {
-                        foreach (string line in joined.Split('\n'))
-                        {
-                            if (string.IsNullOrWhiteSpace(line))
-                            {
-                                continue;
-                            }
-                            string hit = line.Trim();
-                            if (hit.IndexOfAny(new[] { '\\', '/' }) < 0)
-                            {
-                                continue;
-                            }
-                            bool duplicate = false;
-                            foreach (StartMenuItem existing in SearchHits)
-                            {
-                                if (string.Equals(existing.Path, hit, StringComparison.OrdinalIgnoreCase) ||
-                                    string.Equals(existing.Target, hit, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    duplicate = true;
-                                    break;
-                                }
-                            }
-                            if (duplicate)
-                            {
-                                continue;
-                            }
-                            string fileName = StartMenuStore.ShellDisplayName(
-                                hit, Path.GetFileName(hit) ?? hit);
-                            if (StartMenuLinkFilter.Hide(fileName, hit, hit))
-                            {
-                                continue;
-                            }
-                            InsertBeforeInternet(new StartMenuItem
-                            {
-                                Name = fileName,
-                                Path = hit,
-                                Target = hit,
-                                Icon = LoadIcon(hit, hit)
-                            });
-                        }
-                    }
+                    MergeFileSearchLines(joined);
                 }
-                AppendSettingsHits();
-                AppendInternetHit();
-                if (StartMenuShellSearch.IsReady)
+                CollectSettingsHits();
+                RebuildSearchView();
+                if (!_fileSearchActive && StartMenuShellSearch.IsReady)
                 {
                     _filePoll.Stop();
                 }
@@ -835,58 +923,98 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        private void AppendSettingsHits()
+        private void MergeFileSearchLines(string joined)
         {
+            _fileRows.Clear();
+            _fileTruncated = false;
+            if (string.IsNullOrEmpty(joined))
+            {
+                return;
+            }
+            foreach (string raw in joined.Split('\n'))
+            {
+                string line = raw.Trim('\r', '\n', ' ');
+                if (line.Length == 0)
+                {
+                    continue;
+                }
+                if (line == "T")
+                {
+                    _fileTruncated = true;
+                    continue;
+                }
+                char kind = 'F';
+                string path = line;
+                if (line.Length > 2 && line[1] == '|')
+                {
+                    kind = line[0];
+                    path = line.Substring(2);
+                }
+                /* v3.10: 'R' = cartella (backend Windows Search + walker). */
+                if (kind != 'D' && kind != 'P' && kind != 'M' && kind != 'V' &&
+                    kind != 'R' && kind != 'F')
+                {
+                    kind = 'F';
+                }
+                if (path.IndexOf('\\') < 0 && path.IndexOf('/') < 0)
+                {
+                    continue;
+                }
+                if (_fileRows.Exists(r => string.Equals(r.Path, path,
+                        StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+                _fileRows.Add(new FileSearchRow { Kind = kind, Path = path });
+            }
+        }
+
+        private void CollectSettingsHits()
+        {
+            _settingResults.Clear();
+            if (!IsSearching || !StartMenuShellSearch.IsReady)
+            {
+                return;
+            }
             try
             {
-                if (!IsSearching)
-                {
-                    return;
-                }
-                if (!StartMenuShellSearch.IsReady)
-                {
-                    StartMenuShellSearch.BeginLoad();
-                    return;
-                }
+                /* Riga "Settings" dell'app: stessa regola storica (appare se
+                 * il nome localizzato contiene la query). */
                 string settingsName = T("lang_sm_settings", "Settings");
                 if (StartMenuShellSearch.SettingsAppExists() &&
-                    settingsName.IndexOf(_searchText, StringComparison.CurrentCultureIgnoreCase) >= 0)
+                    settingsName.IndexOf(_searchText,
+                        StringComparison.CurrentCultureIgnoreCase) >= 0)
                 {
-                    InsertBeforeInternet(new StartMenuItem
+                    _settingResults.Add(new StartMenuItem
                     {
                         Name = settingsName,
                         Path = "ms-settings:",
                         Folder = "settings",
-                        Icon = StartMenuIcons.FromDll("imageres.dll", 109, 48)
-                            ?? StartMenuIcons.FromDll("shell32.dll", 21, 48)
+                        Icon = StartMenuIcons.FromDll("imageres.dll", 109, 24)
+                            ?? StartMenuIcons.FromDll("shell32.dll", 21, 24)
                     });
                 }
-                foreach (ShellSearchHit hit in StartMenuShellSearch.Match(_searchText, 16))
+                foreach (ShellSearchHit hit in
+                    StartMenuShellSearch.Match(_searchText, 24))
                 {
                     if (string.IsNullOrEmpty(hit.Path))
                     {
                         continue;
                     }
-                    bool duplicate = false;
-                    foreach (StartMenuItem existing in SearchHits)
-                    {
-                        if (string.Equals(existing.Path, hit.Path, StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(existing.Name, hit.Name, StringComparison.CurrentCultureIgnoreCase))
-                        {
-                            duplicate = true;
-                            break;
-                        }
-                    }
+                    bool duplicate = _settingResults.Exists(p =>
+                        string.Equals(p.Name, hit.Name,
+                            StringComparison.CurrentCultureIgnoreCase));
                     if (duplicate)
                     {
                         continue;
                     }
-                    InsertBeforeInternet(new StartMenuItem
+                    _settingResults.Add(new StartMenuItem
                     {
                         Name = hit.Name,
                         Path = hit.Path,
                         Folder = "settings",
-                        Icon = hit.Icon ?? StartMenuIcons.FromDll("imageres.dll", 22, 48)
+                        Icon = hit.Icon
+                            ?? StartMenuIcons.FromDll("imageres.dll", 22, 24)
                     });
                 }
             }
@@ -895,29 +1023,155 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        private void AppendInternetHit()
+        /* Ricostruisce la lista SOLO dalle cache (nessuna query): sicura e
+         * usabile a ogni arrivo dati o collassa/espandi. */
+        private void RebuildSearchView()
         {
             try
             {
-                if (!IsSearching)
+            SearchHits.Clear();
+            if (!IsSearching)
+            {
+                return;
+            }
+
+            /* Ordine delle sezioni = ricerca Windows 7/Open-Shell:
+             * Programmi, Impostazioni, poi i file per famiglia. */
+            AppendSection("programs",
+                T("lang_sm_sec_programs", "Programs"),
+                _programResults, MaxProgramsShown);
+
+            AppendSection("settings",
+                T("lang_sm_settings", "Settings"),
+                _settingResults, MaxSettingsShown);
+
+            bool filesHidden = false;
+            filesHidden |= AppendFileSection("docs", 'D',
+                T("lang_sm_documents", "Documents"));
+            filesHidden |= AppendFileSection("pics", 'P',
+                T("lang_sm_pictures", "Pictures"));
+            filesHidden |= AppendFileSection("music", 'M',
+                T("lang_sm_music", "Music"));
+            filesHidden |= AppendFileSection("videos", 'V',
+                T("lang_sm_videos", "Videos"));
+            /* v3.10: sezione Cartelle (righe 'R' da entrambi i backend). */
+            filesHidden |= AppendFileSection("folders", 'R',
+                T("lang_sm_sec_folders", "Folders"));
+            filesHidden |= AppendFileSection("files", 'F',
+                T("lang_sm_sec_files", "Files"));
+
+            if (filesHidden || _fileTruncated)
+            {
+                SearchHits.Add(new StartMenuItem
                 {
-                    return;
-                }
-                foreach (StartMenuItem existing in SearchHits)
-                {
-                    if (string.Equals(existing.Folder, "internet", StringComparison.Ordinal))
-                    {
-                        return;
-                    }
-                }
+                    Name = T("lang_sm_see_more", "See more results"),
+                    Path = "search-ms:query=" + Uri.EscapeDataString(_searchText),
+                    Folder = "seemore",
+                    Icon = StartMenuIcons.FromDll("shell32.dll", 23, 24)
+                        ?? StartMenuIcons.FromDll("imageres.dll", 11, 24)
+                });
+            }
+
+            try
+            {
                 string url = StartMenuShellSearch.InternetSearchUrl(_searchText);
+                /* v3.10: icona del BROWSER predefinito (UserChoice http),
+                 * come il menu di Windows 7 che mostra il browser scelto. */
                 SearchHits.Add(new StartMenuItem
                 {
                     Name = T("lang_sm_search_internet", "Search the Internet"),
                     Path = url,
                     Folder = "internet",
-                    Icon = StartMenuIcons.FromDll("imageres.dll", 220, 48)
-                        ?? StartMenuIcons.FromDll("shell32.dll", 14, 48)
+                    Icon = StartMenuIcons.FromDefaultBrowser(24)
+                        ?? StartMenuIcons.FromDll("imageres.dll", 220, 24)
+                        ?? StartMenuIcons.FromDll("shell32.dll", 14, 24)
+                });
+            }
+            catch (Exception)
+            {
+            }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /* true quando una parte della sezione resta nascosta oltre il cap:
+         * per le sezioni file l'operatore attiva "Visualizza altri risultati". */
+        private bool AppendSection(string id, string label,
+            List<StartMenuItem> items, int maxShown)
+        {
+            if (items.Count == 0)
+            {
+                return false;
+            }
+            TryAddSectionHeader(id, label, items.Count);
+            if (_collapsedSections.Contains(id))
+            {
+                return false;
+            }
+            int shown = 0;
+            foreach (StartMenuItem item in items)
+            {
+                if (shown >= maxShown)
+                {
+                    break;
+                }
+                SearchHits.Add(item);
+                shown++;
+            }
+            return shown < items.Count;
+        }
+
+        private bool AppendFileSection(string id, char kind, string label)
+        {
+            var items = new List<StartMenuItem>();
+            foreach (FileSearchRow row in _fileRows)
+            {
+                if (row.Kind != kind)
+                {
+                    continue;
+                }
+                try
+                {
+                    string name = StartMenuStore.ShellDisplayName(
+                        row.Path, Path.GetFileName(row.Path) ?? row.Path);
+                    if (StartMenuLinkFilter.Hide(name, row.Path, row.Path))
+                    {
+                        continue;
+                    }
+                    items.Add(new StartMenuItem
+                    {
+                        Name = name,
+                        Path = row.Path,
+                        Target = row.Path,
+                        Folder = row.Kind == 'R' ? "folders" : "files",
+                        /* v3.10: icone 24 px (metrica Open-Shell Win7 skin),
+                         * dalla pipeline IShellItemImageFactory ad alta
+                         * qualita' con fallback classico: niente piu' righe
+                         * senza icona. */
+                        Icon = row.Kind == 'R'
+                            ? StartMenuIcons.FromPath(row.Path, row.Path, 24)
+                            : LoadIcon(row.Path, row.Path, 24)
+                    });
+                }
+                catch (Exception)
+                {
+                }
+            }
+            return AppendSection(id, label, items, MaxPerFileKindShown);
+        }
+
+        private void TryAddSectionHeader(string id, string label, int count)
+        {
+            try
+            {
+                SearchHits.Add(new StartMenuItem
+                {
+                    IsSectionHeader = true,
+                    SectionId = id,
+                    Name = label + " (" + count + ")",
+                    IsExpanded = !_collapsedSections.Contains(id)
                 });
             }
             catch (Exception)
@@ -925,24 +1179,22 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        private void InsertBeforeInternet(StartMenuItem item)
+        private void ToggleSearchSection(StartMenuItem header)
         {
+            if (header == null || string.IsNullOrEmpty(header.SectionId))
+            {
+                return;
+            }
             try
             {
-                for (int i = 0; i < SearchHits.Count; i++)
+                if (!_collapsedSections.Add(header.SectionId))
                 {
-                    if (string.Equals(SearchHits[i].Folder, "internet", StringComparison.Ordinal))
-                    {
-                        SearchHits.Insert(i, item);
-                        return;
-                    }
+                    _collapsedSections.Remove(header.SectionId);
                 }
-                SearchHits.Add(item);
+                RebuildSearchView();
             }
             catch (Exception)
             {
-                try { SearchHits.Add(item); }
-                catch (Exception) { }
             }
         }
 
@@ -1229,6 +1481,12 @@ namespace Win7Taskbar.StartMenu
             IntPtr owner)
         {
             if (item == null || item.IsSeparator)
+            {
+                return false;
+            }
+            /* v3.9: no menu on section headers / action rows of the search. */
+            if (item.IsSectionHeader ||
+                string.Equals(item.Folder, "seemore", StringComparison.Ordinal))
             {
                 return false;
             }
@@ -1691,8 +1949,29 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
+        /// <summary>
+        /// Search icons: shell-namespace paths (AppsFolder UWP entries are
+        /// "::{4234..}\Pkg!App", Control Panel items "::{26EE..}") resolve
+        /// through SHParseDisplayName, not the filesystem probe — otherwise
+        /// every UWP search hit showed the blank generic-file icon.
+        /// </summary>
         private static ImageSource? LoadIcon(string path, string target)
-            => StartMenuIcons.FromPath(path, target, 48);
+            => LoadIcon(path, target, 48);
+
+        private static ImageSource? LoadIcon(string path, string target, int size)
+        {
+            string probe = !string.IsNullOrEmpty(target) ? target : (path ?? string.Empty);
+            if (probe.StartsWith("::{", StringComparison.Ordinal) ||
+                probe.StartsWith("shell:", StringComparison.OrdinalIgnoreCase))
+            {
+                ImageSource? shell = StartMenuIcons.FromParsingName(probe, size);
+                if (shell != null)
+                {
+                    return shell;
+                }
+            }
+            return StartMenuIcons.FromPath(path, target, size);
+        }
 
         /* Photo-frame hover icons: jumbo shell extract + GDI+ bicubic to 50px. */
         private static ImageSource? IconFromParsingName(string? probe)

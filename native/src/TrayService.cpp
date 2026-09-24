@@ -4825,8 +4825,6 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
             }
         }
 
-        const int centreX = (anchor.left + anchor.right) / 2;
-
         /* v2.63 - CHI APRE IL RIQUADRO NON LO DECIDE PIU' QUESTO SWITCH.
          *
          * La scelta "Windows 7" / "Windows 10/11" delle Proprieta' arriva
@@ -4844,19 +4842,32 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
         const w7t::FlyoutRoute route = w7t::ChooseFlyoutRoute(routeKind);
 
         switch (syntheticKind) {
-            case SystemIconKind::Volume:
-                /* "Windows 7": il mixer classico (SndVol -f), ancorato sopra
-                 * l'icona: e' quello che Windows 7 mostrava al clic
-                 * sull'icona del volume. Se il lancio non riesce (SndVol
-                 * assente o rifiutato dal sistema) si usa il riquadro del
-                 * volume della shell: meglio del clic senza effetto. */
+            case SystemIconKind::Volume: {
+                /* "Windows 7": il mixer classico (SndVol -f), ancorato alla
+                 * icona: e' quello che Windows 7 mostrava al clic
+                 * sull'icona del volume.
+                 * v3.9: il rettangolo passa INTERO (non piu' centro+top):
+                 * con la barra IN ALTO il riquadro scende VERSO IL BASSO
+                 * sotto l'icona invece di uscire fuori schermo. Se il
+                 * lancio non riesce (SndVol assente o rifiutato dal
+                 * sistema) si usa il riquadro del volume della shell. */
                 if (route == w7t::FlyoutRoute::Classic) {
-                    if (W7T_LaunchClassicVolume(centreX, anchor.top) != 0) {
+                    if (w7t::LaunchClassicVolumeNear(anchor) != 0) {
                         return W7T_OK;
                     }
                     LogTagged(L"GATE", L"volume: SndVol non disponibile, uso il riquadro della shell");
                 }
-                return FlyoutLauncher::ShowVolumeFlyoutAt(anchor);
+                const int32_t immersive = FlyoutLauncher::ShowVolumeFlyoutAt(anchor);
+                /* v3.9: anche il riquadro moderno va agganciato dove sta
+                 * l'icona ADESSO: con la barra in alto la shell lo apre
+                 * in basso a destra (dove starebbe la sua taskbar); il
+                 * watcher del flyout lo riposiziona sotto/sopra l'icona
+                 * come per i clic inoltrati alla tray. */
+                if (immersive == W7T_OK) {
+                    StartFlyoutWatcher(TrayIconKey{ ownerHwnd, uid });
+                }
+                return immersive;
+            }
 
             case SystemIconKind::Network:
                 /* "Windows 7": il riquadro di rete ricreato, ma solo quando il

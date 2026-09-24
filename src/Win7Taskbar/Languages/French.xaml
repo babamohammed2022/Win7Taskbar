@@ -55,6 +55,11 @@
     <s:String x:Key="lang_icon_order_drag_hint">Relâchez pour changer l'ordre</s:String>
     <!-- Start Menu (1.3.9) -->
     <s:String x:Key="lang_sm_search">Rechercher les programmes et fichiers</s:String>
+    <!-- v3.9: search section headers / actions (Open-Shell style). -->
+    <s:String x:Key="lang_sm_sec_programs">Programmes</s:String>
+    <s:String x:Key="lang_sm_sec_files">Fichiers</s:String>
+    <s:String x:Key="lang_sm_sec_folders">Dossiers</s:String>
+    <s:String x:Key="lang_sm_see_more">Afficher plus de résultats</s:String>
     <s:String x:Key="lang_sm_all_programs">Tous les programmes</s:String>
     <s:String x:Key="lang_sm_back">Retour</s:String>
     <s:String x:Key="lang_sm_shutdown">Arrêter</s:String>

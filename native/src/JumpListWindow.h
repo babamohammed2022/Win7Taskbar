@@ -32,12 +32,16 @@
 //   - application identity is the AppUserModelID of the group's window,
 //     else the shell metadata of the pinned shortcut, else the default id
 //     Windows derives from the executable path (see appids.md, MSDN);
-//   - the Windows 7 Tasks section (Minimize/Maximize/Restore/Move/Size)
-//     appears only while the group has a live window and reuses the
-//     existing native window-command path (WindowManager::ExecuteCommand);
+//   - NO window-command rows (Minimize/Maximize/Restore/Move/Size):
+//     the Windows 7 jump list never had them; window commands live in
+//     the classic right-click system menu (ShellMenu), untouched here.
+//     The bottom sections are, exactly as the Windows 7 shell:
+//     [Recent|Frequent] - bar - app icon+name - bar - pin icon +
+//     "Pin/Unpin this program to the taskbar" - bar - X icon + close row
+//     (close exists only while the group has a live window);
 //   - Start_JumpListItems = 0 (HKCU\...\Explorer\StartMenu) disables the
 //     jump lists, as in Windows 7 (open fails with code -4);
-//   - the two standard rows (application link + "Pin/Unpin this program
+//   - the standard rows (application link + "Pin/Unpin this program
 //     to the taskbar") act on the group's own window/shortcut data.
 //
 // All geometry constants are 96-DPI reference values scaled by the DPI of
@@ -160,15 +164,13 @@ private:
      * released through the raii handle (move-only row storage). */
     struct Row {
         enum Kind {
-            DocRecent = 0, DocFrequent = 1, App = 2, Close = 3, Pin = 4,
-            Task = 5          /* window task; cmd = W7T_CMD_* value    */
+            DocRecent = 0, DocFrequent = 1, App = 2, Close = 3, Pin = 4
         };
         Kind kind = App;
         RECT rect = {};
         std::wstring label;
         std::wstring path;
         raii::IconHandle icon;   /* real file icon or null */
-        int32_t cmd = 0;         /* Task rows only (W7T_CMD_*) */
 
         Row() = default;
         Row(Row&&) noexcept = default;
@@ -202,7 +204,6 @@ private:
     void LaunchApp();
     void CloseRunningApplication();
     void PerformPinOrUnpin();
-    void ExecuteTask(int32_t cmd);
     std::wstring TooltipFor(const Row& row) const;
     void ShowRowTooltip(int row, POINT clientPt);
     void ClearRowTooltip();
