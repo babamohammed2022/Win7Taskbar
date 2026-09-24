@@ -103,8 +103,8 @@ bool NlsStartsWithCi(const wchar_t* text, const wchar_t* token) {
     if (text == nullptr || token == nullptr) {
         return false;
     }
-    const FINDNLSSTRING flags = FIND_STARTSWITH | LINGUISTIC_IGNORECASE |
-                                LINGUISTIC_IGNOREDIACRITIC;
+    const DWORD flags = FIND_STARTSWITH | LINGUISTIC_IGNORECASE |
+                        LINGUISTIC_IGNOREDIACRITIC;
     return FindNLSStringEx(LOCALE_NAME_USER_DEFAULT, flags, text, -1,
                            token, -1, nullptr, nullptr, nullptr, 0) >= 0;
 }
