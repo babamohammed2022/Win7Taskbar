@@ -21,6 +21,7 @@
 #include <windows.h>
 #include <shlobj.h>
 #include <shobjidl.h>
+#include <shellapi.h>
 #include <knownfolders.h>
 #include <objbase.h>
 
@@ -65,6 +66,19 @@ bool GetKnownFolder(REFKNOWNFOLDERID id, int csidl, std::wstring& out) {
 
 std::wstring FoldPath(const std::wstring& s) {
     return FoldAscii(s);
+}
+
+std::wstring ShellDisplayName(const std::wstring& path, const std::wstring& fallback) {
+    try {
+        SHFILEINFOW info{};
+        const DWORD_PTR ok = SHGetFileInfoW(path.c_str(), 0, &info, sizeof(info),
+                                            SHGFI_DISPLAYNAME);
+        if (ok != 0 && info.szDisplayName[0] != L'\0') {
+            return std::wstring(info.szDisplayName);
+        }
+    } catch (...) {
+    }
+    return fallback;
 }
 
 std::wstring ResolveShortcut(const std::wstring& lnk) {

@@ -14,7 +14,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
+using Win7Taskbar.Interop;
 
 namespace Win7Taskbar.StartMenu
 {
@@ -310,12 +312,18 @@ namespace Win7Taskbar.StartMenu
             {
                 return false;
             }
-            foreach (string lnk in ReadPinnedShortcuts())
+            try
             {
-                if (SamePin(lnk, path))
+                foreach (string lnk in ReadPinnedShortcuts())
                 {
-                    return true;
+                    if (SamePin(lnk, path))
+                    {
+                        return true;
+                    }
                 }
+            }
+            catch (Exception)
+            {
             }
             return false;
         }
@@ -339,15 +347,46 @@ namespace Win7Taskbar.StartMenu
                 {
                     return true;
                 }
-                string nameA = Path.GetFileNameWithoutExtension(a);
-                string nameB = Path.GetFileNameWithoutExtension(b);
-                return !string.IsNullOrEmpty(nameA) &&
-                       string.Equals(nameA, nameB, StringComparison.OrdinalIgnoreCase);
+                if (!string.IsNullOrEmpty(ta) && !string.IsNullOrEmpty(tb))
+                {
+                    string na = Path.GetFileNameWithoutExtension(ta);
+                    string nb = Path.GetFileNameWithoutExtension(tb);
+                    if (!string.IsNullOrEmpty(na) &&
+                        string.Equals(na, nb, StringComparison.OrdinalIgnoreCase) &&
+                        (File.Exists(ta) || File.Exists(tb)))
+                    {
+                        return true;
+                    }
+                }
             }
             catch (Exception)
             {
-                return false;
             }
+            return false;
+        }
+
+        public static string ShellDisplayName(string path, string fallback)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return fallback ?? string.Empty;
+            }
+            try
+            {
+                var info = new NativeMethods.SHFILEINFOW();
+                IntPtr r = NativeMethods.SHGetFileInfoW(
+                    path, 0, ref info,
+                    (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.SHFILEINFOW>(),
+                    NativeMethods.SHGFI_DISPLAYNAME);
+                if (r != IntPtr.Zero && !string.IsNullOrWhiteSpace(info.szDisplayName))
+                {
+                    return info.szDisplayName.Trim();
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return string.IsNullOrWhiteSpace(fallback) ? path : fallback;
         }
 
         public static string ResolveTarget(string path)

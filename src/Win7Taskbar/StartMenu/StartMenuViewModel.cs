@@ -441,7 +441,8 @@ namespace Win7Taskbar.StartMenu
                     continue;
                 }
                 item.IsRecent = true;
-                item.IsPinned = pinSet.Contains(item.Path);
+                item.IsPinned = StartMenuStore.IsStartMenuPinned(item.Path)
+                    || StartMenuStore.IsStartMenuPinned(item.Target);
                 if (!addedRecent)
                 {
                     if (pinCount > 0)
@@ -462,7 +463,8 @@ namespace Win7Taskbar.StartMenu
             }
             return new StartMenuItem
             {
-                Name = Path.GetFileNameWithoutExtension(path),
+                Name = StartMenuStore.ShellDisplayName(path,
+                    Path.GetFileNameWithoutExtension(path) ?? path),
                 Path = path,
                 Target = path,
                 Icon = LoadIcon(path, path)
@@ -471,10 +473,12 @@ namespace Win7Taskbar.StartMenu
 
         private StartMenuItem FromEntry(NativeMethods.W7TStartMenuEntry e, int indent = 0)
         {
+            string path = e.Path ?? string.Empty;
+            string fallback = e.Name ?? string.Empty;
             var item = new StartMenuItem
             {
-                Name = e.Name ?? string.Empty,
-                Path = e.Path ?? string.Empty,
+                Name = StartMenuStore.ShellDisplayName(path, fallback),
+                Path = path,
                 Target = e.Target ?? string.Empty,
                 Folder = e.Folder ?? string.Empty,
                 IndentLevel = indent
@@ -565,7 +569,7 @@ namespace Win7Taskbar.StartMenu
             string fs = ProgramsFolderPath(relative);
             return new StartMenuItem
             {
-                Name = name,
+                Name = StartMenuStore.ShellDisplayName(fs, name),
                 Folder = relative,
                 Path = fs,
                 Target = fs,
@@ -669,7 +673,7 @@ namespace Win7Taskbar.StartMenu
                 string hit = line.Trim();
                 SearchHits.Add(new StartMenuItem
                 {
-                    Name = Path.GetFileName(hit),
+                    Name = StartMenuStore.ShellDisplayName(hit, Path.GetFileName(hit) ?? hit),
                     Path = hit,
                     Icon = LoadIcon(hit, hit)
                 });
@@ -943,7 +947,10 @@ namespace Win7Taskbar.StartMenu
             string path = FirstExisting(item.Path, item.Target);
             string pinLabel = T("lang_sm_pin", "Pin to Start Menu (Win7Taskbar)");
             string unpinLabel = T("lang_sm_unpin", "Unpin from Start Menu (Win7Taskbar)");
-            bool pinned = item.IsPinned || StartMenuStore.IsStartMenuPinned(path);
+            bool pinned = item.IsPinned
+                || StartMenuStore.IsStartMenuPinned(path)
+                || StartMenuStore.IsStartMenuPinned(item.Path)
+                || StartMenuStore.IsStartMenuPinned(item.Target);
             if (!string.IsNullOrEmpty(path) &&
                 (File.Exists(path) || Directory.Exists(path)))
             {

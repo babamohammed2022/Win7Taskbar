@@ -5081,8 +5081,23 @@ namespace Win7Taskbar
                         "Pin this program to taskbar");
                 string launchText = L("lang_start_context",
                     L("lang_start_tip", "Start"));
-                string pinStart = L("lang_sm_pin",
-                    "Pin to Start Menu (Win7Taskbar)");
+                bool startPinned = false;
+                string pinPath = !string.IsNullOrEmpty(group.LaunchPath)
+                    ? group.LaunchPath : (group.ExePath ?? string.Empty);
+                try
+                {
+                    startPinned = StartMenu.StartMenuStore.IsStartMenuPinned(pinPath)
+                        || StartMenu.StartMenuStore.IsStartMenuPinned(group.ExePath ?? string.Empty)
+                        || StartMenu.StartMenuStore.IsStartMenuPinned(group.LaunchPath ?? string.Empty);
+                }
+                catch (Exception)
+                {
+                }
+                string pinStart = startPinned
+                    ? L("lang_sm_unpin",
+                        "Unpin from Start Menu (Win7Taskbar)")
+                    : L("lang_sm_pin",
+                        "Pin to Start Menu (Win7Taskbar)");
                 /* Separators do not increment the returned id
                  * (ShowContextMenuEx): launch=1, pin=2, pin-to-start=3. */
                 string items = launchText + "\n" + pinText + "\n-\n" + pinStart;
@@ -5091,8 +5106,7 @@ namespace Win7Taskbar
                 switch (choice)
                 {
                     case 1:
-                        LaunchPathSafe(!string.IsNullOrEmpty(group.LaunchPath)
-                            ? group.LaunchPath : (group.ExePath ?? string.Empty));
+                        LaunchPathSafe(pinPath);
                         _viewModel.NotePinLaunch(group);
                         break;
                     case 2:
@@ -5101,9 +5115,15 @@ namespace Win7Taskbar
                     case 3:
                         try
                         {
-                            string pinPath = !string.IsNullOrEmpty(group.LaunchPath)
-                                ? group.LaunchPath : (group.ExePath ?? string.Empty);
-                            if (!string.IsNullOrEmpty(pinPath))
+                            if (string.IsNullOrEmpty(pinPath))
+                            {
+                                break;
+                            }
+                            if (startPinned)
+                            {
+                                StartMenu.StartMenuStore.UnpinShortcut(pinPath);
+                            }
+                            else
                             {
                                 StartMenu.StartMenuStore.PinShortcut(pinPath);
                             }

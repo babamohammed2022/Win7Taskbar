@@ -423,14 +423,18 @@
                                        Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}"/>
 
                             <Border x:Name="AllProgramsRow" Grid.Row="2"
-                                    Background="Transparent" BorderBrush="Transparent"
+                                    BorderBrush="Transparent"
                                     BorderThickness="1" CornerRadius="3"
                                     Padding="0" Margin="0" Cursor="Hand"
+                                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                     Visibility="{Binding IsSearching, Converter={StaticResource InvBoolToVis}}"
                                     MouseLeftButtonUp="OnAllProgramsFooter"
                                     MouseRightButtonUp="OnAllProgramsContext">
                                 <Border.Style>
                                     <Style TargetType="Border">
+                                        <!-- Near-transparent fill so the whole row, including
+                                             the All Programs / Back label, is hit-testable. -->
+                                        <Setter Property="Background" Value="#01FFFFFF"/>
                                         <Style.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
                                                 <Setter Property="BorderBrush" Value="#A07BA7CE"/>
@@ -447,23 +451,27 @@
                                         </Style.Triggers>
                                     </Style>
                                 </Border.Style>
-                                <Grid>
+                                <Grid Background="#01FFFFFF">
                                     <!-- Arrow frame x 19-24 → panel x 10. Text frame x=49 → panel x 40. -->
                                     <Path Data="M0,0 L6,4 L0,8 Z" Fill="#3A5068" Width="6" Height="8"
                                           Stretch="Uniform" Margin="10,0,0,0"
                                           HorizontalAlignment="Left" VerticalAlignment="Center"
+                                          IsHitTestVisible="False"
                                           Visibility="{Binding AllProgramsOpen, Converter={StaticResource InvBoolToVis}}"/>
                                     <Path Data="M6,0 L0,4 L6,8 Z" Fill="#3A5068" Width="6" Height="8"
                                           Stretch="Uniform" Margin="10,0,0,0"
                                           HorizontalAlignment="Left" VerticalAlignment="Center"
+                                          IsHitTestVisible="False"
                                           Visibility="{Binding AllProgramsOpen, Converter={StaticResource BoolToVis}}"/>
                                     <TextBlock Text="{DynamicResource lang_sm_all_programs}" FontSize="12" Foreground="#1A1A1A"
                                                Margin="40,0,0,0" VerticalAlignment="Center"
                                                HorizontalAlignment="Left"
+                                               Background="Transparent"
                                                Visibility="{Binding AllProgramsOpen, Converter={StaticResource InvBoolToVis}}"/>
                                     <TextBlock Text="{DynamicResource lang_sm_back}" FontSize="12" Foreground="#1A1A1A"
                                                Margin="40,0,0,0" VerticalAlignment="Center"
                                                HorizontalAlignment="Left"
+                                               Background="Transparent"
                                                Visibility="{Binding AllProgramsOpen, Converter={StaticResource BoolToVis}}"/>
                                 </Grid>
                             </Border>
@@ -495,14 +503,14 @@
                                                      Padding="6,0,22,0"
                                                      FontSize="12"
                                                      Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
-                                            <!-- Circle left, handle down-RIGHT (Win7 search). -->
+                                            <!-- Circle on the left, handle pointing RIGHT. -->
                                             <Canvas Width="16" Height="16" HorizontalAlignment="Right"
-                                                    VerticalAlignment="Center" Margin="0,0,3,0"
+                                                    VerticalAlignment="Center" Margin="0,0,2,0"
                                                     IsHitTestVisible="False">
-                                                <Ellipse Canvas.Left="0.5" Canvas.Top="1.5"
-                                                         Width="8.5" Height="8.5"
+                                                <Ellipse Canvas.Left="0" Canvas.Top="3.2"
+                                                         Width="8.6" Height="8.6"
                                                          Stroke="#1A73C7" StrokeThickness="1.7"/>
-                                                <Path Data="M7.8,8.6 L14.8,14.5"
+                                                <Path Data="M8.0,10.2 L15.4,14.8"
                                                       Stroke="#1A73C7" StrokeThickness="2"
                                                       StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
                                             </Canvas>
@@ -672,7 +680,7 @@
                     </LinearGradientBrush>
                 </Border.Background>
             </Border>
-            <Grid Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Grid Width="50" Height="50" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Image x:Name="IconOld" Stretch="UniformToFill"
                        RenderOptions.BitmapScalingMode="HighQuality"/>
                 <Image x:Name="IconNew" Stretch="Uniform" Opacity="0"

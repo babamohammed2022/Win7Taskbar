@@ -3,9 +3,8 @@
 // Licensed under the GNU General Public License version 3 or later.
 // Written from scratch. Gradients only — no Microsoft bitmaps.
 //
-// Aero glass reuses the overflow recipe in native/src/AeroGlass.h:
-// SetWindowCompositionAttribute + ACCENT_ENABLE_BLURBEHIND. That API is
-// undocumented; the same call is already used for the tray overflow.
+// Chrome tint uses DwmGetColorizationColor. Blur is documented
+// DwmEnableBlurBehindWindow with a GDI region (frame + photo only).
 
 using System;
 using System.Globalization;
@@ -185,33 +184,28 @@ namespace Win7Taskbar.StartMenu
         }
 
         /// <summary>
-        /// Undocumented user32!SetWindowCompositionAttribute (WCA_ACCENT_POLICY
-        /// / ACCENT_ENABLE_BLURBEHIND), the same path as AeroGlass::EnableGlass
-        /// on the overflow flyout. Flagged because it is not a public API.
+        /// Tints Chrome with the system color. Blur is applied later in
+        /// ClipVisibleChrome via documented DwmEnableBlurBehindWindow and a
+        /// GDI region (frame + photo only), so the 25 DIP strip above the
+        /// frame does not frost desktop icons.
         /// </summary>
         private void TryEnableAeroGlass(IntPtr hwnd)
         {
-            if (_glassApplied || hwnd == IntPtr.Zero)
+            if (hwnd == IntPtr.Zero)
             {
                 return;
             }
             try
             {
-                var margins = new MARGINS { cxLeftWidth = -1, cxRightWidth = -1, cyTopHeight = -1, cyBottomHeight = -1 };
-                DwmExtendFrameIntoClientArea(hwnd, ref margins);
-
                 uint colorization = 0x00A8C8E0;
                 bool opaque = false;
-                DwmGetColorizationColor(out colorization, out opaque);
-                /* Win7 Start Menu used the system color but stayed readable.
-                 * 0x2C (~17%) washed the right pane out. 0xB4 (~70%) matches
-                 * AeroStyle::kReadableAlpha-and-then-some. Undocumented
-                 * SetWindowCompositionAttribute — flagged. */
-                const uint gradientAlpha = 0xB4;
-                uint gradientColor = (gradientAlpha << 24) |
-                    ((colorization & 0xFFu) << 16) |
-                    (colorization & 0xFF00u) |
-                    ((colorization >> 16) & 0xFFu);
+                try
+                {
+                    DwmGetColorizationColor(out colorization, out opaque);
+                }
+                catch (Exception)
+                {
+                }
 
                 byte r = (byte)((colorization >> 16) & 0xFFu);
                 byte g = (byte)((colorization >> 8) & 0xFFu);
@@ -225,32 +219,6 @@ namespace Win7Taskbar.StartMenu
                 }
                 catch (Exception)
                 {
-                }
-
-                var accent = new ACCENT_POLICY
-                {
-                    AccentState = 3, /* ACCENT_ENABLE_BLURBEHIND */
-                    AccentFlags = 0,
-                    GradientColor = gradientColor,
-                    AnimationId = 0
-                };
-                int size = Marshal.SizeOf<ACCENT_POLICY>();
-                IntPtr accentPtr = Marshal.AllocHGlobal(size);
-                try
-                {
-                    Marshal.StructureToPtr(accent, accentPtr, false);
-                    var data = new WINDOWCOMPOSITIONATTRIBDATA
-                    {
-                        Attrib = 19, /* WCA_ACCENT_POLICY */
-                        pvData = accentPtr,
-                        cbData = size
-                    };
-                    SetWindowCompositionAttribute(hwnd, ref data);
-                    _glassApplied = true;
-                }
-                finally
-                {
-                    Marshal.FreeHGlobal(accentPtr);
                 }
             }
             catch (Exception)
@@ -436,10 +404,21 @@ namespace Win7Taskbar.StartMenu
             }
             try
             {
-                Point pt = host.PointToScreen(new Point(host.ActualWidth + 8, 0));
+                int x;
+                int y;
+                if (NativeMethods.GetCursorPos(out NativeMethods.POINT cursor))
+                {
+                    x = cursor.x;
+                    y = cursor.y;
+                }
+                else
+                {
+                    Point pt = host.PointToScreen(new Point(0, host.ActualHeight));
+                    x = (int)Math.Round(pt.X);
+                    y = (int)Math.Round(pt.Y);
+                }
                 IntPtr hwnd = new WindowInteropHelper(this).Handle;
-                _infotip.Show(hwnd, item.Name, item.Infotip,
-                    (int)Math.Round(pt.X), (int)Math.Round(pt.Y));
+                _infotip.Show(hwnd, item.Name, item.Infotip, x, y);
             }
             catch (Exception)
             {
@@ -452,22 +431,37 @@ namespace Win7Taskbar.StartMenu
         /// </summary>
         public void CrossfadeIcon(ImageSource? newIcon, TimeSpan duration)
         {
-            IconNew.BeginAnimation(OpacityProperty, null);
-            IconOld.BeginAnimation(OpacityProperty, null);
-            IconNew.Source = newIcon;
-            IconNew.Opacity = 0;
-            var fadeOut = new DoubleAnimation(1, 0, duration);
-            var fadeIn = new DoubleAnimation(0, 1, duration);
-            IconOld.BeginAnimation(OpacityProperty, fadeOut);
-            IconNew.BeginAnimation(OpacityProperty, fadeIn);
-            if (_crossfadeTimer != null)
+            try
             {
-                _crossfadeTimer.Stop();
-                _crossfadeTimer.Tick -= OnCrossfadeDone;
+                IconNew.BeginAnimation(OpacityProperty, null);
+                IconOld.BeginAnimation(OpacityProperty, null);
+                IconNew.Source = newIcon;
+                IconNew.Opacity = 0;
+                var fadeOut = new DoubleAnimation(1, 0, duration);
+                var fadeIn = new DoubleAnimation(0, 1, duration);
+                IconOld.BeginAnimation(OpacityProperty, fadeOut);
+                IconNew.BeginAnimation(OpacityProperty, fadeIn);
+                if (_crossfadeTimer != null)
+                {
+                    _crossfadeTimer.Stop();
+                    _crossfadeTimer.Tick -= OnCrossfadeDone;
+                }
+                _crossfadeTimer = new DispatcherTimer { Interval = duration };
+                _crossfadeTimer.Tick += OnCrossfadeDone;
+                _crossfadeTimer.Start();
             }
-            _crossfadeTimer = new DispatcherTimer { Interval = duration };
-            _crossfadeTimer.Tick += OnCrossfadeDone;
-            _crossfadeTimer.Start();
+            catch (Exception)
+            {
+                try
+                {
+                    IconOld.Source = newIcon;
+                    IconOld.Opacity = 1;
+                    IconNew.Opacity = 0;
+                }
+                catch (Exception)
+                {
+                }
+            }
         }
 
         private void OnCrossfadeDone(object? sender, EventArgs e)
@@ -488,7 +482,7 @@ namespace Win7Taskbar.StartMenu
         {
             PhotoFrame.Visibility = Visibility.Collapsed;
             _showingUserPhoto = false;
-            CrossfadeIcon(icon, TimeSpan.FromMilliseconds(150));
+            CrossfadeIcon(icon, TimeSpan.FromMilliseconds(146));
         }
 
         private void ResetUserPhoto(bool animate)
@@ -501,7 +495,7 @@ namespace Win7Taskbar.StartMenu
             _showingUserPhoto = true;
             if (animate)
             {
-                CrossfadeIcon(_vm.UserPicture, TimeSpan.FromMilliseconds(150));
+                CrossfadeIcon(_vm.UserPicture, TimeSpan.FromMilliseconds(146));
             }
             else
             {
@@ -637,9 +631,8 @@ namespace Win7Taskbar.StartMenu
 
         private void ClipVisibleChrome()
         {
-            /* DWM blur-behind applies to the whole HWND. The 25 DIP photo
-             * overhang is mostly empty; without a region it frosts desktop
-             * icons above the menu. Clip to chrome + photo glass. */
+            IntPtr chrome = IntPtr.Zero, photo = IntPtr.Zero;
+            IntPtr windowRgn = IntPtr.Zero, blurRgn = IntPtr.Zero;
             try
             {
                 IntPtr hwnd = new WindowInteropHelper(this).Handle;
@@ -647,6 +640,7 @@ namespace Win7Taskbar.StartMenu
                 {
                     return;
                 }
+
                 double scale = 1;
                 try
                 {
@@ -660,19 +654,45 @@ namespace Win7Taskbar.StartMenu
                 {
                 }
                 int Dip(double v) => (int)Math.Round(v * scale);
-                IntPtr chrome = CreateRectRgn(Dip(10), Dip(25), Dip(10 + 411), Dip(25 + 476));
-                IntPtr photo = CreateRectRgn(Dip(310), Dip(0), Dip(310 + 55), Dip(57));
-                IntPtr combined = CreateRectRgn(0, 0, 0, 0);
-                CombineRgn(combined, chrome, photo, RGN_OR);
-                DeleteObject(chrome);
-                DeleteObject(photo);
-                if (SetWindowRgn(hwnd, combined, true) == 0)
+
+                chrome = CreateRectRgn(Dip(10), Dip(25), Dip(10 + 411), Dip(25 + 476));
+                photo = CreateRectRgn(Dip(310), Dip(0), Dip(310 + 55), Dip(57));
+                if (chrome == IntPtr.Zero || photo == IntPtr.Zero)
                 {
-                    DeleteObject(combined);
+                    return;
+                }
+
+                windowRgn = CreateRectRgn(0, 0, 0, 0);
+                CombineRgn(windowRgn, chrome, photo, RGN_OR);
+                if (SetWindowRgn(hwnd, windowRgn, true) != 0)
+                {
+                    windowRgn = IntPtr.Zero;
+                }
+
+                blurRgn = CreateRectRgn(0, 0, 0, 0);
+                CombineRgn(blurRgn, chrome, photo, RGN_OR);
+                var bb = new DWM_BLURBEHIND
+                {
+                    dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION,
+                    fEnable = true,
+                    hRgnBlur = blurRgn,
+                    fTransitionOnMaximized = false
+                };
+                if (DwmEnableBlurBehindWindow(hwnd, ref bb) == 0)
+                {
+                    _glassApplied = true;
                 }
             }
             catch (Exception)
             {
+                /* glass opzionale: il frame disegnato resta valido */
+            }
+            finally
+            {
+                SafeDeleteGdi(ref chrome);
+                SafeDeleteGdi(ref photo);
+                SafeDeleteGdi(ref blurRgn);
+                SafeDeleteGdi(ref windowRgn);
             }
         }
 
@@ -748,6 +768,16 @@ namespace Win7Taskbar.StartMenu
             catch (Exception)
             {
             }
+        }
+
+        private static void SafeDeleteGdi(ref IntPtr handle)
+        {
+            if (handle == IntPtr.Zero)
+            {
+                return;
+            }
+            try { DeleteObject(handle); } catch (Exception) { }
+            handle = IntPtr.Zero;
         }
 
         private const int RGN_OR = 2;
