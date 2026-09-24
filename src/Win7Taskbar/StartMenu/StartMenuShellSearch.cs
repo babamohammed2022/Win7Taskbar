@@ -1,0 +1,395 @@
+// Win7Taskbar - Start Menu search of Control Panel / Settings / All Tasks
+// Copyright (c) 2026 Win7Taskbar contributors
+// Licensed under the GNU General Public License version 3 or later.
+// Written from scratch. Public Shell APIs only (IShellItem, IEnumShellItems,
+// SHCreateItemFromParsingName, FileVersionInfo). Open-Shell inspired the
+// result classes (bSearchSettings / God Mode / Search the Internet as a
+// clickable provider row) — no Open-Shell source is copied.
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Windows.Media;
+using Microsoft.Win32;
+
+namespace Win7Taskbar.StartMenu
+{
+    internal sealed class ShellSearchHit
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Path { get; set; } = string.Empty;
+        public ImageSource? Icon { get; set; }
+    }
+
+    /// <summary>
+    /// Enumerates Control Panel applets, All Tasks (God Mode CLSID), and
+    /// the Settings app on a worker thread. Filtering is cheap after that.
+    /// </summary>
+    internal static class StartMenuShellSearch
+    {
+        private static readonly object Gate = new();
+        private static List<ShellSearchHit>? _catalog;
+        private static int _state; /* 0 idle, 1 loading, 2 ready */
+
+        /* Control Panel (category), All Control Panel Items, All Tasks. */
+        private static readonly string[] kFolders =
+        {
+            "shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}",
+            "shell:::{21EC2020-3AEA-1069-A2DD-08002B30309D}",
+            "shell:::{ED7BA470-8E54-465E-825C-99712043E01C}"
+        };
+
+        private static readonly Guid IidShellItem =
+            new("43826d1e-e718-42ee-bc55-a1e261c37bfe");
+        private static readonly Guid IidEnumShellItems =
+            new("70629033-e363-4a28-a567-0db78006e6d7");
+        private static readonly Guid BhidEnumItems =
+            new("94f60519-2850-4924-aa5a-502dd77eb87f");
+
+        private const uint SigdnNormalDisplay = 0;
+        private const uint SigdnDesktopAbsoluteParsing = 0x80028000;
+
+        public static bool IsReady
+        {
+            get { return Volatile.Read(ref _state) == 2; }
+        }
+
+        public static void BeginLoad()
+        {
+            if (Interlocked.CompareExchange(ref _state, 1, 0) != 0)
+            {
+                return;
+            }
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    List<ShellSearchHit> list = Enumerate();
+                    lock (Gate)
+                    {
+                        _catalog = list;
+                    }
+                    Interlocked.Exchange(ref _state, 2);
+                }
+                catch (Exception)
+                {
+                    Interlocked.Exchange(ref _state, 0);
+                }
+            });
+        }
+
+        public static IReadOnlyList<ShellSearchHit> Match(string query, int cap)
+        {
+            if (string.IsNullOrWhiteSpace(query) || cap <= 0)
+            {
+                return Array.Empty<ShellSearchHit>();
+            }
+            if (!IsReady)
+            {
+                BeginLoad();
+                return Array.Empty<ShellSearchHit>();
+            }
+            List<ShellSearchHit>? catalog;
+            lock (Gate)
+            {
+                catalog = _catalog;
+            }
+            if (catalog == null || catalog.Count == 0)
+            {
+                return Array.Empty<ShellSearchHit>();
+            }
+            string needle = query.Trim();
+            var hits = new List<ShellSearchHit>(Math.Min(cap, 16));
+            try
+            {
+                foreach (ShellSearchHit item in catalog)
+                {
+                    if (hits.Count >= cap)
+                    {
+                        break;
+                    }
+                    if (string.IsNullOrEmpty(item.Name))
+                    {
+                        continue;
+                    }
+                    if (item.Name.IndexOf(needle, StringComparison.CurrentCultureIgnoreCase) < 0)
+                    {
+                        continue;
+                    }
+                    hits.Add(item);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return hits;
+        }
+
+        public static string InternetSearchUrl(string query)
+        {
+            string terms = Uri.EscapeDataString(query ?? string.Empty);
+            try
+            {
+                using RegistryKey? scopes = Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Internet Explorer\SearchScopes");
+                string? def = scopes?.GetValue("DefaultScope") as string;
+                if (!string.IsNullOrEmpty(def) && scopes != null)
+                {
+                    using RegistryKey? scope = scopes.OpenSubKey(def);
+                    string? url = scope?.GetValue("URL") as string;
+                    if (!string.IsNullOrEmpty(url) &&
+                        url.IndexOf("{searchTerms}", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return url.Replace("{searchTerms}", terms,
+                            StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return "https://www.bing.com/search?q=" + terms;
+        }
+
+        public static bool SettingsAppExists()
+        {
+            try
+            {
+                string root = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+                return Directory.Exists(Path.Combine(root, "ImmersiveControlPanel"));
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static List<ShellSearchHit> Enumerate()
+        {
+            var list = new List<ShellSearchHit>(256);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string folder in kFolders)
+            {
+                try
+                {
+                    EnumerateFolder(folder, list, seen, 400);
+                }
+                catch (Exception)
+                {
+                }
+            }
+            try
+            {
+                AddCplFiles(list, seen);
+            }
+            catch (Exception)
+            {
+            }
+            return list;
+        }
+
+        private static void AddCplFiles(List<ShellSearchHit> list, HashSet<string> seen)
+        {
+            string sys = Environment.SystemDirectory;
+            if (string.IsNullOrEmpty(sys) || !Directory.Exists(sys))
+            {
+                return;
+            }
+            foreach (string cpl in Directory.GetFiles(sys, "*.cpl"))
+            {
+                string name = string.Empty;
+                try
+                {
+                    FileVersionInfo info = FileVersionInfo.GetVersionInfo(cpl);
+                    if (!string.IsNullOrWhiteSpace(info.FileDescription))
+                    {
+                        name = info.FileDescription.Trim();
+                    }
+                }
+                catch (Exception)
+                {
+                }
+                if (string.IsNullOrEmpty(name))
+                {
+                    name = Path.GetFileNameWithoutExtension(cpl) ?? string.Empty;
+                }
+                if (string.IsNullOrEmpty(name) || !seen.Add(name))
+                {
+                    continue;
+                }
+                list.Add(new ShellSearchHit
+                {
+                    Name = name,
+                    Path = cpl,
+                    Icon = StartMenuIcons.FromPath(cpl, cpl, 48)
+                });
+            }
+        }
+
+        private static void EnumerateFolder(string parsingName, List<ShellSearchHit> list,
+            HashSet<string> seen, int cap)
+        {
+            Guid iidItem = IidShellItem;
+            int created = SHCreateItemFromParsingName(parsingName, IntPtr.Zero,
+                ref iidItem, out IShellItem? folder);
+            if (created != 0 || folder == null)
+            {
+                return;
+            }
+            IntPtr enumPtr = IntPtr.Zero;
+            try
+            {
+                Guid bhid = BhidEnumItems;
+                Guid iidEnum = IidEnumShellItems;
+                int bind = folder.BindToHandler(IntPtr.Zero, ref bhid, ref iidEnum, out enumPtr);
+                if (bind != 0 || enumPtr == IntPtr.Zero)
+                {
+                    return;
+                }
+                object enumObj = Marshal.GetObjectForIUnknown(enumPtr);
+                try
+                {
+                    var enumerator = (IEnumShellItems)enumObj;
+                    while (list.Count < cap)
+                    {
+                        IntPtr itemPtr = IntPtr.Zero;
+                        uint fetched = 0;
+                        int next = enumerator.Next(1, out itemPtr, out fetched);
+                        if (next != 0 || fetched == 0 || itemPtr == IntPtr.Zero)
+                        {
+                            break;
+                        }
+                        object? itemObj = null;
+                        try
+                        {
+                            itemObj = Marshal.GetObjectForIUnknown(itemPtr);
+                            if (itemObj is IShellItem item)
+                            {
+                                AddShellItem(item, list, seen);
+                            }
+                        }
+                        catch (Exception)
+                        {
+                        }
+                        finally
+                        {
+                            if (itemObj != null)
+                            {
+                                try { Marshal.ReleaseComObject(itemObj); }
+                                catch (Exception) { }
+                            }
+                            Marshal.Release(itemPtr);
+                        }
+                    }
+                }
+                finally
+                {
+                    try { Marshal.ReleaseComObject(enumObj); }
+                    catch (Exception) { }
+                }
+            }
+            finally
+            {
+                if (enumPtr != IntPtr.Zero)
+                {
+                    Marshal.Release(enumPtr);
+                }
+                try { Marshal.ReleaseComObject(folder); }
+                catch (Exception) { }
+            }
+        }
+
+        private static void AddShellItem(IShellItem item, List<ShellSearchHit> list,
+            HashSet<string> seen)
+        {
+            string name = ReadName(item, SigdnNormalDisplay);
+            if (string.IsNullOrWhiteSpace(name) || !seen.Add(name))
+            {
+                return;
+            }
+            string parse = ReadName(item, SigdnDesktopAbsoluteParsing);
+            if (string.IsNullOrWhiteSpace(parse))
+            {
+                parse = name;
+            }
+            if (!parse.StartsWith("shell:", StringComparison.OrdinalIgnoreCase) &&
+                !parse.StartsWith("::", StringComparison.Ordinal) &&
+                !parse.StartsWith("ms-", StringComparison.OrdinalIgnoreCase) &&
+                parse.IndexOf(':') < 0 && parse.IndexOf('\\') < 0)
+            {
+                parse = "shell:" + parse;
+            }
+            list.Add(new ShellSearchHit
+            {
+                Name = name,
+                Path = parse,
+                Icon = StartMenuIcons.FromParsingName(parse, 48)
+                    ?? StartMenuIcons.FromDll("imageres.dll", 22, 48)
+            });
+        }
+
+        private static string ReadName(IShellItem item, uint sigdn)
+        {
+            IntPtr p = IntPtr.Zero;
+            try
+            {
+                item.GetDisplayName(sigdn, out p);
+                if (p == IntPtr.Zero)
+                {
+                    return string.Empty;
+                }
+                return Marshal.PtrToStringUni(p) ?? string.Empty;
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
+            finally
+            {
+                if (p != IntPtr.Zero)
+                {
+                    CoTaskMemFree(p);
+                }
+            }
+        }
+
+        [ComImport]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe")]
+        private interface IShellItem
+        {
+            [PreserveSig]
+            int BindToHandler(IntPtr pbc, [In] ref Guid bhid, [In] ref Guid riid, out IntPtr ppv);
+            void GetParent(out IShellItem ppsi);
+            void GetDisplayName(uint sigdnName, out IntPtr ppszName);
+            void GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
+            void Compare(IShellItem psi, uint hint, out int piOrder);
+        }
+
+        [ComImport]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [Guid("70629033-e363-4a28-a567-0db78006e6d7")]
+        private interface IEnumShellItems
+        {
+            [PreserveSig]
+            int Next(uint celt, out IntPtr rgelt, out uint pceltFetched);
+            [PreserveSig]
+            int Skip(uint celt);
+            [PreserveSig]
+            int Reset();
+            [PreserveSig]
+            int Clone(out IEnumShellItems ppenum);
+        }
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+        private static extern int SHCreateItemFromParsingName(
+            string pszPath, IntPtr pbc, [In] ref Guid riid,
+            [MarshalAs(UnmanagedType.Interface)] out IShellItem? ppv);
+
+        [DllImport("ole32.dll")]
+        private static extern void CoTaskMemFree(IntPtr pv);
+    }
+}

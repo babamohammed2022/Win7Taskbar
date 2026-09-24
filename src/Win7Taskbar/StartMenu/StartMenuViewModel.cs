@@ -39,6 +39,7 @@ namespace Win7Taskbar.StartMenu
         private readonly HashSet<string> _expandedFolders =
             new(StringComparer.OrdinalIgnoreCase);
         private ImageSource? _folderIcon;
+        private bool _fileSearchActive;
 
         public ObservableCollection<StartMenuItem> LeftItems { get; } = new();
         public ObservableCollection<StartMenuItem> SearchHits { get; } = new();
@@ -64,6 +65,7 @@ namespace Win7Taskbar.StartMenu
             LoadUser();
             SearchHint = T("lang_sm_search", "Search programs and files");
             BuildRightLinks();
+            StartMenuShellSearch.BeginLoad();
         }
 
         private void OnSettingsChanged(object? sender, PropertyChangedEventArgs e)
@@ -74,6 +76,28 @@ namespace Win7Taskbar.StartMenu
                 {
                     return;
                 }
+                /* Settings.PropertyChanged can fire off the Start Menu
+                 * dispatcher. Clear+Add on the wrong thread drops the
+                 * right pane (privacy on then off). Marshal, and never
+                 * leave RightLinks empty if a later Add throws. */
+                if (_dispatcher.CheckAccess())
+                {
+                    RefreshPrivacyIdentity();
+                }
+                else
+                {
+                    _dispatcher.BeginInvoke(new Action(RefreshPrivacyIdentity));
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void RefreshPrivacyIdentity()
+        {
+            try
+            {
                 LoadUser();
                 BuildRightLinks();
             }
@@ -230,6 +254,7 @@ namespace Win7Taskbar.StartMenu
                     (File.Exists(path) || Directory.Exists(path) ||
                      path.StartsWith("shell:", StringComparison.OrdinalIgnoreCase) ||
                      path.StartsWith("::{", StringComparison.Ordinal) ||
+                     path.StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase) ||
                      path.StartsWith("http", StringComparison.OrdinalIgnoreCase)))
                 {
                     return path;
@@ -652,8 +677,11 @@ namespace Win7Taskbar.StartMenu
 
         private void RunSearch()
         {
+            try
+            {
             SearchHits.Clear();
             _filePoll.Stop();
+            _fileSearchActive = false;
             if (!IsSearching)
             {
                 _bridge.StartMenuFileSearchCancel();
@@ -675,56 +703,193 @@ namespace Win7Taskbar.StartMenu
                 }
                 SearchHits.Add(FromEntry(entry));
             }
-            if (_bridge.StartMenuFileSearchStart(_searchText))
+            _fileSearchActive = _bridge.StartMenuFileSearchStart(_searchText);
+            if (_fileSearchActive || !StartMenuShellSearch.IsReady)
             {
                 _filePoll.Start();
+            }
+            AppendSettingsHits();
+            AppendInternetHit();
+            }
+            catch (Exception)
+            {
             }
         }
 
         private void OnFilePollTick(object? sender, EventArgs e)
         {
-            string? joined = _bridge.StartMenuFileSearchPoll();
-            if (joined == null)
+            try
             {
-                return;
-            }
-            _filePoll.Stop();
-            if (string.IsNullOrEmpty(joined))
-            {
-                return;
-            }
-            foreach (string line in joined.Split('\n'))
-            {
-                if (string.IsNullOrWhiteSpace(line))
+                string? joined = _fileSearchActive
+                    ? _bridge.StartMenuFileSearchPoll()
+                    : string.Empty;
+                if (joined == null)
                 {
-                    continue;
+                    AppendSettingsHits();
+                    AppendInternetHit();
+                    return;
                 }
-                string hit = line.Trim();
-                if (hit.IndexOfAny(new[] { '\\', '/' }) < 0)
+                if (_fileSearchActive)
                 {
-                    continue;
-                }
-                bool duplicate = false;
-                foreach (StartMenuItem existing in SearchHits)
-                {
-                    if (string.Equals(existing.Path, hit, StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(existing.Target, hit, StringComparison.OrdinalIgnoreCase))
+                    _fileSearchActive = false;
+                    if (!string.IsNullOrEmpty(joined))
                     {
-                        duplicate = true;
-                        break;
+                        foreach (string line in joined.Split('\n'))
+                        {
+                            if (string.IsNullOrWhiteSpace(line))
+                            {
+                                continue;
+                            }
+                            string hit = line.Trim();
+                            if (hit.IndexOfAny(new[] { '\\', '/' }) < 0)
+                            {
+                                continue;
+                            }
+                            bool duplicate = false;
+                            foreach (StartMenuItem existing in SearchHits)
+                            {
+                                if (string.Equals(existing.Path, hit, StringComparison.OrdinalIgnoreCase) ||
+                                    string.Equals(existing.Target, hit, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    duplicate = true;
+                                    break;
+                                }
+                            }
+                            if (duplicate)
+                            {
+                                continue;
+                            }
+                            InsertBeforeInternet(new StartMenuItem
+                            {
+                                Name = StartMenuStore.ShellDisplayName(hit, Path.GetFileName(hit) ?? hit),
+                                Path = hit,
+                                Target = hit,
+                                Icon = LoadIcon(hit, hit)
+                            });
+                        }
                     }
                 }
-                if (duplicate)
+                AppendSettingsHits();
+                AppendInternetHit();
+                if (StartMenuShellSearch.IsReady)
                 {
-                    continue;
+                    _filePoll.Stop();
                 }
+            }
+            catch (Exception)
+            {
+                _filePoll.Stop();
+            }
+        }
+
+        private void AppendSettingsHits()
+        {
+            try
+            {
+                if (!IsSearching)
+                {
+                    return;
+                }
+                if (!StartMenuShellSearch.IsReady)
+                {
+                    StartMenuShellSearch.BeginLoad();
+                    return;
+                }
+                string settingsName = T("lang_sm_settings", "Settings");
+                if (StartMenuShellSearch.SettingsAppExists() &&
+                    settingsName.IndexOf(_searchText, StringComparison.CurrentCultureIgnoreCase) >= 0)
+                {
+                    InsertBeforeInternet(new StartMenuItem
+                    {
+                        Name = settingsName,
+                        Path = "ms-settings:",
+                        Folder = "settings",
+                        Icon = StartMenuIcons.FromDll("imageres.dll", 109, 48)
+                            ?? StartMenuIcons.FromDll("shell32.dll", 21, 48)
+                    });
+                }
+                foreach (ShellSearchHit hit in StartMenuShellSearch.Match(_searchText, 16))
+                {
+                    if (string.IsNullOrEmpty(hit.Path))
+                    {
+                        continue;
+                    }
+                    bool duplicate = false;
+                    foreach (StartMenuItem existing in SearchHits)
+                    {
+                        if (string.Equals(existing.Path, hit.Path, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(existing.Name, hit.Name, StringComparison.CurrentCultureIgnoreCase))
+                        {
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    if (duplicate)
+                    {
+                        continue;
+                    }
+                    InsertBeforeInternet(new StartMenuItem
+                    {
+                        Name = hit.Name,
+                        Path = hit.Path,
+                        Folder = "settings",
+                        Icon = hit.Icon ?? StartMenuIcons.FromDll("imageres.dll", 22, 48)
+                    });
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void AppendInternetHit()
+        {
+            try
+            {
+                if (!IsSearching)
+                {
+                    return;
+                }
+                foreach (StartMenuItem existing in SearchHits)
+                {
+                    if (string.Equals(existing.Folder, "internet", StringComparison.Ordinal))
+                    {
+                        return;
+                    }
+                }
+                string url = StartMenuShellSearch.InternetSearchUrl(_searchText);
                 SearchHits.Add(new StartMenuItem
                 {
-                    Name = StartMenuStore.ShellDisplayName(hit, Path.GetFileName(hit) ?? hit),
-                    Path = hit,
-                    Target = hit,
-                    Icon = LoadIcon(hit, hit)
+                    Name = T("lang_sm_search_internet", "Search the Internet"),
+                    Path = url,
+                    Folder = "internet",
+                    Icon = StartMenuIcons.FromDll("imageres.dll", 220, 48)
+                        ?? StartMenuIcons.FromDll("shell32.dll", 14, 48)
                 });
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void InsertBeforeInternet(StartMenuItem item)
+        {
+            try
+            {
+                for (int i = 0; i < SearchHits.Count; i++)
+                {
+                    if (string.Equals(SearchHits[i].Folder, "internet", StringComparison.Ordinal))
+                    {
+                        SearchHits.Insert(i, item);
+                        return;
+                    }
+                }
+                SearchHits.Add(item);
+            }
+            catch (Exception)
+            {
+                try { SearchHits.Add(item); }
+                catch (Exception) { }
             }
         }
 
@@ -863,38 +1028,63 @@ namespace Win7Taskbar.StartMenu
              * Infotips are original wording from public Win7 Start layout
              * descriptions (O'Reilly Missing Manual / Computer Hope), not
              * Microsoft strings. */
-            RightLinks.Clear();
+            List<StartMenuItem> snapshot = new(RightLinks);
+            var next = new List<StartMenuItem>();
+            try
+            {
             string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            RightLinks.Add(FolderLink(UserName, "user", profile,
+            next.Add(FolderLink(UserName, "user", profile,
                 T("lang_sm_tip_user", "Opens the personal folder for this account, with your documents, pictures, and other files."),
                 isPrimary: true));
-            RightLinks.Add(FolderLink(T("lang_sm_documents", "Documents"), "documents",
+            next.Add(FolderLink(T("lang_sm_documents", "Documents"), "documents",
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                 T("lang_sm_tip_documents", "Opens the Documents library, where you keep letters, notes, spreadsheets, and similar files.")));
-            RightLinks.Add(FolderLink(T("lang_sm_pictures", "Pictures"), "pictures",
+            next.Add(FolderLink(T("lang_sm_pictures", "Pictures"), "pictures",
                 Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
                 T("lang_sm_tip_pictures", "Opens the Pictures library, where you keep photos and other images.")));
-            RightLinks.Add(FolderLink(T("lang_sm_music", "Music"), "music",
+            next.Add(FolderLink(T("lang_sm_music", "Music"), "music",
                 Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
                 T("lang_sm_tip_music", "Opens the Music library, where you keep songs and other audio.")));
-            RightLinks.Add(new StartMenuItem { IsSeparator = true });
-            RightLinks.Add(FolderLink(T("lang_sm_videos", "Videos"), "videos",
+            next.Add(new StartMenuItem { IsSeparator = true });
+            next.Add(FolderLink(T("lang_sm_videos", "Videos"), "videos",
                 Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
                 T("lang_sm_tip_videos", "Opens the Videos library, where you keep movies and other video files.")));
-            RightLinks.Add(FolderLink(T("lang_sm_computer", "Computer"), "computer",
+            next.Add(FolderLink(T("lang_sm_computer", "Computer"), "computer",
                 "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
                 T("lang_sm_tip_computer", "Opens a window for the disk drives, devices, and other hardware attached to this PC.")));
-            RightLinks.Add(new StartMenuItem { IsSeparator = true });
-            RightLinks.Add(FolderLink(T("lang_sm_control", "Control Panel"), "control",
+            next.Add(new StartMenuItem { IsSeparator = true });
+            next.Add(FolderLink(T("lang_sm_control", "Control Panel"), "control",
                 "::{26EE0668-A00A-44D7-9371-BEB064C98683}",
                 T("lang_sm_tip_control", "Opens Control Panel, where you change settings, add or remove programs, and manage accounts.")));
-            RightLinks.Add(FolderLink(T("lang_sm_devices", "Devices and Printers"), "devices",
+            next.Add(FolderLink(T("lang_sm_devices", "Devices and Printers"), "devices",
                 "shell:::{A8A91A66-3A7D-4424-8D24-04E180695C7A}",
                 T("lang_sm_tip_devices", "Opens Devices and Printers, where you view and manage printers, scanners, and other hardware.")));
-            RightLinks.Add(FolderLink(T("lang_sm_defaults", "Default Programs"), "defaults",
+            next.Add(FolderLink(T("lang_sm_defaults", "Default Programs"), "defaults",
                 @"::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{17CD9488-1228-4B2F-88CE-4298E93E0966}",
                 T("lang_sm_tip_defaults", "Choose which program Windows uses for web browsing, mail, photos, and media.")));
-            RightLinks.Add(HelpLink());
+            next.Add(HelpLink());
+                RightLinks.Clear();
+                foreach (StartMenuItem item in next)
+                {
+                    RightLinks.Add(item);
+                }
+            }
+            catch (Exception)
+            {
+                if (RightLinks.Count == 0)
+                {
+                    try
+                    {
+                        foreach (StartMenuItem item in snapshot)
+                        {
+                            RightLinks.Add(item);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }
+            }
         }
 
         private static StartMenuItem FolderLink(string name, string folder, string? iconPath,
@@ -1335,6 +1525,134 @@ namespace Win7Taskbar.StartMenu
         }
 
         private static string TaskbarPinLabel(string path)
+        {
+            return StartMenuStore.IsTaskbarPinned(path)
+                ? T("lang_menu_unpin", "Unpin this program from taskbar")
+                : T("lang_menu_pin", "Pin this program to taskbar");
+        }
+
+        private void ToggleTaskbarPin(string path, bool pin)
+        {
+            string exe = ResolveExe(path);
+            if (string.IsNullOrEmpty(exe))
+            {
+                return;
+            }
+            try
+            {
+                string name = Path.GetFileNameWithoutExtension(exe);
+                _bridge.ToggleTaskbarPin(exe, name, pin ? 1 : 0);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static string ResolveExe(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return string.Empty;
+            }
+            if (path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(path))
+            {
+                return path;
+            }
+            string target = StartMenuStore.ResolveTarget(path);
+            if (!string.IsNullOrEmpty(target))
+            {
+                return target;
+            }
+            return path;
+        }
+
+        private static void OpenFileLocation(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return;
+            }
+            try
+            {
+                if (path.StartsWith("::", StringComparison.Ordinal))
+                {
+                    StartProcess("explorer.exe", "shell:" + path);
+                    return;
+                }
+                if (File.Exists(path))
+                {
+                    StartProcess("explorer.exe", "/select,\"" + path + "\"");
+                    return;
+                }
+                string? dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                {
+                    StartProcess(dir, null);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void TryDeleteShortcut(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !IsUnderStartMenu(path))
+            {
+                return;
+            }
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static bool ShellVerb(string path, string verb)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return false;
+            }
+            try
+            {
+                var info = new NativeMethods.SHELLEXECUTEINFO
+                {
+                    cbSize = Marshal.SizeOf<NativeMethods.SHELLEXECUTEINFO>(),
+                    fMask = NativeMethods.SEE_MASK_INVOKEIDLIST,
+                    hwnd = IntPtr.Zero,
+                    lpVerb = verb,
+                    lpFile = path,
+                    nShow = NativeMethods.SW_SHOWNORMAL
+                };
+                return NativeMethods.ShellExecuteExW(ref info);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static ImageSource? LoadIcon(string path, string target)
+            => StartMenuIcons.FromPath(path, target, 48);
+
+        /* Photo-frame hover icons: jumbo shell extract + GDI+ bicubic to 50px. */
+        private static ImageSource? IconFromParsingName(string? probe)
+            => StartMenuIcons.FromParsingName(probe, 50);
+
+        private static ImageSource? IconFromDll(string dll, int index)
+            => StartMenuIcons.FromDll(dll, index, 50);
+
+        private void OnPropertyChanged([CallerMemberName] string? name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+}
+ TaskbarPinLabel(string path)
         {
             return StartMenuStore.IsTaskbarPinned(path)
                 ? T("lang_menu_unpin", "Unpin this program from taskbar")

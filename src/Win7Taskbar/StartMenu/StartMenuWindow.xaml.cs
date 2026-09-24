@@ -1064,19 +1064,38 @@ namespace Win7Taskbar.StartMenu
             {
                 ShutdownLabel.Foreground = searching ? Brushes.Black : Brushes.White;
                 ShutdownArrowGlyph.Fill = searching ? Brushes.Black : Brushes.White;
-                /* Search: drop the Aero button chrome so Arresta sits in the
-                 * white wash / menu frame. Restore the dark+highlight borders
-                 * when the default glass layout comes back. */
-                Brush outer = searching
-                    ? Brushes.Transparent
-                    : FreezeArgb(0xC0, 0x28, 0x4A, 0x78);
-                Brush inner = searching
-                    ? Brushes.Transparent
-                    : FreezeArgb(0x80, 0xFF, 0xFF, 0xFF);
-                ShutdownChrome.BorderBrush = outer;
-                ShutdownArrow.BorderBrush = outer;
-                ShutdownChromeInner.BorderBrush = inner;
-                ShutdownArrowInner.BorderBrush = inner;
+                /* Search: Open-Shell / Win7 drop the Aero button chrome so
+                 * Arresta sits in the white wash. Transparent borders alone
+                 * still left the glass gradient as a box — flatten fill and
+                 * thickness too. Restore when the default glass layout
+                 * comes back. Size, gradient, hover and handlers are
+                 * unchanged outside search. */
+                if (searching)
+                {
+                    ShutdownChrome.Background = Brushes.Transparent;
+                    ShutdownArrow.Background = Brushes.Transparent;
+                    ShutdownChrome.BorderBrush = Brushes.Transparent;
+                    ShutdownArrow.BorderBrush = Brushes.Transparent;
+                    ShutdownChromeInner.BorderBrush = Brushes.Transparent;
+                    ShutdownArrowInner.BorderBrush = Brushes.Transparent;
+                    ShutdownChrome.BorderThickness = new Thickness(0);
+                    ShutdownArrow.BorderThickness = new Thickness(0);
+                    ShutdownChromeInner.BorderThickness = new Thickness(0);
+                    ShutdownArrowInner.BorderThickness = new Thickness(0);
+                }
+                else
+                {
+                    ShutdownChrome.ClearValue(Border.BackgroundProperty);
+                    ShutdownArrow.ClearValue(Border.BackgroundProperty);
+                    ShutdownChrome.ClearValue(Border.BorderThicknessProperty);
+                    ShutdownArrow.ClearValue(Border.BorderThicknessProperty);
+                    ShutdownChromeInner.ClearValue(Border.BorderThicknessProperty);
+                    ShutdownArrowInner.ClearValue(Border.BorderThicknessProperty);
+                    ShutdownChrome.BorderBrush = FreezeArgb(0xC0, 0x28, 0x4A, 0x78);
+                    ShutdownArrow.BorderBrush = FreezeArgb(0xC0, 0x28, 0x4A, 0x78);
+                    ShutdownChromeInner.BorderBrush = FreezeArgb(0x80, 0xFF, 0xFF, 0xFF);
+                    ShutdownArrowInner.BorderBrush = FreezeArgb(0x80, 0xFF, 0xFF, 0xFF);
+                }
             }
             catch (Exception)
             {

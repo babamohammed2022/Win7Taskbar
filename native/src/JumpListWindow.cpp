@@ -55,13 +55,13 @@ constexpr wchar_t kClassName[] = L"W7T_JumpList";
 constexpr UINT kDismissOutsideMessage = WM_APP + 0x177;
 
 /* --- 96-DPI reference geometry (scaled by JumpListWindow::Sc) --------- */
-constexpr int kWidth96      = 280;
+constexpr int kWidth96      = 288;
 constexpr int kRowApp96     = 36;
 constexpr int kRowClose96   = 26;
 constexpr int kRowPin96     = 28;
 constexpr int kRowDoc96     = 24;
 constexpr int kHeader96     = 17;
-constexpr int kPad96        = 6;   /* top/bottom inner padding           */
+constexpr int kPad96        = 10;  /* top/bottom inner padding           */
 constexpr int kSep96        = 6;   /* separator band between sections     */
 constexpr int kGap96        = 4;   /* popup-to-button gap (Windows 7)     */
 constexpr int kEdgeMargin96 = 2;   /* never closer to the work area edge  */
@@ -90,6 +90,80 @@ struct JumpListCapCache {
 JumpListCapCache& JumpListCapCacheRef() {
     static JumpListCapCache cache;
     return cache;
+}
+
+/* Public GDI glyphs for Tasks (min/max/restore/move/size). Drawn, not
+ * taken from Microsoft bitmaps. Marlett/DrawFrameControl are public too;
+ * simple strokes stay sharp at every DPI. */
+void DrawTaskGlyph(HDC hdc, const RECT& box, int32_t cmd)
+{
+    try {
+    if (hdc == nullptr || box.right <= box.left + 2 || box.bottom <= box.top + 2) {
+        return;
+    }
+    const COLORREF ink = RGB(0x3A, 0x3A, 0x3A);
+    const int thickness = ((box.right - box.left) >= 12) ? 2 : 1;
+    UniqueGdiObject pen(CreatePen(PS_SOLID, thickness, ink));
+    if (!pen.valid()) {
+        return;
+    }
+    SelectGuard sg(hdc, pen.get());
+    HGDIOBJ oldBr = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    const int l = box.left + 1;
+    const int t = box.top + 1;
+    const int r = box.right - 1;
+    const int b = box.bottom - 1;
+    const int cx = (l + r) / 2;
+    const int cy = (t + b) / 2;
+    switch (cmd) {
+        case W7T_CMD_MINIMIZE:
+            MoveToEx(hdc, l + 1, b - 1, nullptr);
+            LineTo(hdc, r - 1, b - 1);
+            break;
+        case W7T_CMD_MAXIMIZE:
+            Rectangle(hdc, l, t, r, b);
+            MoveToEx(hdc, l, t + thickness, nullptr);
+            LineTo(hdc, r, t + thickness);
+            break;
+        case W7T_CMD_RESTORE: {
+            const int inset = (r - l) / 3;
+            Rectangle(hdc, l + inset, t, r, b - inset);
+            Rectangle(hdc, l, t + inset, r - inset, b);
+            break;
+        }
+        case W7T_CMD_CLOSE:
+            MoveToEx(hdc, l, t, nullptr);
+            LineTo(hdc, r, b);
+            MoveToEx(hdc, r - 1, t, nullptr);
+            LineTo(hdc, l - 1, b);
+            break;
+        case W7T_CMD_MOVE:
+            MoveToEx(hdc, cx, t, nullptr); LineTo(hdc, cx, b);
+            MoveToEx(hdc, l, cy, nullptr); LineTo(hdc, r, cy);
+            MoveToEx(hdc, cx, t, nullptr); LineTo(hdc, cx - 3, t + 4);
+            MoveToEx(hdc, cx, t, nullptr); LineTo(hdc, cx + 3, t + 4);
+            MoveToEx(hdc, cx, b, nullptr); LineTo(hdc, cx - 3, b - 4);
+            MoveToEx(hdc, cx, b, nullptr); LineTo(hdc, cx + 3, b - 4);
+            MoveToEx(hdc, l, cy, nullptr); LineTo(hdc, l + 4, cy - 3);
+            MoveToEx(hdc, l, cy, nullptr); LineTo(hdc, l + 4, cy + 3);
+            MoveToEx(hdc, r, cy, nullptr); LineTo(hdc, r - 4, cy - 3);
+            MoveToEx(hdc, r, cy, nullptr); LineTo(hdc, r - 4, cy + 3);
+            break;
+        case W7T_CMD_SIZE:
+            MoveToEx(hdc, l + 2, b, nullptr); LineTo(hdc, r, t + 2);
+            MoveToEx(hdc, r, t + 2, nullptr); LineTo(hdc, r - 4, t + 6);
+            MoveToEx(hdc, r, t + 2, nullptr); LineTo(hdc, r - 6, t + 2);
+            MoveToEx(hdc, l + 2, b, nullptr); LineTo(hdc, l + 6, b - 4);
+            MoveToEx(hdc, l + 2, b, nullptr); LineTo(hdc, l + 2, b - 6);
+            break;
+        default:
+            break;
+    }
+    if (oldBr != nullptr) {
+        SelectObject(hdc, oldBr);
+    }
+    } catch (...) {
+    }
 }
 
 /* One REG_DWORD of the user's shell configuration (read-only; the
@@ -835,6 +909,37 @@ void JumpListWindow::Layout() {
     m_totalH = y + Sc(kPad96);
 }
 
+void JumpListWindow::WindowSizeForClient(int clientW, int clientH,
+                                         int& outW, int& outH) const {
+    outW = clientW;
+    outH = clientH;
+    try {
+        DWORD style = WS_POPUP | WS_THICKFRAME;
+        DWORD ex = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE;
+        if (m_hwnd != nullptr && IsWindow(m_hwnd)) {
+            style = static_cast<DWORD>(GetWindowLongPtrW(m_hwnd, GWL_STYLE));
+            ex = static_cast<DWORD>(GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE));
+        }
+        RECT r{ 0, 0, clientW, clientH };
+        if (AdjustWindowRectEx(&r, style, FALSE, ex) != FALSE) {
+            const int w = r.right - r.left;
+            const int h = r.bottom - r.top;
+            if (w > 0 && h > 0) {
+                outW = w;
+                outH = h;
+                return;
+            }
+        }
+        const int fx = GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+        const int fy = GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+        outW = clientW + (fx > 0 ? fx * 2 : 16);
+        outH = clientH + (fy > 0 ? fy * 2 : 16);
+    } catch (...) {
+        outW = clientW + 16;
+        outH = clientH + 16;
+    }
+}
+
 RECT JumpListWindow::RowRect(size_t index) const {
     if (index < m_rows.size()) return m_rows[index].rect;
     return RECT{ 0, 0, 0, 0 };
@@ -912,7 +1017,8 @@ void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge) {
             const int margin = Sc(kEdgeMargin96);
             const RECT wa = WorkAreaForButton();
 
-            const int w = m_width, h = m_totalH;
+            int w = m_width, h = m_totalH;
+            WindowSizeForClient(m_width, m_totalH, w, h);
             int x = button.left, y = button.top - h - gap;
             switch (edge) {
                 case kEdgeTop:    /* bar at the top: the list opens BELOW */
@@ -1097,10 +1203,12 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
         Layout();
 
         if (m_hwnd == nullptr) {
+            int createW = m_width, createH = m_totalH;
+            WindowSizeForClient(m_width, m_totalH, createW, createH);
             m_hwnd = CreateWindowExW(
                 WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
                 kClassName, L"", WS_POPUP,
-                0, 0, m_width, m_totalH,
+                0, 0, createW, createH,
                 nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
             if (m_hwnd == nullptr) {
                 LogTagged(L"JUMPLIST", L"CreateWindowExW failed err=%d",
@@ -1580,8 +1688,6 @@ void JumpListWindow::OnPaint(HWND hwnd) {
         }
 
         const int iconLeft = Sc(14);
-        /* Tasks share the document column (they carry no icon; the
-         * column keeps the text aligned). */
         const int textLeft = (isDoc || r.kind == Row::Task)
             ? iconLeft + Sc(kDocIcon96) + Sc(6)
             : (r.kind == Row::App
@@ -1594,9 +1700,24 @@ void JumpListWindow::OnPaint(HWND hwnd) {
         SetTextColor(hdc, (r.kind == Row::Pin) ? RGB(0x1E, 0x6F, 0xC9)
                                                 : RGB(0x1E, 0x1E, 0x1E));
         const RECT closeRect = CloseRect();
-        RECT tr{ textLeft, r.rect.top, client.right - margin, r.rect.bottom };
+        /* Lift labels a couple of device pixels so Aero chrome no longer
+         * clips the baseline. Window size already grew by the frame. */
+        const int lift = Sc(2);
+        RECT tr{ textLeft, r.rect.top - lift,
+                 client.right - margin, r.rect.bottom - lift };
         DrawTextW(hdc, r.label.c_str(), -1, &tr,
                   DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+
+        if (r.kind == Row::Task) {
+            const int box = Sc(kDocIcon96);
+            RECT glyph{
+                iconLeft,
+                r.rect.top + (Sc(kRowDoc96) - box) / 2 - lift,
+                iconLeft + box,
+                r.rect.top + (Sc(kRowDoc96) - box) / 2 - lift + box
+            };
+            DrawTaskGlyph(hdc, glyph, r.cmd);
+        }
 
         if (isDoc && r.icon.get() != nullptr) {
             const int box = Sc(kDocIcon96);

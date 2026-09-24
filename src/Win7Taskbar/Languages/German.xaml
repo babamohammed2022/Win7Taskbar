@@ -86,6 +86,8 @@
     <s:String x:Key="lang_sm_devices">Geräte und Drucker</s:String>
     <s:String x:Key="lang_sm_defaults">Standardprogramme</s:String>
     <s:String x:Key="lang_sm_help">Hilfe und Support</s:String>
+    <s:String x:Key="lang_sm_search_internet">Im Internet suchen</s:String>
+    <s:String x:Key="lang_sm_settings">Einstellungen</s:String>
     <s:String x:Key="lang_sm_user_placeholder">Benutzer</s:String>
     <s:String x:Key="lang_sm_tip_user">Öffnet den persönlichen Ordner dieses Kontos mit Dokumenten, Bildern und anderen Dateien.</s:String>
     <s:String x:Key="lang_sm_tip_documents">Öffnet die Dokumentenbibliothek mit Briefen, Notizen, Tabellen und ähnlichen Dateien.</s:String>

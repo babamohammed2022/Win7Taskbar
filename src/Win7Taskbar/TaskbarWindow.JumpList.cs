@@ -1130,11 +1130,11 @@ namespace Win7Taskbar
                     hwnd = rep.Hwnd;
                 }
 
-                // The Windows 7 popup shows the application name without
-                // the extension, taken from the executable, not from the
-                // button caption.
-                string title = group.AppId;
-                if (!string.IsNullOrEmpty(group.ExePath))
+                // Localized shell name (FileDescription / SHGFI_DISPLAYNAME),
+                // not AppId or "file explorer" from the .lnk file name.
+                string title = group.DisplayTitle;
+                if (string.IsNullOrWhiteSpace(title) &&
+                    !string.IsNullOrEmpty(group.ExePath))
                 {
                     try
                     {
@@ -1143,15 +1143,13 @@ namespace Win7Taskbar
                     }
                     catch (ArgumentException)
                     {
-                        title = group.DisplayTitle;
+                        title = group.AppId ?? string.Empty;
                     }
                 }
                 if (string.IsNullOrWhiteSpace(title))
                 {
-                    title = group.DisplayTitle;
+                    title = group.AppId ?? string.Empty;
                 }
-                // Never show a file extension: a pinned group can carry the
-                // shortcut file name ("file explorer.lnk") as its title.
                 title = StripShortcutExtension(title);
                 if (string.IsNullOrWhiteSpace(title))
                 {

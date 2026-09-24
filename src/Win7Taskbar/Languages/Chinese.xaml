@@ -86,6 +86,8 @@
     <s:String x:Key="lang_sm_devices">设备和打印机</s:String>
     <s:String x:Key="lang_sm_defaults">默认程序</s:String>
     <s:String x:Key="lang_sm_help">帮助和支持</s:String>
+    <s:String x:Key="lang_sm_search_internet">在 Internet 上搜索</s:String>
+    <s:String x:Key="lang_sm_settings">设置</s:String>
     <s:String x:Key="lang_sm_user_placeholder">用户</s:String>
     <s:String x:Key="lang_sm_tip_user">打开此帐户的个人文件夹，其中包含文档、图片和其他文件。</s:String>
     <s:String x:Key="lang_sm_tip_documents">打开文档库，用于存放信件、便笺、电子表格和类似文件。</s:String>

@@ -86,6 +86,8 @@
     <s:String x:Key="lang_sm_devices">Devices and Printers</s:String>
     <s:String x:Key="lang_sm_defaults">Default Programs</s:String>
     <s:String x:Key="lang_sm_help">Help and Support</s:String>
+    <s:String x:Key="lang_sm_search_internet">Search the Internet</s:String>
+    <s:String x:Key="lang_sm_settings">Settings</s:String>
     <s:String x:Key="lang_sm_user_placeholder">User</s:String>
     <s:String x:Key="lang_sm_tip_user">Opens the personal folder for this account, with your documents, pictures, and other files.</s:String>
     <s:String x:Key="lang_sm_tip_documents">Opens the Documents library, where you keep letters, notes, spreadsheets, and similar files.</s:String>

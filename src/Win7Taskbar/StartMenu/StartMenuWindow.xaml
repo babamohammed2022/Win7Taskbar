@@ -249,9 +249,13 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- Left pane: frame x 9-258, y 9-466 → 250x458. -->
-                    <Border x:Name="LeftPane" Grid.Column="0" Width="250" Height="458"
-                            Margin="8,8,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"
+                    <!-- Left pane stays in column 0 (250). Width=250 + Margin 8
+                         overflowed 8px into the glass column, so All Programs'
+                         Aero scrollbar sat in the second column. Stretch with
+                         a 2px right inset keeps the scrollbar in the white
+                         pane. Outer frame 411×476 is unchanged. -->
+                    <Border x:Name="LeftPane" Grid.Column="0" Height="458"
+                            Margin="8,8,2,0" HorizontalAlignment="Stretch" VerticalAlignment="Top"
                             BorderBrush="#90A0B4C8" BorderThickness="1"
                             Background="#FFFFFFFF" CornerRadius="2">
                         <Grid>
@@ -488,7 +492,7 @@
                                     <Grid>
                                         <Grid.Style>
                                             <Style TargetType="Grid">
-                                                <Setter Property="Height" Value="35"/>
+                                                <Setter Property="Height" Value="33.4"/>
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding IsSeparator}" Value="True">
                                                         <Setter Property="Height" Value="3"/>

@@ -86,6 +86,8 @@
     <s:String x:Key="lang_sm_devices">Dispositivos e Impressoras</s:String>
     <s:String x:Key="lang_sm_defaults">Programas Padrão</s:String>
     <s:String x:Key="lang_sm_help">Ajuda e Suporte</s:String>
+    <s:String x:Key="lang_sm_search_internet">Pesquisar na Internet</s:String>
+    <s:String x:Key="lang_sm_settings">Configurações</s:String>
     <s:String x:Key="lang_sm_user_placeholder">Usuário</s:String>
     <s:String x:Key="lang_sm_tip_user">Abre a pasta pessoal desta conta, com documentos, imagens e outros arquivos.</s:String>
     <s:String x:Key="lang_sm_tip_documents">Abre a biblioteca Documentos, onde você guarda cartas, notas, planilhas e arquivos semelhantes.</s:String>

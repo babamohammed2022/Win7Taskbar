@@ -182,6 +182,10 @@ private:
     void BuildRows();
     void Layout();
     void Place(HWND hwnd, const RECT& button, int32_t edge);
+    /* Client layout size → window size including the Aero WS_THICKFRAME
+     * chrome. Growing the HWND (not removing the border) is what keeps
+     * rows from being clipped by the flyout frame. */
+    void WindowSizeForClient(int clientW, int clientH, int& outW, int& outH) const;
     void UpdateInteractionArea();
     /* Work area of the monitor that hosts the button (Place clamps into
      * it; the fallback keeps the popup near its anchor when monitor info
