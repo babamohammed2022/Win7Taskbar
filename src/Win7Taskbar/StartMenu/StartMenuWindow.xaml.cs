@@ -219,7 +219,7 @@ namespace Win7Taskbar.StartMenu
             catch (Exception)
             {
             }
-            RestoreShutdownButtonChrome();
+            ApplySearchShutdownInk(false);
         }
 
         protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
@@ -984,7 +984,7 @@ namespace Win7Taskbar.StartMenu
                 RightList.BeginAnimation(OpacityProperty, null);
                 PhotoHost.BeginAnimation(OpacityProperty, null);
                 SearchShutWash.BeginAnimation(OpacityProperty, null);
-                RestoreShutdownButtonChrome();
+                ApplySearchShutdownInk(searching);
                 if (searching)
                 {
                     SearchHost.Visibility = Visibility.Visible;
@@ -1052,7 +1052,7 @@ namespace Win7Taskbar.StartMenu
                 PhotoHost.Opacity = searching ? 0 : 1;
                 PhotoHost.IsHitTestVisible = !searching;
                 SearchShutWash.Opacity = searching ? 1 : 0;
-                RestoreShutdownButtonChrome();
+                ApplySearchShutdownInk(searching);
             }
             catch (Exception)
             {
@@ -1060,29 +1060,56 @@ namespace Win7Taskbar.StartMenu
         }
 
         /// <summary>
-        /// Arresta keeps its Aero fill, borders and white caption in every
-        /// layout (including search). 1.3.15 wrote local Transparent values
-        /// that hid that chrome; ClearValue returns the XAML style.
+        /// 1.3.14 state: Aero fill always, white caption/arrow normally,
+        /// black during search. Only the outer 1px frame is redrawn in
+        /// search so it reads on the white wash (opaque same hue, not
+        /// Transparent and not ClearValue — that wiped the arrow Fill).
+        /// Size, gradient, hover and handlers stay untouched.
         /// </summary>
-        private void RestoreShutdownButtonChrome()
+        private void ApplySearchShutdownInk(bool searching)
         {
             try
             {
+                Brush ink = searching ? Brushes.Black : Brushes.White;
+                ShutdownLabel.Foreground = ink;
+                ShutdownArrowGlyph.Fill = ink;
+
                 ShutdownChrome.ClearValue(Border.BackgroundProperty);
                 ShutdownArrow.ClearValue(Border.BackgroundProperty);
-                ShutdownChrome.ClearValue(Border.BorderBrushProperty);
-                ShutdownArrow.ClearValue(Border.BorderBrushProperty);
-                ShutdownChrome.ClearValue(Border.BorderThicknessProperty);
-                ShutdownArrow.ClearValue(Border.BorderThicknessProperty);
-                ShutdownChromeInner.ClearValue(Border.BorderBrushProperty);
-                ShutdownArrowInner.ClearValue(Border.BorderBrushProperty);
-                ShutdownChromeInner.ClearValue(Border.BorderThicknessProperty);
-                ShutdownArrowInner.ClearValue(Border.BorderThicknessProperty);
-                ShutdownLabel.ClearValue(TextBlock.ForegroundProperty);
-                ShutdownArrowGlyph.ClearValue(System.Windows.Shapes.Path.FillProperty);
+
+                ShutdownChrome.BorderThickness = new Thickness(1, 1, 0, 1);
+                ShutdownArrow.BorderThickness = new Thickness(1);
+                ShutdownChromeInner.BorderThickness = new Thickness(1, 1, 0, 1);
+                ShutdownArrowInner.BorderThickness = new Thickness(1);
+
+                Brush outer = searching
+                    ? FreezeArgb(0xFF, 0x28, 0x4A, 0x78)
+                    : FreezeArgb(0xC0, 0x28, 0x4A, 0x78);
+                Brush inner = FreezeArgb(0x80, 0xFF, 0xFF, 0xFF);
+                ShutdownChrome.BorderBrush = outer;
+                ShutdownArrow.BorderBrush = outer;
+                ShutdownChromeInner.BorderBrush = inner;
+                ShutdownArrowInner.BorderBrush = inner;
             }
             catch (Exception)
             {
+            }
+        }
+
+        private static Brush FreezeArgb(byte a, byte r, byte g, byte b)
+        {
+            try
+            {
+                var brush = new SolidColorBrush(Color.FromArgb(a, r, g, b));
+                if (brush.CanFreeze)
+                {
+                    brush.Freeze();
+                }
+                return brush;
+            }
+            catch (Exception)
+            {
+                return Brushes.Transparent;
             }
         }
 

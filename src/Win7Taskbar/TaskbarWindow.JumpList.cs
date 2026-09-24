@@ -27,8 +27,8 @@
 //   while the drag is active (the button holds the mouse capture)
 //        -> every move updates the highlighted row (native SetHover).
 //           The popup NEVER moves: it stays at the canonical Windows 7
-//           position - directly above the button, left-aligned with its
-//           left edge, small gap - exactly where the shell opens the
+//           position - directly above the button, centered on the icon,
+//           small gap - exactly where the shell opens the
 //           jump view, and it keeps it for the whole gesture.
 //   TaskButton_PreviewMouseLeftButtonUp
 //        -> released ON A ROW -> the row activates and the list closes;

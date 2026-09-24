@@ -7,8 +7,8 @@
 //
 //   LEFT press + drag away from the bar (up for a bottom bar - the
 //   Windows 7 Superbar gesture). The popup opens at the canonical
-//   Windows 7 position - directly above the button, LEFT-ALIGNED with
-//   its left edge, small gap - and stays there for the whole gesture:
+//   Windows 7 position - directly above the button, CENTERED on the
+//   icon, small gap - and stays there for the whole gesture:
 //   the shell places the jump view next to the button it belongs to,
 //   not where the cursor wanders. While the drag owns the pointer,
 //   moves arrive as SCREEN PHYSICAL PIXELS through SetHover and the

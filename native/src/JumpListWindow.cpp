@@ -998,10 +998,9 @@ RECT JumpListWindow::WorkAreaForButton() const {
 /* Placement from the REAL taskbar button rectangle, per edge, clamped to
  * the work area of the monitor that hosts the button. This is the ONLY
  * placement rule: with the bar at the bottom the popup opens ABOVE the
- * button, left-aligned with its left edge and a small gap - exactly where
- * the Windows 7 shell opens the jump view - and it stays there for the
- * whole gesture (the cursor only moves the highlighted row). Gap and
- * margin are DPI-scaled; no unscaled offsets. */
+ * button, centered on the icon, small gap. Growing the HWND for Aero
+ * chrome without centering shifted the client to the right of the icon.
+ * Gap and margin are DPI-scaled; no unscaled offsets. */
 void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge) {
     /* Glue the popup to the Superbar button. The bar lives in the
      * monitor reserved strip, which sits *outside* rcWork; clamping the
@@ -1019,18 +1018,22 @@ void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge) {
 
             int w = m_width, h = m_totalH;
             WindowSizeForClient(m_width, m_totalH, w, h);
-            int x = button.left, y = button.top - h - gap;
+            const int btnW = button.right - button.left;
+            const int btnH = button.bottom - button.top;
+            int x = button.left + (btnW - w) / 2;
+            int y = button.top - h - gap;
             switch (edge) {
                 case kEdgeTop:    /* bar at the top: the list opens BELOW */
+                    x = button.left + (btnW - w) / 2;
                     y = button.bottom + gap;
                     break;
                 case kEdgeLeft:   /* vertical bar at the left: open to its right */
                     x = button.right + gap;
-                    y = button.top;
+                    y = button.top + (btnH - h) / 2;
                     break;
                 case kEdgeRight:  /* vertical bar at the right: open to its left */
                     x = button.left - w - gap;
-                    y = button.top;
+                    y = button.top + (btnH - h) / 2;
                     break;
                 case kEdgeBottom:
                 default:
