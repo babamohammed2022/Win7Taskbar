@@ -138,9 +138,9 @@ namespace Win7Taskbar.StartMenu
                 return;
             }
             SendMessage(_hwnd, TTM_SETMAXTIPWIDTH, IntPtr.Zero, (IntPtr)300);
-            SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_INITIAL, (IntPtr)1200);
+            SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_INITIAL, (IntPtr)500);
             SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_AUTOPOP, (IntPtr)10000);
-            SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_RESHOW, (IntPtr)400);
+            SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_RESHOW, (IntPtr)100);
         }
 
         private TOOLINFOW MakeInfo(string text)
@@ -153,6 +153,11 @@ namespace Win7Taskbar.StartMenu
                 uId = _owner,
                 lpszText = text ?? string.Empty
             };
+        }
+
+        private static IntPtr PackPoint(int x, int y)
+        {
+            return (IntPtr)(unchecked((uint)(ushort)x) | (unchecked((uint)(ushort)y) << 16));
         }
 
         [StructLayout(LayoutKind.Sequential)]

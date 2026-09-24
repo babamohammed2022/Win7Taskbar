@@ -3,12 +3,11 @@
 // Licensed under the GNU General Public License version 3 or later.
 // Written from scratch. Gradients only — no Microsoft bitmaps.
 //
-// Chrome tint uses DwmGetColorizationColor. Blur: documented
-// DwmEnableBlurBehindWindow (region = frame + photo) plus the same
-// undocumented SetWindowCompositionAttribute path as native/src/AeroGlass.h
-// (ACCENT_ENABLE_BLURBEHIND). Region-only DWM blur is a no-op on Win10/11
-// layered WPF windows; accent restores the glass. SetWindowRgn keeps the
-// 25 DIP strip above the frame from frosting the desktop.
+// Transparency: system colorization through the chrome (see-through right
+// pane). No DwmExtend(-1) and no ACCENT_ENABLE_BLURBEHIND — those were the
+// wrong blur (haze above the menu / Win10 frost). SetWindowRgn keeps the
+// 25 DIP strip out of the HWND. Undocumented SetWindowCompositionAttribute
+// uses ACCENT_ENABLE_TRANSPARENTGRADIENT (tinted, not blurred).
 
 using System;
 using System.ComponentModel;
@@ -22,6 +21,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Win7Taskbar.Interop;
 
@@ -66,6 +66,7 @@ namespace Win7Taskbar.StartMenu
         private bool _glassApplied;
         private DispatcherTimer? _crossfadeTimer;
         private DispatcherTimer? _infotipTimer;
+        private int _fadeGeneration;
         private bool _showingUserPhoto = true;
         private bool _searchLayoutOpen;
         private Point _dragOrigin;
@@ -149,6 +150,7 @@ namespace Win7Taskbar.StartMenu
                 try { _clickAway.Start(); } catch (Exception) { }
                 SearchBox.Focus();
                 Keyboard.Focus(SearchBox);
+                StartMenuHost.NotifyVisible(true);
             }
             catch (Exception)
             {
@@ -168,6 +170,7 @@ namespace Win7Taskbar.StartMenu
             _vm.SearchText = string.Empty;
             Topmost = false;
             Hide();
+            StartMenuHost.NotifyVisible(false);
         }
 
         internal void FocusSearch()
@@ -430,7 +433,7 @@ namespace Win7Taskbar.StartMenu
                 _infotipOwner = new WindowInteropHelper(this).Handle;
                 _infotipTitle = item.Name;
                 _infotipText = item.Infotip;
-                _infotipTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+                _infotipTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
                 _infotipTimer.Tick += OnInfotipDelayElapsed;
                 _infotipTimer.Start();
             }
@@ -448,6 +451,11 @@ namespace Win7Taskbar.StartMenu
                     _infotipTimer.Stop();
                     _infotipTimer.Tick -= OnInfotipDelayElapsed;
                     _infotipTimer = null;
+                }
+                if (NativeMethods.GetCursorPos(out NativeMethods.POINT cursor))
+                {
+                    _infotipX = cursor.x;
+                    _infotipY = cursor.y;
                 }
                 _infotip.Show(_infotipOwner, _infotipTitle, _infotipText, _infotipX, _infotipY);
             }
@@ -481,22 +489,43 @@ namespace Win7Taskbar.StartMenu
         {
             try
             {
+                if (ReferenceEquals(IconOld.Source, newIcon) &&
+                    IconOld.Opacity >= 0.95 && IconNew.Opacity <= 0.05)
+                {
+                    return;
+                }
+                if (newIcon is BitmapSource bitmap && bitmap.CanFreeze && !bitmap.IsFrozen)
+                {
+                    try { bitmap.Freeze(); } catch (Exception) { }
+                }
                 IconNew.BeginAnimation(OpacityProperty, null);
                 IconOld.BeginAnimation(OpacityProperty, null);
                 IconNew.Source = newIcon;
                 IconNew.Opacity = 0;
-                var fadeOut = new DoubleAnimation(1, 0, duration);
-                var fadeIn = new DoubleAnimation(0, 1, duration);
+                var fadeOut = new DoubleAnimation(1, 0, duration)
+                {
+                    FillBehavior = FillBehavior.HoldEnd
+                };
+                var fadeIn = new DoubleAnimation(0, 1, duration)
+                {
+                    FillBehavior = FillBehavior.HoldEnd
+                };
+                int gen = ++_fadeGeneration;
+                fadeIn.Completed += (_, _) =>
+                {
+                    if (gen == _fadeGeneration)
+                    {
+                        OnCrossfadeDone(null, EventArgs.Empty);
+                    }
+                };
                 IconOld.BeginAnimation(OpacityProperty, fadeOut);
                 IconNew.BeginAnimation(OpacityProperty, fadeIn);
                 if (_crossfadeTimer != null)
                 {
                     _crossfadeTimer.Stop();
                     _crossfadeTimer.Tick -= OnCrossfadeDone;
+                    _crossfadeTimer = null;
                 }
-                _crossfadeTimer = new DispatcherTimer { Interval = duration };
-                _crossfadeTimer.Tick += OnCrossfadeDone;
-                _crossfadeTimer.Start();
             }
             catch (Exception)
             {
@@ -680,7 +709,7 @@ namespace Win7Taskbar.StartMenu
         private void ClipVisibleChrome()
         {
             IntPtr chrome = IntPtr.Zero, photo = IntPtr.Zero;
-            IntPtr windowRgn = IntPtr.Zero, blurRgn = IntPtr.Zero;
+            IntPtr windowRgn = IntPtr.Zero;
             try
             {
                 IntPtr hwnd = new WindowInteropHelper(this).Handle;
@@ -717,23 +746,8 @@ namespace Win7Taskbar.StartMenu
                     windowRgn = IntPtr.Zero;
                 }
 
-                blurRgn = CreateRectRgn(0, 0, 0, 0);
-                CombineRgn(blurRgn, chrome, photo, RGN_OR);
-                var bb = new DWM_BLURBEHIND
-                {
-                    dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION,
-                    fEnable = true,
-                    hRgnBlur = blurRgn,
-                    fTransitionOnMaximized = false
-                };
-                if (DwmEnableBlurBehindWindow(hwnd, ref bb) == 0)
-                {
-                    _glassApplied = true;
-                }
-
-                /* After SetWindowRgn so the 25 DIP strip is not part of the
-                 * HWND. Undocumented SetWindowCompositionAttribute — flagged.
-                 * Win10/11 ignore DwmEnableBlurBehindWindow on layered WPF. */
+                /* No DwmEnableBlurBehindWindow / DwmExtend(-1) / BLURBEHIND:
+                 * those were the wrong frost. Tint without blur. */
                 ApplyAccentGlass(hwnd);
             }
             catch (Exception)
@@ -744,7 +758,6 @@ namespace Win7Taskbar.StartMenu
             {
                 SafeDeleteGdi(ref chrome);
                 SafeDeleteGdi(ref photo);
-                SafeDeleteGdi(ref blurRgn);
                 SafeDeleteGdi(ref windowRgn);
             }
         }
@@ -899,8 +912,9 @@ namespace Win7Taskbar.StartMenu
 
         /// <summary>
         /// Undocumented user32!SetWindowCompositionAttribute (WCA_ACCENT_POLICY
-        /// / ACCENT_ENABLE_BLURBEHIND). Same recipe as AeroGlass::EnableGlass
-        /// on the overflow flyout. Flagged because it is not a public API.
+        /// / ACCENT_ENABLE_TRANSPARENTGRADIENT). Tinted see-through, no blur.
+        /// Flagged because it is not a public API. DwmExtend and
+        /// DwmEnableBlurBehindWindow DllImports remain; they are not called.
         /// </summary>
         private void ApplyAccentGlass(IntPtr hwnd)
         {
@@ -910,15 +924,6 @@ namespace Win7Taskbar.StartMenu
             }
             try
             {
-                var margins = new MARGINS
-                {
-                    cxLeftWidth = -1,
-                    cxRightWidth = -1,
-                    cyTopHeight = -1,
-                    cyBottomHeight = -1
-                };
-                DwmExtendFrameIntoClientArea(hwnd, ref margins);
-
                 uint colorization = 0x00A8C8E0;
                 bool opaque = false;
                 try
@@ -937,7 +942,7 @@ namespace Win7Taskbar.StartMenu
 
                 var accent = new ACCENT_POLICY
                 {
-                    AccentState = 3, /* ACCENT_ENABLE_BLURBEHIND */
+                    AccentState = 2, /* ACCENT_ENABLE_TRANSPARENTGRADIENT */
                     AccentFlags = 0,
                     GradientColor = gradientColor,
                     AnimationId = 0

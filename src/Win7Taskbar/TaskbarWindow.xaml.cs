@@ -441,6 +441,7 @@ namespace Win7Taskbar
                 // Start menu monitor for 3-state start button (idle/hover/pressed)
                 _startMenuMonitor = new StartMenuMonitor();
                 _startMenuMonitor.StartMenuVisibilityChanged += OnStartMenuVisibilityChanged;
+                Win7Taskbar.StartMenu.StartMenuHost.MenuVisibilityChanged += OnOurStartMenuVisibility;
             });
 
             RunStage("pulsanti-superbar", () =>
@@ -1615,6 +1616,13 @@ namespace Win7Taskbar
                 _viewModel.NotificationArea.ClearBalloonPromotions();
             }
             _globalMouseHook?.Dispose();
+            try
+            {
+                Win7Taskbar.StartMenu.StartMenuHost.MenuVisibilityChanged -= OnOurStartMenuVisibility;
+            }
+            catch (Exception)
+            {
+            }
             _startMenuMonitor?.Dispose();
             _batteryMonitor?.Dispose();
             ShutdownTaskbar();
@@ -2925,7 +2933,10 @@ namespace Win7Taskbar
                 {
                     if (StartButton != null)
                     {
-                        StartButton.IsChecked = _startMenuMonitor?.IsPressed == true;
+                        bool our = RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu;
+                        StartButton.IsChecked = our
+                            ? Win7Taskbar.StartMenu.StartMenuHost.IsVisible
+                            : _startMenuMonitor?.IsPressed == true;
                     }
                     return;
                 }
@@ -2948,7 +2959,6 @@ namespace Win7Taskbar
                     {
                         Win7Taskbar.StartMenu.StartMenuHost.Show();
                         toggle.IsChecked = true;
-                        _startMenuMonitor?.NotifyStartMenuOpened();
                     }
                     StartTaskbarGuard();
                     return;
@@ -3099,6 +3109,13 @@ namespace Win7Taskbar
         {
             _startMenuEventSeq++;
 
+            if (RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu)
+            {
+                /* Our Start Menu drives the orb. Native Start HWNDs (and
+                 * context menus stealing foreground) must not flip it. */
+                return;
+            }
+
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (StartButton != null)
@@ -3106,6 +3123,23 @@ namespace Win7Taskbar
                     StartButton.IsChecked = e.Visible;
                 }
             }));
+        }
+
+        private void OnOurStartMenuVisibility(bool visible)
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (StartButton != null)
+                    {
+                        StartButton.IsChecked = visible;
+                    }
+                }));
+            }
+            catch (Exception)
+            {
+            }
         }
 
         // Guard against Explorer taskbar reappearing

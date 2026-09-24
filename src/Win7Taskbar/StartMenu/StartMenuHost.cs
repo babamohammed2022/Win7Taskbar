@@ -39,6 +39,13 @@ namespace Win7Taskbar.StartMenu
         private static Rect _orbRect;
         private static int _anchorValid;
 
+        /// <summary>
+        /// Fired on the Start Menu STA after show/hide. The taskbar uses this
+        /// to keep the orb pressed while OUR menu is open (the native Start
+        /// monitor must not steal that state).
+        /// </summary>
+        internal static event Action<bool>? MenuVisibilityChanged;
+
         public static bool IsVisible
         {
             get
@@ -215,6 +222,17 @@ namespace Win7Taskbar.StartMenu
             }
             w.PresentAbove(bar, orb);
             w.FocusSearch();
+        }
+
+        internal static void NotifyVisible(bool visible)
+        {
+            try
+            {
+                MenuVisibilityChanged?.Invoke(visible);
+            }
+            catch (Exception)
+            {
+            }
         }
 
         private static void WinKeyWaitLoop()
