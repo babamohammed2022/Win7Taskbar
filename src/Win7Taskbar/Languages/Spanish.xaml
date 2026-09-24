@@ -55,10 +55,6 @@
     <s:String x:Key="lang_icon_order_drag_hint">Suelta para cambiar el orden</s:String>
     <!-- Start Menu (1.3.9) -->
     <s:String x:Key="lang_sm_search">Buscar programas y archivos</s:String>
-    <!-- v3.9: search section headers / actions (Open-Shell style). -->
-    <s:String x:Key="lang_sm_sec_programs">Programas</s:String>
-    <s:String x:Key="lang_sm_sec_files">Archivos</s:String>
-    <s:String x:Key="lang_sm_see_more">Ver más resultados</s:String>
     <s:String x:Key="lang_sm_all_programs">Todos los programas</s:String>
     <s:String x:Key="lang_sm_back">Atrás</s:String>
     <s:String x:Key="lang_sm_shutdown">Apagar</s:String>

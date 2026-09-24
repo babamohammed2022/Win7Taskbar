@@ -55,10 +55,6 @@
     <s:String x:Key="lang_icon_order_drag_hint">Отпустите, чтобы изменить порядок</s:String>
     <!-- Start Menu (1.3.9) -->
     <s:String x:Key="lang_sm_search">Найти программы и файлы</s:String>
-    <!-- v3.9: search section headers / actions (Open-Shell style). -->
-    <s:String x:Key="lang_sm_sec_programs">Программы</s:String>
-    <s:String x:Key="lang_sm_sec_files">Файлы</s:String>
-    <s:String x:Key="lang_sm_see_more">Показать больше результатов</s:String>
     <s:String x:Key="lang_sm_all_programs">Все программы</s:String>
     <s:String x:Key="lang_sm_back">Назад</s:String>
     <s:String x:Key="lang_sm_shutdown">Завершение работы</s:String>

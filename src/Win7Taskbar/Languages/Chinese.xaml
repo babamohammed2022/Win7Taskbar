@@ -55,10 +55,6 @@
     <s:String x:Key="lang_icon_order_drag_hint">松开以更改顺序</s:String>
     <!-- Start Menu (1.3.9) -->
     <s:String x:Key="lang_sm_search">搜索程序和文件</s:String>
-    <!-- v3.9: search section headers / actions (Open-Shell style). -->
-    <s:String x:Key="lang_sm_sec_programs">程序</s:String>
-    <s:String x:Key="lang_sm_sec_files">文件</s:String>
-    <s:String x:Key="lang_sm_see_more">查看更多结果</s:String>
     <s:String x:Key="lang_sm_all_programs">所有程序</s:String>
     <s:String x:Key="lang_sm_back">返回</s:String>
     <s:String x:Key="lang_sm_shutdown">关机</s:String>
