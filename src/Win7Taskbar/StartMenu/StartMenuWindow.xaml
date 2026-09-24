@@ -237,20 +237,20 @@
                 BorderBrush="#C06A8BB0">
             <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                    <GradientStop Color="#E8B8D4EC" Offset="0"/>
-                    <GradientStop Color="#D07098B8" Offset="0.45"/>
-                    <GradientStop Color="#C0587898" Offset="1"/>
+                    <GradientStop Color="#90B8D4EC" Offset="0"/>
+                    <GradientStop Color="#607098B8" Offset="0.45"/>
+                    <GradientStop Color="#50587898" Offset="1"/>
                 </LinearGradientBrush>
             </Border.Background>
             <Border CornerRadius="7,7,0,0" BorderThickness="1" BorderBrush="#90FFFFFF" Margin="1">
-                <Grid>
+                <Grid x:Name="PaneGrid">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="250"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
                     <!-- Left pane: frame x 9-258, y 9-466 → 250x458. -->
-                    <Border Grid.Column="0" Width="250" Height="458"
+                    <Border x:Name="LeftPane" Grid.Column="0" Width="250" Height="458"
                             Margin="8,8,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"
                             BorderBrush="#90A0B4C8" BorderThickness="1"
                             Background="#FFFFFFFF" CornerRadius="2">
@@ -333,31 +333,10 @@
                                                 </Grid.Style>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="Auto"/>
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="16"/>
                                                 </Grid.ColumnDefinitions>
-                                                <Path Fill="#3A5068"
-                                                      VerticalAlignment="Center" HorizontalAlignment="Center"
-                                                      Stretch="Uniform" Width="6" Height="8" Margin="2,0,4,0">
-                                                    <Path.Style>
-                                                        <Style TargetType="Path">
-                                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                                            <Setter Property="Data" Value="M0,0 L6,4 L0,8 Z"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsFolder}" Value="True">
-                                                                    <Setter Property="Visibility" Value="Visible"/>
-                                                                </DataTrigger>
-                                                                <DataTrigger Binding="{Binding IsExpanded}" Value="True">
-                                                                    <Setter Property="Data" Value="M0,0 L8,0 L4,6 Z"/>
-                                                                    <Setter Property="Width" Value="8"/>
-                                                                    <Setter Property="Height" Value="6"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Path.Style>
-                                                </Path>
-                                                <Image Grid.Column="1" Source="{Binding Icon}"
+                                                <Image Grid.Column="0" Source="{Binding Icon}"
                                                        HorizontalAlignment="Left" VerticalAlignment="Center"
                                                        Margin="0,0,0,0"
                                                        RenderOptions.BitmapScalingMode="HighQuality">
@@ -374,44 +353,14 @@
                                                         </Style>
                                                     </Image.Style>
                                                 </Image>
-                                                <TextBlock Grid.Column="2" Text="{Binding Name}"
+                                                <TextBlock Grid.Column="1" Text="{Binding Name}"
                                                            VerticalAlignment="Center" Margin="8,0,4,0"
                                                            FontSize="12" Foreground="#1A1A1A"
                                                            TextTrimming="CharacterEllipsis"/>
-                                                <Path Grid.Column="3" Data="M0,0 L5,4 L0,8 Z" Fill="#3A5068"
+                                                <Path Grid.Column="2" Data="M0,0 L5,4 L0,8 Z" Fill="#3A5068"
                                                       VerticalAlignment="Center" HorizontalAlignment="Center"
                                                       Visibility="{Binding JumpVisibility}"/>
                                             </Grid>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-
-                            <ListBox x:Name="SearchList" Grid.Row="0"
-                                     ItemsSource="{Binding SearchHits}"
-                                     BorderThickness="0"
-                                     Background="Transparent"
-                                     Padding="2,4"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                     VirtualizingPanel.IsVirtualizing="True"
-                                     VirtualizingPanel.VirtualizationMode="Recycling"
-                                     ItemContainerStyle="{StaticResource LeftRowStyle}"
-                                     Visibility="{Binding IsSearching, Converter={StaticResource BoolToVis}}">
-                                <ListBox.Resources>
-                                    <Style TargetType="ScrollBar" BasedOn="{StaticResource AeroScrollBar}"/>
-                                </ListBox.Resources>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid Height="28">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="28"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Image Source="{Binding Icon}" Width="16" Height="16"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding Name}"
-                                                       VerticalAlignment="Center" Margin="4,0"
-                                                       TextTrimming="CharacterEllipsis"/>
                                         </Grid>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
@@ -503,15 +452,17 @@
                                                      Padding="6,0,22,0"
                                                      FontSize="12"
                                                      Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
-                                            <!-- Circle on the left, handle pointing RIGHT. -->
+                                            <!-- Drawn from scratch: circle on the LEFT, handle
+                                                 down-RIGHT (Win7 search glyph tilt). -->
                                             <Canvas Width="16" Height="16" HorizontalAlignment="Right"
-                                                    VerticalAlignment="Center" Margin="0,0,2,0"
+                                                    VerticalAlignment="Center" Margin="0,0,3,0"
                                                     IsHitTestVisible="False">
-                                                <Ellipse Canvas.Left="0" Canvas.Top="3.2"
-                                                         Width="8.6" Height="8.6"
-                                                         Stroke="#1A73C7" StrokeThickness="1.7"/>
-                                                <Path Data="M8.0,10.2 L15.4,14.8"
-                                                      Stroke="#1A73C7" StrokeThickness="2"
+                                                <Ellipse Canvas.Left="0.5" Canvas.Top="0.3"
+                                                         Width="9.2" Height="9.2"
+                                                         Stroke="#1473C4" StrokeThickness="1.9"
+                                                         Fill="#00000000"/>
+                                                <Line X1="8.7" Y1="8.5" X2="15.1" Y2="14.7"
+                                                      Stroke="#1473C4" StrokeThickness="2.2"
                                                       StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
                                             </Canvas>
                                         </Grid>
@@ -522,7 +473,7 @@
                     </Border>
 
                     <!-- Right column from x=259. No inner frosted rectangle. -->
-                    <Grid Grid.Column="1">
+                    <Grid x:Name="RightPane" Grid.Column="1">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="424"/>
                             <RowDefinition Height="43"/>
@@ -658,6 +609,45 @@
                             </Border>
                         </StackPanel>
                     </Grid>
+
+                    <!-- Full-width search overlay. Outer frame stays 411x476.
+                         Inspired by Win7 / Open-Shell search bitmap (full
+                         white pane); not copied from EJSnow's unlicensed skin. -->
+                    <Border x:Name="SearchHost" Grid.Column="0" Grid.ColumnSpan="2"
+                            Margin="8,8,8,0" Height="415" VerticalAlignment="Top"
+                            Background="#FFFFFFFF" BorderBrush="#90A0B4C8"
+                            BorderThickness="1" CornerRadius="2"
+                            Opacity="0" Visibility="Collapsed"
+                            IsHitTestVisible="False">
+                        <ListBox x:Name="SearchList"
+                                 ItemsSource="{Binding SearchHits}"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 Padding="2,4"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 VirtualizingPanel.IsVirtualizing="True"
+                                 VirtualizingPanel.VirtualizationMode="Recycling"
+                                 ItemContainerStyle="{StaticResource LeftRowStyle}">
+                            <ListBox.Resources>
+                                <Style TargetType="ScrollBar" BasedOn="{StaticResource AeroScrollBar}"/>
+                            </ListBox.Resources>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Height="28">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="28"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Image Source="{Binding Icon}" Width="16" Height="16"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                                   VerticalAlignment="Center" Margin="4,0"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
                 </Grid>
             </Border>
         </Border>

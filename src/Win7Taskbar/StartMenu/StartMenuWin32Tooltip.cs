@@ -138,9 +138,9 @@ namespace Win7Taskbar.StartMenu
                 return;
             }
             SendMessage(_hwnd, TTM_SETMAXTIPWIDTH, IntPtr.Zero, (IntPtr)300);
-            SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_INITIAL, (IntPtr)400);
+            SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_INITIAL, (IntPtr)1200);
             SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_AUTOPOP, (IntPtr)10000);
-            SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_RESHOW, (IntPtr)200);
+            SendMessage(_hwnd, TTM_SETDELAYTIME, (IntPtr)TTDT_RESHOW, (IntPtr)400);
         }
 
         private TOOLINFOW MakeInfo(string text)

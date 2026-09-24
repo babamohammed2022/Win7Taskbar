@@ -81,6 +81,26 @@ std::wstring ShellDisplayName(const std::wstring& path, const std::wstring& fall
     return fallback;
 }
 
+bool ShortcutTargetDead(const std::wstring& target) {
+    if (target.empty()) {
+        return false; /* shell-namespace shortcut */
+    }
+    if (_wcsnicmp(target.c_str(), L"shell:", 6) == 0) {
+        return false;
+    }
+    if (wcsncmp(target.c_str(), L"::{", 3) == 0) {
+        return false;
+    }
+    if (wcsstr(target.c_str(), L"AppsFolder") != nullptr) {
+        return false;
+    }
+    wchar_t expanded[32768] = {};
+    const DWORD n = ExpandEnvironmentStringsW(target.c_str(), expanded,
+                                              static_cast<DWORD>(32768));
+    const wchar_t* check = (n > 0 && n <= 32768) ? expanded : target.c_str();
+    return GetFileAttributesW(check) == INVALID_FILE_ATTRIBUTES;
+}
+
 std::wstring ResolveShortcut(const std::wstring& lnk) {
     IShellLinkW* link = nullptr;
     HRESULT hr = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
@@ -158,6 +178,9 @@ void WalkDirectory(const std::wstring& root, const std::wstring& relative,
         app.source = source;
         if (ext == L".lnk") {
             app.target = ResolveShortcut(full);
+            if (ShortcutTargetDead(app.target)) {
+                continue;
+            }
         }
         out.push_back(std::move(app));
     } while (FindNextFileW(find, &fd));

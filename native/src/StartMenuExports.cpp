@@ -84,21 +84,31 @@ bool HasJumpListFor(const wchar_t* path) {
     return count > 0;
 }
 
-std::wstring PercentEncode(const std::wstring& s) {
+std::wstring PercentEncodeUtf8(const std::wstring& s) {
+    if (s.empty()) {
+        return {};
+    }
+    int n = WideCharToMultiByte(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()),
+                                nullptr, 0, nullptr, nullptr);
+    if (n <= 0) {
+        return {};
+    }
+    std::string utf8(static_cast<std::size_t>(n), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()),
+                        utf8.data(), n, nullptr, nullptr);
     std::wstring o;
-    o.reserve(s.size() * 3);
-    for (wchar_t c : s) {
-        if ((c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z') ||
-            (c >= L'0' && c <= L'9') || c == L'-' || c == L'_' || c == L'.') {
-            o.push_back(c);
-        } else if (c == L' ') {
+    o.reserve(static_cast<std::size_t>(n) * 3);
+    static const wchar_t kHex[] = L"0123456789ABCDEF";
+    for (unsigned char c : utf8) {
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
+            o.push_back(static_cast<wchar_t>(c));
+        } else if (c == ' ') {
             o.push_back(L'+');
         } else {
-            static const wchar_t kHex[] = L"0123456789ABCDEF";
-            const unsigned v = static_cast<unsigned>(c) & 0xFFu;
             o.push_back(L'%');
-            o.push_back(kHex[v >> 4]);
-            o.push_back(kHex[v & 0x0F]);
+            o.push_back(kHex[c >> 4]);
+            o.push_back(kHex[c & 0x0F]);
         }
     }
     return o;
@@ -118,39 +128,46 @@ void FileSearchWorker(std::wstring query, uint32_t generation) {
     }
 
     /* Documented Windows Search via the search-ms: shell namespace
-     * (SHCreateItemFromParsingName). Cancellation is the generation
-     * counter. If the catalog is missing we return no file hits. */
-    const std::wstring uri =
-        L"search-ms:query=" + PercentEncode(query) + L"&crumb=kind:file";
-    IShellItem* folder = nullptr;
-    HRESULT hr = SHCreateItemFromParsingName(uri.c_str(), nullptr,
-                                             IID_IShellItem,
-                                             reinterpret_cast<void**>(&folder));
-    if (SUCCEEDED(hr) && folder) {
-        IEnumShellItems* enumerator = nullptr;
-        hr = folder->BindToHandler(nullptr, BHID_EnumItems, IID_IEnumShellItems,
-                                   reinterpret_cast<void**>(&enumerator));
-        folder->Release();
-        if (SUCCEEDED(hr) && enumerator) {
-            IShellItem* item = nullptr;
-            while (hits.size() < 32 &&
-                   enumerator->Next(1, &item, nullptr) == S_OK && item) {
-                if (g_fileSearchGeneration.load(std::memory_order_acquire) !=
-                    generation) {
+     * (SHCreateItemFromParsingName). Only keep hits with a live
+     * filesystem path. Cancellation is the generation counter. */
+    try {
+        const std::wstring uri =
+            L"search-ms:query=" + PercentEncodeUtf8(query) + L"&crumb=kind:file";
+        IShellItem* folder = nullptr;
+        HRESULT hr = SHCreateItemFromParsingName(uri.c_str(), nullptr,
+                                                 IID_IShellItem,
+                                                 reinterpret_cast<void**>(&folder));
+        if (SUCCEEDED(hr) && folder) {
+            IEnumShellItems* enumerator = nullptr;
+            hr = folder->BindToHandler(nullptr, BHID_EnumItems, IID_IEnumShellItems,
+                                       reinterpret_cast<void**>(&enumerator));
+            folder->Release();
+            if (SUCCEEDED(hr) && enumerator) {
+                IShellItem* item = nullptr;
+                while (hits.size() < 32 &&
+                       enumerator->Next(1, &item, nullptr) == S_OK && item) {
+                    if (g_fileSearchGeneration.load(std::memory_order_acquire) !=
+                        generation) {
+                        item->Release();
+                        break;
+                    }
+                    PWSTR path = nullptr;
+                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) &&
+                        path) {
+                        if (path[0] != L'\0' &&
+                            GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES) {
+                            hits.emplace_back(path);
+                        }
+                        CoTaskMemFree(path);
+                    }
                     item->Release();
-                    break;
+                    item = nullptr;
                 }
-                PWSTR name = nullptr;
-                if (SUCCEEDED(item->GetDisplayName(SIGDN_NORMALDISPLAY, &name)) &&
-                    name) {
-                    hits.emplace_back(name);
-                    CoTaskMemFree(name);
-                }
-                item->Release();
-                item = nullptr;
+                enumerator->Release();
             }
-            enumerator->Release();
         }
+    } catch (...) {
+        hits.clear();
     }
 
     if (needUninit) {

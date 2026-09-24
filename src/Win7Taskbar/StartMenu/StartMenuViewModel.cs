@@ -644,7 +644,13 @@ namespace Win7Taskbar.StartMenu
                 {
                     continue;
                 }
-                SearchHits.Add(FromEntry(_catalog[index]));
+                NativeMethods.W7TStartMenuEntry entry = _catalog[index];
+                if (string.IsNullOrWhiteSpace(entry.Path) &&
+                    string.IsNullOrWhiteSpace(entry.Target))
+                {
+                    continue;
+                }
+                SearchHits.Add(FromEntry(entry));
             }
             if (_bridge.StartMenuFileSearchStart(_searchText))
             {
@@ -671,10 +677,29 @@ namespace Win7Taskbar.StartMenu
                     continue;
                 }
                 string hit = line.Trim();
+                if (hit.IndexOfAny(new[] { '\\', '/' }) < 0)
+                {
+                    continue;
+                }
+                bool duplicate = false;
+                foreach (StartMenuItem existing in SearchHits)
+                {
+                    if (string.Equals(existing.Path, hit, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(existing.Target, hit, StringComparison.OrdinalIgnoreCase))
+                    {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (duplicate)
+                {
+                    continue;
+                }
                 SearchHits.Add(new StartMenuItem
                 {
                     Name = StartMenuStore.ShellDisplayName(hit, Path.GetFileName(hit) ?? hit),
                     Path = hit,
+                    Target = hit,
                     Icon = LoadIcon(hit, hit)
                 });
             }

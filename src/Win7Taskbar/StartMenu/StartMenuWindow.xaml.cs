@@ -3,10 +3,15 @@
 // Licensed under the GNU General Public License version 3 or later.
 // Written from scratch. Gradients only — no Microsoft bitmaps.
 //
-// Chrome tint uses DwmGetColorizationColor. Blur is documented
-// DwmEnableBlurBehindWindow with a GDI region (frame + photo only).
+// Chrome tint uses DwmGetColorizationColor. Blur: documented
+// DwmEnableBlurBehindWindow (region = frame + photo) plus the same
+// undocumented SetWindowCompositionAttribute path as native/src/AeroGlass.h
+// (ACCENT_ENABLE_BLURBEHIND). Region-only DWM blur is a no-op on Win10/11
+// layered WPF windows; accent restores the glass. SetWindowRgn keeps the
+// 25 DIP strip above the frame from frosting the desktop.
 
 using System;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -60,9 +65,16 @@ namespace Win7Taskbar.StartMenu
         private bool _suppressDeactivate;
         private bool _glassApplied;
         private DispatcherTimer? _crossfadeTimer;
+        private DispatcherTimer? _infotipTimer;
         private bool _showingUserPhoto = true;
+        private bool _searchLayoutOpen;
         private Point _dragOrigin;
         private bool _dragArmed;
+        private IntPtr _infotipOwner;
+        private string? _infotipTitle;
+        private string? _infotipText;
+        private int _infotipX;
+        private int _infotipY;
 
         internal StartMenuWindow(NativeBridge bridge)
         {
@@ -70,6 +82,7 @@ namespace Win7Taskbar.StartMenu
             _bridge = bridge;
             _vm = new StartMenuViewModel(bridge, Dispatcher);
             DataContext = _vm;
+            _vm.PropertyChanged += OnViewModelPropertyChanged;
             Visibility = Visibility.Hidden;
             _clickAway = new StartMenuClickAway(Dispatcher,
                 () => new WindowInteropHelper(this).Handle,
@@ -151,7 +164,7 @@ namespace Win7Taskbar.StartMenu
         internal void Dismiss()
         {
             try { _clickAway.Stop(); } catch (Exception) { }
-            try { _infotip.Hide(); } catch (Exception) { }
+            CancelInfotip();
             _vm.SearchText = string.Empty;
             Topmost = false;
             Hide();
@@ -184,10 +197,9 @@ namespace Win7Taskbar.StartMenu
         }
 
         /// <summary>
-        /// Tints Chrome with the system color. Blur is applied later in
-        /// ClipVisibleChrome via documented DwmEnableBlurBehindWindow and a
-        /// GDI region (frame + photo only), so the 25 DIP strip above the
-        /// frame does not frost desktop icons.
+        /// Tints Chrome with a light wash of the system color so DWM glass
+        /// shows through the right pane. Blur itself is applied in
+        /// ClipVisibleChrome after SetWindowRgn.
         /// </summary>
         private void TryEnableAeroGlass(IntPtr hwnd)
         {
@@ -213,8 +225,8 @@ namespace Win7Taskbar.StartMenu
                 try
                 {
                     Chrome.Background = new LinearGradientBrush(
-                        Color.FromArgb(0xE0, r, g, b),
-                        Color.FromArgb(0xC8, (byte)(r / 2), (byte)(g / 2), (byte)(b / 2)),
+                        Color.FromArgb(0x5A, r, g, b),
+                        Color.FromArgb(0x3C, (byte)(r / 2), (byte)(g / 2), (byte)(b / 2)),
                         90);
                 }
                 catch (Exception)
@@ -386,39 +398,75 @@ namespace Win7Taskbar.StartMenu
 
         private void OnRightItemMouseLeave(object sender, MouseEventArgs e)
         {
-            try { _infotip.Hide(); } catch (Exception) { }
+            CancelInfotip();
         }
 
         private void OnRightListMouseLeave(object sender, MouseEventArgs e)
         {
-            try { _infotip.Hide(); } catch (Exception) { }
+            CancelInfotip();
             ResetUserPhoto(animate: true);
         }
 
         private void ShowWin32Infotip(FrameworkElement? host, StartMenuItem item)
         {
+            CancelInfotip();
             if (host == null || !item.HasInfotip)
             {
-                try { _infotip.Hide(); } catch (Exception) { }
                 return;
             }
             try
             {
-                int x;
-                int y;
                 if (NativeMethods.GetCursorPos(out NativeMethods.POINT cursor))
                 {
-                    x = cursor.x;
-                    y = cursor.y;
+                    _infotipX = cursor.x;
+                    _infotipY = cursor.y;
                 }
                 else
                 {
                     Point pt = host.PointToScreen(new Point(0, host.ActualHeight));
-                    x = (int)Math.Round(pt.X);
-                    y = (int)Math.Round(pt.Y);
+                    _infotipX = (int)Math.Round(pt.X);
+                    _infotipY = (int)Math.Round(pt.Y);
                 }
-                IntPtr hwnd = new WindowInteropHelper(this).Handle;
-                _infotip.Show(hwnd, item.Name, item.Infotip, x, y);
+                _infotipOwner = new WindowInteropHelper(this).Handle;
+                _infotipTitle = item.Name;
+                _infotipText = item.Infotip;
+                _infotipTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+                _infotipTimer.Tick += OnInfotipDelayElapsed;
+                _infotipTimer.Start();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void OnInfotipDelayElapsed(object? sender, EventArgs e)
+        {
+            try
+            {
+                if (_infotipTimer != null)
+                {
+                    _infotipTimer.Stop();
+                    _infotipTimer.Tick -= OnInfotipDelayElapsed;
+                    _infotipTimer = null;
+                }
+                _infotip.Show(_infotipOwner, _infotipTitle, _infotipText, _infotipX, _infotipY);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void CancelInfotip()
+        {
+            try
+            {
+                if (_infotipTimer != null)
+                {
+                    _infotipTimer.Stop();
+                    _infotipTimer.Tick -= OnInfotipDelayElapsed;
+                    _infotipTimer = null;
+                }
+                _infotip.Hide();
             }
             catch (Exception)
             {
@@ -426,7 +474,7 @@ namespace Win7Taskbar.StartMenu
         }
 
         /// <summary>
-        /// Two stacked Images, 150 ms cross-fade. The profile frame is
+        /// Two stacked Images, 200 ms cross-fade. The profile frame is
         /// hidden with the photo so the hovered item icon can show.
         /// </summary>
         public void CrossfadeIcon(ImageSource? newIcon, TimeSpan duration)
@@ -482,7 +530,7 @@ namespace Win7Taskbar.StartMenu
         {
             PhotoFrame.Visibility = Visibility.Collapsed;
             _showingUserPhoto = false;
-            CrossfadeIcon(icon, TimeSpan.FromMilliseconds(146));
+            CrossfadeIcon(icon, TimeSpan.FromMilliseconds(200));
         }
 
         private void ResetUserPhoto(bool animate)
@@ -495,7 +543,7 @@ namespace Win7Taskbar.StartMenu
             _showingUserPhoto = true;
             if (animate)
             {
-                CrossfadeIcon(_vm.UserPicture, TimeSpan.FromMilliseconds(146));
+                CrossfadeIcon(_vm.UserPicture, TimeSpan.FromMilliseconds(200));
             }
             else
             {
@@ -682,6 +730,11 @@ namespace Win7Taskbar.StartMenu
                 {
                     _glassApplied = true;
                 }
+
+                /* After SetWindowRgn so the 25 DIP strip is not part of the
+                 * HWND. Undocumented SetWindowCompositionAttribute — flagged.
+                 * Win10/11 ignore DwmEnableBlurBehindWindow on layered WPF. */
+                ApplyAccentGlass(hwnd);
             }
             catch (Exception)
             {
@@ -764,6 +817,151 @@ namespace Win7Taskbar.StartMenu
                     }
                 }
                 _vm.ShowDefaultList();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(StartMenuViewModel.IsSearching))
+            {
+                AnimateSearchLayout(_vm.IsSearching);
+            }
+        }
+
+        /// <summary>
+        /// Win7: the right links fade out and the white search list covers
+        /// the two columns. Outer 431x511 / chrome 411x476 stay put.
+        /// </summary>
+        private void AnimateSearchLayout(bool searching)
+        {
+            if (_searchLayoutOpen == searching)
+            {
+                return;
+            }
+            _searchLayoutOpen = searching;
+            TimeSpan dt = TimeSpan.FromMilliseconds(90);
+            try
+            {
+                SearchHost.BeginAnimation(OpacityProperty, null);
+                RightList.BeginAnimation(OpacityProperty, null);
+                if (searching)
+                {
+                    SearchHost.Visibility = Visibility.Visible;
+                    SearchHost.IsHitTestVisible = true;
+                    SearchHost.BeginAnimation(OpacityProperty,
+                        new DoubleAnimation(0, 1, dt) { FillBehavior = FillBehavior.HoldEnd });
+                    RightList.BeginAnimation(OpacityProperty,
+                        new DoubleAnimation(1, 0, dt) { FillBehavior = FillBehavior.HoldEnd });
+                    RightList.IsHitTestVisible = false;
+                }
+                else
+                {
+                    var fadeOut = new DoubleAnimation(1, 0, dt) { FillBehavior = FillBehavior.HoldEnd };
+                    fadeOut.Completed += (_, _) =>
+                    {
+                        try
+                        {
+                            if (!_searchLayoutOpen)
+                            {
+                                SearchHost.Visibility = Visibility.Collapsed;
+                                SearchHost.IsHitTestVisible = false;
+                            }
+                        }
+                        catch (Exception)
+                        {
+                        }
+                    };
+                    SearchHost.BeginAnimation(OpacityProperty, fadeOut);
+                    SearchHost.IsHitTestVisible = false;
+                    RightList.BeginAnimation(OpacityProperty,
+                        new DoubleAnimation(0, 1, dt) { FillBehavior = FillBehavior.HoldEnd });
+                    RightList.IsHitTestVisible = true;
+                }
+            }
+            catch (Exception)
+            {
+                try
+                {
+                    SearchHost.Visibility = searching ? Visibility.Visible : Visibility.Collapsed;
+                    SearchHost.Opacity = searching ? 1 : 0;
+                    SearchHost.IsHitTestVisible = searching;
+                    RightList.Opacity = searching ? 0 : 1;
+                    RightList.IsHitTestVisible = !searching;
+                }
+                catch (Exception)
+                {
+                }
+            }
+        }
+
+        /// <summary>
+        /// Undocumented user32!SetWindowCompositionAttribute (WCA_ACCENT_POLICY
+        /// / ACCENT_ENABLE_BLURBEHIND). Same recipe as AeroGlass::EnableGlass
+        /// on the overflow flyout. Flagged because it is not a public API.
+        /// </summary>
+        private void ApplyAccentGlass(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+            {
+                return;
+            }
+            try
+            {
+                var margins = new MARGINS
+                {
+                    cxLeftWidth = -1,
+                    cxRightWidth = -1,
+                    cyTopHeight = -1,
+                    cyBottomHeight = -1
+                };
+                DwmExtendFrameIntoClientArea(hwnd, ref margins);
+
+                uint colorization = 0x00A8C8E0;
+                bool opaque = false;
+                try
+                {
+                    DwmGetColorizationColor(out colorization, out opaque);
+                }
+                catch (Exception)
+                {
+                }
+
+                const uint gradientAlpha = 0xB4;
+                uint gradientColor = (gradientAlpha << 24) |
+                    ((colorization & 0xFFu) << 16) |
+                    (colorization & 0xFF00u) |
+                    ((colorization >> 16) & 0xFFu);
+
+                var accent = new ACCENT_POLICY
+                {
+                    AccentState = 3, /* ACCENT_ENABLE_BLURBEHIND */
+                    AccentFlags = 0,
+                    GradientColor = gradientColor,
+                    AnimationId = 0
+                };
+                int size = Marshal.SizeOf<ACCENT_POLICY>();
+                IntPtr accentPtr = Marshal.AllocHGlobal(size);
+                try
+                {
+                    Marshal.StructureToPtr(accent, accentPtr, false);
+                    var data = new WINDOWCOMPOSITIONATTRIBDATA
+                    {
+                        Attrib = 19, /* WCA_ACCENT_POLICY */
+                        pvData = accentPtr,
+                        cbData = size
+                    };
+                    if (SetWindowCompositionAttribute(hwnd, ref data) != 0)
+                    {
+                        _glassApplied = true;
+                    }
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(accentPtr);
+                }
             }
             catch (Exception)
             {

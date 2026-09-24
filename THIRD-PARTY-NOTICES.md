@@ -94,6 +94,21 @@ Public shell APIs (`IContextMenu`, `SHGetFileInfo` with `SHGFI_SMALLICON`,
 Start Menu pins are written only to `%AppData%\Win7Taskbar\Pinned\StartMenu`;
 Explorer's User Pinned folder is never written.
 
+## EJSnow / Windows-7-skin (inspected, not copied)
+
+- Source: https://github.com/EJSnow/Windows-7-skin
+- Inspected: 2026-09-24
+- License: **none published** (no LICENSE file; GitHub default is all rights reserved)
+- README states start-button images and a reflection bitmap were **extracted
+  from Windows 7 / Windows 7 Professional SP1**. Those Microsoft assets are
+  not copied.
+
+Because the repository has no license and contains Microsoft-extracted
+bitmaps, Win7Taskbar copies **no files, bitmaps, icons, or skin text** from
+it. Search-time full-width white pane (outer frame unchanged) is a well-known
+Windows 7 Start Menu behaviour, also described by Open-Shell's public skin
+keys (`Main_bitmap_search`); it was reimplemented in our XAML from scratch.
+
 MIT License text (verbatim from the Open-Shell LICENSE file):
 
 ```
