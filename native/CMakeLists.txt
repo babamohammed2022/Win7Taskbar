@@ -183,3 +183,20 @@ target_include_directories(w7t_search_index_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_definitions(w7t_search_index_tests PRIVATE UNICODE _UNICODE NOMINMAX)
 add_test(NAME search_index_tests COMMAND w7t_search_index_tests)
+
+# The icon guards: a converted icon must be well formed AND must actually
+# draw something, otherwise the taskbar button comes out empty. Common.cpp is
+# self-contained (Common.h + the two SEH/RAII headers), so it links on its own.
+add_executable(w7t_icon_bitmap_tests
+    tests/icon_bitmap_tests.cpp
+    src/Common.cpp)
+target_include_directories(w7t_icon_bitmap_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_definitions(w7t_icon_bitmap_tests PRIVATE
+    UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+target_link_libraries(w7t_icon_bitmap_tests PRIVATE
+    user32 gdi32 gdiplus shell32 ole32 oleaut32 comctl32 wtsapi32 dwmapi uxtheme
+    msimg32 propsys shlwapi advapi32 powrprof wlanapi iphlpapi uuid psapi
+    windowscodecs comdlg32)
+add_test(NAME icon_bitmap_tests COMMAND w7t_icon_bitmap_tests)

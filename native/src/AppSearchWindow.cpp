@@ -45,6 +45,23 @@ namespace w7t {
 namespace {
 constexpr wchar_t kClassName[] = L"Win7Taskbar_AppSearch";
 
+/* Dismissal request coming from the outside-click hook. Posted, never sent:
+ * the click that is being processed must reach the window underneath
+ * unchanged, exactly like the jump list already does. */
+constexpr UINT kDismissOutsideMessage = WM_APP + 0x178;
+
+/* Same foreground-lock unlock the window commands use: a tap of the Alt key
+ * makes the system believe the user just pressed a key, which is what allows
+ * SetForegroundWindow from a process that is not the foreground one. */
+void ForegroundUnlock() {
+    INPUT in{};
+    in.type = INPUT_KEYBOARD;
+    in.ki.wVk = VK_MENU;
+    SendInput(1, &in, sizeof(INPUT));
+    in.ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput(1, &in, sizeof(INPUT));
+}
+
 /* Gradiente di trasparenza "un po' basso": quasi opaco ma il desktop
  * traspare leggermente, piu' trasparente in alto. */
 struct SearchSkin {
@@ -759,6 +776,8 @@ HBITMAP MakeDib32(int w, int h, void** bits) {
 }
 } /* namespace */
 
+AppSearchWindow* AppSearchWindow::s_hookOwner = nullptr;
+
 AppSearchWindow::~AppSearchWindow() {
     Destroy();
 }
@@ -787,6 +806,8 @@ bool AppSearchWindow::Create(HINSTANCE hInstance, HWND owner,
         owner, nullptr, hInstance, nullptr);
     if (!m_hWnd) return false;
     SetWindowLongPtrW(m_hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    m_owner = owner;
+    s_hookOwner = this;
 
     // Niente frame DWM ne' AdjustWindowRect: su una finestra LAYERED il
     // bordo non-client fa si' che UpdateLayeredWindow (che imposta la
@@ -865,6 +886,7 @@ bool AppSearchWindow::Create(HINSTANCE hInstance, HWND owner,
 void AppSearchWindow::Destroy() {
     m_stopScan = true;
     if (m_scanThread.joinable()) m_scanThread.join();
+    RemoveOutsideMouseHook();
     if (m_hWnd) {
         KillTimer(m_hWnd, 1);
         SetWindowLongPtrW(m_hWnd, GWLP_USERDATA, 0);
@@ -886,6 +908,10 @@ void AppSearchWindow::Destroy() {
     m_openPixels.clear();
     m_folderPixels.clear();
     CoUninitialize();
+    if (s_hookOwner == this) {
+        s_hookOwner = nullptr;
+    }
+    m_owner = nullptr;
 }
 
 /* v2.37 punti 10/13: decodifica UNA tantum delle risorse incorporate.
@@ -1264,16 +1290,80 @@ void AppSearchWindow::Show(int anchorX, int anchorY) {
                  SWP_SHOWWINDOW);
     ApplyFilter(L"");
     InvalidateRect(m_hWnd, nullptr, TRUE);
+    /* The taskbar is WS_EX_NOACTIVATE, so this process is usually not the
+     * foreground one and a plain SetForegroundWindow is refused by the
+     * foreground lock: the panel would stay visible but inactive, and an
+     * inactive window never receives WM_ACTIVATE, so an outside click would
+     * no longer close it. The Alt tap below is the same unlock the window
+     * commands already use, and is only sent when this thread really is not
+     * the foreground one. */
+    HWND foreground = GetForegroundWindow();
+    DWORD foregroundThread = foreground != nullptr
+        ? GetWindowThreadProcessId(foreground, nullptr) : 0;
+    if (foregroundThread != GetCurrentThreadId()) {
+        ForegroundUnlock();
+    }
     SetForegroundWindow(m_hWnd);
     SetFocus(m_hWnd);
     SetTimer(m_hWnd, 1, 538, nullptr);
+    GetWindowRect(m_hWnd, &m_windowRect);
+    InstallOutsideMouseHook();
 }
 
 void AppSearchWindow::Hide() {
+    RemoveOutsideMouseHook();
     if (m_hWnd) {
         KillTimer(m_hWnd, 1);
         ShowWindow(m_hWnd, SW_HIDE);
     }
+    m_windowRect = RECT{};
+}
+
+void AppSearchWindow::InstallOutsideMouseHook() {
+    if (m_outsideMouseHook != nullptr) {
+        return;
+    }
+    HMODULE module = nullptr;
+    GetModuleHandleExW(
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        reinterpret_cast<LPCWSTR>(&AppSearchWindow::OutsideMouseProc),
+        &module);
+    m_outsideMouseHook =
+        SetWindowsHookExW(WH_MOUSE_LL, OutsideMouseProc, module, 0);
+}
+
+void AppSearchWindow::RemoveOutsideMouseHook() {
+    if (m_outsideMouseHook != nullptr) {
+        UnhookWindowsHookEx(m_outsideMouseHook);
+        m_outsideMouseHook = nullptr;
+    }
+}
+
+LRESULT CALLBACK AppSearchWindow::OutsideMouseProc(int code, WPARAM wParam,
+                                                   LPARAM lParam) {
+    AppSearchWindow* self = s_hookOwner;
+    HHOOK hook = self != nullptr ? self->m_outsideMouseHook : nullptr;
+    if (code >= 0 && self != nullptr && self->IsVisible() &&
+        (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN ||
+         wParam == WM_MBUTTONDOWN)) {
+        const MSLLHOOKSTRUCT* mouse =
+            reinterpret_cast<const MSLLHOOKSTRUCT*>(lParam);
+        if (mouse != nullptr && !PtInRect(&self->m_windowRect, mouse->pt)) {
+            /* A click on the taskbar is the taskbar's business: the managed
+             * layer closes the panel there, and the search button's own
+             * toggle must stay the only thing that runs for that click.
+             * GA_ROOT (parents only, not owners) keeps the taskbar and its
+             * child windows out while still dismissing on a click on any
+             * other window of ours, such as a flyout. */
+            HWND hit = WindowFromPoint(mouse->pt);
+            HWND root = GetAncestor(hit, GA_ROOT);
+            if (root != self->m_owner) {
+                PostMessageW(self->m_hWnd, kDismissOutsideMessage, 0, 0);
+            }
+        }
+    }
+    return CallNextHookEx(hook, code, wParam, lParam);
 }
 
 int AppSearchWindow::HitTestRow(POINT p) const {
@@ -2170,6 +2260,11 @@ LRESULT CALLBACK AppSearchWindow::WndProc(HWND hWnd, UINT msg,
         return 0;
     case WM_CAPTURECHANGED:
         self->m_scrollDragging = false;
+        return 0;
+    case kDismissOutsideMessage:
+        /* Posted by the outside-click hook: a click landed somewhere that
+         * does not belong to the taskbar. */
+        self->Hide();
         return 0;
     case WM_ACTIVATE:
         if (LOWORD(wParam) == WA_INACTIVE) {
