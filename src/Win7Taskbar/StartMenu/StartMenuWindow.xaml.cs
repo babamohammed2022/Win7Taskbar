@@ -819,6 +819,7 @@ namespace Win7Taskbar.StartMenu
         /// <summary>
         /// Win7: the right links fade out and the white search list covers
         /// the two columns. Outer 431x511 / chrome 411x476 stay put.
+        /// Photo + frame hide; shutdown strip fades to white with black label.
         /// </summary>
         private void AnimateSearchLayout(bool searching)
         {
@@ -832,6 +833,9 @@ namespace Win7Taskbar.StartMenu
             {
                 SearchHost.BeginAnimation(OpacityProperty, null);
                 RightList.BeginAnimation(OpacityProperty, null);
+                PhotoHost.BeginAnimation(OpacityProperty, null);
+                SearchShutWash.BeginAnimation(OpacityProperty, null);
+                ApplySearchShutdownInk(searching);
                 if (searching)
                 {
                     SearchHost.Visibility = Visibility.Visible;
@@ -841,6 +845,11 @@ namespace Win7Taskbar.StartMenu
                     RightList.BeginAnimation(OpacityProperty,
                         new DoubleAnimation(1, 0, dt) { FillBehavior = FillBehavior.HoldEnd });
                     RightList.IsHitTestVisible = false;
+                    PhotoHost.IsHitTestVisible = false;
+                    PhotoHost.BeginAnimation(OpacityProperty,
+                        new DoubleAnimation(1, 0, dt) { FillBehavior = FillBehavior.HoldEnd });
+                    SearchShutWash.BeginAnimation(OpacityProperty,
+                        new DoubleAnimation(0, 1, dt) { FillBehavior = FillBehavior.HoldEnd });
                 }
                 else
                 {
@@ -864,21 +873,52 @@ namespace Win7Taskbar.StartMenu
                     RightList.BeginAnimation(OpacityProperty,
                         new DoubleAnimation(0, 1, dt) { FillBehavior = FillBehavior.HoldEnd });
                     RightList.IsHitTestVisible = true;
+                    PhotoHost.IsHitTestVisible = true;
+                    PhotoHost.BeginAnimation(OpacityProperty,
+                        new DoubleAnimation(0, 1, dt) { FillBehavior = FillBehavior.HoldEnd });
+                    SearchShutWash.BeginAnimation(OpacityProperty,
+                        new DoubleAnimation(1, 0, dt) { FillBehavior = FillBehavior.HoldEnd });
                 }
             }
             catch (Exception)
             {
-                try
-                {
-                    SearchHost.Visibility = searching ? Visibility.Visible : Visibility.Collapsed;
-                    SearchHost.Opacity = searching ? 1 : 0;
-                    SearchHost.IsHitTestVisible = searching;
-                    RightList.Opacity = searching ? 0 : 1;
-                    RightList.IsHitTestVisible = !searching;
-                }
-                catch (Exception)
-                {
-                }
+                SnapSearchLayout(searching);
+            }
+        }
+
+        private void SnapSearchLayout(bool searching)
+        {
+            try
+            {
+                _searchLayoutOpen = searching;
+                SearchHost.BeginAnimation(OpacityProperty, null);
+                RightList.BeginAnimation(OpacityProperty, null);
+                PhotoHost.BeginAnimation(OpacityProperty, null);
+                SearchShutWash.BeginAnimation(OpacityProperty, null);
+                SearchHost.Visibility = searching ? Visibility.Visible : Visibility.Collapsed;
+                SearchHost.Opacity = searching ? 1 : 0;
+                SearchHost.IsHitTestVisible = searching;
+                RightList.Opacity = searching ? 0 : 1;
+                RightList.IsHitTestVisible = !searching;
+                PhotoHost.Opacity = searching ? 0 : 1;
+                PhotoHost.IsHitTestVisible = !searching;
+                SearchShutWash.Opacity = searching ? 1 : 0;
+                ApplySearchShutdownInk(searching);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void ApplySearchShutdownInk(bool searching)
+        {
+            try
+            {
+                ShutdownLabel.Foreground = searching ? Brushes.Black : Brushes.White;
+                ShutdownArrowGlyph.Fill = searching ? Brushes.Black : Brushes.White;
+            }
+            catch (Exception)
+            {
             }
         }
 
