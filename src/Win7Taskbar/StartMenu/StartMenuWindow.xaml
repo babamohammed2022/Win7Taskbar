@@ -653,12 +653,38 @@
                                             <ColumnDefinition Width="28"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <Image Source="{Binding Icon}" Width="16" Height="16"
+                                        <Image x:Name="SectionIcon" Source="{Binding Icon}" Width="16" Height="16"
                                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                        <!-- v3.9: Open-Shell section marker. Small triangle,
+                                             right-pointing when collapsed and turned down (clean
+                                             90 degrees, always readable) when the section is open. -->
+                                        <Path x:Name="SectionArrow"
+                                              Data="M 1,1 L 6,3.5 L 1,6 Z"
+                                              Fill="#FF404040"
+                                              Width="7" Height="7"
+                                              Stretch="Uniform"
+                                              RenderTransformOrigin="0.5,0.5"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Visibility="Collapsed" />
+                                        <TextBlock x:Name="SectionName" Grid.Column="1" Text="{Binding Name}"
                                                    VerticalAlignment="Center" Margin="4,0"
                                                    TextTrimming="CharacterEllipsis"/>
                                     </Grid>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsSectionHeader}" Value="True">
+                                            <Setter TargetName="SectionArrow" Property="Visibility" Value="Visible"/>
+                                            <Setter TargetName="SectionIcon" Property="Visibility" Value="Collapsed"/>
+                                            <Setter TargetName="SectionName" Property="FontWeight" Value="SemiBold"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                                            <Setter TargetName="SectionArrow" Property="LayoutTransform">
+                                                <Setter.Value>
+                                                    <RotateTransform Angle="90" />
+                                                </Setter.Value>
+                                            </Setter>
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>

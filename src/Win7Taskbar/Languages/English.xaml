@@ -55,6 +55,10 @@
     <s:String x:Key="lang_icon_order_drag_hint">Drop to change the order</s:String>
     <!-- Start Menu (1.3.9) -->
     <s:String x:Key="lang_sm_search">Search programs and files</s:String>
+    <!-- v3.9: search section headers / actions (Open-Shell style). -->
+    <s:String x:Key="lang_sm_sec_programs">Programs</s:String>
+    <s:String x:Key="lang_sm_sec_files">Files</s:String>
+    <s:String x:Key="lang_sm_see_more">See more results</s:String>
     <s:String x:Key="lang_sm_all_programs">All Programs</s:String>
     <s:String x:Key="lang_sm_back">Back</s:String>
     <s:String x:Key="lang_sm_shutdown">Shut down</s:String>

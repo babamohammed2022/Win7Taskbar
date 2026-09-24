@@ -460,6 +460,12 @@ W7T_API int32_t W7T_CALL W7T_StartMenuQuery(const wchar_t* query,
 W7T_API int32_t W7T_CALL W7T_StartMenuPower(int32_t action);
 W7T_API int32_t W7T_CALL W7T_StartMenuLaunch(const wchar_t* path);
 W7T_API int32_t W7T_CALL W7T_StartMenuHasJumpList(const wchar_t* path);
+/* v3.9: the file search result lines carry a section prefix now:
+ *   "D|<path>" documents, "P|<path>" pictures, "M|<path>" music,
+ *   "V|<path>" videos, "F|<path>" other files; a bare "T" line means
+ *   "truncated by budget" (frontend shows a See-More-Results row).
+ * Lines poll must never be cut mid-path: every row either fits the
+ * caller buffer whole or is skipped. */
 W7T_API int32_t W7T_CALL W7T_StartMenuFileSearchStart(const wchar_t* query);
 W7T_API int32_t W7T_CALL W7T_StartMenuFileSearchPoll(wchar_t* buffer,
                                                     int32_t capacityChars);

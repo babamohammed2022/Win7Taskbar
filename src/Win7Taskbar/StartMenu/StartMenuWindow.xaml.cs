@@ -767,11 +767,20 @@ namespace Win7Taskbar.StartMenu
         {
             if (list.SelectedItem is not StartMenuItem item)
             {
-                if (list.Items.Count > 0)
+                /* v3.9: with no selection, Enter launches the first REAL
+                 * result - never a section header (which would only
+                 * collapse the section, Open-Shell does the same). */
+                item = null;
+                for (int i = 0; i < list.Items.Count; i++)
                 {
-                    item = (StartMenuItem)list.Items[0];
+                    if (list.Items[i] is StartMenuItem candidate &&
+                        !candidate.IsSectionHeader && !candidate.IsSeparator)
+                    {
+                        item = candidate;
+                        break;
+                    }
                 }
-                else
+                if (item == null)
                 {
                     return;
                 }
@@ -783,6 +792,13 @@ namespace Win7Taskbar.StartMenu
         {
             if (item.IsSeparator)
             {
+                return;
+            }
+            if (item.IsSectionHeader)
+            {
+                /* v3.9: a section header collapses/expands in place like
+                 * Open-Shell - the menu stays open. */
+                _vm.Launch(item);
                 return;
             }
             if (item.IsAllPrograms)

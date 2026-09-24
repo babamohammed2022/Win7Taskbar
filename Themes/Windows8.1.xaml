@@ -2429,6 +2429,21 @@
                                     Property="Source"
                                     Value="{DynamicResource OverflowTileHoverImage}" />
                         </Trigger>
+                        <!-- v3.9: taskbar on the TOP edge - the chevron points
+                             DOWN (into the panel that now opens downwards).
+                             Rotation stays a clean 90 degrees in layout, so it
+                             is perfectly legible (never skewed or mirrored). -->
+                        <DataTrigger Binding="{Binding Path=AppBarEdge, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                     Value="Top">
+                            <DataTrigger.Setters>
+                                <Setter TargetName="ChevronImg"
+                                        Property="LayoutTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="90" />
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger.Setters>
+                        </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

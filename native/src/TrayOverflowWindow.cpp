@@ -214,44 +214,120 @@ void TrayOverflowWindow::Layout() {
     }
 }
 
+namespace {
+/* v3.9 - POSIZIONE DEL PANNELLO SENSIBILE AL BORDO DELLA BARRA.
+ *
+ * Prima il pannello apriva SEMPRE sopra la freccetta (barra in basso):
+ * con la barra IN ALTO finiva sopra il bordo dello schermo, invisibile,
+ * e la freccetta sembrava rotta. Qui il bordo "di attacco" si deduce
+ * dall'area di lavoro del monitor che ospita la freccetta (la nostra
+ * barra e' un AppBar: l'icona tocca il bordo riservato), e il pannello
+ * apre dal lato LEGGIBILE: barra in basso -> sopra (comportamento
+ * storico invariato), barra in alto -> SOTTO, barre verticali -> di lato.
+ * Mai fuori area di lavoro: un pannello fuori monitor e' un clic morto.
+ * Le correzioni sono racchiuse in try/catch: il monitor puo' staccarsi
+ * mentre la barra e' aperta e niente qui puo' buttare giu' la tray. */
+void ComputeOverflowNear(const RECT& btn, int w, int h, int& x, int& y) {
+    /* Distacco storico: 6 px + 3% + 4,5% (solo in verticale contava). */
+    const int gapY = (6 + (h * 3) / 100) + (h * 45) / 1000;
+    const int gapX = 6;
+
+    RECT wa{ 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
+    try {
+        HMONITOR mon = MonitorFromRect(&btn, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi{};
+        mi.cbSize = sizeof(mi);
+        if (mon != nullptr && GetMonitorInfoW(mon, &mi)) {
+            wa = mi.rcWork;
+        }
+    } catch (...) {
+        /* fallback: l'area resta lo schermo intero primario */
+    }
+
+    const int cx = (btn.left + btn.right) / 2;
+    const int cy = (btn.top + btn.bottom) / 2;
+    if (btn.top <= wa.top + 4) {
+        /* barra in alto: SOTTO la freccetta */
+        x = cx - w / 2;
+        y = btn.bottom + gapY;
+    } else if (btn.bottom >= wa.bottom - 4) {
+        /* barra in basso: sopra la freccetta (comportamento storico) */
+        x = cx - w / 2;
+        y = btn.top - h - gapY;
+    } else if (btn.left <= wa.left + 4) {
+        /* barra a sinistra: a destra della freccetta */
+        x = btn.right + gapX;
+        y = cy - h / 2;
+    } else if (btn.right >= wa.right - 4) {
+        /* barra a destra: a sinistra della freccetta */
+        x = btn.left - w - gapX;
+        y = cy - h / 2;
+    } else {
+        /* freccetta lontana dai bordi (layout libero): sopra */
+        x = cx - w / 2;
+        y = btn.top - h - gapY;
+    }
+
+    if (x < wa.left + 2) x = wa.left + 2;
+    if (y < wa.top + 2) y = wa.top + 2;
+    if (x + w > wa.right - 2) x = wa.right - w - 2;
+    if (y + h > wa.bottom - 2) y = wa.bottom - h - 2;
+}
+} /* namespace */
+
 void TrayOverflowWindow::RepositionAtAnchor() {
     if (!m_hWnd || !m_hasAnchor) return;
-    RECT wr{};
-    GetWindowRect(m_hWnd, &wr);
-    const int w = wr.right - wr.left;
-    const int h = wr.bottom - wr.top;
-    const int cx = (m_anchor.left + m_anchor.right) / 2;
-    const int x  = cx - w / 2;
-    const int y  = m_anchor.top - h - (6 + (h * 3) / 100) - (h * 45) / 1000;
-    SetWindowPos(m_hWnd, HWND_TOPMOST, x, y, 0, 0,
-                 SWP_NOSIZE | SWP_NOACTIVATE);
+    W7T_SEH_TRY {
+        RECT wr{};
+        GetWindowRect(m_hWnd, &wr);
+        const int w = wr.right - wr.left;
+        const int h = wr.bottom - wr.top;
+        if (w <= 0 || h <= 0) return;
+        int x = 0, y = 0;
+        ComputeOverflowNear(m_anchor, w, h, x, y);
+        SetWindowPos(m_hWnd, HWND_TOPMOST, x, y, 0, 0,
+                     SWP_NOSIZE | SWP_NOACTIVATE);
+    } W7T_SEH_CATCH {
+        /* riposizionamento riprovato al prossimo Layout/ShowNear */
+    } W7T_SEH_END
 }
 
 void TrayOverflowWindow::ShowNear(RECT btnScreen) {
     if (!m_hWnd) return;
-    RefreshIcons();
-    Layout();
+    W7T_SEH_TRY {
+    try {
+        RefreshIcons();
+        Layout();
 
-    m_anchor = btnScreen;   /* v2.27: ricorda l'ancora per i resize */
-    m_hasAnchor = true;
+        m_anchor = btnScreen;   /* v2.27: ricorda l'ancora per i resize */
+        m_hasAnchor = true;
 
-    RECT wr{};
-    GetWindowRect(m_hWnd, &wr);
-    const int w = wr.right - wr.left;
-    const int h = wr.bottom - wr.top;
+        RECT wr{};
+        GetWindowRect(m_hWnd, &wr);
+        const int w = wr.right - wr.left;
+        const int h = wr.bottom - wr.top;
+        if (w <= 0 || h <= 0) {
+            LogTagged(L"TRAY", L"overflow: dimensioni non valide (%dx%d)", w, h);
+            return;
+        }
 
-    // v3.1: CENTRATO rispetto al pulsante (freccetta) che lo apre e
-    // fluttuante qualche pixel piu' in alto, come il vero overflow Win7.
-    const int cx = (btnScreen.left + btnScreen.right) / 2;
-    const int x  = cx - w / 2;
-    // v3.2: fluttua 6 px + un altro 3% della propria altezza piu' in alto.
-    /* v2.26: richiesto 4,5% dell'altezza in piu' verso l'alto rispetto
-     * al posizionamento precedente (solo posizione, metriche invariate). */
-    const int y  = btnScreen.top - h - (6 + (h * 3) / 100) - (h * 45) / 1000;
+        // v3.1/v3.9: CENTRATO rispetto al pulsante (freccetta) che lo
+        // apre; il LATO (sopra/sotto/di fianco) dipende dal bordo della
+        // barra, dedotto dall'area di lavoro del monitor. Barra in basso
+        // -> sopra (comportamento storico identico), barra in alto ->
+        // sotto verso il basso, barre laterali -> a fianco.
+        int x = 0, y = 0;
+        ComputeOverflowNear(btnScreen, w, h, x, y);
 
-    SetWindowPos(m_hWnd, HWND_TOPMOST, x, y, 0, 0,
-                 SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    InvalidateRect(m_hWnd, nullptr, TRUE);
+        SetWindowPos(m_hWnd, HWND_TOPMOST, x, y, 0, 0,
+                     SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        InvalidateRect(m_hWnd, nullptr, TRUE);
+    } catch (...) {
+        /* il pannello resta dov'era: mai buttare giu' la tray per un
+           riposizionamento */
+    }
+    } W7T_SEH_CATCH {
+    } W7T_SEH_END
 }
 
 void TrayOverflowWindow::NotifyTrayChanged() {

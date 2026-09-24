@@ -265,6 +265,13 @@ void DrawBitmapScaled(HDC hdc, HBITMAP hb, int dw, int dh, int dx, int dy);
  * batteria). Cross-process con psapi; false su qualsiasi errore. */
 bool OwnerModuleIs(HWND ownerHwnd, const wchar_t* moduleName);
 
+/* v3.9: lancio del mixer classico (SndVol -f) con ancora a rettangolo
+ * completo. Il servizio della tray lo usa per il click sul volume: con la
+ * barra in ALTO il riquadro apre VERSO IL BASSO sotto l'icona; in basso
+ * resta sopra come sempre. Implementato in Exports.cpp accanto a
+ * W7T_LaunchClassicVolume (che resta la forma pubblica (x,y)). */
+int32_t LaunchClassicVolumeNear(const RECT& anchor);
+
 } /* namespace w7t */
 
 #endif /* W7T_COMMON_H */

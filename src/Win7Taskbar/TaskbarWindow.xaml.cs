@@ -364,14 +364,54 @@ namespace Win7Taskbar
                 UpdateOverflowState();
 
                 OverflowPopup.Placement = PlacementMode.Custom;
+                /* v3.9: il pannello WPF di riserva (usato se la finestra
+                 * nativa non si crea) apre dal lato leggibile: barra in
+                 * basso -> sopra la freccetta (comportamento storico),
+                 * barra IN ALTO -> SOTTO, barre verticali -> di fianco.
+                 * Prima puntava sempre in alto e con la barra in alto
+                 * finiva fuori schermo ("overflow ruotato/illeggibile"). */
                 OverflowPopup.CustomPopupPlacementCallback =
                     (System.Windows.Size size, System.Windows.Size target, System.Windows.Point offset) =>
-                        new[]
+                    {
+                        int pos = 0;
+                        try { pos = RetroBar.Utilities.Settings.Instance.TaskbarPosition; }
+                        catch (Exception) { pos = 0; }
+                        switch (pos)
                         {
-                            new CustomPopupPlacement(
-                                new Point((target.Width - size.Width) / 2, -size.Height - 1),
-                                PopupPrimaryAxis.Vertical)
-                        };
+                            case 1: /* Top: apri sotto la freccetta */
+                                return new[]
+                                {
+                                    new CustomPopupPlacement(
+                                        new Point((target.Width - size.Width) / 2,
+                                                  target.Height + 1),
+                                        PopupPrimaryAxis.Vertical)
+                                };
+                            case 2: /* Left: a destra della freccetta */
+                                return new[]
+                                {
+                                    new CustomPopupPlacement(
+                                        new Point(target.Width + 1,
+                                                  (target.Height - size.Height) / 2),
+                                        PopupPrimaryAxis.Horizontal)
+                                };
+                            case 3: /* Right: a sinistra della freccetta */
+                                return new[]
+                                {
+                                    new CustomPopupPlacement(
+                                        new Point(-size.Width - 1,
+                                                  (target.Height - size.Height) / 2),
+                                        PopupPrimaryAxis.Horizontal)
+                                };
+                            default: /* Bottom: sopra la freccetta (storico) */
+                                return new[]
+                                {
+                                    new CustomPopupPlacement(
+                                        new Point((target.Width - size.Width) / 2,
+                                                  -size.Height - 1),
+                                        PopupPrimaryAxis.Vertical)
+                                };
+                        }
+                    };
 
                 ReportShellRects();
                 // Unico aggancio per i cambi di forma/posizione: riporta le

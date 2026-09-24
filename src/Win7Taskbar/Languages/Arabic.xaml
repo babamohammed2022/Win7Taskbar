@@ -60,6 +60,10 @@
     <s:String x:Key="lang_icon_order_drag_hint">أفلت لتغيير الترتيب</s:String>
     <!-- Start Menu (1.3.9) -->
     <s:String x:Key="lang_sm_search">البحث عن البرامج والملفات</s:String>
+    <!-- v3.9: search section headers / actions (Open-Shell style). -->
+    <s:String x:Key="lang_sm_sec_programs">البرامج</s:String>
+    <s:String x:Key="lang_sm_sec_files">الملفات</s:String>
+    <s:String x:Key="lang_sm_see_more">عرض المزيد من النتائج</s:String>
     <s:String x:Key="lang_sm_all_programs">كافة البرامج</s:String>
     <s:String x:Key="lang_sm_back">رجوع</s:String>
     <s:String x:Key="lang_sm_shutdown">إيقاف التشغيل</s:String>

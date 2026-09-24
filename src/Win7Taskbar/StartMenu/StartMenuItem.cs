@@ -22,6 +22,14 @@ namespace Win7Taskbar.StartMenu
         public string Target { get; set; } = string.Empty;
         public string Folder { get; set; } = string.Empty;
         /// <summary>
+        /// Search result section header (Open-Shell / Windows 7 layout:
+        /// "Programs (3)", "Settings (12)", "Files (1)"). Headers collapse
+        /// / expand their section on click. SectionId identifies the
+        /// section ("programs", "settings", "docs", ...).
+        /// </summary>
+        public bool IsSectionHeader { get; set; }
+        public string SectionId { get; set; } = string.Empty;
+        /// <summary>
         /// Right-pane hover flyout. Original wording; not a Microsoft string.
         /// </summary>
         public string? Infotip { get; set; }
