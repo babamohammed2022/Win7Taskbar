@@ -1001,9 +1001,15 @@ namespace Win7Taskbar.StartMenu
                 return;
             }
 
+            /* Ordine delle sezioni = ricerca Windows 7/Open-Shell:
+             * Programmi, Impostazioni, poi i file per famiglia. */
             AppendSection("programs",
                 T("lang_sm_sec_programs", "Programs"),
                 _programResults, MaxProgramsShown);
+
+            AppendSection("settings",
+                T("lang_sm_settings", "Settings"),
+                _settingResults, MaxSettingsShown);
 
             bool filesHidden = false;
             filesHidden |= AppendFileSection("docs", 'D',
@@ -1016,10 +1022,6 @@ namespace Win7Taskbar.StartMenu
                 T("lang_sm_videos", "Videos"));
             filesHidden |= AppendFileSection("files", 'F',
                 T("lang_sm_sec_files", "Files"));
-
-            AppendSection("settings",
-                T("lang_sm_settings", "Settings"),
-                _settingResults, MaxSettingsShown);
 
             if (filesHidden || _fileTruncated)
             {
