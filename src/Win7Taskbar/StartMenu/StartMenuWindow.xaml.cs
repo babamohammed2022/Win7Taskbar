@@ -3,11 +3,8 @@
 // Licensed under the GNU General Public License version 3 or later.
 // Written from scratch. Gradients only — no Microsoft bitmaps.
 //
-// Transparency: system colorization through the chrome (see-through right
-// pane). No DwmExtend(-1) and no ACCENT_ENABLE_BLURBEHIND — those were the
-// wrong blur (haze above the menu / Win10 frost). SetWindowRgn keeps the
-// 25 DIP strip out of the HWND. Undocumented SetWindowCompositionAttribute
-// uses ACCENT_ENABLE_TRANSPARENTGRADIENT (tinted, not blurred).
+// Simulated Aero wash on Chrome: system color + two faint white highlights.
+// No DWM blur APIs. SetWindowRgn still clips chrome + photo.
 
 using System;
 using System.ComponentModel;
@@ -110,6 +107,7 @@ namespace Win7Taskbar.StartMenu
             {
                 try { _bridge.AppSearchHide(); } catch (Exception) { }
                 _vm.ShowDefaultList();
+                SnapSearchLayout(false);
                 ResetUserPhoto(animate: false);
                 if (ActualHeight < 1)
                 {
@@ -200,9 +198,7 @@ namespace Win7Taskbar.StartMenu
         }
 
         /// <summary>
-        /// Tints Chrome with a light wash of the system color so DWM glass
-        /// shows through the right pane. Blur itself is applied in
-        /// ClipVisibleChrome after SetWindowRgn.
+        /// Simulated Aero wash (no DWM blur APIs). See ApplySimulatedGlass.
         /// </summary>
         private void TryEnableAeroGlass(IntPtr hwnd)
         {
@@ -212,29 +208,7 @@ namespace Win7Taskbar.StartMenu
             }
             try
             {
-                uint colorization = 0x00A8C8E0;
-                bool opaque = false;
-                try
-                {
-                    DwmGetColorizationColor(out colorization, out opaque);
-                }
-                catch (Exception)
-                {
-                }
-
-                byte r = (byte)((colorization >> 16) & 0xFFu);
-                byte g = (byte)((colorization >> 8) & 0xFFu);
-                byte b = (byte)(colorization & 0xFFu);
-                try
-                {
-                    Chrome.Background = new LinearGradientBrush(
-                        Color.FromArgb(0x5A, r, g, b),
-                        Color.FromArgb(0x3C, (byte)(r / 2), (byte)(g / 2), (byte)(b / 2)),
-                        90);
-                }
-                catch (Exception)
-                {
-                }
+                ApplySimulatedGlass();
             }
             catch (Exception)
             {
@@ -746,9 +720,7 @@ namespace Win7Taskbar.StartMenu
                     windowRgn = IntPtr.Zero;
                 }
 
-                /* No DwmEnableBlurBehindWindow / DwmExtend(-1) / BLURBEHIND:
-                 * those were the wrong frost. Tint without blur. */
-                ApplyAccentGlass(hwnd);
+                ApplySimulatedGlass();
             }
             catch (Exception)
             {
@@ -970,6 +942,72 @@ namespace Win7Taskbar.StartMenu
             }
             catch (Exception)
             {
+            }
+        }
+
+        /* Vetro simulato: nessuna API DWM, nessun blur. Regola gli alpha a occhio:
+         * piu' alti = menu piu' opaco e testo piu' leggibile. */
+        private const byte SimTopAlpha = 0xB4;
+        private const byte SimBottomAlpha = 0x9C;
+
+        private void ApplySimulatedGlass()
+        {
+            try
+            {
+                uint c = 0x00A8C8E0;
+                bool o = false;
+                try { DwmGetColorizationColor(out c, out o); } catch (Exception) { }
+                byte r = (byte)((c >> 16) & 0xFFu);
+                byte g = (byte)((c >> 8) & 0xFFu);
+                byte b = (byte)(c & 0xFFu);
+
+                var group = new DrawingGroup();
+
+                /* Fondo: colore di sistema, scurito verso il basso. */
+                var baseFill = new LinearGradientBrush(
+                    Color.FromArgb(SimTopAlpha, r, g, b),
+                    Color.FromArgb(SimBottomAlpha, (byte)(r / 2), (byte)(g / 2), (byte)(b / 2)),
+                    90);
+                group.Children.Add(new GeometryDrawing(baseFill, null,
+                    new RectangleGeometry(new Rect(0, 0, 411, 476))));
+
+                /* Riflesso 1: triangolo in alto a sinistra. */
+                var tri = new StreamGeometry();
+                using (StreamGeometryContext ctx = tri.Open())
+                {
+                    ctx.BeginFigure(new Point(0, 0), true, true);
+                    ctx.LineTo(new Point(290, 0), true, false);
+                    ctx.LineTo(new Point(0, 200), true, false);
+                }
+                tri.Freeze();
+                group.Children.Add(new GeometryDrawing(
+                    new LinearGradientBrush(
+                        Color.FromArgb(0x3A, 255, 255, 255),
+                        Color.FromArgb(0x00, 255, 255, 255),
+                        new Point(0, 0), new Point(0.75, 0.75)),
+                    null, tri));
+
+                /* Riflesso 2: banda sottile parallela. */
+                var band = new StreamGeometry();
+                using (StreamGeometryContext ctx = band.Open())
+                {
+                    ctx.BeginFigure(new Point(305, 0), true, true);
+                    ctx.LineTo(new Point(360, 0), true, false);
+                    ctx.LineTo(new Point(0, 245), true, false);
+                    ctx.LineTo(new Point(0, 205), true, false);
+                }
+                band.Freeze();
+                group.Children.Add(new GeometryDrawing(
+                    new SolidColorBrush(Color.FromArgb(0x16, 255, 255, 255)), null, band));
+
+                group.Freeze();
+                var brush = new DrawingBrush(group) { Stretch = Stretch.Fill };
+                brush.Freeze();
+                Chrome.Background = brush;
+            }
+            catch (Exception)
+            {
+                /* se fallisce resta il gradiente XAML */
             }
         }
 
