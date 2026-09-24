@@ -15,6 +15,13 @@
  * in ogni punto di confine: la scansione non deve mai buttare giu' il
  * menu per un risultato "impossibile".
  */
+/* ICondition2/IConditionFactory2 nelle intestazioni legacy del SDK sono
+ * dietro NTDDI_VERSION >= NTDDI_WIN7: il file usa solo le API documentate
+ * di Windows 7 (Structured Query v1 e' Vista+, la v2 e' Win7), quindi la
+ * versione minima richiesta e' fissata prima di QUALUNQUE intestazione. */
+#ifndef NTDDI_VERSION
+#define NTDDI_VERSION 0x06010000
+#endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -54,6 +61,13 @@
 #include <vector>
 
 namespace {
+
+/* CLSID_ConditionFactory su ABI pubblico (la dichiarazione GUID delle
+ * intestazioni legacy del SDK puo' risultare assente in questa TU a
+ * seconda delle guardie di versione): ombra locale, stessi byte. */
+static const GUID W7T_CLSID_ConditionFactory = {
+    0xE03E85B0, 0x7BE2, 0x400B,
+    { 0x98, 0xFF, 0x03, 0x8B, 0x52, 0xF1, 0x80, 0x6B } };
 
 template <typename T>
 class UniqueCom {
@@ -219,8 +233,12 @@ HRESULT BuildWordwheelCondition(const std::wstring& query,
         return E_INVALIDARG;
     }
     *rootOut = nullptr;
-    UniqueCom<IConditionFactory2> factory;
-    HRESULT hr = CoCreateInstance(CLSID_ConditionFactory, nullptr,
+    /* Interfaccia v1 (Vista+): CreateStringLeaf e CreateCompoundFromArray
+     * bastano per la condizione wordwheel - dipendere dalla v2 (Win7) e'
+     * inutile e su alcune versioni dell'intestazione legacy del SDK la
+     * dichiarazione e' dietro guardie di versione piu' stringenti. */
+    UniqueCom<IConditionFactory> factory;
+    HRESULT hr = CoCreateInstance(W7T_CLSID_ConditionFactory, nullptr,
                                   CLSCTX_INPROC_SERVER,
                                   IID_PPV_ARGS(factory.put()));
     if (FAILED(hr) || !factory) {
