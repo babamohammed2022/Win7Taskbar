@@ -95,8 +95,13 @@ jobs:
       # artifacts (the Actions storage quota is often exhausted), so the zip is
       # attached to a throw-away pre-release instead. Release assets do not
       # count against Actions artifact storage.
+      # Also enabled (temporarily) for the PR branch carrying the v3.9 work,
+      # so CI builds there produce a downloadable trial package.
       - name: Attach the package to a trial pre-release (manual builds)
-        if: github.event_name == 'workflow_dispatch'
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          (github.event_name == 'pull_request' &&
+           github.head_ref == 'arena/01a0d3e7-win7taskbar')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ci-trial-${{ github.run_number }}
