@@ -236,6 +236,10 @@ struct ExtraStrings {
     const wchar_t* posLeft;
     const wchar_t* posRight;
     const wchar_t* chkLock;
+    /* v1.3.0: Windows key destination. Appended in every language table. */
+    const wchar_t* lblWinKey;
+    const wchar_t* optWinKeyOurs;
+    const wchar_t* optWinKeyWindows;
 };
 
 const ExtraStrings& ExtraStringsFor(Lang lang);

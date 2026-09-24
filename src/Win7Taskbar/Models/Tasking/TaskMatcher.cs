@@ -198,14 +198,20 @@ namespace Win7Taskbar.Models.Tasking
                 return false;
             }
 
+            if (LooksPackaged(pin.AppId) || LooksPackaged(pin.TargetPath))
+            {
+                return false;
+            }
+
             return string.Equals(pin.AppId, "Microsoft.Windows.Explorer", Oic) ||
                    string.Equals(pin.TargetPath, "Microsoft.Windows.Explorer", Oic) ||
-                   // "Shell item" pins (IDList, no exe: the Explorer pin Windows
-                   // itself creates) still open inside explorer.exe, so its
-                   // windows belong to them. Documented corner case: with
-                   // several shell-item pins the first enumerated receives the
-                   // windows, as in Windows.
-                   string.IsNullOrEmpty(pin.TargetPath);
+                   (string.IsNullOrEmpty(pin.TargetPath) &&
+                    !LooksPackaged(pin.AppId));
+        }
+
+        internal static bool LooksPackaged(string? id)
+        {
+            return !string.IsNullOrEmpty(id) && id.IndexOf('!') >= 0;
         }
 
         public static bool SameFileName(string pathA, string pathB)

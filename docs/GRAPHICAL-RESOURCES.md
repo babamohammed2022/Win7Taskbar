@@ -4,10 +4,6 @@ Il bundle `GraphicalResourceBundle` (`src/Win7Taskbar/Utilities/GraphicalResourc
 
 Il mapping sotto mantiene nome originale, percorso/provenienza originale e chiave del bundle. I byte Base64 → PNG sono reversibili e non ricompressi.
 
-## Nota sui marchi
-
-Windows, the Windows logo and the Windows 7 visual design are trademarks and/or copyrighted works of Microsoft Corporation.
-
 ## Conteggio
 
 | Categoria | Quantità | Note |

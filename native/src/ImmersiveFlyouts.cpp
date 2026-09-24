@@ -89,6 +89,7 @@ const wchar_t* RuntimeName(FlyoutKind kind) {
     case FlyoutKind::Clock:   return L"Windows.Internal.ShellExperience.TrayClockFlyout";
     case FlyoutKind::Battery: return L"Windows.Internal.ShellExperience.TrayBatteryFlyout";
     case FlyoutKind::Sound:   return L"Windows.Internal.ShellExperience.MtcUvc";
+    case FlyoutKind::ActionCenter: return nullptr;
     }
     return nullptr;
 }
@@ -99,6 +100,7 @@ const IID* ManagerIid(FlyoutKind kind) {
     case FlyoutKind::Clock:        return &kIidTrayClockFlyoutManager;
     case FlyoutKind::Battery:      return &kIidTrayBatteryFlyoutManager;
     case FlyoutKind::Sound:        return &kIidTrayMtcUvcFlyoutManager;
+    case FlyoutKind::ActionCenter: return nullptr;
     }
     return nullptr;
 }
@@ -155,6 +157,7 @@ int ManagerSlot(FlyoutKind kind) {
     case FlyoutKind::Clock:   return 1;
     case FlyoutKind::Battery: return 2;
     case FlyoutKind::Sound:   return 3;
+    case FlyoutKind::ActionCenter: return -1;
     }
     return -1;
 }

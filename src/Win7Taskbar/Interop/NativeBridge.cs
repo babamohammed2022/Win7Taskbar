@@ -785,7 +785,8 @@ namespace Win7Taskbar.Interop
             int inputLanguageMode, int taskManagerMode,
             int flyoutColorMode, int flyoutColorRgb,
             int connectionPrivacyMode, int themeSelection,
-            int autoStart, int taskbarPosition, int lockTaskbar)
+            int autoStart, int taskbarPosition, int lockTaskbar,
+            int windowsKeyOpensOurMenu)
         {
             try
             {
@@ -795,9 +796,117 @@ namespace Win7Taskbar.Interop
                     inputLanguageMode, taskManagerMode,
                     flyoutColorMode, flyoutColorRgb,
                     connectionPrivacyMode, themeSelection,
-                    autoStart, taskbarPosition, lockTaskbar);
+                    autoStart, taskbarPosition, lockTaskbar,
+                    windowsKeyOpensOurMenu);
             }
             catch { }
+        }
+
+        public int StartMenuScan()
+        {
+            try { return NativeMethods.W7T_StartMenuScan(); }
+            catch { return W7TResult.ErrNotFound; }
+        }
+
+        public IReadOnlyList<NativeMethods.W7TStartMenuEntry> StartMenuGetEntries()
+        {
+            try
+            {
+                int n = NativeMethods.W7T_StartMenuGetCount();
+                if (n <= 0)
+                {
+                    return Array.Empty<NativeMethods.W7TStartMenuEntry>();
+                }
+                var list = new List<NativeMethods.W7TStartMenuEntry>(n);
+                for (int i = 0; i < n; i++)
+                {
+                    if (NativeMethods.W7T_StartMenuGetEntry(i, out NativeMethods.W7TStartMenuEntry e)
+                        == W7TResult.Ok)
+                    {
+                        list.Add(e);
+                    }
+                }
+                return list;
+            }
+            catch
+            {
+                return Array.Empty<NativeMethods.W7TStartMenuEntry>();
+            }
+        }
+
+        public int[] StartMenuQuery(string query, int capacity)
+        {
+            try
+            {
+                var indices = new int[Math.Max(1, capacity)];
+                int written = NativeMethods.W7T_StartMenuQuery(query ?? string.Empty,
+                    indices, indices.Length);
+                if (written <= 0)
+                {
+                    return Array.Empty<int>();
+                }
+                if (written < indices.Length)
+                {
+                    Array.Resize(ref indices, written);
+                }
+                return indices;
+            }
+            catch
+            {
+                return Array.Empty<int>();
+            }
+        }
+
+        public bool StartMenuLaunch(string path)
+        {
+            try { return NativeMethods.W7T_StartMenuLaunch(path) == W7TResult.Ok; }
+            catch { return false; }
+        }
+
+        public bool StartMenuHasJumpList(string path)
+        {
+            try { return NativeMethods.W7T_StartMenuHasJumpList(path) != 0; }
+            catch { return false; }
+        }
+
+        public void StartMenuPower(int action)
+        {
+            try { NativeMethods.W7T_StartMenuPower(action); } catch { }
+        }
+
+        public bool StartMenuFileSearchStart(string query)
+        {
+            try { return NativeMethods.W7T_StartMenuFileSearchStart(query) == W7TResult.Ok; }
+            catch { return false; }
+        }
+
+        public string? StartMenuFileSearchPoll()
+        {
+            try
+            {
+                var buffer = new char[4096];
+                int n = NativeMethods.W7T_StartMenuFileSearchPoll(buffer, buffer.Length);
+                if (n < 0)
+                {
+                    return null; /* not ready */
+                }
+                if (n == 0)
+                {
+                    return string.Empty;
+                }
+                int end = Array.IndexOf(buffer, '\0');
+                if (end < 0) end = buffer.Length;
+                return new string(buffer, 0, end);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public void StartMenuFileSearchCancel()
+        {
+            try { NativeMethods.W7T_StartMenuFileSearchCancel(); } catch { }
         }
 
         /// <summary>

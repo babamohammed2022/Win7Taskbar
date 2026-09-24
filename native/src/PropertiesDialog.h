@@ -56,6 +56,9 @@ struct PropsApplyMsg {
      * con cbData >= 88/84, un core piu' vecchio non li azzera. */
     int32_t taskbarPosition;       // 0=Basso, 1=Alto, 2=Sinistra, 3=Destra
     int32_t lockTaskbar;           // 0/1 barra bloccata (niente resize/drag)
+    /* v1.3.0: Windows key opens our Start Menu (1) or Windows (0).
+     * Offset 88, packet 92 bytes. Older cores keep lock. */
+    int32_t windowsKeyOpensOurMenu;
 };
 constexpr DWORD kPropsCopyDataId = 'W7PA';
 
@@ -72,7 +75,8 @@ public:
               int32_t flyoutColorMode, int32_t flyoutColorRgb,
               int32_t connectionPrivacyMode, int32_t themeSelection,
               int32_t autoStart,
-              int32_t taskbarPosition, int32_t lockTaskbar);
+              int32_t taskbarPosition, int32_t lockTaskbar,
+              int32_t windowsKeyOpensOurMenu);
 
     /* v2.47: il font del dialogo e' un oggetto GDI: si crea una volta per
      * apertura e si distrugge alla chiusura, nel distruttore della classe
@@ -104,6 +108,7 @@ private:
     int32_t m_seconds = 0;
     int32_t m_taskbarPosition = 0;
     int32_t m_lockTaskbar = 1;
+    int32_t m_windowsKeyOpensOurMenu = 1;
     int32_t m_nativeFlyout = 0;
     int32_t m_enableSearch = 0;
     int32_t m_netFlyout = 0;

@@ -334,6 +334,7 @@ const wchar_t* KindName(FlyoutKind kind) {
         case FlyoutKind::Clock:   return L"clock";
         case FlyoutKind::Battery: return L"battery";
         case FlyoutKind::Sound:   return L"sound";
+        case FlyoutKind::ActionCenter: return L"action-center";
         default:                  return L"?";
     }
 }
@@ -362,6 +363,7 @@ FlyoutStyle PreferredStyle(FlyoutKind kind) {
         case FlyoutKind::Network: return g_flyoutPrefs.network;
         case FlyoutKind::Battery: return g_flyoutPrefs.battery;
         case FlyoutKind::Sound:   return g_flyoutPrefs.volume;
+        case FlyoutKind::ActionCenter: return FlyoutStyle::Modern;
         default:                  return FlyoutStyle::Win7;
     }
 }
@@ -420,7 +422,7 @@ LRESULT CALLBACK FlyoutNoResizeProc(HWND hWnd, UINT msg, WPARAM wParam,
 
     /* v2.32: il pannello overflow ha il proprio gestore (bordi Aero +
      * HTBORDER + resize di layout legittimo quando cambiano le icone):
-     * il clamp qui sotto lo congelava a una larghezza sbagliata. Lo si
+     * il clamp qui sotto lo congelava a  larghezza sbagliata. Lo si
      * esclude: vale solo per i flyout di sistema. */
     if (msg == WM_WINDOWPOSCHANGING || msg == WM_NCHITTEST) {
         wchar_t cls[48]{};

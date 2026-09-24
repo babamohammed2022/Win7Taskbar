@@ -22,7 +22,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Windows.Media;
+using Win7Taskbar.Interop;
 
 namespace Win7Taskbar.Models
 {
@@ -249,6 +251,22 @@ namespace Win7Taskbar.Models
                     {
                         // Elevated, missing and virtual executables are normal;
                         // bindings must degrade silently to live model data.
+                    }
+                    try
+                    {
+                        var shfi = new NativeMethods.SHFILEINFOW();
+                        IntPtr ok = NativeMethods.SHGetFileInfoW(
+                            path, 0, ref shfi,
+                            (uint)Marshal.SizeOf<NativeMethods.SHFILEINFOW>(),
+                            NativeMethods.SHGFI_DISPLAYNAME);
+                        if (ok != IntPtr.Zero &&
+                            !string.IsNullOrWhiteSpace(shfi.szDisplayName))
+                        {
+                            return shfi.szDisplayName.Trim();
+                        }
+                    }
+                    catch
+                    {
                     }
                     return string.Empty;
                 });

@@ -77,6 +77,60 @@ project's `w7t` conventions; the snippet's vtable-offset map and its
 references to undocumented COM interfaces were deliberately not carried
 over (see the deviations section of the notes).
 
-## Trademarks
+## Open-Shell-Menu (inspiration only)
 
-Windows, the Windows logo and the Windows 7 visual design are trademarks and/or copyrighted works of Microsoft Corporation.
+Reference / inspiration for Start Menu pin storage, small folder icons,
+IContextMenu usage, and All Programs tree measurements:
+
+- Project: **Open-Shell-Menu**
+- Source: https://github.com/Open-Shell/Open-Shell-Menu
+- License: **MIT License**
+- Copyright: Copyright (c) 2017-2018 Open-Shell
+  (see https://github.com/Open-Shell/Open-Shell-Menu/blob/master/LICENSE)
+
+Win7Taskbar does **not** copy Open-Shell source code, assets, or bitmaps.
+Public shell APIs (`IContextMenu`, `SHGetFileInfo` with `SHGFI_SMALLICON`,
+`ShellExecuteEx`) and published measurements were used as inspiration.
+Start Menu pins are written only to `%AppData%\Win7Taskbar\Pinned\StartMenu`;
+Explorer's User Pinned folder is never written.
+
+## EJSnow / Windows-7-skin (inspected, not copied)
+
+- Source: https://github.com/EJSnow/Windows-7-skin
+- Inspected: 2026-09-24
+- License: **none published** (no LICENSE file; GitHub default is all rights reserved)
+- README states start-button images and a reflection bitmap were **extracted
+  from Windows 7 / Windows 7 Professional SP1**. Those Microsoft assets are
+  not copied.
+
+Because the repository has no license and contains Microsoft-extracted
+bitmaps, Win7Taskbar copies **no files, bitmaps, icons, or skin text** from
+it. Search-time full-width white pane (outer frame unchanged) is a well-known
+Windows 7 Start Menu behaviour, also described by Open-Shell's public skin
+keys (`Main_bitmap_search`); it was reimplemented in our XAML from scratch.
+
+MIT License text (verbatim from the Open-Shell LICENSE file):
+
+```
+MIT License
+
+Copyright (c) 2017-2018 Open-Shell
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

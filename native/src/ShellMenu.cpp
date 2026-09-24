@@ -171,7 +171,20 @@ public:
          * below a taskbar which has just reasserted its own z priority. */
         m_cbtHook = SetWindowsHookExW(WH_CBT, MenuPriorityCbtProc, nullptr,
                                       GetCurrentThreadId());
-        SetForegroundWindow(m_owner);
+        if (SetForegroundWindow(m_owner) == FALSE) {
+            /* Documented TrackPopupMenu quirk: if the owner is not in the
+             * foreground the menu can fail to appear. A no-op key of an
+             * unassigned VK grants foreground rights (same trick RetroBar
+             * uses). This is NOT inside a hook callback. */
+            INPUT inp[2] = {};
+            inp[0].type = INPUT_KEYBOARD;
+            inp[0].ki.wVk = 0xE8;
+            inp[1].type = INPUT_KEYBOARD;
+            inp[1].ki.wVk = 0xE8;
+            inp[1].ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(2, inp, static_cast<int>(sizeof(INPUT)));
+            SetForegroundWindow(m_owner);
+        }
         SetWindowPos(m_owner, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER);
     }
@@ -194,7 +207,11 @@ private:
  * bersaglio, che appartiene a un altro processo.
  */
 HWND GetMenuOwnerWindow() {
-    static HWND s_owner = nullptr;
+    /* One owner per calling thread. TrackPopupMenuEx requires an owner
+     * created on THIS thread: a process-wide HWND made on the Superbar
+     * STA cannot host a menu from the Start Menu STA, so those menus
+     * never appeared. */
+    thread_local HWND s_owner = nullptr;
     if (s_owner != nullptr && IsWindow(s_owner)) {
         return s_owner;
     }
@@ -219,6 +236,13 @@ HWND GetMenuOwnerWindow() {
                               L"Win7TaskbarMenuOwner", L"",
                               WS_POPUP, 0, 0, 0, 0,
                               nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    /* TrackPopupMenuEx is unreliable against a never-shown owner: the
+     * taskbar context menu then appeared only sometimes. SW_SHOWNOACTIVATE
+     * keeps the 0x0 popup in the thread's window list without stealing
+     * focus. */
+    if (s_owner != nullptr) {
+        ShowWindow(s_owner, SW_SHOWNOACTIVATE);
+    }
     return s_owner;
 }
 

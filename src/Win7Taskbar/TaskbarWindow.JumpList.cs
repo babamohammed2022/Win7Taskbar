@@ -27,8 +27,8 @@
 //   while the drag is active (the button holds the mouse capture)
 //        -> every move updates the highlighted row (native SetHover).
 //           The popup NEVER moves: it stays at the canonical Windows 7
-//           position - directly above the button, left-aligned with its
-//           left edge, small gap - exactly where the shell opens the
+//           position - directly above the button, centered on the icon,
+//           small gap - exactly where the shell opens the
 //           jump view, and it keeps it for the whole gesture.
 //   TaskButton_PreviewMouseLeftButtonUp
 //        -> released ON A ROW -> the row activates and the list closes;
@@ -176,6 +176,10 @@ namespace Win7Taskbar
                                                 MouseButtonEventArgs e)
         {
             if (e.ChangedButton != MouseButton.Left)
+            {
+                return false;
+            }
+            if (!RetroBar.Utilities.Settings.Instance.ShowJumpListHoverArrow)
             {
                 return false;
             }
@@ -1070,6 +1074,28 @@ namespace Win7Taskbar
             }
         }
 
+        private static string StripShortcutExtension(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return string.Empty;
+            }
+            try
+            {
+                string name = text.Trim();
+                if (name.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) ||
+                    name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    name = System.IO.Path.GetFileNameWithoutExtension(name);
+                }
+                return name;
+            }
+            catch (ArgumentException)
+            {
+                return text;
+            }
+        }
+
         /// <summary>Opens the popup for the armed group. The representative
         /// window of the group (active window, else the first one - the
         /// same rule the wheel handler uses) is what the native side asks
@@ -1104,11 +1130,11 @@ namespace Win7Taskbar
                     hwnd = rep.Hwnd;
                 }
 
-                // The Windows 7 popup shows the application name without
-                // the extension, taken from the executable, not from the
-                // button caption.
-                string title = group.AppId;
-                if (!string.IsNullOrEmpty(group.ExePath))
+                // Localized shell name (FileDescription / SHGFI_DISPLAYNAME),
+                // not AppId or "file explorer" from the .lnk file name.
+                string title = group.DisplayTitle;
+                if (string.IsNullOrWhiteSpace(title) &&
+                    !string.IsNullOrEmpty(group.ExePath))
                 {
                     try
                     {
@@ -1117,12 +1143,17 @@ namespace Win7Taskbar
                     }
                     catch (ArgumentException)
                     {
-                        title = group.DisplayTitle;
+                        title = group.AppId ?? string.Empty;
                     }
                 }
                 if (string.IsNullOrWhiteSpace(title))
                 {
-                    title = group.DisplayTitle;
+                    title = group.AppId ?? string.Empty;
+                }
+                title = StripShortcutExtension(title);
+                if (string.IsNullOrWhiteSpace(title))
+                {
+                    title = StripShortcutExtension(group.DisplayTitle);
                 }
 
                 string launchPath = !string.IsNullOrEmpty(group.LaunchPath)

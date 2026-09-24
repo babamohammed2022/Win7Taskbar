@@ -45,7 +45,11 @@
 #include <commctrl.h>
 #include <cstring>
 #include <algorithm>
+#include <memory>
 #include <mutex>
+#include <objidl.h>
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
 
 namespace w7t {
 
@@ -55,13 +59,13 @@ constexpr wchar_t kClassName[] = L"W7T_JumpList";
 constexpr UINT kDismissOutsideMessage = WM_APP + 0x177;
 
 /* --- 96-DPI reference geometry (scaled by JumpListWindow::Sc) --------- */
-constexpr int kWidth96      = 280;
+constexpr int kWidth96      = 288;
 constexpr int kRowApp96     = 36;
 constexpr int kRowClose96   = 26;
 constexpr int kRowPin96     = 28;
 constexpr int kRowDoc96     = 24;
 constexpr int kHeader96     = 17;
-constexpr int kPad96        = 6;   /* top/bottom inner padding           */
+constexpr int kPad96        = 10;  /* top/bottom inner padding           */
 constexpr int kSep96        = 6;   /* separator band between sections     */
 constexpr int kGap96        = 4;   /* popup-to-button gap (Windows 7)     */
 constexpr int kEdgeMargin96 = 2;   /* never closer to the work area edge  */
@@ -90,6 +94,254 @@ struct JumpListCapCache {
 JumpListCapCache& JumpListCapCacheRef() {
     static JumpListCapCache cache;
     return cache;
+}
+
+/* Public GDI glyphs for Tasks (min/max/restore/move/size). Drawn, not
+ * taken from Microsoft bitmaps. Marlett/DrawFrameControl are public too;
+ * simple strokes stay sharp at every DPI. */
+void DrawTaskGlyph(HDC hdc, const RECT& box, int32_t cmd)
+{
+    try {
+    if (hdc == nullptr || box.right <= box.left + 2 || box.bottom <= box.top + 2) {
+        return;
+    }
+    const COLORREF ink = RGB(0x3A, 0x3A, 0x3A);
+    const int thickness = ((box.right - box.left) >= 12) ? 2 : 1;
+    UniqueGdiObject pen(CreatePen(PS_SOLID, thickness, ink));
+    if (!pen.valid()) {
+        return;
+    }
+    SelectGuard sg(hdc, pen.get());
+    HGDIOBJ oldBr = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    const int l = box.left + 1;
+    const int t = box.top + 1;
+    const int r = box.right - 1;
+    const int b = box.bottom - 1;
+    const int cx = (l + r) / 2;
+    const int cy = (t + b) / 2;
+    switch (cmd) {
+        case W7T_CMD_MINIMIZE:
+            MoveToEx(hdc, l + 1, b - 1, nullptr);
+            LineTo(hdc, r - 1, b - 1);
+            break;
+        case W7T_CMD_MAXIMIZE:
+            Rectangle(hdc, l, t, r, b);
+            MoveToEx(hdc, l, t + thickness, nullptr);
+            LineTo(hdc, r, t + thickness);
+            break;
+        case W7T_CMD_RESTORE: {
+            const int inset = (r - l) / 3;
+            Rectangle(hdc, l + inset, t, r, b - inset);
+            Rectangle(hdc, l, t + inset, r - inset, b);
+            break;
+        }
+        case W7T_CMD_CLOSE:
+            MoveToEx(hdc, l, t, nullptr);
+            LineTo(hdc, r, b);
+            MoveToEx(hdc, r - 1, t, nullptr);
+            LineTo(hdc, l - 1, b);
+            break;
+        case W7T_CMD_MOVE:
+            MoveToEx(hdc, cx, t, nullptr); LineTo(hdc, cx, b);
+            MoveToEx(hdc, l, cy, nullptr); LineTo(hdc, r, cy);
+            MoveToEx(hdc, cx, t, nullptr); LineTo(hdc, cx - 3, t + 4);
+            MoveToEx(hdc, cx, t, nullptr); LineTo(hdc, cx + 3, t + 4);
+            MoveToEx(hdc, cx, b, nullptr); LineTo(hdc, cx - 3, b - 4);
+            MoveToEx(hdc, cx, b, nullptr); LineTo(hdc, cx + 3, b - 4);
+            MoveToEx(hdc, l, cy, nullptr); LineTo(hdc, l + 4, cy - 3);
+            MoveToEx(hdc, l, cy, nullptr); LineTo(hdc, l + 4, cy + 3);
+            MoveToEx(hdc, r, cy, nullptr); LineTo(hdc, r - 4, cy - 3);
+            MoveToEx(hdc, r, cy, nullptr); LineTo(hdc, r - 4, cy + 3);
+            break;
+        case W7T_CMD_SIZE:
+            MoveToEx(hdc, l + 2, b, nullptr); LineTo(hdc, r, t + 2);
+            MoveToEx(hdc, r, t + 2, nullptr); LineTo(hdc, r - 4, t + 6);
+            MoveToEx(hdc, r, t + 2, nullptr); LineTo(hdc, r - 6, t + 2);
+            MoveToEx(hdc, l + 2, b, nullptr); LineTo(hdc, l + 6, b - 4);
+            MoveToEx(hdc, l + 2, b, nullptr); LineTo(hdc, l + 2, b - 6);
+            break;
+        default:
+            break;
+    }
+    if (oldBr != nullptr) {
+        SelectObject(hdc, oldBr);
+    }
+    } catch (...) {
+    }
+}
+
+bool EnsureJumpGdiplus()
+{
+    static int state = 0;
+    static ULONG_PTR token = 0;
+    if (state != 0) {
+        return state == 1;
+    }
+    try {
+        Gdiplus::GdiplusStartupInput input;
+        if (Gdiplus::GdiplusStartup(&token, &input, nullptr) == Gdiplus::Ok) {
+            state = 1;
+            return true;
+        }
+    } catch (...) {
+    }
+    state = -1;
+    return false;
+}
+
+Gdiplus::Color GpColor(COLORREF c, BYTE a = 255)
+{
+    return Gdiplus::Color(a, GetRValue(c), GetGValue(c), GetBValue(c));
+}
+
+void DrawTaskGlyphGp(Gdiplus::Graphics& g, const RECT& box, int32_t cmd)
+{
+    try {
+        if (box.right <= box.left + 2 || box.bottom <= box.top + 2) {
+            return;
+        }
+        const Gdiplus::REAL thickness =
+            ((box.right - box.left) >= 12) ? 2.0f : 1.0f;
+        Gdiplus::Pen pen(GpColor(RGB(0x3A, 0x3A, 0x3A)), thickness);
+        pen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound,
+                       Gdiplus::DashCapRound);
+        const Gdiplus::REAL l = static_cast<Gdiplus::REAL>(box.left + 1);
+        const Gdiplus::REAL t = static_cast<Gdiplus::REAL>(box.top + 1);
+        const Gdiplus::REAL r = static_cast<Gdiplus::REAL>(box.right - 1);
+        const Gdiplus::REAL b = static_cast<Gdiplus::REAL>(box.bottom - 1);
+        const Gdiplus::REAL cx = (l + r) * 0.5f;
+        const Gdiplus::REAL cy = (t + b) * 0.5f;
+        switch (cmd) {
+            case W7T_CMD_MINIMIZE:
+                g.DrawLine(&pen, l + 1, b - 1, r - 1, b - 1);
+                break;
+            case W7T_CMD_MAXIMIZE:
+                g.DrawRectangle(&pen, l, t, r - l, b - t);
+                g.DrawLine(&pen, l, t + thickness, r, t + thickness);
+                break;
+            case W7T_CMD_RESTORE: {
+                const Gdiplus::REAL inset = (r - l) / 3.0f;
+                g.DrawRectangle(&pen, l + inset, t,
+                                r - (l + inset), (b - inset) - t);
+                g.DrawRectangle(&pen, l, t + inset,
+                                (r - inset) - l, b - (t + inset));
+                break;
+            }
+            case W7T_CMD_CLOSE:
+                g.DrawLine(&pen, l, t, r, b);
+                g.DrawLine(&pen, r, t, l, b);
+                break;
+            case W7T_CMD_MOVE:
+                g.DrawLine(&pen, cx, t, cx, b);
+                g.DrawLine(&pen, l, cy, r, cy);
+                g.DrawLine(&pen, cx, t, cx - 3, t + 4);
+                g.DrawLine(&pen, cx, t, cx + 3, t + 4);
+                g.DrawLine(&pen, cx, b, cx - 3, b - 4);
+                g.DrawLine(&pen, cx, b, cx + 3, b - 4);
+                g.DrawLine(&pen, l, cy, l + 4, cy - 3);
+                g.DrawLine(&pen, l, cy, l + 4, cy + 3);
+                g.DrawLine(&pen, r, cy, r - 4, cy - 3);
+                g.DrawLine(&pen, r, cy, r - 4, cy + 3);
+                break;
+            case W7T_CMD_SIZE:
+                g.DrawLine(&pen, l + 2, b, r, t + 2);
+                g.DrawLine(&pen, r, t + 2, r - 4, t + 6);
+                g.DrawLine(&pen, r, t + 2, r - 6, t + 2);
+                g.DrawLine(&pen, l + 2, b, l + 6, b - 4);
+                g.DrawLine(&pen, l + 2, b, l + 2, b - 6);
+                break;
+            default:
+                break;
+        }
+    } catch (...) {
+    }
+}
+
+bool DrawHbmpGp(Gdiplus::Graphics& g, HBITMAP hb, int x, int y, int dw, int dh)
+{
+    if (hb == nullptr || dw <= 0 || dh <= 0) {
+        return false;
+    }
+    try {
+        BITMAP bm{};
+        if (GetObjectW(hb, sizeof(bm), &bm) != sizeof(bm) ||
+            bm.bmWidth <= 0 || bm.bmHeight <= 0) {
+            return false;
+        }
+        Gdiplus::Bitmap bmp(bm.bmWidth, bm.bmHeight, PixelFormat32bppPARGB);
+        if (bmp.GetLastStatus() != Gdiplus::Ok) {
+            return false;
+        }
+        Gdiplus::BitmapData data{};
+        Gdiplus::Rect rc(0, 0, bm.bmWidth, bm.bmHeight);
+        if (bmp.LockBits(&rc, Gdiplus::ImageLockModeWrite,
+                         PixelFormat32bppPARGB, &data) != Gdiplus::Ok) {
+            return false;
+        }
+        BITMAPINFO bmi{};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = bm.bmWidth;
+        bmi.bmiHeader.biHeight = -bm.bmHeight;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        HDC screen = GetDC(nullptr);
+        if (screen != nullptr) {
+            GetDIBits(screen, hb, 0, static_cast<UINT>(bm.bmHeight),
+                      data.Scan0, &bmi, DIB_RGB_COLORS);
+            ReleaseDC(nullptr, screen);
+        }
+        bmp.UnlockBits(&data);
+        g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        g.DrawImage(&bmp, x, y, dw, dh);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+void DrawIconGp(Gdiplus::Graphics& g, HICON icon, int x, int y, int box)
+{
+    if (icon == nullptr || box <= 0) {
+        return;
+    }
+    try {
+        std::unique_ptr<Gdiplus::Bitmap> bmp(Gdiplus::Bitmap::FromHICON(icon));
+        if (!bmp || bmp->GetLastStatus() != Gdiplus::Ok) {
+            return;
+        }
+        g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        g.DrawImage(bmp.get(), x, y, box, box);
+    } catch (...) {
+    }
+}
+
+void FillHoverGp(Gdiplus::Graphics& g, const RECT& r)
+{
+    try {
+        const int h = r.bottom - r.top;
+        if (h <= 0 || r.right <= r.left + 4) {
+            return;
+        }
+        Gdiplus::RectF fill(
+            static_cast<Gdiplus::REAL>(r.left + 3),
+            static_cast<Gdiplus::REAL>(r.top + 2),
+            static_cast<Gdiplus::REAL>(r.right - r.left - 6),
+            static_cast<Gdiplus::REAL>(r.bottom - r.top - 4));
+        Gdiplus::LinearGradientBrush br(
+            Gdiplus::PointF(fill.X, fill.Y),
+            Gdiplus::PointF(fill.X, fill.Y + fill.Height),
+            GpColor(RGB(0xED, 0xF6, 0xFD)),
+            GpColor(RGB(0xC5, 0xE1, 0xF7)));
+        g.FillRectangle(&br, fill);
+        Gdiplus::Pen edge(GpColor(RGB(0x94, 0xC6, 0xEE)), 1.0f);
+        g.DrawRectangle(&edge,
+                        static_cast<Gdiplus::REAL>(r.left + 2),
+                        static_cast<Gdiplus::REAL>(r.top + 1),
+                        static_cast<Gdiplus::REAL>(r.right - r.left - 5),
+                        static_cast<Gdiplus::REAL>(r.bottom - r.top - 3));
+    } catch (...) {
+    }
 }
 
 /* One REG_DWORD of the user's shell configuration (read-only; the
@@ -835,6 +1087,37 @@ void JumpListWindow::Layout() {
     m_totalH = y + Sc(kPad96);
 }
 
+void JumpListWindow::WindowSizeForClient(int clientW, int clientH,
+                                         int& outW, int& outH) const {
+    outW = clientW;
+    outH = clientH;
+    try {
+        DWORD style = WS_POPUP | WS_THICKFRAME;
+        DWORD ex = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE;
+        if (m_hwnd != nullptr && IsWindow(m_hwnd)) {
+            style = static_cast<DWORD>(GetWindowLongPtrW(m_hwnd, GWL_STYLE));
+            ex = static_cast<DWORD>(GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE));
+        }
+        RECT r{ 0, 0, clientW, clientH };
+        if (AdjustWindowRectEx(&r, style, FALSE, ex) != FALSE) {
+            const int w = r.right - r.left;
+            const int h = r.bottom - r.top;
+            if (w > 0 && h > 0) {
+                outW = w;
+                outH = h;
+                return;
+            }
+        }
+        const int fx = GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+        const int fy = GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+        outW = clientW + (fx > 0 ? fx * 2 : 16);
+        outH = clientH + (fy > 0 ? fy * 2 : 16);
+    } catch (...) {
+        outW = clientW + 16;
+        outH = clientH + 16;
+    }
+}
+
 RECT JumpListWindow::RowRect(size_t index) const {
     if (index < m_rows.size()) return m_rows[index].rect;
     return RECT{ 0, 0, 0, 0 };
@@ -893,41 +1176,82 @@ RECT JumpListWindow::WorkAreaForButton() const {
 /* Placement from the REAL taskbar button rectangle, per edge, clamped to
  * the work area of the monitor that hosts the button. This is the ONLY
  * placement rule: with the bar at the bottom the popup opens ABOVE the
- * button, left-aligned with its left edge and a small gap - exactly where
- * the Windows 7 shell opens the jump view - and it stays there for the
- * whole gesture (the cursor only moves the highlighted row). Gap and
- * margin are DPI-scaled; no unscaled offsets. */
+ * button, centered on the icon, small gap. Growing the HWND for Aero
+ * chrome without centering shifted the client to the right of the icon.
+ * Gap and margin are DPI-scaled; no unscaled offsets. */
 void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge) {
-    const int gap = Sc(kGap96);
-    const int margin = Sc(kEdgeMargin96);
-    const RECT wa = WorkAreaForButton();
+    /* Glue the popup to the Superbar button. The bar lives in the
+     * monitor reserved strip, which sits *outside* rcWork; clamping the
+     * attached axis to the work area lifted a bottom-bar list off the
+     * icon and made it float. Clamp only the free axis (horizontal for
+     * top/bottom bars, vertical for left/right bars). */
+    W7T_SEH_TRY {
+        try {
+            if (hwnd == nullptr || !IsWindow(hwnd)) {
+                return;
+            }
+            const int gap = Sc(kGap96);
+            const int margin = Sc(kEdgeMargin96);
+            const RECT wa = WorkAreaForButton();
 
-    const int w = m_width, h = m_totalH;
-    int x = button.left, y = button.top - h - gap;
-    switch (edge) {
-        case kEdgeTop:    /* bar at the top: the list opens BELOW */
-            y = button.bottom + gap;
-            break;
-        case kEdgeLeft:   /* vertical bar at the left: open to its right */
-            x = button.right + gap;
-            y = button.top;
-            break;
-        case kEdgeRight:  /* vertical bar at the right: open to its left */
-            x = button.left - w - gap;
-            y = button.top;
-            break;
-        case kEdgeBottom:
-        default:
-            break;
-    }
-    if (x + w > wa.right - margin)  x = wa.right - margin - w;
-    if (x < wa.left + margin)       x = wa.left + margin;
-    if (y + h > wa.bottom - margin) y = wa.bottom - margin - h;
-    if (y < wa.top + margin)        y = wa.top + margin;
+            int w = m_width, h = m_totalH;
+            WindowSizeForClient(m_width, m_totalH, w, h);
+            const int btnW = button.right - button.left;
+            const int btnH = button.bottom - button.top;
+            int x = button.left + (btnW - w) / 2;
+            int y = button.top - h - gap;
+            switch (edge) {
+                case kEdgeTop:    /* bar at the top: the list opens BELOW */
+                    x = button.left + (btnW - w) / 2;
+                    y = button.bottom + gap;
+                    break;
+                case kEdgeLeft:   /* vertical bar at the left: open to its right */
+                    x = button.right + gap;
+                    y = button.top + (btnH - h) / 2;
+                    break;
+                case kEdgeRight:  /* vertical bar at the right: open to its left */
+                    x = button.left - w - gap;
+                    y = button.top + (btnH - h) / 2;
+                    break;
+                case kEdgeBottom:
+                default:
+                    break;
+            }
+            switch (edge) {
+                case kEdgeLeft:
+                case kEdgeRight:
+                    if (y + h > wa.bottom - margin) y = wa.bottom - margin - h;
+                    if (y < wa.top + margin)        y = wa.top + margin;
+                    break;
+                case kEdgeTop:
+                case kEdgeBottom:
+                default:
+                    if (x + w > wa.right - margin)  x = wa.right - margin - w;
+                    if (x < wa.left + margin)       x = wa.left + margin;
+                    break;
+            }
 
-    SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    m_popupRect = RECT{ x, y, x + w, y + h };
+            /* The popup HWND is created once and reused. ApplyAeroFlyoutStyle
+             * subclasses it with FlyoutNoResizeProc, which forces SWP_NOSIZE
+             * on every resize unless the one-shot property W7T_AllowOneResize
+             * is set. Without it a later list with a different height kept
+             * the FIRST height: clipped bottom rows and a gap above the
+             * button. WM_WINDOWPOSCHANGING is sent synchronously inside
+             * SetWindowPos, so the property is set and removed around it. */
+            SetPropW(hwnd, L"W7T_AllowOneResize", reinterpret_cast<HANDLE>(1));
+            SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
+                         SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            RemovePropW(hwnd, L"W7T_AllowOneResize");
+            m_popupRect = RECT{ x, y, x + w, y + h };
+        } catch (...) {
+            if (hwnd != nullptr) {
+                RemovePropW(hwnd, L"W7T_AllowOneResize");
+            }
+            LogTagged(L"JUMPLIST", L"Place threw - leaving the last rectangle");
+        }
+    } W7T_SEH_CATCH {
+        LogTagged(L"JUMPLIST", L"Place SEH - leaving the last rectangle");
+    } W7T_SEH_END
 }
 
 /* Interaction area of the gesture: popup, taskbar button and everything
@@ -1060,10 +1384,12 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
         Layout();
 
         if (m_hwnd == nullptr) {
+            int createW = m_width, createH = m_totalH;
+            WindowSizeForClient(m_width, m_totalH, createW, createH);
             m_hwnd = CreateWindowExW(
                 WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
                 kClassName, L"", WS_POPUP,
-                0, 0, m_width, m_totalH,
+                0, 0, createW, createH,
                 nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
             if (m_hwnd == nullptr) {
                 LogTagged(L"JUMPLIST", L"CreateWindowExW failed err=%d",
@@ -1479,113 +1805,272 @@ void JumpListWindow::OnPaint(HWND hwnd) {
     RECT client{};
     GetClientRect(hwnd, &client);
 
-    const UniqueGdiObject bg(CreateSolidBrush(RGB(0xF2, 0xF6, 0xFB)));
-    if (bg.valid()) FillRect(hdc, &client, (HBRUSH)bg.get());
+    bool painted = false;
+    try {
+        if (EnsureJumpGdiplus()) {
+            Gdiplus::Graphics g(hdc);
+            if (g.GetLastStatus() == Gdiplus::Ok) {
+                g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+                g.SetInterpolationMode(
+                    Gdiplus::InterpolationModeHighQualityBicubic);
+                g.SetTextRenderingHint(
+                    Gdiplus::TextRenderingHintClearTypeGridFit);
+                g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
 
-    SetBkMode(hdc, TRANSPARENT);
-    const int fontH = -::MulDiv(11, (int)m_dpi, 96);
-    const UniqueGdiObject font(CreateFontW(fontH, 0, 0, 0, FW_NORMAL,
-        FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI"));
-    const UniqueGdiObject fontBold(CreateFontW(fontH, 0, 0, 0, FW_SEMIBOLD,
-        FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI"));
-    if (font.valid()) SelectObject(hdc, (HGDIOBJ)font.get());
+                Gdiplus::SolidBrush bg(GpColor(RGB(0xF2, 0xF6, 0xFB)));
+                g.FillRectangle(&bg, 0, 0, client.right, client.bottom);
 
-    auto hline = [&](int lineY) {
-        const UniqueGdiObject pen(
-            CreatePen(PS_SOLID, 1, RGB(0xC9, 0xD6, 0xE6)));
-        if (!pen.valid()) return;
-        const SelectGuard pg(hdc, (HGDIOBJ)pen.get());
-        MoveToEx(hdc, Sc(10), lineY, nullptr);
-        LineTo(hdc, client.right - Sc(10), lineY);
-    };
+                const Gdiplus::REAL em =
+                    static_cast<Gdiplus::REAL>(::MulDiv(11, (int)m_dpi, 96));
+                Gdiplus::Font font(L"Segoe UI", em, Gdiplus::FontStyleRegular,
+                                   Gdiplus::UnitPixel);
+                Gdiplus::Font fontBold(L"Segoe UI", em, Gdiplus::FontStyleBold,
+                                       Gdiplus::UnitPixel);
+                Gdiplus::SolidBrush textBr(GpColor(RGB(0x1E, 0x1E, 0x1E)));
+                Gdiplus::SolidBrush pinBr(GpColor(RGB(0x1E, 0x6F, 0xC9)));
+                Gdiplus::SolidBrush headBr(GpColor(RGB(0x40, 0x58, 0x78)));
+                Gdiplus::Pen linePen(GpColor(RGB(0xC9, 0xD6, 0xE6)), 1.0f);
+                Gdiplus::StringFormat fmt;
+                fmt.SetAlignment(Gdiplus::StringAlignmentNear);
+                fmt.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+                fmt.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
+                fmt.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
 
-    const JumpStr& S = Str(m_lang);
-    const int margin = Sc(12);
-    int lastKind = -1;
+                auto hline = [&](int lineY) {
+                    g.DrawLine(&linePen,
+                               static_cast<Gdiplus::REAL>(Sc(10)),
+                               static_cast<Gdiplus::REAL>(lineY),
+                               static_cast<Gdiplus::REAL>(client.right - Sc(10)),
+                               static_cast<Gdiplus::REAL>(lineY));
+                };
 
-    for (size_t i = 0; i < m_rows.size(); ++i) {
-        const Row& r = m_rows[i];
-        const bool isDoc =
-            r.kind == Row::DocRecent || r.kind == Row::DocFrequent;
-        const bool isTask = r.kind == Row::Task;
+                const JumpStr& S = Str(m_lang);
+                const int margin = Sc(12);
+                int lastKind = -1;
 
-        if ((isDoc || isTask) && (int)r.kind != lastKind) {
-            /* Section header ("Recent items" / "Frequent items" /
-             * "Tasks"): bold steel-blue with the separator under it -
-             * the Windows 7 jump list band. Its y comes from the row
-             * band Layout left empty right above this row. */
-            const int hy = r.rect.top - Sc(kHeader96);
-            if (fontBold.valid()) SelectObject(hdc, (HGDIOBJ)fontBold.get());
-            SetTextColor(hdc, RGB(0x40, 0x58, 0x78));
-            RECT hr{ margin, hy, client.right - margin, hy + Sc(kHeader96) };
-            const wchar_t* header = isTask ? S.tasks
-                : (r.kind == Row::DocFrequent ? S.frequent : S.recent);
-            DrawTextW(hdc, header, -1, &hr,
-                      DT_SINGLELINE | DT_VCENTER | DT_LEFT);
-            if (font.valid()) SelectObject(hdc, (HGDIOBJ)font.get());
-            hline(hy + Sc(kHeader96));
+                for (size_t i = 0; i < m_rows.size(); ++i) {
+                    const Row& r = m_rows[i];
+                    const bool isDoc =
+                        r.kind == Row::DocRecent || r.kind == Row::DocFrequent;
+                    const bool isTask = r.kind == Row::Task;
+
+                    if ((isDoc || isTask) && (int)r.kind != lastKind) {
+                        const int hy = r.rect.top - Sc(kHeader96);
+                        Gdiplus::RectF hr(
+                            static_cast<Gdiplus::REAL>(margin),
+                            static_cast<Gdiplus::REAL>(hy),
+                            static_cast<Gdiplus::REAL>(client.right - 2 * margin),
+                            static_cast<Gdiplus::REAL>(Sc(kHeader96)));
+                        const wchar_t* header = isTask ? S.tasks
+                            : (r.kind == Row::DocFrequent ? S.frequent : S.recent);
+                        g.DrawString(header, -1, &fontBold, hr, &fmt, &headBr);
+                        hline(hy + Sc(kHeader96));
+                    }
+                    if (!isDoc && (lastKind == (int)Row::DocRecent ||
+                                   lastKind == (int)Row::DocFrequent ||
+                                   lastKind == (int)Row::App ||
+                                   lastKind == (int)Row::Close ||
+                                   lastKind == (int)Row::Pin)) {
+                        hline(r.rect.top - Sc(kSep96) / 2);
+                    }
+                    lastKind = (int)r.kind;
+
+                    if ((int)i == m_hover) {
+                        FillHoverGp(g, r.rect);
+                    }
+
+                    const int iconLeft = Sc(14);
+                    const int textLeft = (isDoc || r.kind == Row::Task)
+                        ? iconLeft + Sc(kDocIcon96) + Sc(6)
+                        : (r.kind == Row::App
+                            ? iconLeft + Sc(kAppIcon96) + Sc(9)
+                            : (r.kind == Row::Close
+                                ? iconLeft + Sc(kClose96) + Sc(7)
+                                : (r.kind == Row::Pin
+                                    ? iconLeft + Sc(kPinIcon96) + Sc(7)
+                                    : iconLeft)));
+                    const RECT closeRect = CloseRect();
+                    const int lift = Sc(2);
+                    Gdiplus::RectF tr(
+                        static_cast<Gdiplus::REAL>(textLeft),
+                        static_cast<Gdiplus::REAL>(r.rect.top - lift),
+                        static_cast<Gdiplus::REAL>(client.right - margin - textLeft),
+                        static_cast<Gdiplus::REAL>(r.rect.bottom - r.rect.top));
+                    g.DrawString(r.label.c_str(), -1, &font, tr, &fmt,
+                                 (r.kind == Row::Pin) ? &pinBr : &textBr);
+
+                    if (r.kind == Row::Task) {
+                        const int box = Sc(kDocIcon96);
+                        RECT glyph{
+                            iconLeft,
+                            r.rect.top + (Sc(kRowDoc96) - box) / 2 - lift,
+                            iconLeft + box,
+                            r.rect.top + (Sc(kRowDoc96) - box) / 2 - lift + box
+                        };
+                        DrawTaskGlyphGp(g, glyph, r.cmd);
+                    }
+
+                    if (isDoc && r.icon.get() != nullptr) {
+                        const int box = Sc(kDocIcon96);
+                        DrawIconGp(g, r.icon.get(), iconLeft,
+                                   r.rect.top + (Sc(kRowDoc96) - box) / 2, box);
+                    }
+                    if (r.kind == Row::App && m_appIcon) {
+                        const int box = Sc(kAppIcon96);
+                        if (!DrawHbmpGp(g, m_appIcon.get(), iconLeft,
+                                        r.rect.top + (Sc(kRowApp96) - box) / 2,
+                                        box, box)) {
+                            DrawBitmapScaled(hdc, m_appIcon.get(), box, box,
+                                             iconLeft,
+                                             r.rect.top + (Sc(kRowApp96) - box) / 2);
+                        }
+                    }
+                    if (r.kind == Row::Pin && m_pinIcon) {
+                        const int box = Sc(kPinIcon96);
+                        if (!DrawHbmpGp(g, m_pinIcon.get(), iconLeft,
+                                        r.rect.top + (Sc(kRowPin96) - box) / 2,
+                                        box, box)) {
+                            DrawBitmapScaled(hdc, m_pinIcon.get(), box, box,
+                                             iconLeft,
+                                             r.rect.top + (Sc(kRowPin96) - box) / 2);
+                        }
+                    }
+                    if (r.kind == Row::Close && closeRect.right > closeRect.left) {
+                        HBITMAP closeBm = m_closeNormal.get();
+                        if (m_closeDown && m_closePressed) closeBm = m_closePressed.get();
+                        else if (m_closeHot && m_closeHover) closeBm = m_closeHover.get();
+                        const int cw = closeRect.right - closeRect.left;
+                        const int ch = closeRect.bottom - closeRect.top;
+                        if (!DrawHbmpGp(g, closeBm, closeRect.left, closeRect.top,
+                                        cw, ch)) {
+                            DrawBitmapScaled(hdc, closeBm, cw, ch,
+                                             closeRect.left, closeRect.top);
+                        }
+                    }
+                }
+                painted = true;
+            }
         }
-        if (!isDoc && (lastKind == (int)Row::DocRecent ||
-                       lastKind == (int)Row::DocFrequent ||
-                       lastKind == (int)Row::App ||
-                       lastKind == (int)Row::Close ||
-                       lastKind == (int)Row::Pin)) {
-            hline(r.rect.top - Sc(kSep96) / 2);
-        }
-        lastKind = (int)r.kind;
+    } catch (...) {
+        painted = false;
+    }
 
-        if ((int)i == m_hover) {
-            GradientRect(hdc, r.rect,
-                         RGB(0xED, 0xF6, 0xFD), RGB(0xC5, 0xE1, 0xF7),
-                         RGB(0x94, 0xC6, 0xEE));
-        }
+    if (!painted) {
+        const UniqueGdiObject bg(CreateSolidBrush(RGB(0xF2, 0xF6, 0xFB)));
+        if (bg.valid()) FillRect(hdc, &client, (HBRUSH)bg.get());
 
-        const int iconLeft = Sc(14);
-        /* Tasks share the document column (they carry no icon; the
-         * column keeps the text aligned). */
-        const int textLeft = (isDoc || r.kind == Row::Task)
-            ? iconLeft + Sc(kDocIcon96) + Sc(6)
-            : (r.kind == Row::App
-                ? iconLeft + Sc(kAppIcon96) + Sc(9)
-                : (r.kind == Row::Close
-                    ? iconLeft + Sc(kClose96) + Sc(7)
-                    : (r.kind == Row::Pin
-                        ? iconLeft + Sc(kPinIcon96) + Sc(7)
-                        : iconLeft)));
-        SetTextColor(hdc, (r.kind == Row::Pin) ? RGB(0x1E, 0x6F, 0xC9)
-                                                : RGB(0x1E, 0x1E, 0x1E));
-        const RECT closeRect = CloseRect();
-        RECT tr{ textLeft, r.rect.top, client.right - margin, r.rect.bottom };
-        DrawTextW(hdc, r.label.c_str(), -1, &tr,
-                  DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+        SetBkMode(hdc, TRANSPARENT);
+        const int fontH = -::MulDiv(11, (int)m_dpi, 96);
+        const UniqueGdiObject font(CreateFontW(fontH, 0, 0, 0, FW_NORMAL,
+            FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI"));
+        const UniqueGdiObject fontBold(CreateFontW(fontH, 0, 0, 0, FW_SEMIBOLD,
+            FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI"));
+        if (font.valid()) SelectObject(hdc, (HGDIOBJ)font.get());
 
-        if (isDoc && r.icon.get() != nullptr) {
-            const int box = Sc(kDocIcon96);
-            DrawIconEx(hdc, iconLeft, r.rect.top + (Sc(kRowDoc96) - box) / 2,
-                       r.icon.get(), box, box, 0, nullptr, DI_NORMAL);
-        }
-        if (r.kind == Row::App && m_appIcon) {
-            const int box = Sc(kAppIcon96);
-            DrawBitmapScaled(hdc, m_appIcon.get(), box, box,
-                             iconLeft,
-                             r.rect.top + (Sc(kRowApp96) - box) / 2);
-        }
-        if (r.kind == Row::Pin && m_pinIcon) {
-            const int box = Sc(kPinIcon96);
-            DrawBitmapScaled(hdc, m_pinIcon.get(), box, box,
-                             iconLeft,
-                             r.rect.top + (Sc(kRowPin96) - box) / 2);
-        }
-        if (r.kind == Row::Close && closeRect.right > closeRect.left) {
-            HBITMAP close = m_closeNormal.get();
-            if (m_closeDown && m_closePressed) close = m_closePressed.get();
-            else if (m_closeHot && m_closeHover) close = m_closeHover.get();
-            DrawBitmapScaled(hdc, close,
-                             closeRect.right - closeRect.left,
-                             closeRect.bottom - closeRect.top,
-                             closeRect.left, closeRect.top);
+        auto hline = [&](int lineY) {
+            const UniqueGdiObject pen(
+                CreatePen(PS_SOLID, 1, RGB(0xC9, 0xD6, 0xE6)));
+            if (!pen.valid()) return;
+            const SelectGuard pg(hdc, (HGDIOBJ)pen.get());
+            MoveToEx(hdc, Sc(10), lineY, nullptr);
+            LineTo(hdc, client.right - Sc(10), lineY);
+        };
+
+        const JumpStr& S = Str(m_lang);
+        const int margin = Sc(12);
+        int lastKind = -1;
+
+        for (size_t i = 0; i < m_rows.size(); ++i) {
+            const Row& r = m_rows[i];
+            const bool isDoc =
+                r.kind == Row::DocRecent || r.kind == Row::DocFrequent;
+            const bool isTask = r.kind == Row::Task;
+
+            if ((isDoc || isTask) && (int)r.kind != lastKind) {
+                const int hy = r.rect.top - Sc(kHeader96);
+                if (fontBold.valid()) SelectObject(hdc, (HGDIOBJ)fontBold.get());
+                SetTextColor(hdc, RGB(0x40, 0x58, 0x78));
+                RECT hr{ margin, hy, client.right - margin, hy + Sc(kHeader96) };
+                const wchar_t* header = isTask ? S.tasks
+                    : (r.kind == Row::DocFrequent ? S.frequent : S.recent);
+                DrawTextW(hdc, header, -1, &hr,
+                          DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+                if (font.valid()) SelectObject(hdc, (HGDIOBJ)font.get());
+                hline(hy + Sc(kHeader96));
+            }
+            if (!isDoc && (lastKind == (int)Row::DocRecent ||
+                           lastKind == (int)Row::DocFrequent ||
+                           lastKind == (int)Row::App ||
+                           lastKind == (int)Row::Close ||
+                           lastKind == (int)Row::Pin)) {
+                hline(r.rect.top - Sc(kSep96) / 2);
+            }
+            lastKind = (int)r.kind;
+
+            if ((int)i == m_hover) {
+                GradientRect(hdc, r.rect,
+                             RGB(0xED, 0xF6, 0xFD), RGB(0xC5, 0xE1, 0xF7),
+                             RGB(0x94, 0xC6, 0xEE));
+            }
+
+            const int iconLeft = Sc(14);
+            const int textLeft = (isDoc || r.kind == Row::Task)
+                ? iconLeft + Sc(kDocIcon96) + Sc(6)
+                : (r.kind == Row::App
+                    ? iconLeft + Sc(kAppIcon96) + Sc(9)
+                    : (r.kind == Row::Close
+                        ? iconLeft + Sc(kClose96) + Sc(7)
+                        : (r.kind == Row::Pin
+                            ? iconLeft + Sc(kPinIcon96) + Sc(7)
+                            : iconLeft)));
+            SetTextColor(hdc, (r.kind == Row::Pin) ? RGB(0x1E, 0x6F, 0xC9)
+                                                    : RGB(0x1E, 0x1E, 0x1E));
+            const RECT closeRect = CloseRect();
+            const int lift = Sc(2);
+            RECT tr{ textLeft, r.rect.top - lift,
+                     client.right - margin, r.rect.bottom - lift };
+            DrawTextW(hdc, r.label.c_str(), -1, &tr,
+                      DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+
+            if (r.kind == Row::Task) {
+                const int box = Sc(kDocIcon96);
+                RECT glyph{
+                    iconLeft,
+                    r.rect.top + (Sc(kRowDoc96) - box) / 2 - lift,
+                    iconLeft + box,
+                    r.rect.top + (Sc(kRowDoc96) - box) / 2 - lift + box
+                };
+                DrawTaskGlyph(hdc, glyph, r.cmd);
+            }
+
+            if (isDoc && r.icon.get() != nullptr) {
+                const int box = Sc(kDocIcon96);
+                DrawIconEx(hdc, iconLeft, r.rect.top + (Sc(kRowDoc96) - box) / 2,
+                           r.icon.get(), box, box, 0, nullptr, DI_NORMAL);
+            }
+            if (r.kind == Row::App && m_appIcon) {
+                const int box = Sc(kAppIcon96);
+                DrawBitmapScaled(hdc, m_appIcon.get(), box, box,
+                                 iconLeft,
+                                 r.rect.top + (Sc(kRowApp96) - box) / 2);
+            }
+            if (r.kind == Row::Pin && m_pinIcon) {
+                const int box = Sc(kPinIcon96);
+                DrawBitmapScaled(hdc, m_pinIcon.get(), box, box,
+                                 iconLeft,
+                                 r.rect.top + (Sc(kRowPin96) - box) / 2);
+            }
+            if (r.kind == Row::Close && closeRect.right > closeRect.left) {
+                HBITMAP closeBm = m_closeNormal.get();
+                if (m_closeDown && m_closePressed) closeBm = m_closePressed.get();
+                else if (m_closeHot && m_closeHover) closeBm = m_closeHover.get();
+                DrawBitmapScaled(hdc, closeBm,
+                                 closeRect.right - closeRect.left,
+                                 closeRect.bottom - closeRect.top,
+                                 closeRect.left, closeRect.top);
+            }
         }
     }
     EndPaint(hwnd, &ps);

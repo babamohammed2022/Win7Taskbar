@@ -24,6 +24,7 @@ using System.Windows.Threading;
 using Win7Taskbar.Controls;
 using Win7Taskbar.Interop;
 using Win7Taskbar.Models.Tasking;
+using Win7Taskbar.StartMenu;
 
 namespace Win7Taskbar.Models
 {
@@ -90,6 +91,7 @@ namespace Win7Taskbar.Models
             Clock = new ClockModel();
 
             _bridge.CoreEventRaised += OnCoreEvent;
+            StartMenuStore.PinsChanged += OnOurPinsChanged;
 
             // Rete di sicurezza: alcuni cambi di stato non generano WinEvent
             // (es. una finestra che cambia icona senza notificarlo).
@@ -538,24 +540,39 @@ namespace Win7Taskbar.Models
             var list = new List<PinInfo>();
             foreach (var pn in _bridge.GetPinnedApps())
             {
-                var icon = PinReader.ReadIcon(pn.LnkPath ?? string.Empty,
-                                              pn.Target ?? string.Empty);
-                if (icon != null)
+                try
                 {
-                    // The pin's identity icon lives in the shared icon cache:
-                    // the model carries keys, the projection dresses buttons.
-                    _icons.Put(AppIconCache.PinKey(pn.LnkPath ?? string.Empty), icon);
-                }
+                    var icon = PinReader.ReadIcon(pn.LnkPath ?? string.Empty,
+                                                  pn.Target ?? string.Empty);
+                    if (icon != null)
+                    {
+                        _icons.Put(AppIconCache.PinKey(pn.LnkPath ?? string.Empty), icon);
+                    }
 
-                list.Add(new PinInfo
+                    list.Add(new PinInfo
+                    {
+                        AppId = pn.Identity ?? string.Empty,
+                        LnkPath = pn.LnkPath ?? string.Empty,
+                        TargetPath = pn.Target ?? string.Empty,
+                        Icon = icon,
+                    });
+                }
+                catch (Exception)
                 {
-                    AppId = pn.Identity ?? string.Empty,
-                    LnkPath = pn.LnkPath ?? string.Empty,
-                    TargetPath = pn.Target ?? string.Empty,
-                    Icon = icon,
-                });
+                }
             }
             return list;
+        }
+
+        private void OnOurPinsChanged(object? sender, EventArgs e)
+        {
+            try
+            {
+                Dispatcher.CurrentDispatcher.BeginInvoke(new Action(InvalidatePins));
+            }
+            catch (Exception)
+            {
+            }
         }
 
         // ---------------------------------------------------------------
@@ -800,6 +817,7 @@ namespace Win7Taskbar.Models
             _catalog.Dispose();
             _refreshTimer.Stop();
             _bridge.CoreEventRaised -= OnCoreEvent;
+            StartMenuStore.PinsChanged -= OnOurPinsChanged;
             Clock.Dispose();
         }
     }

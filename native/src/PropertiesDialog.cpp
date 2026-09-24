@@ -130,6 +130,7 @@ enum CtrlId {
     IDC_LBL_EX_ICON_ORDER, IDC_TXT_ORDER_HINT,
     /* v1.21.43: riga "Posizione" + blocco barra (rotazione riattivata). */
     IDC_LBL_EX_POSITION, IDC_CMB_EX_POSITION, IDC_CHK_EX_LOCK,
+    IDC_LBL_EX_WINKEY, IDC_RADIO_WINKEY_OURS, IDC_RADIO_WINKEY_WINDOWS,
     IDC_BTN_APPLY = 3000,
 };
 
@@ -239,6 +240,8 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_CMB_EX_THEME, p4);
     vis(IDC_LBL_EX_POSITION, p4); vis(IDC_CMB_EX_POSITION, p4);
     vis(IDC_CHK_EX_LOCK, p4);
+    vis(IDC_LBL_EX_WINKEY, p4);
+    vis(IDC_RADIO_WINKEY_OURS, p4); vis(IDC_RADIO_WINKEY_WINDOWS, p4);
     vis(IDC_LBL_EX_ICON_ORDER, p4); vis(IDC_TXT_ORDER_HINT, p4);
 }
 
@@ -509,7 +512,8 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                             int32_t flyoutColorMode, int32_t flyoutColorRgb,
                             int32_t connectionPrivacyMode, int32_t themeSelection,
                             int32_t autoStart,
-                            int32_t taskbarPosition, int32_t lockTaskbar) {
+                            int32_t taskbarPosition, int32_t lockTaskbar,
+                            int32_t windowsKeyOpensOurMenu) {
     try {
         if (m_hWnd && IsWindow(m_hWnd)) {
             return;
@@ -557,6 +561,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         m_taskbarPosition =
             (taskbarPosition >= 0 && taskbarPosition <= 3) ? taskbarPosition : 0;
         m_lockTaskbar = lockTaskbar ? 1 : 0;
+        m_windowsKeyOpensOurMenu = windowsKeyOpensOurMenu ? 1 : 0;
         RefreshExtraSwatchColor();
 
         /* v2.47: oltre alle schede e ai controlli standard serve la classe
@@ -771,8 +776,14 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                 IDC_CMB_EX_POSITION, L"ComboBox", L"");
         addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 222, PAGE_TEXT_WIDTH, 12,
                 IDC_CHK_EX_LOCK, L"Button", L"");
-        addCtrl(SS_LEFT, 0, 18, 240, 200, 10, IDC_LBL_EX_ICON_ORDER, L"Static", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 254, PAGE_TEXT_WIDTH, 26,
+        addCtrl(SS_LEFT, 0, 18, 234, PAGE_TEXT_WIDTH, 10,
+                IDC_LBL_EX_WINKEY, L"Static", L"");
+        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP | WS_GROUP, 0, 18, 244, PAGE_TEXT_WIDTH, 10,
+                IDC_RADIO_WINKEY_OURS, L"Button", L"");
+        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP, 0, 18, 254, PAGE_TEXT_WIDTH, 10,
+                IDC_RADIO_WINKEY_WINDOWS, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 266, 200, 10, IDC_LBL_EX_ICON_ORDER, L"Static", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 276, PAGE_TEXT_WIDTH, 16,
                 IDC_TXT_ORDER_HINT, L"Static", L"");
 
         /* v1.21.28 - OPZIONE "POSIZIONE DELLA BARRA" DISATTIVATA.
@@ -923,6 +934,9 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
     }
     msg.lockTaskbar =
         (SendDlgItemMessageW(m_hWnd, IDC_CHK_EX_LOCK, BM_GETCHECK, 0, 0)
+            & BST_CHECKED) ? 1 : 0;
+    msg.windowsKeyOpensOurMenu =
+        (SendDlgItemMessageW(m_hWnd, IDC_RADIO_WINKEY_OURS, BM_GETCHECK, 0, 0)
             & BST_CHECKED) ? 1 : 0;
     /* v1.21.37: avvio automatico con Windows (casella della scheda
      * Informazioni, logica copiata da RetroBar). Il pacchetto porta solo la
@@ -1099,6 +1113,15 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SendDlgItemMessageW(hwnd, IDC_CHK_EX_LOCK, BM_SETCHECK,
                             self->m_lockTaskbar ? BST_CHECKED
                                                 : BST_UNCHECKED, 0);
+        SetDlgItemTextW(hwnd, IDC_LBL_EX_WINKEY, X.lblWinKey);
+        SetDlgItemTextW(hwnd, IDC_RADIO_WINKEY_OURS, X.optWinKeyOurs);
+        SetDlgItemTextW(hwnd, IDC_RADIO_WINKEY_WINDOWS, X.optWinKeyWindows);
+        SendDlgItemMessageW(hwnd, IDC_RADIO_WINKEY_OURS, BM_SETCHECK,
+                            self->m_windowsKeyOpensOurMenu ? BST_CHECKED
+                                                           : BST_UNCHECKED, 0);
+        SendDlgItemMessageW(hwnd, IDC_RADIO_WINKEY_WINDOWS, BM_SETCHECK,
+                            self->m_windowsKeyOpensOurMenu ? BST_UNCHECKED
+                                                           : BST_CHECKED, 0);
         SetDlgItemTextW(hwnd, IDC_GRP_EX_TASKBAR, X.grpTaskbar);
         SetDlgItemTextW(hwnd, IDC_LBL_EX_ICON_ORDER, X.lblIconOrder);
         SetDlgItemTextW(hwnd, IDC_TXT_ORDER_HINT, X.txtIconOrderHint);

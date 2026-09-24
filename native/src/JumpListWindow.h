@@ -7,8 +7,8 @@
 //
 //   LEFT press + drag away from the bar (up for a bottom bar - the
 //   Windows 7 Superbar gesture). The popup opens at the canonical
-//   Windows 7 position - directly above the button, LEFT-ALIGNED with
-//   its left edge, small gap - and stays there for the whole gesture:
+//   Windows 7 position - directly above the button, CENTERED on the
+//   icon, small gap - and stays there for the whole gesture:
 //   the shell places the jump view next to the button it belongs to,
 //   not where the cursor wanders. While the drag owns the pointer,
 //   moves arrive as SCREEN PHYSICAL PIXELS through SetHover and the
@@ -182,6 +182,10 @@ private:
     void BuildRows();
     void Layout();
     void Place(HWND hwnd, const RECT& button, int32_t edge);
+    /* Client layout size → window size including the Aero WS_THICKFRAME
+     * chrome. Growing the HWND (not removing the border) is what keeps
+     * rows from being clipped by the flyout frame. */
+    void WindowSizeForClient(int clientW, int clientH, int& outW, int& outH) const;
     void UpdateInteractionArea();
     /* Work area of the monitor that hosts the button (Place clamps into
      * it; the fallback keeps the popup near its anchor when monitor info

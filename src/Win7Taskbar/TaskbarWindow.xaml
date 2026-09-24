@@ -183,13 +183,14 @@
                  e' il comportamento voluto (la ricerca non e' una
                  finestra, resta sempre "idle" con l'hover delle altre
                  icone). -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
             <Button x:Name="SearchButton"
-                    Grid.Column="1"
                     Style="{DynamicResource SuperbarButton}"
                     Margin="{DynamicResource TaskButtonMargin}"
                     VerticalAlignment="Stretch"
                     Visibility="Collapsed"
                     ToolTip="{DynamicResource lang_appsearch_open}"
+                    PreviewMouseLeftButtonDown="SearchButton_PreviewMouseDown"
                     Click="SearchButton_Click">
                 <!-- v2.47: torna l'IMMAGINE fornita dall'utente (image-2.png:
                      cartella di documenti con la lente), incorporata come PNG
@@ -255,6 +256,37 @@
                     </Border>
                 </Grid>
             </Button>
+            <Button x:Name="ControlCenterButton"
+                    Style="{DynamicResource SuperbarButton}"
+                    Margin="{DynamicResource TaskButtonMargin}"
+                    VerticalAlignment="Stretch"
+                    Visibility="Collapsed"
+                    ToolTip="Control Center"
+                    Click="ControlCenterButton_Click">
+                <Grid Width="32" Height="32" VerticalAlignment="Center">
+                    <Rectangle Width="14" Height="10" Stroke="#FFFFFFFF" StrokeThickness="1.4"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               RadiusX="1" RadiusY="1"/>
+                    <Ellipse Width="3" Height="3" Fill="#FFFFFFFF"
+                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                             Margin="0,6,0,0"/>
+                </Grid>
+            </Button>
+            <Button x:Name="NotificationCenterButton"
+                    Style="{DynamicResource SuperbarButton}"
+                    Margin="{DynamicResource TaskButtonMargin}"
+                    VerticalAlignment="Stretch"
+                    Visibility="Collapsed"
+                    ToolTip="Notification Center"
+                    Click="NotificationCenterButton_Click">
+                <Grid Width="32" Height="32" VerticalAlignment="Center">
+                    <Path Data="M6,10 L16,10 L16,20 L11,20 L9,23 L9,20 L6,20 Z"
+                          Stroke="#FFFFFFFF" StrokeThickness="1.5" Fill="Transparent"
+                          Stretch="Uniform" Width="16" Height="16"
+                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Grid>
+            </Button>
+            </StackPanel>
 
             <!-- ============ Pulsante Start ============ -->
             <ToggleButton x:Name="StartButton"
@@ -1037,10 +1069,13 @@
                     </Grid>
 
                     <ItemsControl x:Name="TaskPreviewItems"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
                                   ItemTemplate="{StaticResource LiveThumbnailItemTemplate}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" />
+                                <StackPanel Orientation="Horizontal"
+                                            HorizontalAlignment="Center" />
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                     </ItemsControl>

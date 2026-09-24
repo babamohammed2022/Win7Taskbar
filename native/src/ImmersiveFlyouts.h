@@ -133,7 +133,8 @@ enum class FlyoutKind : int32_t {
     Network = 1,
     Clock   = 2,
     Battery = 3,
-    Sound   = 4
+    Sound   = 4,
+    ActionCenter = 5
 };
 
 /* Mostra o nasconde. Stessi valori di INVOKE_FLYOUT_SHOW / _HIDE. */

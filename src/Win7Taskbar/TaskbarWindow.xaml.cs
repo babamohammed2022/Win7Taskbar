@@ -113,41 +113,8 @@ namespace Win7Taskbar
             }
         }
 
-        /* =====================================================================
-         * ROTAZIONE TASKBAR (1.21.28) - DISATTIVATA.
-         *
-         * La barra resta sempre in BASSO: geometria, AppBar, orientamento del
-         * tema e anchor delle anteprime DWM sono quelli di sempre. Il codice
-         * della rotazione e' tenuto qui commentato, non cancellato.
-         *
-         * Perche' era rotta: il valore salvato ("posizione") e' codificato
-         * 0=Basso, 1=Alto, 2=Sinistra, 3=Destra, mentre l'enum esistente e'
-         * TaskbarEdge { Left=0, Top=1, Right=2, Bottom=3 }. Il cast diretto
-         * (TaskbarEdge)position spostava ogni scelta di una posizione - con
-         * "A destra" (3) si finiva su Bottom - e SetThumbnailEdge riceveva
-         * l'edge sbagliato, quindi le anteprime DWM erano ancorate al lato
-         * sbagliato. Prima di riattivare qualunque cosa serve una conversione
-         * esplicita, mai un cast:
-         *
-         *     // posizione (persistita)   -> TaskbarEdge / AppBarEdgeValue
-         *     // 0 Basso                  -> TaskbarEdge.Bottom (3)
-         *     // 1 Alto                   -> TaskbarEdge.Top    (1)
-         *     // 2 Sinistra               -> TaskbarEdge.Left   (0)
-         *     // 3 Destra                 -> TaskbarEdge.Right  (2)
-         *     private static TaskbarEdge EdgeFromPosition(int position) =>
-         *         position switch
-         *         {
-         *             1 => TaskbarEdge.Top,
-         *             2 => TaskbarEdge.Left,
-         *             3 => TaskbarEdge.Right,
-         *             _ => TaskbarEdge.Bottom,
-         *         };
-         *
-         * Il resto dell'infrastruttura (AppBarService accetta i 4 edge,
-         * ComputeTaskPreviewPlacement ragiona gia' per TaskbarEdge, i temi
-         * hanno i DataTrigger su Orientation) resta dov'e' e non e' stato
-         * toccato: la sola cosa che mancava era la traduzione dei valori.
-         * ===================================================================== */
+        /* Rotation Bottom/Top/Left/Right is live (EdgeFromPosition).
+         * User-controlled thickness resize was removed. */
 
         internal TaskbarWindow(NativeBridge bridge)
         {
@@ -163,11 +130,9 @@ namespace Win7Taskbar
             DataContext = _viewModel;
 
             Loaded += OnLoaded;
-            // v1.21.43: resize col drag quando la barra e' sbloccata.
-            MouseMove += ResizeGrip_MouseMove;
-            MouseLeftButtonDown += ResizeGrip_MouseDown;
-            MouseLeftButtonUp += ResizeGrip_MouseUp;
             Closing += OnClosing;
+            LocationChanged += (_, _) => PublishStartMenuAnchor();
+            SizeChanged += (_, _) => PublishStartMenuAnchor();
         }
 
         // ===============================================================
@@ -361,7 +326,9 @@ namespace Win7Taskbar
                 UpdateSearchButtonVisibility();
                 RetroBar.Utilities.Settings.Instance.PropertyChanged += (_, e) =>
                 {
-                    if (e.PropertyName == nameof(RetroBar.Utilities.Settings.EnableAppSearch))
+                    if (e.PropertyName == nameof(RetroBar.Utilities.Settings.EnableAppSearch) ||
+                        e.PropertyName == nameof(RetroBar.Utilities.Settings.ShowControlCenterButton) ||
+                        e.PropertyName == nameof(RetroBar.Utilities.Settings.ShowNotificationCenterButton))
                     {
                         UpdateSearchButtonVisibility();
                     }
@@ -474,6 +441,7 @@ namespace Win7Taskbar
                 // Start menu monitor for 3-state start button (idle/hover/pressed)
                 _startMenuMonitor = new StartMenuMonitor();
                 _startMenuMonitor.StartMenuVisibilityChanged += OnStartMenuVisibilityChanged;
+                Win7Taskbar.StartMenu.StartMenuHost.MenuVisibilityChanged += OnOurStartMenuVisibility;
             });
 
             RunStage("pulsanti-superbar", () =>
@@ -1648,6 +1616,13 @@ namespace Win7Taskbar
                 _viewModel.NotificationArea.ClearBalloonPromotions();
             }
             _globalMouseHook?.Dispose();
+            try
+            {
+                Win7Taskbar.StartMenu.StartMenuHost.MenuVisibilityChanged -= OnOurStartMenuVisibility;
+            }
+            catch (Exception)
+            {
+            }
             _startMenuMonitor?.Dispose();
             _batteryMonitor?.Dispose();
             ShutdownTaskbar();
@@ -1941,159 +1916,21 @@ namespace Win7Taskbar
             };
 
         /// <summary>
-        /// Spessore barra in DIP: resize in corso (transiente) > impostazione
-        /// dell'utente (TaskbarHeight) > altezza del tema. Su Sinistra/Destra
-        /// e' la LARGHEZZA della barra.
+        /// Fixed theme thickness in DIP. Left/Right use this as WIDTH.
+        /// User-controlled resizing was removed: the bar is always the
+        /// Windows 7 Superbar height from the active theme.
         /// </summary>
-        private double TaskbarThicknessDip
-        {
-            get
-            {
-                if (_resizeThicknessDip > 0) return _resizeThicknessDip;
-                var st = RetroBar.Utilities.Settings.Instance;
-                double saved = st.TaskbarHeight;
-                double thickness = saved > 0 ? saved : ThemeTaskbarHeightDip;
-                return Math.Max(24.0, thickness);
-            }
-        }
-
-        // v1.21.43 - resize col drag (semantica RetroBar: barra SBLOCCATA ->
-        // trascinando il bordo libero si cambia spessore; su Basso/Alto cresce
-        // in righe, su Sinistra/Destra in larghezza). Transiente durante il
-        // drag; si salva in Settings.TaskbarHeight solo al MouseUp.
-        private double _resizeThicknessDip;
-        private Point _resizeStartPos;
-        private double _resizeStartThickness;
-        private bool _resizing;
+        private double TaskbarThicknessDip => Math.Max(1.0, ThemeTaskbarHeightDip);
 
         /// <summary>
         /// Riga "Blocca la barra": lo stato vive in Settings.LockTaskbar
-        /// (persistente, stessa semantica di RetroBar LockTaskbar) e il menu
-        /// contestuale lo spunta/toglie come in Windows 7.
+        /// (persistente) e il menu contestuale lo spunta/toglie come in Windows 7.
+        /// Rotation (Bottom/Top/Left/Right) stays available from Properties.
         /// </summary>
         private bool _taskbarLocked
         {
             get => RetroBar.Utilities.Settings.Instance.LockTaskbar;
             set => RetroBar.Utilities.Settings.Instance.LockTaskbar = value;
-        }
-
-        /// <summary>Distanza (DIP) dal bordo libero in cui il drag e' attivo.</summary>
-        private const double ResizeGripDip = 5.0;
-
-        private bool IsOverResizeGrip(Point p, TaskbarEdge edge)
-        {
-            switch (edge)
-            {
-                case TaskbarEdge.Top: return Math.Abs(p.Y - Height) <= ResizeGripDip;
-                case TaskbarEdge.Left: return Math.Abs(p.X - Width) <= ResizeGripDip;
-                case TaskbarEdge.Right: return p.X <= ResizeGripDip;
-                default: return p.Y <= ResizeGripDip; /* Bottom */
-            }
-        }
-
-        private void ResizeGrip_MouseMove(object sender, MouseEventArgs e)
-        {
-            try
-            {
-                var st = RetroBar.Utilities.Settings.Instance;
-                TaskbarEdge edge = EdgeFromPosition(st.TaskbarPosition);
-                Point p = e.GetPosition(this);
-
-                if (_resizing && e.LeftButton == MouseButtonState.Pressed)
-                {
-                    /* Delta positivo = il bordo libero si allontana dal bordo
-                     * fisso (l'origine della barra): spessore cresce. */
-                    double delta = edge switch
-                    {
-                        TaskbarEdge.Top => p.Y - _resizeStartPos.Y,
-                        TaskbarEdge.Left => p.X - _resizeStartPos.X,
-                        TaskbarEdge.Right => _resizeStartPos.X - p.X,
-                        _ => _resizeStartPos.Y - p.Y,
-                    };
-                    double maxDip = Orientation == Orientation.Vertical
-                        ? SystemParameters.PrimaryScreenWidth * 0.6
-                        : SystemParameters.PrimaryScreenHeight * 0.6;
-                    _resizeThicknessDip = Math.Min(maxDip,
-                        Math.Max(24.0, _resizeStartThickness + delta));
-                    ApplyTaskbarGeometry();
-                    e.Handled = true;
-                    return;
-                }
-
-                if (_taskbarLocked)
-                {
-                    return;
-                }
-                if (IsOverResizeGrip(p, edge))
-                {
-                    Cursor = Orientation == Orientation.Vertical
-                        ? Cursors.SizeWE : Cursors.SizeNS;
-                }
-                else if (ReferenceEquals(Cursor, Cursors.SizeNS) ||
-                         ReferenceEquals(Cursor, Cursors.SizeWE))
-                {
-                    Cursor = Cursors.Arrow;
-                }
-            }
-            catch (Exception ex)
-            {
-                _bridge.Log($"resize grip move: {ex.Message}");
-            }
-        }
-
-        private void ResizeGrip_MouseDown(object sender, MouseButtonEventArgs e)
-        {
-            try
-            {
-                if (_taskbarLocked || e.LeftButton != MouseButtonState.Pressed)
-                {
-                    return;
-                }
-                var st = RetroBar.Utilities.Settings.Instance;
-                TaskbarEdge edge = EdgeFromPosition(st.TaskbarPosition);
-                Point p = e.GetPosition(this);
-                if (!IsOverResizeGrip(p, edge))
-                {
-                    return;
-                }
-                _resizing = true;
-                _resizeStartPos = p;
-                _resizeStartThickness = TaskbarThicknessDip;
-                _resizeThicknessDip = _resizeStartThickness;
-                CaptureMouse();
-                e.Handled = true;
-            }
-            catch (Exception ex)
-            {
-                _bridge.Log($"resize grip down: {ex.Message}");
-            }
-        }
-
-        private void ResizeGrip_MouseUp(object sender, MouseButtonEventArgs e)
-        {
-            try
-            {
-                if (!_resizing)
-                {
-                    return;
-                }
-                _resizing = false;
-                if (IsMouseCaptured)
-                {
-                    ReleaseMouseCapture();
-                }
-                double final = _resizeThicknessDip;
-                _resizeThicknessDip = 0;
-                if (final > 0)
-                {
-                    RetroBar.Utilities.Settings.Instance.TaskbarHeight = Math.Round(final, 1);
-                }
-                ApplyTaskbarGeometry();
-            }
-            catch (Exception ex)
-            {
-                _bridge.Log($"resize grip up: {ex.Message}");
-            }
         }
 
         /// <summary>
@@ -2201,6 +2038,22 @@ namespace Win7Taskbar
         }
 
         /// <summary>
+        /// Re-apply the AppBar edge after the Start Menu host starts so the
+        /// bar stays on the configured edge (default bottom) instead of
+        /// drifting when a second STA window is created.
+        /// </summary>
+        internal void ReassertAppBar()
+        {
+            try
+            {
+                UpdateAppBarPosition();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
         /// v3.4: UN SOLO punto in cui la barra comunica alla shell il rettangolo
         /// riservato (avvio, cambio monitor, cambio DPI, ABN_POSCHANGED, riavvio
         /// di Explorer). Il core esegue ABM_QUERYPOS/ABM_SETPOS e SPOSTA la
@@ -2231,60 +2084,6 @@ namespace Win7Taskbar
                                      sizePx, out Rect reserved) && !reserved.IsEmpty)
             {
                 _appBarRect = reserved;
-
-                // The native AppBar protocol is authoritative for the final
-                // physical rectangle. Keep WPF's DIP geometry synchronized
-                // with the exact rectangle returned by ABM_SETPOS.
-                ApplyReservedAppBarRect(reserved);
-            }
-        }
-
-        /// <summary>
-        /// Synchronizes the managed WPF window with the physical rectangle
-        /// confirmed by the native AppBar service. This avoids a small
-        /// vertical/horizontal offset caused by independently recomputing
-        /// screen geometry in DIPs after resize or DPI changes.
-        /// </summary>
-        private void ApplyReservedAppBarRect(Rect reserved)
-        {
-            try
-            {
-                if (_hwndSource == null || reserved.IsEmpty)
-                {
-                    return;
-                }
-
-                var transform = _hwndSource.CompositionTarget?.TransformFromDevice;
-                if (transform == null)
-                {
-                    return;
-                }
-
-                Point topLeft = transform.Value.Transform(
-                    new Point(reserved.X, reserved.Y));
-                Point bottomRight = transform.Value.Transform(
-                    new Point(reserved.X + reserved.Width,
-                              reserved.Y + reserved.Height));
-
-                double width = Math.Max(1.0, bottomRight.X - topLeft.X);
-                double height = Math.Max(1.0, bottomRight.Y - topLeft.Y);
-
-                // Do not re-enter the geometry pipeline unnecessarily when
-                // the WPF values already match the native rectangle.
-                if (Math.Abs(Left - topLeft.X) > 0.01 ||
-                    Math.Abs(Top - topLeft.Y) > 0.01 ||
-                    Math.Abs(Width - width) > 0.01 ||
-                    Math.Abs(Height - height) > 0.01)
-                {
-                    Left = topLeft.X;
-                    Top = topLeft.Y;
-                    Width = width;
-                    Height = height;
-                }
-            }
-            catch (Exception ex)
-            {
-                _bridge.Log($"sync rettangolo AppBar: {ex.Message}");
             }
         }
 
@@ -2627,6 +2426,12 @@ namespace Win7Taskbar
                     int lockTaskbar = System.Runtime.InteropServices.Marshal
                         .ReadInt32(cds.lpData, 84);
                     st.LockTaskbar = lockTaskbar != 0;
+                }
+                if (cds.cbData >= 92)
+                {
+                    int winKey = System.Runtime.InteropServices.Marshal
+                        .ReadInt32(cds.lpData, 88);
+                    st.WindowsKeyOpensOurMenu = winKey != 0;
                 }
                 if (geometryChanged)
                 {
@@ -3128,20 +2933,42 @@ namespace Win7Taskbar
                 {
                     if (StartButton != null)
                     {
-                        StartButton.IsChecked = _startMenuMonitor?.IsPressed == true;
+                        bool our = RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu;
+                        StartButton.IsChecked = our
+                            ? Win7Taskbar.StartMenu.StartMenuHost.IsVisible
+                            : _startMenuMonitor?.IsPressed == true;
                     }
                     return;
                 }
                 _lastStartToggleUtc = now;
+
+                bool ourMenu = RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu;
+                if (ourMenu)
+                {
+                    /* Orb must toggle OUR window only. Injecting Win here
+                     * opened native Start as well (both menus, too high). */
+                    CancelStartWatchdog();
+                    bool visible = Win7Taskbar.StartMenu.StartMenuHost.IsVisible;
+                    PublishStartMenuAnchor();
+                    if (visible)
+                    {
+                        Win7Taskbar.StartMenu.StartMenuHost.Hide();
+                        toggle.IsChecked = false;
+                    }
+                    else
+                    {
+                        Win7Taskbar.StartMenu.StartMenuHost.Show();
+                        toggle.IsChecked = true;
+                    }
+                    StartTaskbarGuard();
+                    return;
+                }
 
                 bool menuOpen = _startMenuMonitor?.IsPressed == true ||
                                 toggle.IsChecked == true;
 
                 if (menuOpen)
                 {
-                    // Il menu e' aperto: questo click lo chiude. Il tasto Win
-                    // e' gia' il "toggle" che chiude il menu aperto su Windows
-                    // 10/11, e non serve armare alcun ripiego.
                     CancelStartWatchdog();
                     toggle.IsChecked = false;
                     _bridge.ShowStartMenu();
@@ -3149,12 +2976,9 @@ namespace Win7Taskbar
                     return;
                 }
 
-                // Aprire
                 _bridge.ShowStartMenu();
                 StartTaskbarGuard();
 
-                // Lo stato premuto resta finche' il menu e' visibile: lo
-                // spegne il monitor quando il menu si chiude.
                 toggle.IsChecked = true;
                 _startMenuMonitor?.NotifyStartMenuOpened();
                 ArmStartWatchdog();
@@ -3171,8 +2995,51 @@ namespace Win7Taskbar
             }
         }
 
+        private void ToggleStartMenu()
+        {
+            if (RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu)
+            {
+                PublishStartMenuAnchor();
+                Win7Taskbar.StartMenu.StartMenuHost.Toggle();
+            }
+            else
+            {
+                _bridge.ShowStartMenu();
+            }
+        }
+
+        /// <summary>
+        /// Pass the live taskbar/orb rectangles (DIP) to the Start Menu STA
+        /// so it sits on the orb, not on a guessed work area.
+        /// </summary>
+        private void PublishStartMenuAnchor()
+        {
+            try
+            {
+                System.Windows.Media.Matrix fromDevice = System.Windows.Media.Matrix.Identity;
+                if (_hwndSource?.CompositionTarget != null)
+                {
+                    fromDevice = _hwndSource.CompositionTarget.TransformFromDevice;
+                }
+                Point barPhys = PointToScreen(new Point(0, 0));
+                Point bar = fromDevice.Transform(barPhys);
+                Point orbPhys = StartButton != null
+                    ? StartButton.PointToScreen(new Point(0, 0))
+                    : barPhys;
+                Point orb = fromDevice.Transform(orbPhys);
+                double orbW = StartButton?.ActualWidth ?? 54;
+                double orbH = StartButton?.ActualHeight ?? ActualHeight;
+                Win7Taskbar.StartMenu.StartMenuHost.SetAnchor(
+                    new Rect(bar.X, bar.Y, ActualWidth, ActualHeight),
+                    new Rect(orb.X, orb.Y, orbW, orbH));
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         /// <summary>Finestra di tolleranza fra due click sull'orb.</summary>
-        private const int StartToggleDebounceMs = 300;
+        private const int StartToggleDebounceMs = 50;
 
         /// <summary>
         /// Ritardo del controllo di apertura del menu Start.
@@ -3242,6 +3109,13 @@ namespace Win7Taskbar
         {
             _startMenuEventSeq++;
 
+            if (RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu)
+            {
+                /* Our Start Menu drives the orb. Native Start HWNDs (and
+                 * context menus stealing foreground) must not flip it. */
+                return;
+            }
+
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (StartButton != null)
@@ -3249,6 +3123,23 @@ namespace Win7Taskbar
                     StartButton.IsChecked = e.Visible;
                 }
             }));
+        }
+
+        private void OnOurStartMenuVisibility(bool visible)
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (StartButton != null)
+                    {
+                        StartButton.IsChecked = visible;
+                    }
+                }));
+            }
+            catch (Exception)
+            {
+            }
         }
 
         // Guard against Explorer taskbar reappearing
@@ -3666,6 +3557,7 @@ namespace Win7Taskbar
 
         private FrameworkElement? _previewAnchor;
         private TaskGroup? _previewGroup;
+        private TaskGroup? _previewWindowsHooked;
         // Explicit item hover ownership keeps the layered popup alive while
         // the pointer is over a DWM destination (which is not WPF-painted).
         private bool _previewPointerInside;
@@ -4024,6 +3916,7 @@ namespace Win7Taskbar
                 }
 
                 TaskPreviewItems.ItemsSource = group.Windows;
+                HookPreviewWindows(group);
                 TaskPreviewPopup.PlacementTarget = anchor;
                 TaskPreviewPopup.Placement = PlacementMode.Custom;
                 TaskPreviewPopup.CustomPopupPlacementCallback = PlaceTaskPreview;
@@ -4668,6 +4561,7 @@ namespace Win7Taskbar
                 _previewGroup = null;
                 _previewPointerInside = false;
                 _openButtonTip = null;
+                HookPreviewWindows(null);
 
                 /* Sgancia i controlli TaskThumbnail, che deregistrano sempre
                  * il proprio handle DWM durante Unloaded. */
@@ -5045,15 +4939,88 @@ namespace Win7Taskbar
                  * interessa (il modello si riallinea al giro successivo). */
                 _viewModel.ExecuteWindowCommand(window, WindowCommand.Close);
 
-                if (_previewGroup == null || _previewGroup.Windows.Count == 0)
+                if (_previewGroup == null || _previewGroup.Windows.Count <= 1)
                 {
                     CloseTaskPreview();
+                }
+                else
+                {
+                    RelayoutPreviewPopup();
                 }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"chiusura da anteprima: {ex.Message}");
                 CloseTaskPreview();
+            }
+        }
+
+        private void HookPreviewWindows(TaskGroup? group)
+        {
+            try
+            {
+                if (_previewWindowsHooked != null)
+                {
+                    _previewWindowsHooked.Windows.CollectionChanged -= OnPreviewWindowsChanged;
+                    _previewWindowsHooked = null;
+                }
+                if (group != null)
+                {
+                    group.Windows.CollectionChanged += OnPreviewWindowsChanged;
+                    _previewWindowsHooked = group;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void OnPreviewWindowsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (_previewGroup == null || _previewGroup.Windows.Count == 0)
+                        {
+                            CloseTaskPreview();
+                            return;
+                        }
+                        RelayoutPreviewPopup();
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }), DispatcherPriority.Loaded);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void RelayoutPreviewPopup()
+        {
+            try
+            {
+                if (TaskPreviewPopup?.IsOpen != true || _previewGroup == null)
+                {
+                    return;
+                }
+                if (_previewGroup.Windows.Count == 0)
+                {
+                    CloseTaskPreview();
+                    return;
+                }
+                TaskPreviewItems?.UpdateLayout();
+                TaskPreviewPopupRoot?.UpdateLayout();
+                CustomPopupPlacementCallback? cb = TaskPreviewPopup.CustomPopupPlacementCallback;
+                TaskPreviewPopup.CustomPopupPlacementCallback = null;
+                TaskPreviewPopup.CustomPopupPlacementCallback = cb;
+            }
+            catch (Exception)
+            {
             }
         }
 
@@ -5188,17 +5155,19 @@ namespace Win7Taskbar
 
             e.Handled = true;
 
-            // v1.7.1: a context-menu failure must never become an unhandled
-            // exception (the native side already falls back to a standard
-            // menu for stub system menus, e.g. UWP frame windows).
-            try
+            // TrackPopupMenu on RBUTTONUP swallows itself; show after this
+            // mouse-up has left the queue (same as the bar context menu).
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
             {
-                OpenTaskButtonMenu(element, group);
-            }
-            catch (Exception ex)
-            {
-                DiagnosticLogger.WriteException("TASKMENU", ex);
-            }
+                try
+                {
+                    OpenTaskButtonMenu(element, group);
+                }
+                catch (Exception ex)
+                {
+                    DiagnosticLogger.WriteException("TASKMENU", ex);
+                }
+            }));
         }
 
         private void OpenTaskButtonMenu(FrameworkElement element, TaskGroup group)
@@ -5222,31 +5191,56 @@ namespace Win7Taskbar
                         "Pin this program to taskbar");
                 string launchText = L("lang_start_context",
                     L("lang_start_tip", "Start"));
-                int choice;
+                bool startPinned = false;
+                string pinPath = !string.IsNullOrEmpty(group.LaunchPath)
+                    ? group.LaunchPath : (group.ExePath ?? string.Empty);
                 try
                 {
-                    choice = _bridge.ShowPinMenu(
-                        x, y, launchText, pinText,
-                        group.LaunchPath ?? string.Empty,
-                        group.ExePath ?? string.Empty,
-                        bottomEdge: true);
+                    startPinned = StartMenu.StartMenuStore.IsStartMenuPinned(pinPath)
+                        || StartMenu.StartMenuStore.IsStartMenuPinned(group.ExePath ?? string.Empty)
+                        || StartMenu.StartMenuStore.IsStartMenuPinned(group.LaunchPath ?? string.Empty);
                 }
-                catch (EntryPointNotFoundException)
+                catch (Exception)
                 {
-                    // Native DLL older than the managed side: same two
-                    // rows through the generic menu.
-                    choice = _bridge.ShowContextMenu(
-                        x, y, bottomEdge: true, launchText, pinText);
                 }
+                string pinStart = startPinned
+                    ? L("lang_sm_unpin",
+                        "Unpin from Start Menu (Win7Taskbar)")
+                    : L("lang_sm_pin",
+                        "Pin to Start Menu (Win7Taskbar)");
+                /* Separators do not increment the returned id
+                 * (ShowContextMenuEx): launch=1, pin=2, pin-to-start=3. */
+                string items = launchText + "\n" + pinText + "\n-\n" + pinStart;
+                int choice = _bridge.ShowContextMenuEx(
+                    x, y, bottomEdge: true, items, anchorAtCursor: false);
                 switch (choice)
                 {
                     case 1:
-                        LaunchPathSafe(!string.IsNullOrEmpty(group.LaunchPath)
-                            ? group.LaunchPath : (group.ExePath ?? string.Empty));
+                        LaunchPathSafe(pinPath);
                         _viewModel.NotePinLaunch(group);
                         break;
                     case 2:
                         ToggleTaskPin(group);
+                        break;
+                    case 3:
+                        try
+                        {
+                            if (string.IsNullOrEmpty(pinPath))
+                            {
+                                break;
+                            }
+                            if (startPinned)
+                            {
+                                StartMenu.StartMenuStore.UnpinShortcut(pinPath);
+                            }
+                            else
+                            {
+                                StartMenu.StartMenuStore.PinShortcut(pinPath);
+                            }
+                        }
+                        catch (Exception)
+                        {
+                        }
                         break;
                 }
             }
@@ -5281,7 +5275,7 @@ namespace Win7Taskbar
                 string name = System.IO.Path.GetFileNameWithoutExtension(exe);
                 int r = _bridge.ToggleTaskbarPin(exe, name, group.IsPinned ? 0 : 1);
                 _bridge.Log("pin/unpin (verb canonico): " +
-                    (r > 0 ? "applicato" : r == 0 ? "gi\u00e0 in quello stato" : "fallito"));
+                    (r > 0 ? "applicato" : r == 0 ? "già in quello stato" : "fallito"));
                 if (r >= 0) _viewModel.InvalidatePins();
                 return;
             }
@@ -5302,7 +5296,6 @@ namespace Win7Taskbar
                     System.IO.Directory.CreateDirectory(dir);
                     string name = System.IO.Path.GetFileNameWithoutExtension(exe);
                     string lnk = System.IO.Path.Combine(dir, name + ".lnk");
-                    // crea collegamento con WScript.Shell se disponibile
                     var t = Type.GetTypeFromProgID("WScript.Shell");
                     if (t != null)
                     {
@@ -5820,6 +5813,7 @@ namespace Win7Taskbar
         /// <summary>Chiude il pannello tramite la freccetta (binding TwoWay).</summary>
         private void CloseOverflowPopup()
         {
+            CancelOpenPopupMenus();
             if (OverflowToggle != null)
             {
                 OverflowToggle.IsChecked = false;
@@ -5827,6 +5821,33 @@ namespace Win7Taskbar
             else if (OverflowPopup != null)
             {
                 OverflowPopup.IsOpen = false;
+            }
+        }
+
+        /// <summary>
+        /// Right-click on an overflow icon posts the owner's TrackPopupMenu.
+        /// Closing the overflow must also dismiss that menu.
+        /// </summary>
+        private static void CancelOpenPopupMenus()
+        {
+            try
+            {
+                NativeMethods.EndMenu();
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                IntPtr fg = NativeMethods.GetForegroundWindow();
+                if (fg != IntPtr.Zero)
+                {
+                    NativeMethods.SendMessage(fg, 0x001F /* WM_CANCELMODE */,
+                        IntPtr.Zero, IntPtr.Zero);
+                }
+            }
+            catch (Exception)
+            {
             }
         }
 
@@ -5938,6 +5959,7 @@ namespace Win7Taskbar
 
         private void OverflowToggle_Unchecked(object sender, RoutedEventArgs e)
         {
+            CancelOpenPopupMenus();
             if (!_useNativeOverflow)
             {
                 OverflowPopup.IsOpen = false;
@@ -6500,8 +6522,20 @@ namespace Win7Taskbar
             }
 
             ReportClickedIconRect(element, icon);
+            if (RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu)
+            {
+                Win7Taskbar.StartMenu.StartMenuHost.Hide();
+            }
+            else
+            {
+                _startMenuMonitor?.TryCloseStartMenu();
+            }
+            CloseAllFlyoutsSimple();
             Point screen = element.PointToScreen(e.GetPosition(element));
-            _viewModel.SendTrayClick(icon, TrayClick.Right, (int)screen.X, (int)screen.Y);
+            int x = (int)screen.X;
+            int y = (int)screen.Y;
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                _viewModel.SendTrayClick(icon, TrayClick.Right, x, y)));
             e.Handled = true;
         }
 
@@ -6551,6 +6585,7 @@ namespace Win7Taskbar
                 _bridge.HideFlyout(FlyoutKind.Network);
                 _bridge.HideFlyout(FlyoutKind.Battery);
                 _bridge.HideFlyout(FlyoutKind.Sound);
+                _bridge.HideFlyout(FlyoutKind.ActionCenter);
                 // v2.41: anche i flyout ricreati/nativi seguono la regola
                 // "clic sulla barra = chiude tutto" (come l'orologio):
                 // flyout batteria ricreato e mixer classico SndVol.
@@ -6645,8 +6680,10 @@ namespace Win7Taskbar
 
             if (!onStartButton)
             {
-                // v2.24: sync semplice col menu Start: click sulla barra
-                // (tranne orb) = chiude il menu E azzera lo stato premuto.
+                if (RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu)
+                {
+                    Win7Taskbar.StartMenu.StartMenuHost.Hide();
+                }
                 _startMenuMonitor?.TryCloseStartMenu();
                 if (StartButton != null && StartButton.IsChecked == true)
                 {
@@ -6676,9 +6713,43 @@ namespace Win7Taskbar
             {
                 DesktopBandPopup.IsOpen = false;
             }
-            _startMenuMonitor?.TryCloseStartMenu();
+            if (RetroBar.Utilities.Settings.Instance.WindowsKeyOpensOurMenu)
+            {
+                Win7Taskbar.StartMenu.StartMenuHost.Hide();
+            }
+            else
+            {
+                _startMenuMonitor?.TryCloseStartMenu();
+            }
 
-            ShowTaskbarContextMenu(sender as FrameworkElement);
+            /* Show after this mouse-up has left the queue. TrackPopupMenu
+             * on RBUTTONUP otherwise swallows itself (menu "sometimes
+             * missing"). */
+            Point origin = TaskbarCursorScreenPoint();
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+                ShowTaskbarContextMenuAt(origin)));
+        }
+
+        private Point TaskbarCursorScreenPoint()
+        {
+            try
+            {
+                if (NativeMethods.GetCursorPos(out NativeMethods.POINT p))
+                {
+                    return new Point(p.x, p.y);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                return PointToScreen(Mouse.GetPosition(this));
+            }
+            catch (InvalidOperationException)
+            {
+                return new Point(Left, Top);
+            }
         }
 
         private void Clock_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
@@ -7622,19 +7693,12 @@ namespace Win7Taskbar
         /// </summary>
         private void ShowTaskbarContextMenu(FrameworkElement? target)
         {
-            Point origin;
-            try
-            {
-                origin = (target ?? (FrameworkElement)this).PointToScreen(
-                    Mouse.GetPosition(target ?? (FrameworkElement)this));
-            }
-            catch (InvalidOperationException)
-            {
-                origin = Mouse.GetPosition(this);
-                try { origin = this.PointToScreen(origin); }
-                catch (InvalidOperationException) { return; }
-            }
+            ShowTaskbarContextMenuAt(TaskbarCursorScreenPoint());
+            _ = target;
+        }
 
+        private void ShowTaskbarContextMenuAt(Point origin)
+        {
             try
             {
                 // Spunte: tre barre visibili + "Blocca la barra" quando bloccata.
@@ -7664,10 +7728,11 @@ namespace Win7Taskbar
                 // esattamente come quello dell'orologio. I menu delle APP
                 // (finestra di sistema, gruppo, pin) NON passano da qui e
                 // restano ancorati sopra il pulsante.
+                bool bottomEdge = RetroBar.Utilities.Settings.Instance.TaskbarPosition == 0;
                 int choice = _bridge.ShowContextMenuEx(
                     (int)Math.Round(origin.X),
                     (int)Math.Round(origin.Y),
-                    bottomEdge: true,
+                    bottomEdge,
                     items,
                     anchorAtCursor: true);
 
@@ -7728,6 +7793,7 @@ namespace Win7Taskbar
         // reimplementazione ispirata alla ricerca di Windows, non e' la
         // ricerca di sistema ne' un suo sostituto ufficiale.
         private bool _appSearchInit;
+        private bool _searchToggleConsumed;
         private byte[]? _searchIconPixels;
         private int _searchIconW, _searchIconH;
 
@@ -8142,12 +8208,19 @@ namespace Win7Taskbar
         {
             try
             {
-                // v3.3: la lente vive solo mentre gira la nostra taskbar
-                // (e solo se la ricerca e' attiva dalle Proprieta').
+                var st = RetroBar.Utilities.Settings.Instance;
                 SearchButton.Visibility =
-                    RetroBar.Utilities.Settings.Instance.EnableAppSearch
-                        ? Visibility.Visible
-                        : Visibility.Collapsed;
+                    st.EnableAppSearch ? Visibility.Visible : Visibility.Collapsed;
+                if (ControlCenterButton != null)
+                {
+                    ControlCenterButton.Visibility = st.ShowControlCenterButton
+                        ? Visibility.Visible : Visibility.Collapsed;
+                }
+                if (NotificationCenterButton != null)
+                {
+                    NotificationCenterButton.Visibility = st.ShowNotificationCenterButton
+                        ? Visibility.Visible : Visibility.Collapsed;
+                }
             }
             catch (Exception) { /* ignora */ }
         }
@@ -8174,11 +8247,33 @@ namespace Win7Taskbar
             catch (Exception) { /* ignora */ }
         }
 
+        private void SearchButton_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left)
+            {
+                return;
+            }
+            try
+            {
+                if (_appSearchInit && _bridge.AppSearchIsVisible())
+                {
+                    _bridge.AppSearchHide();
+                    _searchToggleConsumed = true;
+                    e.Handled = true;
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         private void SearchButton_Click(object sender, RoutedEventArgs e)
         {
-            // v2.37 punto 17: la lente funziona da interruttore. Se la
-            // finestra di ricerca e' gia' aperta, un click la chiude;
-            // altrimenti la apre (comportamento richiesto).
+            if (_searchToggleConsumed)
+            {
+                _searchToggleConsumed = false;
+                return;
+            }
             try
             {
                 if (_appSearchInit && _bridge.AppSearchIsVisible())
@@ -8195,11 +8290,83 @@ namespace Win7Taskbar
             OpenAppSearch();
         }
 
+        private void ControlCenterButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                IntPtr hwnd = _hwndSource?.Handle ?? IntPtr.Zero;
+                if (hwnd != IntPtr.Zero &&
+                    _bridge.InvokeFlyout(FlyoutKind.ActionCenter, true, hwnd))
+                {
+                    return;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            SendWinChord(0x41); /* Win+A */
+        }
+
+        private void NotificationCenterButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = "ms-actioncenter:",
+                    UseShellExecute = true
+                });
+                return;
+            }
+            catch (Exception)
+            {
+            }
+            SendWinChord(0x4E); /* Win+N */
+        }
+
+        private static void SendWinChord(ushort vk)
+        {
+            try
+            {
+                var inputs = new NativeMethods.INPUT[4];
+                inputs[0] = MakeKey(0x5B, 0);
+                inputs[1] = MakeKey(vk, 0);
+                inputs[2] = MakeKey(vk, NativeMethods.KEYEVENTF_KEYUP);
+                inputs[3] = MakeKey(0x5B, NativeMethods.KEYEVENTF_KEYUP);
+                NativeMethods.SendInput(4, inputs,
+                    System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>());
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static NativeMethods.INPUT MakeKey(ushort vk, uint flags)
+        {
+            return new NativeMethods.INPUT
+            {
+                type = NativeMethods.INPUT_KEYBOARD,
+                u = new NativeMethods.INPUTUNION
+                {
+                    ki = new NativeMethods.KEYBDINPUT { wVk = vk, dwFlags = flags }
+                }
+            };
+        }
+
         internal void OpenAppSearch()
         {
             if (!RetroBar.Utilities.Settings.Instance.EnableAppSearch)
             {
                 return;
+            }
+
+            try
+            {
+                Win7Taskbar.StartMenu.StartMenuHost.Hide();
+            }
+            catch (Exception)
+            {
             }
 
             /* v1.21.50: il click sulla lente non deve mai abbattere la
@@ -8284,7 +8451,8 @@ namespace Win7Taskbar
                     /* v1.21.43: posizione barra (0..3) + blocco (sezione
                      * "Impostazioni extra", riga "Posizione"). */
                     st.TaskbarPosition,
-                    st.LockTaskbar ? 1 : 0);
+                    st.LockTaskbar ? 1 : 0,
+                    st.WindowsKeyOpensOurMenu ? 1 : 0);
             }
             catch (Exception ex)
             {

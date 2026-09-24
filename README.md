@@ -10,7 +10,7 @@ The software has been tested on Windows 8.1, Windows 10 21H2, Windows 10 22H2, W
 
 On Windows 11, **ExplorerPatcher is recommended for the best experience**, but it is optional. It can provide a more compatible Windows 10-style taskbar environment and allow Win7Taskbar to use more native notification-area functionality.
 
-**Open-Shell is also recommended alongside Win7Taskbar** for a more complete Windows 7-style desktop experience, particularly for restoring a Windows 7-style Start menu. Open-Shell is optional and complements Win7Taskbar rather than replacing it.
+Win7Taskbar now ships its own Windows 7-style Start Menu (see below). **Open-Shell remains optional** if you prefer its menu instead: set **Windows key opens: Windows** in Properties → Extra.
 
 This software has only been tested with ExplorerPatcher and OpenShell. Support for other third-party tools that serve a similar purpose will be analyzed individually where possible.
 
@@ -38,7 +38,7 @@ This software has only been tested with ExplorerPatcher and OpenShell. Support f
 >
 > ExplorerPatcher is different and can complement Win7Taskbar on Windows 11.
 >
-> Open-Shell can also be used alongside Win7Taskbar and is recommended when a Windows 7-style Start menu is desired.
+> Open-Shell can still be used alongside Win7Taskbar. To give it the Windows key, set **Windows key opens: Windows** in Properties → Extra.
 
 ## Installation Guide
 
@@ -47,6 +47,32 @@ To install this software, the subsequent steps need to be followed:
 2. Extract the complete package, keeping `Themes/`, `Resources/`, and `Languages/` next to `Win7Taskbar.exe`.
 3. Run `Win7Taskbar.exe`.
 4. To exit, right-click the clock → **Properties** → **Close Win7Taskbar**.
+
+## Start Menu (v1.3.0-alpha)
+
+Win7Taskbar hosts its own Windows 7-style Start Menu **in the same process as the taskbar** (`Win7Taskbar.exe`), on a dedicated STA thread with its own WPF Dispatcher. A second tiny process, `Win7StartHelper.exe`, owns the low-level keyboard hook and the Windows-key state machine. There is no `Win7StartMenu.exe`, no named pipe, and no menu-side mutex.
+
+IPC is two session-local events:
+
+| Event | Direction | Role |
+| --- | --- | --- |
+| `Local\Win7Taskbar_WindowsKey` | helper → menu | lone Windows key |
+| `Local\Win7Taskbar_StartMenuHeartbeat` | menu DispatcherTimer → helper | menu still alive |
+
+The setting **Windows key opens: Our Start Menu | Windows** (Properties → Extra, default our menu) is stored in `settings.json` and mirrored to `HKCU\Software\Win7Taskbar\WindowsKeyOpensOurMenu`. Open-Shell can be used alongside: choose **Windows** if you want Open-Shell / native Start to receive the key. The hook is **not** auto-disabled just because Open-Shell is installed.
+
+### Failure modes
+
+| Failure | What happens |
+| --- | --- |
+| Helper crash / exit | `WH_KEYBOARD_LL` unloads. Windows key passes through to native Start / Open-Shell. |
+| Taskbar / menu process exits | Helper sees the process handle and stops consuming the Windows key, then quits. |
+| Menu heartbeat timeout (~2 s) | Helper stops consuming the Windows key so native Start / Open-Shell works. Heartbeat resumes consume. |
+| Helper missing from the package | Orb still toggles our menu. The Windows key is not consumed (native Start works). |
+| Setting = Windows | Helper does not eat lone Win. Native Start / Open-Shell receives it. |
+| Scan / Search COM failure | Program list or file hits are empty; the menu still opens and power actions still run. |
+
+The menu window is created during `Win7Taskbar.exe` startup and only shown/focused on the orb or a lone Windows key. Typing goes straight to the search box.
 
 ## Troubleshooting
 
@@ -94,7 +120,7 @@ Additional information and attribution details are available in the `docs` folde
 ## Note
 
 This software is not endorsed by, affiliated with, or sponsored by Microsoft Corporation.
-Windows, the Windows logo and the Windows 7 visual design are trademarks and/or copyrighted works of Microsoft Corporation.
+Windows and related trademarks are the property of Microsoft Corporation.
 
 ## Registry keys
 
@@ -104,6 +130,10 @@ Everything the program touches in the registry, and nothing else:
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Win7Taskbar`.
   Written when the "Start automatically with Windows" checkbox is confirmed
   with OK/Apply, deleted when it is unchecked. Never touched otherwise.
+* **Windows-key routing (our key, user setting).**
+  `HKCU\Software\Win7Taskbar\WindowsKeyOpensOurMenu` (`DWORD` 1 = our Start
+  Menu, 0 = Windows / Open-Shell). Written whenever the Properties Extra
+  setting is applied. Not a system Start-menu replacement.
 * **Reversible shell choices (original state preserved).**
   `HKCU\...\CurrentVersion\ImmersiveShell`: `UseWin32TrayClockExperience`
   (1 = classic Aero clock), `EnableMtcUvc` (0 = classic volume mixer) and

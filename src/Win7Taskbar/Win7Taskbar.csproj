@@ -374,9 +374,9 @@
          click-outside dismissal instead of failing. The assembly version
          moves so a startup crash recorded by an older build does not force
          this one into safe mode. -->
-    <Version>1.2.2</Version>
-    <AssemblyVersion>1.2.2.0</AssemblyVersion>
-    <FileVersion>1.2.2.0</FileVersion>
+    <Version>1.3.26-alpha</Version>
+    <AssemblyVersion>1.3.26.0</AssemblyVersion>
+    <FileVersion>1.3.26.0</FileVersion>
   
     <!-- v2.57: application icon (the classic Windows 7 flag in a single azure
          blue). Setting ApplicationIcon gives the executable the icon and, in
@@ -509,11 +509,16 @@
   <Target Name="CopyNativeCoreOnPublish" AfterTargets="Publish">
     <ItemGroup>
       <NativeCoreDllPub Include="$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll" />
+      <NativeHelperPub Include="$(MSBuildThisFileDirectory)..\..\dist\Win7StartHelper.exe" />
     </ItemGroup>
     <Copy SourceFiles="@(NativeCoreDllPub)"
           DestinationFolder="$(PublishDir)"
           SkipUnchangedFiles="true"
           Condition="Exists('%(NativeCoreDllPub.FullPath)')" />
+    <Copy SourceFiles="@(NativeHelperPub)"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('%(NativeHelperPub.FullPath)')" />
     <Error Text="Win7TaskbarCore.dll non trovata in dist/: eseguire prima la build CMake in native/."
            Condition="!Exists('$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll')" />
   </Target>

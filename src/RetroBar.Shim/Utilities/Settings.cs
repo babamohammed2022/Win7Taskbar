@@ -55,6 +55,9 @@ namespace RetroBar.Utilities
         // v3.3: ON by default (lente a sinistra dello Start durante
         // l'esecuzione); si disattiva dalle Proprieta'.
         private bool _enableAppSearch = true;
+        private bool _showJumpListHoverArrow = false;
+        private bool _showControlCenterButton;
+        private bool _showNotificationCenterButton;
         // Windows 11 only: 0 automatic, 1 modern System32, 2 legacy SysWOW64.
         private int _taskManagerMode;
         // Single persisted kill switch for the delayed BitBlt thumbnail
@@ -117,6 +120,10 @@ namespace RetroBar.Utilities
             set => SetField(ref _showClock, value);
         }
 
+        /// <summary>
+        /// Kept for settings.json compatibility. Thickness is the theme
+        /// TaskbarHeight resource; user-controlled resizing was removed.
+        /// </summary>
         public double TaskbarHeight
         {
             get => _taskbarHeight;
@@ -139,13 +146,47 @@ namespace RetroBar.Utilities
         }
 
         /// <summary>
-        /// true = barra bloccata (default, come Win7): niente resize col drag
-        /// e niente trascinamento su un altro bordo. false = sbloccata.
+        /// true = barra bloccata (default, come Win7). Rotation between
+        /// Bottom/Top/Left/Right stays in Properties regardless of this flag.
         /// </summary>
         public bool LockTaskbar
         {
             get => _lockTaskbar;
             set => SetField(ref _lockTaskbar, value);
+        }
+
+        private bool _windowsKeyOpensOurMenu = true;
+
+        /// <summary>
+        /// v1.3.0: Windows key opens our Start Menu (default) or Windows.
+        /// Mirrored to HKCU\Software\Win7Taskbar\WindowsKeyOpensOurMenu so
+        /// Win7StartHelper.exe can read it without a pipe.
+        /// </summary>
+        public bool WindowsKeyOpensOurMenu
+        {
+            get => _windowsKeyOpensOurMenu;
+            set
+            {
+                if (SetFieldReturnChanged(ref _windowsKeyOpensOurMenu, value))
+                {
+                    WriteWindowsKeyRegistry(value);
+                }
+            }
+        }
+
+        private static void WriteWindowsKeyRegistry(bool ours)
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
+                    @"Software\Win7Taskbar");
+                key?.SetValue("WindowsKeyOpensOurMenu", ours ? 1 : 0,
+                    Microsoft.Win32.RegistryValueKind.DWord);
+            }
+            catch (Exception)
+            {
+                /* helper keeps the last readable value / default */
+            }
         }
 
         /// <summary>
@@ -165,6 +206,34 @@ namespace RetroBar.Utilities
         {
             get => _enableAppSearch;
             set => SetField(ref _enableAppSearch, value);
+        }
+
+        /// <summary>
+        /// Hover triangle on a running Superbar button that opens the
+        /// Jump List. Drag-up remains the only default trigger. Default off.
+        /// </summary>
+        public bool ShowJumpListHoverArrow
+        {
+            get => _showJumpListHoverArrow;
+            set => SetField(ref _showJumpListHoverArrow, value);
+        }
+
+        /// <summary>
+        /// Optional Windows 11 Control Center button (default off).
+        /// </summary>
+        public bool ShowControlCenterButton
+        {
+            get => _showControlCenterButton;
+            set => SetField(ref _showControlCenterButton, value);
+        }
+
+        /// <summary>
+        /// Optional Windows 11 Notification Center button (default off).
+        /// </summary>
+        public bool ShowNotificationCenterButton
+        {
+            get => _showNotificationCenterButton;
+            set => SetField(ref _showNotificationCenterButton, value);
         }
 
         /// <summary>
@@ -341,11 +410,7 @@ namespace RetroBar.Utilities
         private List<string> _taskbarIconOrder = new List<string>();
 
         /// <summary>
-        /// v1.21.7: colour of the flyout recreated by the program.
-        /// 0 = system colour (the Windows accent, read from the system when
-        /// needed), 1 = custom colour chosen by the user.
-        ///
-        /// It concerns ONLY the flyout drawn by the program: it writes nothing
+        /// v1.21.7: colour of the flyout recreated by the prog drawn by the program: it writes nothing
         /// into the Windows personalization and changes no Windows 7 flyout,
         /// which stay exactly as they were.
         /// </summary>
@@ -642,6 +707,7 @@ namespace RetroBar.Utilities
             {
                 settings.Save();
             }
+            WriteWindowsKeyRegistry(settings._windowsKeyOpensOurMenu);
             return settings;
         }
 
@@ -672,13 +738,20 @@ namespace RetroBar.Utilities
 
         private void SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
         {
+            SetFieldReturnChanged(ref field, value, propertyName);
+        }
+
+        private bool SetFieldReturnChanged<T>(ref T field, T value,
+            [CallerMemberName] string? propertyName = null)
+        {
             if (Equals(field, value))
             {
-                return;
+                return false;
             }
             field = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
             Save();
+            return true;
         }
     }
 }

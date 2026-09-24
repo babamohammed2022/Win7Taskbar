@@ -103,7 +103,8 @@ namespace Win7Taskbar.Interop
         Network = 1,
         Clock = 2,
         Battery = 3,
-        Sound = 4
+        Sound = 4,
+        ActionCenter = 5
     }
 
     /// <summary>Mostra o nasconde un riquadro immersivo.</summary>
@@ -484,7 +485,55 @@ namespace Win7Taskbar.Interop
             // v1.21.37: current autostart state (RetroBar logic, AutoStart.cs).
             int autoStart,
             // v1.21.43: taskbar position (0..3) + lock (RetroBar Edge/LockTaskbar).
-            int taskbarPosition, int lockTaskbar);
+            int taskbarPosition, int lockTaskbar,
+            // v1.3.0: Windows key opens our Start Menu (1) or Windows (0).
+            int windowsKeyOpensOurMenu);
+
+        [StructLayout(LayoutKind.Sequential, Pack = 8, CharSet = CharSet.Unicode)]
+        public struct W7TStartMenuEntry
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string Name;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string Path;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string Target;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string Folder;
+            public int Source;
+            public int UsageCount;
+        }
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_StartMenuScan();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_StartMenuGetCount();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_StartMenuGetEntry(int index, out W7TStartMenuEntry entry);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+        public static extern int W7T_StartMenuQuery(string query, [Out] int[] indices, int capacity);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_StartMenuPower(int action);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+        public static extern int W7T_StartMenuLaunch(string path);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+        public static extern int W7T_StartMenuHasJumpList(string path);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+        public static extern int W7T_StartMenuFileSearchStart(string query);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+        public static extern int W7T_StartMenuFileSearchPoll(
+            [Out] char[] buffer, int capacityChars);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_StartMenuFileSearchCancel();
 
         /// <summary>
         /// v1.21.7: publishes the extra settings. flyoutColorMode 0 = system
@@ -754,6 +803,10 @@ namespace Win7Taskbar.Interop
 
         [DllImport("user32.dll")]
         public static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EndMenu();
 
         // ---------------- v1.7.4: language bar via shell menu ----------------
         // The ITA indicator now opens a plain Win32 menu (the same
@@ -1026,9 +1079,13 @@ namespace Win7Taskbar.Interop
          * (stessa fonte della shell). */
         public const uint SHGFI_ICON = 0x000000100;
         public const uint SHGFI_SMALLICON = 0x000000001;
+        public const uint SHGFI_LARGEICON = 0x000000000;
+        public const uint SHGFI_PIDL = 0x000000008;
+        public const uint SHGFI_USEFILEATTRIBUTES = 0x000000010;
         /* v2.6.1: riempie SHFILEINFOW.szDisplayName col nome che mostra
          * Explorer (nasconde le estensioni registrate: "File.lnk" -> "File"). */
         public const uint SHGFI_DISPLAYNAME = 0x000000200;
+        public const uint SHGFI_SYSICONINDEX = 0x00004000;
         public const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
         public const uint FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
 
@@ -1047,6 +1104,49 @@ namespace Win7Taskbar.Interop
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
         public static extern IntPtr SHGetFileInfoW(string pszPath, uint dwFileAttributes,
                                                    ref SHFILEINFOW psfi, uint cbFileInfo, uint uFlags);
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, EntryPoint = "SHGetFileInfoW")]
+        public static extern IntPtr SHGetFileInfoPidl(IntPtr pidl, uint dwFileAttributes,
+                                                      ref SHFILEINFOW psfi, uint cbFileInfo, uint uFlags);
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        public static extern int SHParseDisplayName(string pszName, IntPtr pbc,
+                                                    out IntPtr ppidl, uint sfgaoIn, IntPtr psfgaoOut);
+
+        [DllImport("shell32.dll")]
+        public static extern void ILFree(IntPtr pidl);
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        public static extern uint ExtractIconEx(string lpszFile, int nIconIndex,
+                                                out IntPtr phiconLarge, out IntPtr phiconSmall,
+                                                uint nIcons);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct SHELLEXECUTEINFO
+        {
+            public int cbSize;
+            public uint fMask;
+            public IntPtr hwnd;
+            public string? lpVerb;
+            public string? lpFile;
+            public string? lpParameters;
+            public string? lpDirectory;
+            public int nShow;
+            public IntPtr hInstApp;
+            public IntPtr lpIDList;
+            public string? lpClass;
+            public IntPtr hkeyClass;
+            public uint dwHotKey;
+            public IntPtr hIcon;
+            public IntPtr hProcess;
+        }
+
+        public const uint SEE_MASK_INVOKEIDLIST = 0x0000000C;
+        public const int SW_SHOWNORMAL = 1;
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool ShellExecuteExW(ref SHELLEXECUTEINFO lpExecInfo);
 
         /* v2.4: disposizione finestre del menu contestuale della barra,
          * come le voci equivalenti del menu vero di Windows 7. */
@@ -1580,5 +1680,44 @@ namespace Win7Taskbar.Interop
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool SendNotifyMessage(IntPtr hWnd, uint msg,
                                                     IntPtr wParam, IntPtr lParam);
+
+        /* Public powrprof GetPwrCapabilities. HiberFilePresent is the
+         * 9th BOOLEAN (offset 8); SystemS4 is offset 6. A byte buffer
+         * avoids packing SYSTEM_POWER_CAPABILITIES, which grew across
+         * Windows versions. */
+        [DllImport("powrprof.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetPwrCapabilities(IntPtr lpspc);
+
+        public static bool IsHibernateSupported()
+        {
+            IntPtr buf = IntPtr.Zero;
+            try
+            {
+                buf = Marshal.AllocHGlobal(256);
+                for (int i = 0; i < 256; i++)
+                {
+                    Marshal.WriteByte(buf, i, 0);
+                }
+                if (!GetPwrCapabilities(buf))
+                {
+                    return false;
+                }
+                byte systemS4 = Marshal.ReadByte(buf, 6);
+                byte hiberFile = Marshal.ReadByte(buf, 8);
+                return systemS4 != 0 && hiberFile != 0;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+            finally
+            {
+                if (buf != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(buf);
+                }
+            }
+        }
     }
 }

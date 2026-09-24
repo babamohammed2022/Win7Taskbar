@@ -43,6 +43,8 @@ add_library(Win7TaskbarCore SHARED
     src/Strings.cpp src/LocalizationExports.cpp
     src/TrayFallbackIcons.cpp src/CrashHandler.cpp
     src/TrayPrefsStore.cpp
+    src/StartMenuIndex.cpp src/StartMenuScanner.cpp
+    src/StartMenuPower.cpp src/StartMenuExports.cpp
     src/DpiMetrics.cpp src/WindowSubclass.cpp
     src/AppBarPositioner.cpp src/TaskbarWindow.cpp src/BandLayout.cpp
     src/TraySizer.cpp
@@ -78,7 +80,7 @@ message(STATUS "Win7TaskbarCore build stamp: ${W7T_BUILD_STAMP}")
 target_compile_definitions(Win7TaskbarCore PRIVATE W7T_BUILDING_DLL=1 UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00 "W7T_BUILD_STAMP=L\"${W7T_BUILD_STAMP}\"")
 # comdlg32: v1.21.7, ChooseColorW for the colour picker of the extra
 # settings tab (the standard Windows colour chooser).
-target_link_libraries(Win7TaskbarCore PRIVATE user32 gdi32 shell32 ole32 oleaut32 comctl32 wtsapi32 dwmapi uxtheme msimg32 propsys shlwapi advapi32 powrprof wlanapi iphlpapi uuid psapi windowscodecs comdlg32)
+target_link_libraries(Win7TaskbarCore PRIVATE user32 gdi32 gdiplus shell32 ole32 oleaut32 comctl32 wtsapi32 dwmapi uxtheme msimg32 propsys shlwapi advapi32 powrprof wlanapi iphlpapi uuid psapi windowscodecs comdlg32)
 set_source_files_properties(resources/app.ico PROPERTIES HEADER_FILE_ONLY TRUE)
 target_sources(Win7TaskbarCore PRIVATE resources/app.ico)
 set_target_properties(Win7TaskbarCore PROPERTIES PREFIX "" OUTPUT_NAME "Win7TaskbarCore")
@@ -132,7 +134,23 @@ add_custom_command(TARGET W7TInject POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:W7TInject> "${W7T_DIST_DIR}/"
     COMMENT "Copy W7TInject.dll to dist/")
-install(TARGETS Win7TaskbarCore W7TInject RUNTIME DESTINATION bin)
+add_executable(Win7StartHelper WIN32 src/Win7StartHelper.cpp)
+target_compile_definitions(Win7StartHelper PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+target_link_libraries(Win7StartHelper PRIVATE user32 advapi32)
+if(MSVC)
+    target_compile_options(Win7StartHelper PRIVATE /W4 /permissive- /utf-8 /wd4100)
+    set_target_properties(Win7StartHelper PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+else()
+    target_compile_options(Win7StartHelper PRIVATE -Wall -Wextra -Wno-unused-parameter)
+    target_link_options(Win7StartHelper PRIVATE -municode -static-libgcc -static-libstdc++ -static)
+endif()
+set_target_properties(Win7StartHelper PROPERTIES PREFIX "" OUTPUT_NAME "Win7StartHelper")
+add_custom_command(TARGET Win7StartHelper POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Win7StartHelper> "${W7T_DIST_DIR}/"
+    COMMENT "Copy Win7StartHelper.exe to dist/")
+
+install(TARGETS Win7TaskbarCore W7TInject Win7StartHelper RUNTIME DESTINATION bin)
 install(FILES include/Win7TaskbarCore.h DESTINATION include)
 
 # Unit tests (pure layout + registry policy on temp HKCI keys). Built
@@ -156,3 +174,12 @@ target_include_directories(w7t_registry_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(w7t_registry_tests PRIVATE kernel32 user32 advapi32)
 add_test(NAME registry_tests COMMAND w7t_registry_tests)
+
+add_executable(w7t_search_index_tests
+    tests/search_index_tests.cpp
+    src/StartMenuIndex.cpp)
+target_include_directories(w7t_search_index_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_definitions(w7t_search_index_tests PRIVATE UNICODE _UNICODE NOMINMAX)
+add_test(NAME search_index_tests COMMAND w7t_search_index_tests)

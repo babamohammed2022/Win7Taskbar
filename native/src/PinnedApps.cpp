@@ -44,13 +44,87 @@ private:
     HANDLE m_handle;
 };
 
-std::wstring PinnedFolder() {
+template <typename T>
+class UniqueCom {
+public:
+    UniqueCom() noexcept = default;
+    explicit UniqueCom(T* p) noexcept : p_(p) {}
+    ~UniqueCom() { reset(); }
+    UniqueCom(const UniqueCom&) = delete;
+    UniqueCom& operator=(const UniqueCom&) = delete;
+    void reset(T* p = nullptr) noexcept {
+        if (p_) {
+            p_->Release();
+        }
+        p_ = p;
+    }
+    T** put() noexcept {
+        reset();
+        return &p_;
+    }
+    T* get() const noexcept { return p_; }
+    T* operator->() const { return p_; }
+    explicit operator bool() const noexcept { return p_ != nullptr; }
+
+private:
+    T* p_ = nullptr;
+};
+
+class UniqueFind {
+public:
+    UniqueFind() noexcept = default;
+    explicit UniqueFind(HANDLE h) noexcept : h_(h) {}
+    ~UniqueFind() {
+        if (h_ != nullptr && h_ != INVALID_HANDLE_VALUE) {
+            FindClose(h_);
+        }
+    }
+    UniqueFind(const UniqueFind&) = delete;
+    UniqueFind& operator=(const UniqueFind&) = delete;
+    HANDLE get() const noexcept { return h_; }
+    explicit operator bool() const noexcept {
+        return h_ != nullptr && h_ != INVALID_HANDLE_VALUE;
+    }
+
+private:
+    HANDLE h_ = INVALID_HANDLE_VALUE;
+};
+
+struct UniquePidl {
+    PIDLIST_ABSOLUTE p = nullptr;
+    UniquePidl() = default;
+    ~UniquePidl() {
+        if (p) {
+            CoTaskMemFree(p);
+        }
+    }
+    UniquePidl(const UniquePidl&) = delete;
+    UniquePidl& operator=(const UniquePidl&) = delete;
+};
+
+std::wstring UserPinnedRoot() {
     wchar_t base[MAX_PATH]{};
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, base))) {
         return {};
     }
     return std::wstring(base) +
-        L"\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar";
+        L"\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned";
+}
+
+std::wstring PinnedFolder() {
+    const std::wstring root = UserPinnedRoot();
+    if (root.empty()) {
+        return {};
+    }
+    return root + L"\\TaskBar";
+}
+
+std::wstring ImplicitPinnedFolder() {
+    const std::wstring root = UserPinnedRoot();
+    if (root.empty()) {
+        return {};
+    }
+    return root + L"\\ImplicitAppShortcuts";
 }
 
 /* PKEY_AppUserModel_ID: {9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}, 12 */
@@ -65,22 +139,25 @@ PROPERTYKEY PKEY_Aumid() {
 
 std::wstring ReadAumid(const std::wstring& lnk) {
     std::wstring out;
-    W7T_SEH_TRY
-        IPropertyStore* ps = nullptr;
-        if (SUCCEEDED(SHGetPropertyStoreFromParsingName(lnk.c_str(), nullptr,
-                GPS_DEFAULT, IID_PPV_ARGS(&ps)))) {
-            PROPERTYKEY key = PKEY_Aumid();
-            PROPVARIANT pv{};
-            PropVariantInit(&pv);
-            if (SUCCEEDED(ps->GetValue(key, &pv)) &&
-                pv.vt == VT_LPWSTR && pv.pwszVal != nullptr) {
-                out = pv.pwszVal;
+    try {
+        W7T_SEH_TRY
+            UniqueCom<IPropertyStore> ps;
+            if (SUCCEEDED(SHGetPropertyStoreFromParsingName(lnk.c_str(), nullptr,
+                    GPS_DEFAULT, IID_PPV_ARGS(ps.put())))) {
+                PROPERTYKEY key = PKEY_Aumid();
+                PROPVARIANT pv{};
+                PropVariantInit(&pv);
+                if (SUCCEEDED(ps->GetValue(key, &pv)) &&
+                    pv.vt == VT_LPWSTR && pv.pwszVal != nullptr) {
+                    out = pv.pwszVal;
+                }
+                PropVariantClear(&pv);
             }
-            PropVariantClear(&pv);
-            ps->Release();
-        }
-    W7T_SEH_CATCH
-    W7T_SEH_END
+        W7T_SEH_CATCH
+        W7T_SEH_END
+    } catch (...) {
+        out.clear();
+    }
     return out;
 }
 
@@ -117,6 +194,25 @@ bool IsSpecialTarget(const std::wstring& t) {
            t.rfind(L"com:", 0) == 0 || t.rfind(L"ms-", 0) == 0;
 }
 
+bool IsPackagedAumid(const std::wstring& id) {
+    return id.find(L'!') != std::wstring::npos;
+}
+
+bool TargetAlive(const std::wstring& path) {
+    if (path.empty()) {
+        return false;
+    }
+    if (IsSpecialTarget(path)) {
+        return true;
+    }
+    if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        return true;
+    }
+    /* WindowsApps binaries often return ACCESS_DENIED to GetFileAttributes
+     * even though the packaged app is installed. That is not a missing pin. */
+    return GetLastError() == ERROR_ACCESS_DENIED;
+}
+
 void Log(const wchar_t* fmt, ...) {
     wchar_t line[700];
     va_list ap;
@@ -124,6 +220,134 @@ void Log(const wchar_t* fmt, ...) {
     _vsnwprintf_s(line, _TRUNCATE, fmt, ap);
     va_end(ap);
     AppendCoreLog(line);
+}
+
+void CollectFolder(const std::wstring& dir,
+                   std::vector<PinnedApp>& apps,
+                   std::vector<std::wstring>& seenIdentities) {
+    if (dir.empty()) {
+        return;
+    }
+
+    WIN32_FIND_DATAW fd{};
+    UniqueFind find(FindFirstFileW((dir + L"\\*.lnk").c_str(), &fd));
+    if (!find) {
+        return;
+    }
+    do {
+        try {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                continue;
+            }
+            const std::wstring name = fd.cFileName;
+            const std::wstring lnk = dir + L"\\" + name;
+
+            std::wstring targetRaw, target, aumid, identity, status;
+            bool valid = false;
+            bool hasIdList = false;
+
+            W7T_SEH_TRY
+            UniqueCom<IShellLinkW> link;
+            if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr,
+                    CLSCTX_INPROC_SERVER, IID_PPV_ARGS(link.put())))) {
+                UniqueCom<IPersistFile> pf;
+                if (SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(pf.put())))) {
+                    if (SUCCEEDED(pf->Load(lnk.c_str(), STGM_READ))) {
+                        wchar_t t[kMaxPathW]{};
+                        WIN32_FIND_DATAW dummy{};
+                        link->GetPath(t, kMaxPathW, &dummy, 0);
+                        targetRaw = t;
+
+                        if (targetRaw.empty()) {
+                            UniquePidl pidl;
+                            if (SUCCEEDED(link->GetIDList(&pidl.p)) &&
+                                pidl.p != nullptr) {
+                                hasIdList = true;
+                                wchar_t p2[kMaxPathW]{};
+                                if (SHGetPathFromIDListW(pidl.p, p2)) {
+                                    targetRaw = p2;
+                                }
+                            }
+                        }
+                        if (IsSpecialTarget(targetRaw)) {
+                            target = targetRaw;
+                        } else {
+                            target = NormalizeTarget(link.get(), targetRaw);
+                        }
+                    }
+                }
+            }
+            W7T_SEH_CATCH
+            W7T_SEH_END
+
+            aumid = ReadAumid(lnk);
+
+            if (!aumid.empty()) {
+                identity = aumid;
+            } else if (!target.empty()) {
+                identity = target;
+            } else {
+                identity = name;
+                std::transform(identity.begin(), identity.end(),
+                               identity.begin(), ::towlower);
+            }
+
+            /* Packaged (UWP) pins often have an AUMID and either no
+             * filesystem path (AppsFolder IDList) or a stub/WindowsApps
+             * path that GetFileAttributes cannot see. Those are live
+             * pins, not missing targets. */
+            if (TargetAlive(target) || TargetAlive(targetRaw)) {
+                valid = true;
+                status = L"VALID";
+            } else if (IsPackagedAumid(aumid)) {
+                valid = true;
+                status = L"VALID (packaged)";
+                if (!TargetAlive(target)) {
+                    target = L"shell:AppsFolder\\";
+                    target += aumid;
+                }
+            } else if (target.empty() &&
+                       (IsSpecialTarget(targetRaw) || hasIdList)) {
+                valid = true;
+                status = hasIdList ? L"VALID (shell item)"
+                                   : L"VALID (special)";
+            } else {
+                valid = false;
+                status = L"INVALID TARGET";
+            }
+
+            bool dup = false;
+            if (valid) {
+                for (const auto& s : seenIdentities) {
+                    if (_wcsicmp(s.c_str(), identity.c_str()) == 0) {
+                        dup = true;
+                        break;
+                    }
+                }
+            }
+
+            Log(L"[Pinned] %s", name.c_str());
+            Log(L"  Target: %s",
+                targetRaw.empty() ? L"<nessuno>" : targetRaw.c_str());
+            Log(L"  Identity: %s", identity.c_str());
+            if (!valid) {
+                Log(L"  Status: %s", status.c_str());
+                Log(L"  Action: IGNORED");
+            } else if (dup) {
+                Log(L"  Status: DUPLICATE");
+                Log(L"  Action: IGNORED");
+            } else {
+                Log(L"  Status: %s", status.c_str());
+                Log(L"  Action: ADDED");
+                seenIdentities.push_back(identity);
+                std::wstring disp = name;
+                if (disp.size() > 4) disp.erase(disp.size() - 4);
+                apps.push_back(PinnedApp{ identity, lnk, target, disp });
+            }
+        } catch (...) {
+            Log(L"[Pinned] skipped unreadable shortcut");
+        }
+    } while (FindNextFileW(find.get(), &fd));
 }
 
 } /* namespace */
@@ -186,184 +410,79 @@ void PinnedApps::Stop() {
 }
 
 void PinnedApps::WatcherLoop() {
-    const std::wstring dir = PinnedFolder();
-    if (dir.empty()) return;
-
-    HANDLE h = CreateFileW(dir.c_str(), FILE_LIST_DIRECTORY,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return;
-    m_watchDir = h;
-
-    char buf[4096];
-    while (m_running) {
-        DWORD bytes = 0;
-        BOOL ok = ReadDirectoryChangesW(h, buf, sizeof(buf), FALSE,
-            FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
-            FILE_NOTIFY_CHANGE_LAST_WRITE,
-            &bytes, nullptr, nullptr);
-        if (!ok || bytes == 0) {
-            if (WaitForSingleObject(m_stopEvent, 500) == WAIT_OBJECT_0) break;
-            continue;
+    try {
+        std::wstring dir = UserPinnedRoot();
+        if (dir.empty()) {
+            dir = PinnedFolder();
         }
-        // debounce: pin/unpin arrivano a raffica durante i drag
-        if (WaitForSingleObject(m_stopEvent, 500) == WAIT_OBJECT_0) break;
-        Refresh();
+        if (dir.empty()) return;
+
+        HANDLE h = CreateFileW(dir.c_str(), FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return;
+        m_watchDir = h;
+
+        char buf[4096];
+        while (m_running) {
+            DWORD bytes = 0;
+            BOOL ok = ReadDirectoryChangesW(h, buf, sizeof(buf), TRUE,
+                FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
+                FILE_NOTIFY_CHANGE_LAST_WRITE,
+                &bytes, nullptr, nullptr);
+            if (!ok || bytes == 0) {
+                if (WaitForSingleObject(m_stopEvent, 500) == WAIT_OBJECT_0) break;
+                continue;
+            }
+            // debounce: pin/unpin arrivano a raffica durante i drag
+            if (WaitForSingleObject(m_stopEvent, 500) == WAIT_OBJECT_0) break;
+            Refresh();
+        }
+        CloseHandle(h);
+        m_watchDir = nullptr;
+    } catch (...) {
+        if (m_watchDir) {
+            CloseHandle(m_watchDir);
+            m_watchDir = nullptr;
+        }
+        Log(L"[Pinned] watcher stopped after exception");
     }
-    CloseHandle(h);
-    m_watchDir = nullptr;
 }
 
 void PinnedApps::Refresh() {
-    const std::wstring dir = PinnedFolder();
-    std::vector<PinnedApp> apps;
-    std::vector<std::wstring> seenIdentities;
+    try {
+        std::vector<PinnedApp> apps;
+        std::vector<std::wstring> seenIdentities;
+        CollectFolder(PinnedFolder(), apps, seenIdentities);
+        CollectFolder(ImplicitPinnedFolder(), apps, seenIdentities);
 
-    if (!dir.empty()) {
-        WIN32_FIND_DATAW fd;
-        HANDLE h = FindFirstFileW((dir + L"\\*.lnk").c_str(), &fd);
-        if (h != INVALID_HANDLE_VALUE) {
-            do {
-                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-                const std::wstring name = fd.cFileName;
-                const std::wstring lnk = dir + L"\\" + name;
-
-                std::wstring targetRaw, target, aumid, identity, status;
-                bool valid = false;
-                bool hasIdList = false;
-
-                IShellLinkW* link = nullptr;
-                W7T_SEH_TRY
-                if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr,
-                        CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link)))) {
-                    IPersistFile* pf = nullptr;
-                    if (SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(&pf)))) {
-                        if (SUCCEEDED(pf->Load(lnk.c_str(), STGM_READ))) {
-                            wchar_t t[kMaxPathW]{};
-                            WIN32_FIND_DATAW dummy{};
-                            link->GetPath(t, kMaxPathW, &dummy, 0);
-                            targetRaw = t;
-
-                            /* v2.26: alcuni collegamenti della shell
-                             * (Esplora file pinnato da Windows, voci del
-                             * menu Start) puntano a una IDList senza
-                             * percorso diretto: GetPath lascia vuoto ma
-                             * il lnk e' validissimo. Risolviamo la IDList
-                             * e, se non ha forma di percorso, teniamo il
-                             * pin come elemento shell valido. */
-                            if (targetRaw.empty()) {
-                                PIDLIST_ABSOLUTE pidl = nullptr;
-                                if (SUCCEEDED(link->GetIDList(&pidl)) &&
-                                    pidl != nullptr) {
-                                    hasIdList = true;
-                                    wchar_t p2[kMaxPathW]{};
-                                    if (SHGetPathFromIDListW(pidl, p2)) {
-                                        targetRaw = p2;
-                                    }
-                                    CoTaskMemFree(pidl);
-                                }
-                            }
-                            target = NormalizeTarget(link, targetRaw);
-                        }
-                        pf->Release();
+        /* Ordine: enumerazione NTFS della cartella pin (ordine di creazione
+         * dei .lnk): approssimazione documentata dell'ordine TaskBand, che
+         * vive in un blob binario del registry non parseato qui. MAI ordine
+         * alfabetico/per-PID/per-avvio. ImplicitAppShortcuts follow TaskBar. */
+        bool changed;
+        {
+            std::lock_guard<std::mutex> lk(m_mutex);
+            changed = apps.size() != m_apps.size();
+            if (!changed) {
+                for (size_t i = 0; i < apps.size(); ++i) {
+                    if (_wcsicmp(apps[i].identity.c_str(),
+                                 m_apps[i].identity.c_str()) != 0 ||
+                        _wcsicmp(apps[i].lnkPath.c_str(),
+                                 m_apps[i].lnkPath.c_str()) != 0) {
+                        changed = true;
+                        break;
                     }
-                    link->Release();
-                    link = nullptr;
-                }
-                W7T_SEH_CATCH
-                W7T_SEH_END
-
-                aumid = ReadAumid(lnk);
-
-                /* Identita' (ordine documentato): 1) AppUserModelID;
-                 * 2) percorso eseguibile normalizzato; 3) nome del lnk.
-                 * L'AUMID partecipa all'identita', non e' una regola cieca
-                 * di dedup: due lnk con lo stesso AUMID MA target diversi
-                 * e esistenti restano distinti solo se l'AUMID manca. */
-                if (!aumid.empty()) {
-                    identity = aumid;
-                } else if (!target.empty()) {
-                    identity = target;
-                } else {
-                    identity = name;
-                    std::transform(identity.begin(), identity.end(),
-                                   identity.begin(), ::towlower);
-                }
-
-                /* Validazione: target inesistente = pin NON utilizzabile
-                 * (ignorato, MAI cancellato dal disco). */
-                if (target.empty()) {
-                    valid = IsSpecialTarget(targetRaw) || hasIdList;
-                    status = !valid ? L"INVALID TARGET"
-                        : (hasIdList ? L"VALID (shell item)"
-                                     : L"VALID (special)");
-                } else if (GetFileAttributesW(target.c_str()) ==
-                           INVALID_FILE_ATTRIBUTES) {
-                    valid = false;
-                    status = L"INVALID TARGET";
-                } else {
-                    valid = true;
-                    status = L"VALID";
-                }
-
-                /* Dedup: stessa identita' = stesso bottone. */
-                bool dup = false;
-                if (valid) {
-                    for (const auto& s : seenIdentities) {
-                        if (_wcsicmp(s.c_str(), identity.c_str()) == 0) {
-                            dup = true;
-                            break;
-                        }
-                    }
-                }
-
-                Log(L"[Pinned] %s", name.c_str());
-                Log(L"  Target: %s",
-                    targetRaw.empty() ? L"<nessuno>" : targetRaw.c_str());
-                Log(L"  Identity: %s", identity.c_str());
-                if (!valid) {
-                    Log(L"  Status: %s", status.c_str());
-                    Log(L"  Action: IGNORED");
-                } else if (dup) {
-                    Log(L"  Status: DUPLICATE");
-                    Log(L"  Action: IGNORED");
-                } else {
-                    Log(L"  Status: %s", status.c_str());
-                    Log(L"  Action: ADDED");
-                    seenIdentities.push_back(identity);
-                    std::wstring disp = name;
-                    if (disp.size() > 4) disp.erase(disp.size() - 4);
-                    apps.push_back(PinnedApp{ identity, lnk, target, disp });
-                }
-            } while (FindNextFileW(h, &fd));
-            FindClose(h);
-        }
-    }
-
-    /* Ordine: enumerazione NTFS della cartella pin (ordine di creazione
-     * dei .lnk): approssimazione documentata dell'ordine TaskBand, che
-     * vive in un blob binario del registry non parseato qui. MAI ordine
-     * alfabetico/per-PID/per-avvio. */
-    bool changed;
-    {
-        std::lock_guard<std::mutex> lk(m_mutex);
-        changed = apps.size() != m_apps.size();
-        if (!changed) {
-            for (size_t i = 0; i < apps.size(); ++i) {
-                if (_wcsicmp(apps[i].identity.c_str(),
-                             m_apps[i].identity.c_str()) != 0 ||
-                    _wcsicmp(apps[i].lnkPath.c_str(),
-                             m_apps[i].lnkPath.c_str()) != 0) {
-                    changed = true;
-                    break;
                 }
             }
+            m_apps = std::move(apps);
         }
-        m_apps = std::move(apps);
-    }
 
-    if (changed) {
-        CoreState::Instance().QueueEvent(W7T_EVT_PINNED_CHANGED, 0, 0);
+        if (changed) {
+            CoreState::Instance().QueueEvent(W7T_EVT_PINNED_CHANGED, 0, 0);
+        }
+    } catch (...) {
+        Log(L"[Pinned] Refresh failed");
     }
 }
 

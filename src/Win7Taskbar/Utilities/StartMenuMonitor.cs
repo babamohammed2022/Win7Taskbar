@@ -225,7 +225,14 @@ namespace Win7Taskbar.Utilities
             const uint VK_ESCAPE = 0x1B;
             PostMessageW(host, WM_KEYDOWN, new UIntPtr(VK_ESCAPE), new IntPtr(0x00010001));
             PostMessageW(host, WM_KEYUP, new UIntPtr(VK_ESCAPE), new IntPtr(0xC0010001));
+            bool ours = IsOurStartMenu(host);
             _currentHost = IntPtr.Zero;
+            if (ours)
+            {
+                /* A Win-key tap 220 ms later dismissed our taskbar context
+                 * menu (and opened native Start). Our window already got ESC. */
+                return;
+            }
 
             // 2) v2.26: gli host immersivi (Win11 XamlExplorerHostIslandWindow)
             //    spesso ignorano l'ESC recapitato via PostMessage. Se dopo
@@ -338,6 +345,11 @@ namespace Win7Taskbar.Utilities
                 return false;
             }
             string cls = sb.ToString();
+            if (cls.StartsWith("HwndWrapper", StringComparison.Ordinal))
+            {
+                return IsOurStartMenu(hwnd);
+            }
+
             if (!StartHostClasses.Contains(cls))
             {
                 return false;
@@ -372,6 +384,43 @@ namespace Win7Taskbar.Utilities
                 }
             }
             return true;
+        }
+
+        private static bool IsOurStartMenu(IntPtr hwnd)
+        {
+            if (!IsWindowVisible(hwnd))
+            {
+                return false;
+            }
+            var title = new StringBuilder(256);
+            if (GetWindowText(hwnd, title, title.Capacity) <= 0)
+            {
+                return false;
+            }
+            if (!string.Equals(title.ToString(), "Win7Taskbar Start Menu",
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+            try
+            {
+                GetWindowThreadProcessId(hwnd, out uint pid);
+                if (pid == 0)
+                {
+                    return false;
+                }
+                using Process p = Process.GetProcessById((int)pid);
+                return string.Equals(p.ProcessName, "Win7Taskbar",
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
         }
 
         /// <summary>

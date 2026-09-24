@@ -620,6 +620,7 @@ extern "C" W7T_API int32_t W7T_CALL W7T_InvokeFlyout(uint64_t taskbarHwnd,
     case W7T_FLYOUT_CLOCK:
     case W7T_FLYOUT_BATTERY:
     case W7T_FLYOUT_SOUND:
+    case W7T_FLYOUT_ACTION_CENTER:
         break;
     default:
         return W7T_ERR_INVALID_ARG;
@@ -1054,7 +1055,8 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t flyoutColorMode, int32_t flyoutColorRgb,
         int32_t connectionPrivacyMode, int32_t themeSelection,
         int32_t autoStart,
-        int32_t taskbarPosition, int32_t lockTaskbar) {
+        int32_t taskbarPosition, int32_t lockTaskbar,
+        int32_t windowsKeyOpensOurMenu) {
     try {
         /* v3.6: l'ordine DEVE essere quello della firma Show(): nativeFlyout,
          * enableSearch, netFlyout. Prima erano invertiti (netFlyout al posto
@@ -1062,7 +1064,8 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
          * flyout di rete e il selettore flyout di rete accendeva la ricerca.
          * v1.21.37: parametro = stato corrente dell'avvio automatico
          * con Windows, letto dal registro dal gestito (AutoStart.cs, logica
-         * di RetroBar). v1.21.43: posizione barra (0..3) + blocco. */
+         * di RetroBar). v1.21.43: posizione barra (0..3) + blocco.
+         * v1.3.0: windowsKeyOpensOurMenu in coda. */
         g_properties.Show(reinterpret_cast<HWND>(ownerTaskbar), lang,
                           seconds, nativeFlyout, enableSearch,
                           netFlyout, classicVolume, batteryFlyout, aeroPeek,
@@ -1070,7 +1073,8 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
                           inputLanguageMode, taskManagerMode,
                           flyoutColorMode, flyoutColorRgb,
                           connectionPrivacyMode, themeSelection,
-                          autoStart, taskbarPosition, lockTaskbar);
+                          autoStart, taskbarPosition, lockTaskbar,
+                          windowsKeyOpensOurMenu);
     } catch (...) { /* mai propagare */ }
 }
 
