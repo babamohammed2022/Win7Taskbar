@@ -95,6 +95,30 @@ JumpListCapCache& JumpListCapCacheRef() {
     return cache;
 }
 
+bool EnsureJumpGdiplus()
+{
+    static int state = 0;
+    static ULONG_PTR token = 0;
+    if (state != 0) {
+        return state == 1;
+    }
+    try {
+        Gdiplus::GdiplusStartupInput input;
+        if (Gdiplus::GdiplusStartup(&token, &input, nullptr) == Gdiplus::Ok) {
+            state = 1;
+            return true;
+        }
+    } catch (...) {
+    }
+    state = -1;
+    return false;
+}
+
+Gdiplus::Color GpColor(COLORREF c, BYTE a = 255)
+{
+    return Gdiplus::Color(a, GetRValue(c), GetGValue(c), GetBValue(c));
+}
+
 bool DrawHbmpGp(Gdiplus::Graphics& g, HBITMAP hb, int x, int y, int dw, int dh)
 {
     if (hb == nullptr || dw <= 0 || dh <= 0) {
@@ -832,8 +856,8 @@ void JumpListWindow::Layout() {
         }
         /* Separator band before the application row, the pin row and the
          * close row (the Windows 7 list separates documents, the app
-         * link and the closing commands - the user asked for the exact
-         * horizontal-bar rhythm). */
+         * link and the closing commands - the exact horizontal-bar
+         * rhythm of the shell). */
         if (!isDoc && (lastKind == (int)Row::DocRecent ||
                        lastKind == (int)Row::DocFrequent ||
                        lastKind == (int)Row::App ||
