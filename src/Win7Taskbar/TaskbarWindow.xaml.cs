@@ -143,7 +143,164 @@ namespace Win7Taskbar
         public static readonly DependencyProperty OrientationProperty =
             DependencyProperty.Register(
                 nameof(Orientation), typeof(Orientation), typeof(TaskbarWindow),
-                new PropertyMetadata(Orientation.Horizontal));
+                new PropertyMetadata(Orientation.Horizontal, OnOrientationChanged));
+
+        /* v3.12: quando la barra si aggancia a un bordo laterale
+         * (Orientation=Vertical) il Grid della finestra va riorganizzato:
+         * DataTrigger e temi cambiano solo cromato, non la disposizione
+         * dei figli. Senza questo aggancio, in una finestra stretta e
+         * alta le colonne Auto/* collassavano fuori dallo spazio visibile
+         * e restava SOLO il pulsante Start, centrato a meta' altezza invece
+         * che ancorato in cima come nella barra verticale vera. */
+        private static void OnOrientationChanged(DependencyObject d,
+            DependencyPropertyChangedEventArgs e)
+        {
+            if (d is not TaskbarWindow window)
+            {
+                return;
+            }
+            try
+            {
+                window.ApplyOrientationLayout((Orientation)e.NewValue);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"[Win7Taskbar] ApplyOrientationLayout failed: {ex}");
+                /* Fallback sicuro: non lasciare la barra a meta' strada fra
+                 * orizzontale e verticale (un cambio edge in rapida
+                 * successione, col resize dell'AppBar ancora in corso, non
+                 * deve poter buttare giu' il processo). */
+                window.ResetLayoutGridsToSafeState();
+            }
+        }
+
+        /// <summary>
+        /// v3.12: sposta i figli diretti di una griglia fra Grid.Column e
+        /// Grid.Row a specchio dell'orientamento (stesso indice: la colonna
+        /// N diventa la riga N). Anche gli span si scambiano, cosi' l'ombra
+        /// della tray che copre tray+orologio in orizzontale copre le
+        /// stesse due celle una volta impilate. Invertibile per costruzione.
+        /// </summary>
+        private void SwapGridAxes(Grid? grid, Orientation orientation)
+        {
+            if (grid == null)
+            {
+                return; /* non ancora inizializzato (costruzione finestra) */
+            }
+            foreach (UIElement child in grid.Children)
+            {
+                try
+                {
+                    if (orientation == Orientation.Vertical)
+                    {
+                        int col = Grid.GetColumn(child);
+                        Grid.SetRow(child, col);
+                        Grid.SetColumn(child, 0);
+                        int colSpan = Grid.GetColumnSpan(child);
+                        if (colSpan > 1)
+                        {
+                            Grid.SetRowSpan(child, colSpan);
+                            Grid.SetColumnSpan(child, 1);
+                        }
+                    }
+                    else
+                    {
+                        int row = Grid.GetRow(child);
+                        Grid.SetColumn(child, row);
+                        Grid.SetRow(child, 0);
+                        int rowSpan = Grid.GetRowSpan(child);
+                        if (rowSpan > 1)
+                        {
+                            Grid.SetColumnSpan(child, rowSpan);
+                            Grid.SetRowSpan(child, 1);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    /* Un singolo figlio problematico non ferma il
+                     * riposizionamento degli altri: si logga e si
+                     * continua sul successivo. */
+                    Debug.WriteLine(
+                        $"[Win7Taskbar] Skipped child during orientation " +
+                        $"switch: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// v3.12: riorganizza root + banda Superbar e ancora Start al
+        /// bordo di aggancio (in alto in verticale, mai centrato a meta'
+        /// altezza). Chiamato ad ogni cambio di Orientation.
+        /// </summary>
+        private void ApplyOrientationLayout(Orientation orientation)
+        {
+            SwapGridAxes(RootLayoutGrid, orientation);
+            SwapGridAxes(TaskListBandGrid, orientation);
+
+            bool vertical = orientation == Orientation.Vertical;
+            if (RootLayoutGrid != null)
+            {
+                /* La finestra verticale e' molto piu' stretta del contenuto
+                 * che il tema misura (l'orologio, ad esempio): senza clip il
+                 * contenuto eccedente si disegnerebbe fuori dall'AppBar,
+                 * sopra il desktop. */
+                RootLayoutGrid.ClipToBounds = vertical;
+            }
+            if (StartButton != null)
+            {
+                if (vertical)
+                {
+                    /* Lo Start resta ancorato al bordo di aggancio: in
+                     * verticale sta IN ALTO e centrato sull'asse corto,
+                     * come nella barra verticale di Windows 7. */
+                    StartButton.VerticalAlignment = VerticalAlignment.Top;
+                    StartButton.HorizontalAlignment = HorizontalAlignment.Center;
+                }
+                else
+                {
+                    /* In orizzontale si rimuovono i valori locali cosi'
+                     * decide lo STILE del tema, come prima della v3.12. */
+                    StartButton.ClearValue(VerticalAlignmentProperty);
+                    StartButton.ClearValue(HorizontalAlignmentProperty);
+                }
+            }
+
+            /* Le frecce di scorrimento della Superbar ragionano su un solo
+             * asse: rieffettua la sincronizzazione su quello nuovo. */
+            SyncTaskListScrollButtons();
+        }
+
+        /// <summary>
+        /// v3.12: stato di emergenza se il riordino fallisce a meta':
+        /// tutti i figli di entrambe le griglie tornano su Column=0, Row=0,
+        /// cosi' restano quantomeno impilati, visibili e cliccabili invece
+        /// di sparire fuori dai limiti della barra.
+        /// </summary>
+        private void ResetLayoutGridsToSafeState()
+        {
+            foreach (Grid? grid in new[] { (Grid?)RootLayoutGrid, (Grid?)TaskListBandGrid })
+            {
+                if (grid == null)
+                {
+                    continue;
+                }
+                foreach (UIElement child in grid.Children)
+                {
+                    try
+                    {
+                        Grid.SetColumn(child, 0);
+                        Grid.SetRow(child, 0);
+                    }
+                    catch (Exception)
+                    {
+                        /* best-effort: se anche questo fallisce per un
+                         * elemento si ignora e si passa al successivo. */
+                    }
+                }
+            }
+        }
 
         public Orientation Orientation
         {
@@ -822,19 +979,29 @@ namespace Win7Taskbar
                 return;
             }
 
-            double scrollable = TaskListScroller.ExtentWidth - TaskListScroller.ViewportWidth;
+            /* v3.12: l'asse di scorrimento segue l'orientamento della
+             * barra: larghezza in orizzontale, altezza in verticale. Le
+             * due frecce restano le stesse (quella "da prima" e quella
+             * "da dopo" lungo la pila). */
+            bool vertical = Orientation == Orientation.Vertical;
+            double scrollable = vertical
+                ? TaskListScroller.ExtentHeight - TaskListScroller.ViewportHeight
+                : TaskListScroller.ExtentWidth - TaskListScroller.ViewportWidth;
+            double offset = vertical
+                ? TaskListScroller.VerticalOffset
+                : TaskListScroller.HorizontalOffset;
             bool overflow = scrollable > 0.5;
 
             if (TaskListScrollLeft != null)
             {
                 TaskListScrollLeft.Visibility = overflow ? Visibility.Visible : Visibility.Collapsed;
-                TaskListScrollLeft.IsEnabled = overflow && TaskListScroller.HorizontalOffset > 0.5;
+                TaskListScrollLeft.IsEnabled = overflow && offset > 0.5;
             }
             if (TaskListScrollRight != null)
             {
                 TaskListScrollRight.Visibility = overflow ? Visibility.Visible : Visibility.Collapsed;
                 TaskListScrollRight.IsEnabled = overflow &&
-                    TaskListScroller.HorizontalOffset < scrollable - 0.5;
+                    offset < scrollable - 0.5;
             }
         }
 
@@ -845,7 +1012,13 @@ namespace Win7Taskbar
                 return;
             }
 
-            double extent = TaskListScroller.ExtentWidth - TaskListScroller.ViewportWidth;
+            bool vertical = Orientation == Orientation.Vertical;
+            double viewport = vertical
+                ? TaskListScroller.ViewportHeight
+                : TaskListScroller.ViewportWidth;
+            double extent = (vertical
+                ? TaskListScroller.ExtentHeight - viewport
+                : TaskListScroller.ExtentWidth - viewport);
             if (extent <= 0)
             {
                 return;
@@ -853,9 +1026,19 @@ namespace Win7Taskbar
 
             /* Un quarto di barra per scatto: e' il passo che usa anche la
              * barra vera quando si tiene premuta la freccia. */
-            double step = Math.Max(40, TaskListScroller.ViewportWidth / 4);
-            double target = TaskListScroller.HorizontalOffset + direction * step;
-            TaskListScroller.ScrollToHorizontalOffset(Math.Max(0, Math.Min(extent, target)));
+            double step = Math.Max(40, viewport / 4);
+            if (vertical)
+            {
+                double vTarget = TaskListScroller.VerticalOffset + direction * step;
+                TaskListScroller.ScrollToVerticalOffset(
+                    Math.Max(0, Math.Min(extent, vTarget)));
+            }
+            else
+            {
+                double target = TaskListScroller.HorizontalOffset + direction * step;
+                TaskListScroller.ScrollToHorizontalOffset(
+                    Math.Max(0, Math.Min(extent, target)));
+            }
             SyncTaskListScrollButtons();
         }
 
@@ -876,16 +1059,33 @@ namespace Win7Taskbar
                 return;
             }
 
-            double extent = TaskListScroller.ExtentWidth - TaskListScroller.ViewportWidth;
+            /* v3.12: anche Shift+rotellina segue l'asse corrente. */
+            bool vertical = Orientation == Orientation.Vertical;
+            double viewport = vertical
+                ? TaskListScroller.ViewportHeight
+                : TaskListScroller.ViewportWidth;
+            double extent = vertical
+                ? TaskListScroller.ExtentHeight - viewport
+                : TaskListScroller.ExtentWidth - viewport;
             if (extent <= 0)
             {
                 return;
             }
 
-            double step = Math.Max(40, TaskListScroller.ViewportWidth / 4);
-            double target = TaskListScroller.HorizontalOffset - Math.Sign(e.Delta) * step;
-            TaskListScroller.ScrollToHorizontalOffset(
-                Math.Max(0, Math.Min(extent, target)));
+            double step = Math.Max(40, viewport / 4);
+            if (vertical)
+            {
+                double vTarget = TaskListScroller.VerticalOffset -
+                    Math.Sign(e.Delta) * step;
+                TaskListScroller.ScrollToVerticalOffset(
+                    Math.Max(0, Math.Min(extent, vTarget)));
+            }
+            else
+            {
+                double target = TaskListScroller.HorizontalOffset - Math.Sign(e.Delta) * step;
+                TaskListScroller.ScrollToHorizontalOffset(
+                    Math.Max(0, Math.Min(extent, target)));
+            }
             SyncTaskListScrollButtons();
             e.Handled = true;
         }

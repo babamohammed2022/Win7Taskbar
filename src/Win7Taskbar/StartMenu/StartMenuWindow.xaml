@@ -621,24 +621,66 @@
                         </StackPanel>
                     </Grid>
 
-                    <!-- Full-width search overlay. Outer frame stays 411x476.
-                         Inspired by Win7 / Open-Shell search bitmap (full
-                         white pane); not copied from EJSnow's unlicensed skin. -->
-                    <!-- No bottom border: the 1px #90A0B4C8 hairline sat on the
-                         Arresta strip and read as a stray blue frame. Right
-                         margin 0 so glass does not show as a blue corridor
-                         beside the list. Height 416 meets the shutdown row. -->
+                    <!-- =====================================================
+                         v3.12: PANNELLO RISULTATI pixel-accurate di Windows 7.
+                         Costanti misurate (rif.: pannello ~432 px di
+                         larghezza inclusi bordi, 413 px area contenuto);
+                         NESSUN valore "a occhio". Origine delle x delle
+                         colonne: bordo sinistro del pannello INCLUSO il
+                         frame da 9 px -> nelle coordinate del contenuto
+                         bianco si sottraggono 9 px.
+
+                         FRAME (9 px totali), simmetrico sui 4 lati, angoli
+                         appena arrotondati:
+                           2 px bordo scuro #13395A
+                           6 px bevel chiaro #2E6A97 -> #3D78A5
+                           1 px ombra interna #3A3A3A, poi bianco #FFFFFF
+
+                         RIGHE: altezza FISSA 22 px per header e item.
+
+                         COLONNE (x dal bordo sinistro incluso -> contenuto):
+                           chevron header  x 18-25 -> margine sx 9 (7x7, quasi nero)
+                           icona item      x 29-44 -> margine sx 20 (box 20x20)
+                           testo header    x 31    -> margine sx 22, #003399
+                           testo item      x 48.5  -> margine sx 39, #000000
+                           divisore header #A5B9DD a 1 px, a +4 dopo il testo,
+                           fino al margine interno destro (inset 9 px).
+                           La colonna testo e' UNICA per item con e senza
+                           icona: nessun indent differenziato.
+
+                         FONT: Segoe UI 12 px (9 pt): cap-height ~8.5-9 px,
+                         glifi con discendenti ~12-13 px. Stesso corpo per
+                         header e item (nessun Bold sugli header: #003399
+                         marca gia' la gerarchia).
+
+                         FOOTER: "Cerca in Internet" stacca di ~32 px
+                         (GapBefore) dall'ultima categoria - circa 1,5
+                         righe, NON un multiplo della griglia: il gap vive
+                         fuori dalla riga.
+                         ===================================================== -->
                     <Border x:Name="SearchHost" Grid.Column="0" Grid.ColumnSpan="2"
                             Margin="8,8,0,0" Height="416" VerticalAlignment="Top"
-                            Background="#FFFFFFFF" BorderBrush="#90A0B4C8"
-                            BorderThickness="1,1,1,0" CornerRadius="2,2,0,0"
+                            Background="Transparent"
+                            BorderBrush="#FF13395A"
+                            BorderThickness="2" CornerRadius="4"
                             Opacity="0" Visibility="Collapsed"
                             IsHitTestVisible="False">
+                        <Border BorderThickness="6" CornerRadius="2.5">
+                            <Border.BorderBrush>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                    <GradientStop Color="#FF2E6A97" Offset="0" />
+                                    <GradientStop Color="#FF3D78A5" Offset="1" />
+                                </LinearGradientBrush>
+                            </Border.BorderBrush>
+                            <Border Background="#FFFFFFFF"
+                                    BorderBrush="#FF3A3A3A"
+                                    BorderThickness="1"
+                                    CornerRadius="2">
                         <ListBox x:Name="SearchList"
                                  ItemsSource="{Binding SearchHits}"
                                  BorderThickness="0"
                                  Background="Transparent"
-                                 Padding="2,4"
+                                 Padding="0,0,9,0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  VirtualizingPanel.IsVirtualizing="True"
                                  VirtualizingPanel.VirtualizationMode="Recycling"
@@ -648,39 +690,80 @@
                             </ListBox.Resources>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Height="28">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="28"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <!-- v3.10: metrica di ricerca Win7/Open-Shell (skin Win7:
-                                             Main_large_icons -> icone 24 px, padding riga 2,2,3,2 ->
-                                             riga 28 px con gutter 28). Le dimensioni arrivano dallo
-                                             skin Open-Shell (licenza MIT), il codice resta nostro. -->
-                                        <Image x:Name="SectionIcon" Source="{Binding Icon}" Width="24" Height="24"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               RenderOptions.BitmapScalingMode="HighQuality"/>
-                                        <!-- v3.9: Open-Shell section marker. Small triangle,
-                                             right-pointing when collapsed and turned down (clean
-                                             90 degrees, always readable) when the section is open. -->
+                                    <!-- Riga FISSA 22 px, sempre, per ogni
+                                         elemento; il gap del footer resta
+                                         fuori dalla griglia (GapBefore). -->
+                                    <Grid Height="22"
+                                          Margin="{Binding GapBeforeMargin}">
+                                        <!-- chevron header: box x=18-25 dal
+                                             bordo, triangolo ~7x7 quasi
+                                             nero, ruota in giu' di 90 gradi
+                                             netti quando la sezione e'
+                                             aperta. -->
                                         <Path x:Name="SectionArrow"
-                                              Data="M 1,1 L 6,3.5 L 1,6 Z"
-                                              Fill="#FF404040"
+                                              Data="M 1,0.75 L 6,3.5 L 1,6.25 Z"
+                                              Fill="#FF202020"
                                               Width="7" Height="7"
                                               Stretch="Uniform"
                                               RenderTransformOrigin="0.5,0.5"
-                                              HorizontalAlignment="Center"
+                                              HorizontalAlignment="Left"
                                               VerticalAlignment="Center"
+                                              Margin="9,0,0,0"
                                               Visibility="Collapsed" />
-                                        <TextBlock x:Name="SectionName" Grid.Column="1" Text="{Binding Name}"
-                                                   VerticalAlignment="Center" Margin="2,0,8,0"
-                                                   TextTrimming="CharacterEllipsis"/>
+                                        <!-- icona item: box 20x20 a x=29-44;
+                                             mai sugli header. -->
+                                        <Image x:Name="SectionIcon"
+                                               Source="{Binding Icon}"
+                                               Width="20" Height="20"
+                                               HorizontalAlignment="Left"
+                                               VerticalAlignment="Center"
+                                               Margin="20,0,0,0"
+                                               RenderOptions.BitmapScalingMode="HighQuality" />
+                                        <!-- testo item: colonna UNICA a
+                                             x=48.5 (margine 39) con e senza
+                                             icona, nero pieno. -->
+                                        <TextBlock x:Name="ItemName"
+                                                   Text="{Binding Name}"
+                                                   FontFamily="Segoe UI"
+                                                   FontSize="12"
+                                                   Foreground="#FF000000"
+                                                   VerticalAlignment="Center"
+                                                   Margin="39,0,8,0"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <!-- header categoria: testo blu
+                                             #003399 a x=31 (margine 22) +
+                                             contatore gia' nel testo +
+                                             divisore #A5B9DD da 1 px che
+                                             parte +4 dopo il testo e arriva
+                                             al margine interno destro. -->
+                                        <Grid x:Name="SectionHeaderLine"
+                                              Margin="22,0,0,0"
+                                              Visibility="Collapsed">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="SectionName"
+                                                       Text="{Binding Name}"
+                                                       FontFamily="Segoe UI"
+                                                       FontSize="12"
+                                                       Foreground="#FF003399"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <Rectangle Grid.Column="1"
+                                                       Height="1"
+                                                       Fill="#FFA5B9DD"
+                                                       Margin="4,0,0,0"
+                                                       VerticalAlignment="Center"
+                                                       SnapsToDevicePixels="True" />
+                                        </Grid>
                                     </Grid>
                                     <DataTemplate.Triggers>
                                         <DataTrigger Binding="{Binding IsSectionHeader}" Value="True">
                                             <Setter TargetName="SectionArrow" Property="Visibility" Value="Visible"/>
                                             <Setter TargetName="SectionIcon" Property="Visibility" Value="Collapsed"/>
-                                            <Setter TargetName="SectionName" Property="FontWeight" Value="SemiBold"/>
+                                            <Setter TargetName="ItemName" Property="Visibility" Value="Collapsed"/>
+                                            <Setter TargetName="SectionHeaderLine" Property="Visibility" Value="Visible"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding IsExpanded}" Value="True">
                                             <Setter TargetName="SectionArrow" Property="LayoutTransform">
@@ -693,6 +776,8 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
+                            </Border>
+                        </Border>
                     </Border>
                 </Grid>
             </Border>

@@ -1082,6 +1082,11 @@ namespace Win7Taskbar.StartMenu
                     Name = T("lang_sm_search_internet", "Search the Internet"),
                     Path = url,
                     Folder = "internet",
+                    /* v3.12: gap di ~32 px dalla fine delle categorie
+                     * (circa 1,5 righe della griglia da 22), misurato sul
+                     * pannello vero di Windows 7: fuori dalla riga, cosi'
+                     * la riga stessa resta alta 22 come tutte le altre. */
+                    GapBefore = 32,
                     Icon = StartMenuIcons.FromDefaultBrowser(24)
                         ?? StartMenuIcons.FromDll("imageres.dll", 220, 24)
                         ?? StartMenuIcons.FromDll("shell32.dll", 14, 24)

@@ -21,6 +21,7 @@
         xmlns:controls="clr-namespace:RetroBar.Controls;assembly=RetroBar"
         xmlns:w7controls="clr-namespace:Win7Taskbar.Controls"
         xmlns:local="clr-namespace:Win7Taskbar"
+        xmlns:conv="clr-namespace:Win7Taskbar.Converters"
         xmlns:w7util="clr-namespace:Win7Taskbar.Utilities"
         Title="Win7Taskbar"
         Style="{DynamicResource TaskbarWindow}"
@@ -37,6 +38,11 @@
         Width="800">
 
     <Window.Resources>
+        <!-- v3.12: converter della barra verticale (frecce Superbar e
+             barra di scorrimento verticale). Vedere Converters/
+             OrientationViewConverters.cs. -->
+        <conv:OrientationArrowAngleConverter x:Key="OrientationArrowAngle" />
+        <conv:OrientationVerticalScrollConverter x:Key="OrientationVerticalScroll" />
         <!-- ============================================================
              v2.44: voce dell'anteprima live (una per finestra del gruppo).
 
@@ -157,7 +163,12 @@
              (come in Windows 7). Background="Transparent" e' necessario:
              senza un pennello impostato le zone vuote non ricevono eventi
              del mouse e il menu non si aprirebbe mai. -->
-        <Grid Background="Transparent"
+        <!-- v3.12: il root e' NOMINATO perche' il code-behind
+             (ApplyOrientationLayout) scambia Grid.Column<->Grid.Row dei
+             figli quando la barra si aggancia a un bordo laterale:
+             WPF non permette di scambiare assi via puro DataTrigger. -->
+        <Grid x:Name="RootLayoutGrid"
+              Background="Transparent"
               PreviewMouseLeftButtonDown="TaskbarRoot_PreviewMouseLeftButtonDown"
               MouseLeftButtonDown="TaskbarBackground_MouseLeftButtonDown"
               MouseRightButtonUp="TaskbarBackground_MouseRightButtonUp">
@@ -170,6 +181,20 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
+            <!-- v3.12: righe GEMELLE alle colonne, usate SOLO quando
+                 Orientation = Vertical: il code-behind sposta ogni figlio
+                 sulla riga con lo stesso indice della sua colonna (Start
+                 in cima, Superbar che riempie, orologio e Mostra desktop
+                 in fondo), e ritorna alle colonne in orizzontale. -->
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
             <!-- v3.3: pulsante ricerca (lente) A SINISTRA dello Start:
                  esiste solo durante l'esecuzione della nostra taskbar e
@@ -183,7 +208,10 @@
                  e' il comportamento voluto (la ricerca non e' una
                  finestra, resta sempre "idle" con l'hover delle altre
                  icone). -->
-            <StackPanel Grid.Column="1" Orientation="Horizontal">
+            <!-- v3.12: l'orientamento segue il Window (DP Orientation):
+                 bottoni affiancati in orizzontale, impilati in verticale. -->
+            <StackPanel Grid.Column="1"
+                        Orientation="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}">
             <Button x:Name="SearchButton"
                     Style="{DynamicResource SuperbarButton}"
                     Margin="{DynamicResource TaskButtonMargin}"
@@ -318,12 +346,19 @@
                  frecce stanno un po' piu' a destra come nella barra di
                  Windows 7 di riferimento. E' solo geometria: nessun colore,
                  nessun bordo, nessun'altra parte della barra si muove. -->
-            <Grid Grid.Column="2" Margin="0,0,-4,0">
+            <!-- v3.12: anche la banda interna della Superbar scambia
+                 assi (frecce + scroller): nominata per il code-behind. -->
+            <Grid x:Name="TaskListBandGrid" Grid.Column="2" Margin="0,0,-4,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
                 <!-- v2.60: le frecce di scorrimento della Superbar. Sono gli
                      stili del tema (TaskListScrollLeftButton/RightButton:
@@ -341,16 +376,23 @@
                               Interval="60"
                               Visibility="Collapsed"
                               Click="TaskListScrollLeft_Click">
+                    <!-- v3.12: in verticale la stessa freccia, ruotata di
+                         90 gradi, punta in ALTO (diventa la freccia di
+                         scorrimento superiore della pila). -->
                     <Path Data="M6,0 L0,4 L6,8 Z"
                           Fill="{DynamicResource TaskListScrollArrow}"
-                          SnapsToDevicePixels="True" />
+                          SnapsToDevicePixels="True">
+                        <Path.LayoutTransform>
+                            <RotateTransform Angle="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}, Converter={StaticResource OrientationArrowAngle}}" />
+                        </Path.LayoutTransform>
+                    </Path>
                 </RepeatButton>
 
             <ScrollViewer x:Name="TaskListScroller"
                           Grid.Column="1"
                           Margin="2,0,0,0"
                           HorizontalScrollBarVisibility="Hidden"
-                          VerticalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}, Converter={StaticResource OrientationVerticalScroll}}"
                           VerticalAlignment="Stretch"
                           PreviewMouseWheel="TaskListScroller_PreviewMouseWheel"
                           AllowDrop="True"
@@ -376,7 +418,10 @@
                              risultato che RetroBar ottiene incapsulando la
                              lista in un DockPanel+ScrollViewer. Con una sola
                              riga di pulsanti l'andare a capo non serve. -->
-                        <StackPanel Orientation="Horizontal"
+                        <!-- v3.12: segue l'orientamento del Window: i
+                             pulsanti si AFFIANCANO in orizzontale, si
+                             IMPILANO uno per riga in verticale. -->
+                        <StackPanel Orientation="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
                                     VerticalAlignment="Stretch"
                                     Background="Transparent" />
                     </ItemsPanelTemplate>
@@ -455,9 +500,15 @@
                               Interval="60"
                               Visibility="Collapsed"
                               Click="TaskListScrollRight_Click">
+                    <!-- v3.12: in verticale punta in BASSO (freccia di
+                         scorrimento inferiore). -->
                     <Path Data="M0,0 L6,4 L0,8 Z"
                           Fill="{DynamicResource TaskListScrollArrow}"
-                          SnapsToDevicePixels="True" />
+                          SnapsToDevicePixels="True">
+                        <Path.LayoutTransform>
+                            <RotateTransform Angle="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}, Converter={StaticResource OrientationArrowAngle}}" />
+                        </Path.LayoutTransform>
+                    </Path>
                 </RepeatButton>
             </Grid>
 
@@ -468,7 +519,7 @@
                  voce "Barre degli strumenti", come in Windows 7. -->
             <StackPanel x:Name="ShellToolbars"
                         Grid.Column="3"
-                        Orientation="Horizontal"
+                        Orientation="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
                         VerticalAlignment="Center"
                         Margin="6,0,6,0">
                 <StackPanel.Resources>
@@ -647,12 +698,12 @@
 
                 <!-- Collegamenti: scorciatoie rapide della cartella Links -->
                 <StackPanel x:Name="LinksBandHost"
-                            Orientation="Horizontal"
+                            Orientation="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
                             Visibility="Collapsed">
                     <ItemsControl x:Name="LinksBand">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal" />
+                                <StackPanel Orientation="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}" />
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
@@ -706,8 +757,11 @@
                     IsHitTestVisible="False" />
             <GroupBox Grid.Column="4"
                       Style="{DynamicResource Tray}">
+                <!-- v3.12: le icone della tray si impilano in verticale
+                     quando la barra e' su un bordo laterale (il wrap del
+                     pannello ICU resta a carico dello stile di tema). -->
                 <StackPanel x:Name="TrayArea"
-                            Orientation="Horizontal"
+                            Orientation="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
                             VerticalAlignment="Center"
                             MouseWheel="TrayArea_MouseWheel">
 

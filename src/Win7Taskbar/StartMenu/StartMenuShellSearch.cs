@@ -207,7 +207,12 @@ namespace Win7Taskbar.StartMenu
                     FileVersionInfo info = FileVersionInfo.GetVersionInfo(cpl);
                     if (!string.IsNullOrWhiteSpace(info.FileDescription))
                     {
-                        name = info.FileDescription.Trim();
+                        /* v3.12: unica funzione di normalizzazione per
+                         * tutto il catalogo (prima era un .Trim() manuale,
+                         * incoerente col percorso shell e sorgente dei
+                         * duplicati "link vuoto" come "Pannello di
+                         * controllo" x2). */
+                        name = NormalizeDisplayName(info.FileDescription);
                     }
                 }
                 catch (Exception)
@@ -215,7 +220,8 @@ namespace Win7Taskbar.StartMenu
                 }
                 if (string.IsNullOrEmpty(name))
                 {
-                    name = Path.GetFileNameWithoutExtension(cpl) ?? string.Empty;
+                    name = NormalizeDisplayName(
+                        Path.GetFileNameWithoutExtension(cpl));
                 }
                 if (string.IsNullOrEmpty(name) || !seen.Add(name))
                 {
@@ -306,8 +312,14 @@ namespace Win7Taskbar.StartMenu
         private static void AddShellItem(IShellItem item, List<ShellSearchHit> list,
             HashSet<string> seen)
         {
-            string name = ReadName(item, SigdnNormalDisplay);
-            if (string.IsNullOrWhiteSpace(name) || !seen.Add(name))
+            /* v3.12: normalizza PRIMA del controllo di deduplicazione.
+             * Senza questo trim, whitespace invisibili (spazi finali, NBSP,
+             * ritorni a capo residui restituiti da alcuni provider shell)
+             * facevano fallire silenziosamente l'HashSet e producevano
+             * voci duplicate ("Pannello di controllo" x2), una delle quali
+             * spesso con Path/Icon non risolti (il "link vuoto"). */
+            string name = NormalizeDisplayName(ReadName(item, SigdnNormalDisplay));
+            if (string.IsNullOrWhiteSpace(name))
             {
                 return;
             }
@@ -323,13 +335,55 @@ namespace Win7Taskbar.StartMenu
             {
                 parse = "shell:" + parse;
             }
+            /* v3.12: scarta voci "morte": nessun percorso risolvibile.
+             * Il controllo di unicita' avviene SOLO ora, sul nome
+             * normalizzato: se fallisce, la voce e' un vero duplicato. */
+            if (string.IsNullOrWhiteSpace(parse) || !seen.Add(name))
+            {
+                return;
+            }
+            ImageSource? icon = null;
+            try
+            {
+                icon = StartMenuIcons.FromParsingName(parse, 24)
+                    ?? StartMenuIcons.FromDll("imageres.dll", 22, 24);
+            }
+            catch (Exception)
+            {
+                /* Nessuna risorsa nativa e' stata acquisita qui
+                 * (StartMenuIcons gestisce i propri handle): si prosegue
+                 * senza icona invece di propagare l'eccezione. */
+            }
             list.Add(new ShellSearchHit
             {
                 Name = name,
                 Path = parse,
-                Icon = StartMenuIcons.FromParsingName(parse, 24)
-                    ?? StartMenuIcons.FromDll("imageres.dll", 22, 24)
+                Icon = icon
             });
+        }
+
+        /// <summary>
+        /// v3.12: normalizza un nome visualizzato dallo shell: converte i
+        /// NBSP in spazi normali, rimuove il whitespace ai bordi (inclusi
+        /// tab e newline residui) e comprime gli spazi multipli interni,
+        /// cosi' che due IShellItem che mostrano lo stesso testo a video
+        /// producano SEMPRE la stessa chiave nel dedup HashSet.
+        /// </summary>
+        private static string NormalizeDisplayName(string? raw)
+        {
+            if (string.IsNullOrEmpty(raw))
+            {
+                return string.Empty;
+            }
+            /*   = non-breaking space, spesso restituito da provider
+             * shell localizzati al posto dello spazio normale. */
+            string cleaned = raw.Replace(' ', ' ').Trim();
+            if (cleaned.IndexOf("  ", StringComparison.Ordinal) >= 0)
+            {
+                cleaned = string.Join(' ',
+                    cleaned.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            }
+            return cleaned;
         }
 
         private static string ReadName(IShellItem item, uint sigdn)

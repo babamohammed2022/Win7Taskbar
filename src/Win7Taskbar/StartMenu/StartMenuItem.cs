@@ -30,6 +30,17 @@ namespace Win7Taskbar.StartMenu
         public bool IsSectionHeader { get; set; }
         public string SectionId { get; set; } = string.Empty;
         /// <summary>
+        /// v3.12: spazio verticale (DIP) PRIMA della riga, fuori dalla sua
+        /// griglia da 22 px fissi. Nel pannello dei risultati di ricerca di
+        /// Windows 7 la riga finale "Cerca in Internet" stacca di ~32 px
+        /// (circa 1,5 righe) dall'ultima categoria: NON e' un multiplo
+        /// della griglia, quindi vive come gap esterno, non come riga vuota.
+        /// 0 = nessun gap (tutte le righe normali).
+        /// </summary>
+        public double GapBefore { get; set; }
+        /// <summary>Margine XAML pronto all'uso per <see cref="GapBefore"/>.</summary>
+        public Thickness GapBeforeMargin => new Thickness(0, GapBefore, 0, 0);
+        /// <summary>
         /// Right-pane hover flyout. Original wording; not a Microsoft string.
         /// </summary>
         public string? Infotip { get; set; }
