@@ -17,7 +17,10 @@
  *
  * Reimplementazione completa dell'area di notifica: registriamo noi le
  * window class "Shell_TrayWnd" / "TrayNotifyWnd" e riceviamo direttamente
- * i WM_COPYDATA che shell32!Shell_NotifyIconW invia alla shell.
+ * i WM_COPYDATA che shell32!Shell_NotifyIconW invia alla shell. Ogni
+ * SHELLTRAYDATA (dwData == 1) viene prima applicato al modello locale e poi
+ * inoltrato alla Shell_TrayWnd reale di Explorer, esclusa questa finestra,
+ * così la tray nativa non perde le registrazioni.
  *
  * Il modello dei pulsanti vive in un ToolbarWindow32 reale (TrayToolbar.*):
  * ordine, TBSTATE_HIDDEN per l'overflow e rettangoli a schermo nascono dai
@@ -321,7 +324,11 @@ private:
                                              HWND hwnd, LONG idObject,
                                              LONG idChild, DWORD thread,
                                              DWORD time);
-    LRESULT HandleCopyData(HWND hwnd, const COPYDATASTRUCT* cds);
+    LRESULT HandleCopyData(HWND hwnd, WPARAM sender,
+                           const COPYDATASTRUCT* cds);
+    LRESULT HandleCopyDataLocal(const COPYDATASTRUCT* cds);
+    bool ForwardCopyDataToExplorer(WPARAM sender,
+                                   const COPYDATASTRUCT* cds) const;
 
     /* Vista normalizzata di NOTIFYICONDATAW, indipendente dal bitness
      * del processo mittente. */

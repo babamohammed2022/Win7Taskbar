@@ -14,6 +14,8 @@
  */
 
 #include "Win11TrayReader.h"
+#include "../include/RaiiWrappers.h"
+#include "ScopeGuards.h"
 
 #include <windows.h>
 #include <tlhelp32.h>
@@ -21,36 +23,9 @@
 namespace w7t {
 namespace {
 
-HWINEVENTHOOK g_taskbarRefreshHook = nullptr;
+UniqueWinEventHook g_taskbarRefreshHook;
 ULONGLONG g_lastRefreshTick = 0;
 constexpr ULONGLONG kRefreshDebounceMs = 250;
-
-/*
- * Get the OS build without relying on the process manifest. RtlGetVersion is
- * resolved dynamically so this file does not add an ntdll import dependency.
- * Failure is deliberately non-fatal: the existing XAML/taskbar detection is
- * still authoritative.
- */
-DWORD GetWindowsBuildNumber() noexcept {
-    using RtlGetVersionFn = LONG (WINAPI*)(PRTL_OSVERSIONINFOW);
-    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
-    if (ntdll == nullptr) {
-        return 0;
-    }
-
-    auto rtlGetVersion = reinterpret_cast<RtlGetVersionFn>(
-        GetProcAddress(ntdll, "RtlGetVersion"));
-    if (rtlGetVersion == nullptr) {
-        return 0;
-    }
-
-    RTL_OSVERSIONINFOW version = {};
-    version.dwOSVersionInfoSize = sizeof(version);
-    if (rtlGetVersion(&version) != 0) {
-        return 0;
-    }
-    return version.dwBuildNumber;
-}
 
 /*
  * Windhawk runs inside Explorer and can use GetModuleHandle directly. We run
@@ -73,25 +48,24 @@ bool ExplorerHasTaskbarModule(const wchar_t* wantedModule) noexcept {
         return false;
     }
 
-    HANDLE snapshot = CreateToolhelp32Snapshot(
-        TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, explorerPid);
-    if (snapshot == INVALID_HANDLE_VALUE) {
+    raii::GenericHandle snapshot(CreateToolhelp32Snapshot(
+        TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, explorerPid));
+    if (!snapshot || snapshot.get() == INVALID_HANDLE_VALUE) {
         return false;
     }
 
     MODULEENTRY32W entry = {};
     entry.dwSize = sizeof(entry);
     bool found = false;
-    if (Module32FirstW(snapshot, &entry) != FALSE) {
+    if (Module32FirstW(snapshot.get(), &entry) != FALSE) {
         do {
             if (_wcsicmp(entry.szModule, wantedModule) == 0) {
                 found = true;
                 break;
             }
-        } while (Module32NextW(snapshot, &entry) != FALSE);
+        } while (Module32NextW(snapshot.get(), &entry) != FALSE);
     }
 
-    CloseHandle(snapshot);
     return found;
 }
 
@@ -99,18 +73,6 @@ void SafeRequestTrayRefresh() noexcept {
     try {
         auto& reader = Win11TrayReader::Instance();
         if (!reader.IsRunning() || !Win11TrayReader::Detect()) {
-            return;
-        }
-
-        /*
-         * The taskbar-classic-menu approach is useful here as a compatibility
-         * principle: identify the Windows build first, then use the most
-         * specific implementation available. Windows 11 starts at build
-         * 22000. If version detection itself is unavailable, do not block the
-         * already-working XAML detection.
-         */
-        const DWORD build = GetWindowsBuildNumber();
-        if (build != 0 && build < 22000) {
             return;
         }
 
@@ -137,9 +99,8 @@ void SafeRequestTrayRefresh() noexcept {
 
         wchar_t diagnostic[256] = {};
         wsprintfW(diagnostic,
-                  L"[TrayRefresh] WindowsBuild=%lu Taskbar.View.dll=%s "
+                  L"[TrayRefresh] Taskbar.View.dll=%s "
                   L"ExplorerExtensions.dll=%s\n",
-                  static_cast<unsigned long>(build),
                   taskbarView ? L"loaded" : L"not-loaded",
                   explorerExtensions ? L"loaded" : L"not-loaded");
         OutputDebugStringW(diagnostic);
@@ -159,7 +120,8 @@ void CALLBACK TrayRefreshEventProc(HWINEVENTHOOK, DWORD eventType, HWND hwnd,
     if (hwnd == nullptr || idObject != OBJID_WINDOW || idChild != 0) {
         return;
     }
-    if (eventType != EVENT_OBJECT_CREATE && eventType != EVENT_OBJECT_SHOW) {
+    if (eventType != EVENT_OBJECT_CREATE && eventType != EVENT_OBJECT_DESTROY &&
+        eventType != EVENT_OBJECT_SHOW && eventType != EVENT_OBJECT_HIDE) {
         return;
     }
 
@@ -170,7 +132,10 @@ void CALLBACK TrayRefreshEventProc(HWINEVENTHOOK, DWORD eventType, HWND hwnd,
 
     /* Only react to the Windows 11 XAML taskbar/overflow hosts. */
     if (lstrcmpW(cls, L"Shell_TrayWnd") == 0 ||
-        lstrcmpW(cls, L"TopLevelWindowForOverflowXamlIsland") == 0) {
+        lstrcmpW(cls, L"Shell_SecondaryTrayWnd") == 0 ||
+        lstrcmpW(cls, L"TopLevelWindowForOverflowXamlIsland") == 0 ||
+        wcsstr(cls, L"DesktopWindowContentBridge") != nullptr ||
+        lstrcmpW(cls, L"Windows.UI.Input.InputSite.WindowClass") == 0) {
         SafeRequestTrayRefresh();
     }
 }
@@ -181,18 +146,15 @@ Win11TrayReader::Win11TrayReader() {
     /* Best-effort only: failure simply leaves the existing periodic/event
      * refresh mechanisms in charge. The hook is outside DllMain and is not
      * required for normal tray operation. */
-    g_taskbarRefreshHook = SetWinEventHook(
-        EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW, nullptr,
+    g_taskbarRefreshHook.reset(SetWinEventHook(
+        EVENT_OBJECT_CREATE, EVENT_OBJECT_HIDE, nullptr,
         TrayRefreshEventProc, 0, 0,
         WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS |
-            WINEVENT_SKIPOWNTHREAD);
+            WINEVENT_SKIPOWNTHREAD));
 }
 
 Win11TrayReader::~Win11TrayReader() {
-    if (g_taskbarRefreshHook != nullptr) {
-        UnhookWinEvent(g_taskbarRefreshHook);
-        g_taskbarRefreshHook = nullptr;
-    }
+    g_taskbarRefreshHook.reset();
     Stop();
 }
 

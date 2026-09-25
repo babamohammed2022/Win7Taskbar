@@ -84,16 +84,22 @@ probe turns "sources say" into "verified on build X".
 
 The current tree already ships two out-of-process readers:
 
-* `native/src/ExplorerTrayReader.cpp` — the classic, documented Win32
-  path used on Windows 10: `TrayNotifyWnd → SysPager → ToolbarWindow32`,
-  `TB_*` remote-buffer enumeration, system icons, overflow window. It is
-  the reference implementation for the legacy control channel and for the
-  dialog with `explorer.exe` that expends zero registry resources.
+* `native/src/ExplorerTrayReader.cpp` — the classic Win32 compatibility
+  path used when the legacy notification toolbar exists:
+  `TrayNotifyWnd → SysPager → ToolbarWindow32`, `TB_*` remote-buffer
+  enumeration, system icons, and the legacy overflow window. The window
+  messages are documented, but the cross-process button payload and the
+  `dwData` object are not a Microsoft contract; the implementation labels
+  that boundary and degrades when it cannot validate it.
 * `native/src/Win11TrayReader.cpp` (+ `Win11TrayReaderResilience.cpp`) —
-  a UI Automation reader of the Win11 XAML tray: enumeration, tooltip
-  text, click/double-click through Invoke / Legacy patterns, click-through
-  fallback when the patterns are mute, property-change subscription for
-  per-icon updates, and a secondary slower pointer re-resolve watchdog.
+  a best-effort UI Automation reader of the Win11 XAML tray: it searches
+  the taskbar and its public XAML bridge windows, recognizes the observed
+  `SystemTray.NotifyIconView`/`SystemTray.IconView` elements even when their
+  UIA control type is `Custom`, reads tooltip text, invokes click patterns,
+  subscribes to property and structure changes, and re-resolves after
+  Explorer rebuilds. UIA is not a public notification-icon enumerator: it
+  may omit an element, expose no owner HWND/HICON, or have no overflow
+  window while the flyout is closed.
 * `native/src/TrayService.cpp` — the take over existing icons,
   fallback system icons (network/volume/battery) recreated out of thin
   air, balloon queue, `TaskbarCreated` re-registration, retrobar
@@ -103,11 +109,18 @@ The current tree already ships two out-of-process readers:
   (`ABM_SETSTATE` + the native bars moved off), with `TaskbarCreated`
   re-hide.
 
-On Windows 11 today the user experience with the XAML tray is
-**best-effort**: the suite of icons is rebuilt from what the native
-chain parser can reach; per the FEATURE-STATUS field matrix,
-third-party icons register with Explorer's own `Shell_TrayWnd`
-(dual-tray split) unless ExplorerPatcher gives us the classic tray.
+On Windows 11 the XAML path remains **best-effort, not complete support**.
+The public UIA provider can expose visible `NotifyIconView` elements and an
+overflow island when that island exists, but Microsoft does not document an
+API that enumerates every third-party notification icon, its registration
+identity, bitmap, or promotion state from another process. The real
+`Shell_TrayWnd` shim therefore remains useful for new registrations and
+updates; its `WM_COPYDATA` payload is a compatibility protocol, not a
+supported Microsoft ABI. A missing UIA element is not removed from the
+model after one read: removal uses hysteresis and keeps hidden entries when
+the overflow island was not successfully traversed. This is still not a
+promise that an omitted element can always be distinguished from a deletion,
+and the product does not claim parity with Explorer's XAML tray.
 
 ## 4. Gap analysis vs the mission
 
@@ -115,8 +128,9 @@ third-party icons register with Explorer's own `Shell_TrayWnd`
 |---|---|---|
 | Phase 0 probe + doc | **this document + probe (new)** | hardware matrix to fill |
 | Source abstraction (`ITraySource`, Auto / EP mirror / Native Win11) | two readers exist, chosen statically per OS | one negotiator with hysteresis + settings flag (`ExtraSettings` / About) |
-| Native Win11 third-party icons without EP | XAML UIA path only | **legacy control channel** (Phase 2.5) — hidden `TrayNotifyWnd` enumeration for icons + callbacks + rects, merged with the UIA strip (ground truth) |
-| Overflow parity without `NotifyIconOverflowWindow` | our own overflow exists | chevron-flyout enrichment via UIA, focus-safe, watchdog-based |
+| Native Win11 third-party icons without EP | UIA snapshot plus the owned `Shell_TrayWnd` registration shim; **not complete** | use only the validated legacy fallback and registration traffic; never present private XAML hooks as support |
+| Overflow parity without `NotifyIconOverflowWindow` | our own overflow exists; the XAML island may be absent while closed | read the public overflow island when present, preserve the last hidden snapshot otherwise, and document the gap |
+
 | Native bar hiding without EP | `ABM_SETSTATE` + `ShowWindow(SW_HIDE)` + `TaskbarCreated` re-hide | restored-on-crash marker discipline (battery pattern analogy already in project precedent), per-monitor pass |
 | Balloon parity | limitation stands | documented only, no workaround shipped |
 | ExplorerPatcher wording | recommended | demote to "optional, only if you prefer the Win10 tray" once acceptance criteria pass |
@@ -134,18 +148,33 @@ third-party icons register with Explorer's own `Shell_TrayWnd`
   explorer — `TrayService` (which we already mirror, following their
   `ExplorerTrayReader.cpp` shape), `NotifyIconList`, icon promotion for
   overflow balloons (`NotifyIcon.TrayIcon_NotificationBalloonShown`),
-  `SPI_GETMESSAGEDURATION` balloon timing. Confirms the dual approach
-  (win32 for Win10, UIA for Win11) is production-grade.
-* **Windhawk mods (GPL, referenced as research):**
-  * `taskbar-notification-icon-spacing` — enumerates the legacy
-    notification toolbar alive under the XAML bar and walks `TB_BUTTONCOUNT`
-    / `TM_...` spacing calls from *inside* explorer (it is a mod: it
-    injects; we only take the structural information).
-  * `taskbar-tray-system-icon-tweaks` — knowledge that the legacy
-    layer keeps its own clock/indicator buttons we can ignore (they are
-    foregone anyway; our bar decides which to show).
-  * `windows-11-taskbar-styler` — XAML element map of the modern tray
-    (names + VisualTree hooks we use—we read it, we ship none of it).
+  `SPI_GETMESSAGEDURATION` balloon timing. Its important architectural
+  lesson is that RetroBar replaces the taskbar and receives registrations in
+  its own notification-area service; it does **not** provide a public
+  enumerator for an already-built Explorer XAML tray. ManagedShell is a
+  reference for lifecycle, identity reconciliation, and Explorer restart
+  handling, not a Microsoft API.
+* **Windhawk mods (GPL, referenced as research only):**
+  * `taskbar-notification-icon-spacing` — identifies the modern XAML classes
+    (`SystemTray.NotifyIconView`, `SystemTray.IconView`, and their named
+    children). Its implementation runs inside Explorer and uses WinRT/XAML
+    objects; only the class-name observations informed the UIA reader.
+  * `taskbar-notification-icons-show-all` — changes
+    `NotifyIconSettings\\<id>\\IsPromoted` through registry API hooks inside
+    Explorer. It confirms that `IsPromoted` is a preference, not an icon
+    enumerator; no hook or registry write was copied.
+  * `taskbar-tray-system-icon-tweaks` — works with private `IconView` and
+    taskbar-host objects inside Explorer. It is evidence about the visual
+    tree, not a supported out-of-process channel.
+  * `taskbar-multi-tray` and `taskbar-tray-system-icon-tweaks` — show that
+    multiple XAML stacks/hosts and promoted state vary by build; their
+    injection/vtable/offset techniques are explicitly excluded.
+  * `windows-11-taskbar-styler` and related XAML mods — useful for names and
+    lifecycle, but their VisualTree hooks are private and are not shipped.
+  * Windhawk mods that patch `WM_COPYDATA` or Explorer's notification classes
+    (for example SplitTray) depend on private symbols/ABIs. They motivated
+    the real owned spy window, but no hook, injection, or ABI from them is
+    distributed here.
   * `win10-taskbar-on-win11-24h2` + fix-mods (m417z) — evidence that on
     24H2 the whole legacy taskbar code path is still shipped and can be
     revived; supports the "legacy layers stay loadable" line of the
@@ -170,7 +199,46 @@ third-party icons register with Explorer's own `Shell_TrayWnd`
   the shell-restart discipline. This is why the balloon limitation
   (section 1) is architectural for anything outside explorer.
 
-## 6. Architectural impossibility, stated once and for all
+## 6. Percorso legacy effettivamente usato dal servizio
+
+Il progetto crea sul proprio thread UI una finestra reale di classe
+`Shell_TrayWnd`, con figlia `TrayNotifyWnd`, prima di avviare l'importazione
+della toolbar. Per ogni `WM_COPYDATA` con `dwData == 1` il servizio tenta prima
+l'elaborazione locale e poi usa `SendMessageTimeout(WM_COPYDATA)` sulla vera
+`Shell_TrayWnd` di `explorer.exe`, escludendo il proprio PID e preferendo la
+finestra con figlia `TrayNotifyWnd` (con fallback alla finestra dello stesso
+processo sulle build XAML che non espongono quella figlia). Un payload non
+valido non viene trasformato in un successo fittizio; l'inoltro viene comunque
+tentato solo per il protocollo `dwData == 1`.
+
+Il tracciato `SHELLTRAYDATA` e il layout della voce puntata da `TBBUTTON::dwData`
+sono **API non documentate da Microsoft**. Sono stati ricostruiti da
+reverse engineering e confrontati con reimplementazioni open source
+(ManagedShell/RetroBar e ReactOS); possono cambiare tra build e sono sempre
+protetti da try/catch e guardie SEH/RAII.
+
+### 6.1 Stato visibile/overflow di Windows 11
+
+Quando legge la toolbar di Explorer, `ExplorerTrayReader` enumera anche
+`HKCU\Control Panel\NotifyIconSettings`. Il nome della sottochiave osservato
+è un identificatore decimale opaco: il codice ne verifica soltanto la forma,
+non tenta di ricalcolare un hash. L'associazione è adottata solo quando
+`UID` (`REG_DWORD`), `ExecutablePath` e il proprietario della finestra
+corrispondono e `IsPromoted` è un `REG_DWORD` 0/1. `1` significa zona visibile,
+`0` overflow; se la corrispondenza non è verificabile, il fallback è lo stato
+reale `TBSTATE_HIDDEN`/toolbar. La chiave non viene mai scritta.
+
+`ITrayNotify`/`ITrayNotifyImpl` non è un contratto COM documentato e il suo
+layout non è nel Windows SDK; non viene chiamato dal prodotto. Su XAML il
+lettore UIA registra inoltre eventi di proprietà e di struttura e riapre la
+fotografia quando Explorer ricrea il bridge; una finestra di overflow non
+presente non viene interpretata come rimozione. Il messaggio pubblico
+`TaskbarCreated` viene ascoltato per il riavvio della shell. Il broadcast
+artificiale all'avvio resta disabilitato nel percorso generico: senza una
+riconciliazione verificabile fra UIA e registrazioni avrebbe prodotto voci
+duplicate.
+
+## 7. Architectural impossibility, stated once and for all
 
 Balloon interception from out-of-process is impossible: Windows routes
 `NIF_INFO` notifications into UI owned by `Shell_TrayWnd` inside
@@ -181,7 +249,7 @@ stay the project's balloons (the recreated ones), exactly like RetroBar.
 Any future "EP-less parity" will never include EP's balloon fidelity;
 the README limitation remains.
 
-## 7. Next-phase checklist (engineering, post-gate)
+## 8. Next-phase checklist (engineering, post-gate)
 
 1. Fill the probe matrix on real/borrowed hardware for the five builds.
 2. If the legacy channel is verified on at least 24H2/25H2: implement the
@@ -205,17 +273,18 @@ the README limitation remains.
 5. Only after the acceptance criteria are exercised on hardware:
    demote the ExplorerPatcher recommendation in README (proposal PR).
 
-## 8. Acceptance criteria echo (for the record)
+## 9. Acceptance criteria echo (for the record)
 
-Icons complete & correct per build (filtering ok but honest);
-V4+legacy+system icon behavior; overflow parity where source offers
-one; native bar hidden & self-healing incl. after crash;
-multi-monitor + DPI + theme; fullscreen autocorrection; README demotion
-only post-verification; channel reconciliation proven via test hook;
-channel disabled ⇒ pixel-identical visible desktop; optional companion
-Windhawk mod only as fallback (clean-room, zero-residue).
+Icons complete & correct only where the selected source actually exposes
+that data (XAML completeness is not claimed); V4+legacy+system icon
+behavior; overflow parity where a verified source offers one; native bar
+hidden & self-healing incl. after crash; multi-monitor + DPI + theme;
+fullscreen autocorrection; README demotion only post-verification;
+registration reconciliation proven without duplicate model entries; no
+Windhawk injection, private vtable, offset, or Explorer hook in the product.
 
 ---
 
-*Last edited: 2026-09-25 — Phase 0 probe + document added; no shipped
-behavior changes. Commit for the probe, document, and notices only.*
+*Last edited: 2026-09-25 — XAML UIA class filtering, public bridge/overflow
+lifecycle, structure-change refresh, conservative overflow retention, and
+legacy-protocol limits recorded here.*

@@ -15,25 +15,29 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
- * See Win11TrayReader.h for why this exists. In short: Windows 11 has no
- * Win32 notification toolbar, so the tray is read through UI Automation and
- * clicked through the same accessibility patterns, without synthetic input
- * and without touching the registry.
+ * Vedi Win11TrayReader.h. In breve: Windows 11 puo' usare una tray XAML
+ * senza toolbar Win32. Il lettore attraversa solo cio' che il provider UIA
+ * espone, usa prima i pattern di accessibilita' per il clic e non modifica
+ * il registro; il supporto completo della shell non viene dichiarato.
  */
 
 #include "Win11TrayReader.h"
+#include "../include/RaiiWrappers.h"
 
 #include "SehGuard.h"
+#include "ScopeGuards.h"
 #include "Strings.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cwctype>
 #include <map>
+#include <memory>
 #include <new>
 #include <set>
 
 #include <objbase.h>
+#include <oleauto.h>
 #include <uiautomation.h>
 #include <uiautomationclient.h>
 
@@ -58,6 +62,8 @@ const GUID kIidLegacyPattern =
  * viene, tooltip riscritto) invece di aspettare il risveglio di sicurezza. */
 const GUID kIidPropertyChangedHandler =
     { 0x40CD37D4, 0xC756, 0x4B0C, { 0x8C, 0x6F, 0xBD, 0xDF, 0xEE, 0xB1, 0x3B, 0x50 } };
+const GUID kIidStructureChangedHandler =
+    { 0xE81D1B4E, 0x11C5, 0x42F8, { 0x97, 0x54, 0xE7, 0x03, 0x6C, 0x79, 0xF0, 0x54 } };
 
 constexpr UINT kMsgRead        = WM_APP + 1;
 constexpr UINT kMsgClick       = WM_APP + 2;
@@ -95,8 +101,12 @@ static BOOL CALLBACK CollectOurWindowsAtPoint(HWND hwnd, LPARAM lp) {
     }
     POINT pt = ctx->pt;
     if (PtInRect(&wr, pt)) {
-        ctx->out->push_back(
-            { hwnd, GetWindowLongPtrW(hwnd, GWL_EXSTYLE) });
+        try {
+            ctx->out->push_back(
+                { hwnd, GetWindowLongPtrW(hwnd, GWL_EXSTYLE) });
+        } catch (...) {
+            return FALSE;
+        }
     }
     return TRUE;
 }
@@ -153,76 +163,156 @@ bool Contains(const std::wstring& haystack, const wchar_t* needle) {
     return Lower(haystack).find(Lower(needle)) != std::wstring::npos;
 }
 
-/* Explorer's Shell_TrayWnd that is NOT owned by us: the tray service
- * registers a window with the same class name. */
-HWND FindShellTaskbar() {
-    const DWORD ourPid = GetCurrentProcessId();
-    HWND candidate = nullptr;
-    while ((candidate = FindWindowExW(nullptr, candidate, L"Shell_TrayWnd",
-                                      nullptr)) != nullptr) {
-        DWORD pid = 0;
-        GetWindowThreadProcessId(candidate, &pid);
-        if (pid != 0 && pid != ourPid) {
-            return candidate;
+/* Le finestre Shell_TrayWnd di Explorer non sono una API della tray: sono
+ * solo il punto di ingresso pubblico di User32 per raggiungere l'albero UIA.
+ * Il servizio registra una finestra con lo stesso nome, percio' il processo
+ * viene sempre verificato prima di usare un HWND. */
+DWORD WindowProcessId(HWND hwnd) {
+    DWORD pid = 0;
+    if (hwnd != nullptr) {
+        GetWindowThreadProcessId(hwnd, &pid);
+    }
+    return pid;
+}
+
+struct WindowList {
+    DWORD processId = 0;
+    std::vector<HWND> windows;
+};
+
+BOOL CALLBACK CollectExplorerTaskbars(HWND hwnd, LPARAM parameter) {
+    auto* list = reinterpret_cast<WindowList*>(parameter);
+    if (list == nullptr) {
+        return FALSE;
+    }
+    wchar_t className[128] = {};
+    if (GetClassNameW(hwnd, className, ARRAYSIZE(className)) == 0 ||
+        (lstrcmpW(className, L"Shell_TrayWnd") != 0 &&
+         lstrcmpW(className, L"Shell_SecondaryTrayWnd") != 0)) {
+        return TRUE;
+    }
+    const DWORD pid = WindowProcessId(hwnd);
+    if (pid == 0 || pid == GetCurrentProcessId()) {
+        return TRUE;
+    }
+    try {
+        list->windows.push_back(hwnd);
+    } catch (...) {
+        /* Un callback User32 non deve mai propagare un'eccezione C++. */
+        return FALSE;
+    }
+    return TRUE;
+}
+
+std::vector<HWND> FindShellTaskbars() {
+    WindowList list;
+    EnumWindows(CollectExplorerTaskbars, reinterpret_cast<LPARAM>(&list));
+    return list.windows;
+}
+
+struct ChildWindowList {
+    DWORD processId = 0;
+    std::vector<HWND> windows;
+};
+
+BOOL CALLBACK CollectXamlBridges(HWND hwnd, LPARAM parameter) {
+    auto* list = reinterpret_cast<ChildWindowList*>(parameter);
+    if (list == nullptr || WindowProcessId(hwnd) != list->processId) {
+        return TRUE;
+    }
+    wchar_t className[128] = {};
+    if (GetClassNameW(hwnd, className, ARRAYSIZE(className)) == 0 ||
+        (wcsstr(className, L"DesktopWindowContentBridge") == nullptr &&
+         lstrcmpW(className, L"Windows.UI.Input.InputSite.WindowClass") != 0)) {
+        return TRUE;
+    }
+    try {
+        list->windows.push_back(hwnd);
+    } catch (...) {
+        return FALSE;
+    }
+    return TRUE;
+}
+
+std::vector<HWND> FindXamlBridgeWindows(HWND taskbar) {
+    ChildWindowList list;
+    list.processId = WindowProcessId(taskbar);
+    if (list.processId == 0) {
+        return list.windows;
+    }
+    EnumChildWindows(taskbar, CollectXamlBridges,
+                     reinterpret_cast<LPARAM>(&list));
+    return list.windows;
+}
+
+BOOL CALLBACK CollectOverflowIslands(HWND hwnd, LPARAM parameter) {
+    auto* list = reinterpret_cast<WindowList*>(parameter);
+    if (list == nullptr || WindowProcessId(hwnd) != list->processId) {
+        return TRUE;
+    }
+    wchar_t className[128] = {};
+    if (GetClassNameW(hwnd, className, ARRAYSIZE(className)) == 0 ||
+        lstrcmpW(className, L"TopLevelWindowForOverflowXamlIsland") != 0) {
+        return TRUE;
+    }
+    try {
+        list->windows.push_back(hwnd);
+    } catch (...) {
+        return FALSE;
+    }
+    return TRUE;
+}
+
+/* L'isola dell'overflow puo' essere assente quando il flyout e' chiuso.
+ * Quando esiste, si filtrano tutte le istanze e non solo la prima finestra
+ * in ordine Z: Explorer puo' ricrearla mentre quella precedente sta uscendo. */
+std::vector<HWND> FindOverflowIslands() {
+    std::vector<HWND> result;
+    std::set<HWND> seen;
+    const std::vector<HWND> taskbars = FindShellTaskbars();
+    for (HWND taskbar : taskbars) {
+        WindowList list;
+        list.processId = WindowProcessId(taskbar);
+        if (list.processId == 0) {
+            continue;
+        }
+        EnumWindows(CollectOverflowIslands, reinterpret_cast<LPARAM>(&list));
+        for (HWND overflow : list.windows) {
+            if (seen.insert(overflow).second) {
+                result.push_back(overflow);
+            }
         }
     }
-    return nullptr;
+    return result;
 }
 
-/* The Windows 11 overflow flyout lives in its own top-level island. */
-HWND FindOverflowIsland() {
-    return FindWindowExW(nullptr, nullptr,
-                         L"TopLevelWindowForOverflowXamlIsland", nullptr);
-}
-
-/* The XAML bridge is the evidence that the taskbar content is XAML: it is
- * the child Explorer creates to host the island. */
+/* Il bridge XAML (o il relativo InputSite nelle build che lo espongono) e'
+ * l'evidenza osservabile che la taskbar usa la tray moderna. E' una verifica
+ * di forma della finestra, non una promessa che ogni build esponga tutti gli
+ * elementi tramite UI Automation. */
 bool HasXamlBridge(HWND taskbar) {
-    if (taskbar == nullptr) {
-        return false;
+    if (taskbar != nullptr && !FindXamlBridgeWindows(taskbar).empty()) {
+        return true;
     }
-    HWND child = nullptr;
-    while ((child = FindWindowExW(taskbar, child, nullptr, nullptr)) != nullptr) {
-        wchar_t cls[128] = {};
-        if (GetClassNameW(child, cls, 128) > 0 &&
-            wcsstr(cls, L"DesktopWindowContentBridge") != nullptr) {
-            return true;
-        }
-    }
-    return false;
-}
-
-/* The classic Win32 notification toolbar: present on 7/8/10, absent on 11. */
-bool HasClassicTrayToolbar() {
-    HWND tray = FindShellTaskbar();
-    if (tray == nullptr) {
-        return false;
-    }
-    HWND notify = FindWindowExW(tray, nullptr, L"TrayNotifyWnd", nullptr);
-    if (notify == nullptr) {
-        return false;
-    }
-    if (FindWindowExW(notify, nullptr, L"SysPager", nullptr) == nullptr) {
-        return false;
-    }
-    return FindWindowExW(notify, nullptr, L"ToolbarWindow32", nullptr) != nullptr;
+    return !FindOverflowIslands().empty();
 }
 
 std::wstring ExePathOf(uint32_t pid) {
     if (pid == 0) {
         return std::wstring();
     }
-    HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (proc == nullptr) {
+    raii::GenericHandle proc(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
+                                          FALSE, pid));
+    if (!proc) {
         return std::wstring();
     }
     wchar_t path[MAX_PATH * 2] = {};
     DWORD length = static_cast<DWORD>(sizeof(path) / sizeof(path[0]));
     std::wstring result;
-    if (QueryFullProcessImageNameW(proc, 0, path, &length) != FALSE && length > 0) {
+    if (QueryFullProcessImageNameW(proc.get(), 0, path, &length) != FALSE &&
+        length > 0) {
         result.assign(path, length);
     }
-    CloseHandle(proc);
     return result;
 }
 
@@ -357,8 +447,12 @@ BOOL CALLBACK CollectProcessIcon(HWND hwnd, LPARAM param) {
     if (search->trayWindow == nullptr) {
         wchar_t cls[128] = {};
         GetClassNameW(hwnd, cls, _countof(cls));
-        if (Contains(std::wstring(cls), L"Tray")) {
-            search->trayWindow = icon;
+        try {
+            if (Contains(std::wstring(cls), L"Tray")) {
+                search->trayWindow = icon;
+            }
+        } catch (...) {
+            return FALSE;
         }
     }
     return TRUE;
@@ -399,13 +493,18 @@ bool LoadImageIcon(const std::wstring& exePath, ArgbBitmap& out) {
      * small/far/near/hyper/pascal come macro, e con MSVC la dichiarazione
      * diventa "HICON char" (dieci errori di sintassi a catena). Con MinGW
      * compila lo stesso e il bug si vede solo in CI. */
-    HICON iconSmall = nullptr;
+    raii::IconHandle iconSmall;
     if (!exePath.empty()) {
         W7T_SEH_TRY {
-            if (ExtractIconExW(exePath.c_str(), 0, nullptr, &iconSmall, 1) > 0 &&
-                iconSmall != nullptr) {
+            HICON rawIcon = nullptr;
+            const UINT extracted = ExtractIconExW(
+                exePath.c_str(), 0, nullptr, &rawIcon, 1);
+            if (rawIcon != nullptr) {
+                iconSmall.reset(rawIcon);
+            }
+            if (extracted > 0 && iconSmall) {
                 ArgbBitmap bmp;
-                if (IconToArgb(iconSmall, bmp) && BitmapSane(bmp) &&
+                if (IconToArgb(iconSmall.get(), bmp) && BitmapSane(bmp) &&
                     BitmapHasContent(bmp)) {
                     out = std::move(bmp);
                 }
@@ -413,9 +512,6 @@ bool LoadImageIcon(const std::wstring& exePath, ArgbBitmap& out) {
         } W7T_SEH_CATCH {
             out.clear();
         } W7T_SEH_END
-    }
-    if (iconSmall != nullptr) {
-        DestroyIcon(iconSmall);
     }
     if (!out.empty()) {
         return true;
@@ -453,6 +549,70 @@ uint32_t UidFromToken(const std::wstring& token) {
         uid = 0x77000001u;
     }
     return uid;
+}
+
+/* UIA non offre un HWND o un uID dell'applicazione che ha registrato
+ * l'icona: CurrentProcessId e' il processo del provider, normalmente
+ * explorer.exe. RuntimeId e' l'identita' dell'elemento per tutta la vita
+ * dell'isola e non cambia quando cambia il tooltip. Viene usato solo come
+ * chiave di sessione; dopo un riavvio della shell la documentazione UIA non
+ * promette che resti uguale. */
+struct SafeArrayDestroyGuard {
+    SAFEARRAY* value = nullptr;
+    ~SafeArrayDestroyGuard() {
+        if (value != nullptr) {
+            SafeArrayDestroy(value);
+        }
+    }
+};
+
+struct SafeArrayAccessGuard {
+    SAFEARRAY* value = nullptr;
+    bool active = false;
+    ~SafeArrayAccessGuard() {
+        if (active && value != nullptr) {
+            SafeArrayUnaccessData(value);
+        }
+    }
+};
+
+std::wstring RuntimeIdOf(IUIAutomationElement* element) {
+    if (element == nullptr) {
+        return std::wstring();
+    }
+    SAFEARRAY* raw = nullptr;
+    if (FAILED(element->GetRuntimeId(&raw)) || raw == nullptr) {
+        return std::wstring();
+    }
+    SafeArrayDestroyGuard arrayGuard{ raw };
+    if (SafeArrayGetDim(raw) != 1) {
+        return std::wstring();
+    }
+    LONG lower = 0;
+    LONG upper = -1;
+    if (FAILED(SafeArrayGetLBound(raw, 1, &lower)) ||
+        FAILED(SafeArrayGetUBound(raw, 1, &upper)) || upper < lower) {
+        return std::wstring();
+    }
+
+    LONG* values = nullptr;
+    if (FAILED(SafeArrayAccessData(raw, reinterpret_cast<void**>(&values))) ||
+        values == nullptr) {
+        return std::wstring();
+    }
+    SafeArrayAccessGuard accessGuard{ raw, true };
+    try {
+        std::wstring result;
+        for (LONG index = lower; index <= upper; ++index) {
+            if (!result.empty()) {
+                result.push_back(L':');
+            }
+            result += std::to_wstring(values[index - lower]);
+        }
+        return result;
+    } catch (...) {
+        return std::wstring();
+    }
 }
 
 } /* namespace */
@@ -531,6 +691,69 @@ private:
     std::atomic<ULONGLONG> m_lastPost{ 0 };
 };
 
+/* Un cambio nella struttura dell'albero copre aggiunte, rimozioni e
+ * ricreazioni dell'isola che non generano una modifica di Name/IsEnabled.
+ * UIA mantiene il riferimento all'handler fino alla rimozione esplicita;
+ * il servizio lo libera sempre nel percorso di uscita del worker. */
+class TrayStructureChangeHandler final
+    : public IUIAutomationStructureChangedEventHandler {
+public:
+    void AttachTo(DWORD threadId) {
+        m_threadId = threadId;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override {
+        return static_cast<ULONG>(InterlockedIncrement(&m_refs));
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override {
+        const LONG left = InterlockedDecrement(&m_refs);
+        if (left == 0) {
+            delete this;
+        }
+        return static_cast<ULONG>(left);
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** object) override {
+        if (object == nullptr) {
+            return E_POINTER;
+        }
+        if (IsEqualIID(riid, kIidStructureChangedHandler) ||
+            IsEqualIID(riid, IID_IUnknown)) {
+            *object = static_cast<IUIAutomationStructureChangedEventHandler*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *object = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    HRESULT STDMETHODCALLTYPE HandleStructureChangedEvent(
+            IUIAutomationElement* sender, StructureChangeType changeType,
+            SAFEARRAY* runtimeId) override {
+        (void)sender;
+        (void)changeType;
+        (void)runtimeId;
+
+        const ULONGLONG now = GetTickCount64();
+        if (now - m_lastPost.load() < 300) {
+            return S_OK;
+        }
+        m_lastPost.store(now);
+
+        const DWORD thread = m_threadId;
+        if (thread != 0) {
+            PostThreadMessageW(thread, kMsgRead, 0, 0);
+        }
+        return S_OK;
+    }
+
+private:
+    LONG  volatile        m_refs = 1;
+    DWORD                 m_threadId = 0;
+    std::atomic<ULONGLONG> m_lastPost{ 0 };
+};
+
 /* ------------------------------------------------------------------ */
 /*  Requests between the caller and the worker                         */
 /* ------------------------------------------------------------------ */
@@ -551,25 +774,33 @@ Win11TrayReader& Win11TrayReader::Instance() {
 }
 
 bool Win11TrayReader::Detect() {
-    /* Esito positivo: definitivo, la forma della barra non cambia piu'.
-     * Esito negativo: si rivaluta, ma non piu' di una volta ogni 30 s
-     * (all'avvio l'isola XAML puo' non essere ancora creata, e un "no"
-     * congelato lascerebbe la tray vuota per sempre). */
+    /* L'esito viene memorizzato per un secondo sia quando il bridge esiste
+     * sia quando non esiste ancora. Cosi' una ricreazione di Explorer o un
+     * bridge creato in ritardo viene rilevato senza interrogare User32 a ogni
+     * evento; dopo l'avvio positivo gli aggiornamenti ordinari arrivano dagli
+     * eventi UIA. */
     static std::atomic<int> cached{ 0 };   /* 0 = ignoto, 1 = si', 2 = no */
     static std::atomic<ULONGLONG> lastCheck{ 0 };
 
-    if (cached.load() == 1) {
-        return true;
-    }
+    const int previous = cached.load();
     const ULONGLONG now = GetTickCount64();
-    if (cached.load() == 2 && now - lastCheck.load() < 30000) {
-        return false;
+    if (previous != 0 && now - lastCheck.load() < 1000) {
+        return previous == 1;
     }
     lastCheck.store(now);
 
-    HWND taskbar = FindShellTaskbar();
-    const bool win11 = taskbar != nullptr && !HasClassicTrayToolbar() &&
-                       HasXamlBridge(taskbar);
+    const std::vector<HWND> taskbars = FindShellTaskbars();
+    bool hasXaml = false;
+    for (HWND taskbar : taskbars) {
+        if (HasXamlBridge(taskbar)) {
+            hasXaml = true;
+            break;
+        }
+    }
+    /* La presenza occasionale della toolbar legacy non basta a escludere
+     * XAML: su alcune build Windows 11 la shell mantiene entrambi i livelli.
+     * Il requisito discriminante e' il bridge/isola XAML osservabile. */
+    const bool win11 = !taskbars.empty() && hasXaml;
     cached.store(win11 ? 1 : 2);
     return win11;
 }
@@ -584,59 +815,80 @@ bool Win11TrayReader::Start() {
     if (m_started.load()) {
         return true;
     }
+    /* Un thread staccato qui sarebbe un use-after-free sul singleton. La
+     * chiusura precedente deve avere sempre consumato il joinable prima di
+     * permettere un nuovo avvio. */
+    if (m_thread.joinable()) {
+        return false;
+    }
+    m_threadId = 0;
+    m_threadDone.store(false);
     m_running.store(true);
-    m_thread = std::thread(&Win11TrayReader::WorkerMain, this);
-    m_started.store(true);
+    try {
+        m_thread = std::thread(&Win11TrayReader::WorkerMain, this);
+    } catch (...) {
+        m_running.store(false);
+        return false;
+    }
 
-    /* The thread id is needed to post requests: wait for the worker to
-     * publish it (a few milliseconds, the loop starts right away). */
-    for (int i = 0; i < 200 && m_threadId == 0; ++i) {
+    /* Il thread crea la coda messaggi prima di pubblicare l'id: cosi' sia la
+     * prima richiesta sia WM_QUIT non possono cadere per una coda ancora
+     * inesistente. */
+    for (int i = 0; i < 200 && m_threadId.load() == 0; ++i) {
         Sleep(5);
     }
-    if (m_threadId != 0) {
-        /* v2.62: prima lettura SUBITO. La tray deve riempirsi all'avvio, non
-         * al primo evento della shell: aspettare l'hook o il risveglio di
-         * sicurezza significava icona dopo icona con secondi di ritardo. */
-        PostThreadMessageW(m_threadId, kMsgRead, 0, 0);
+    const DWORD threadId = m_threadId.load();
+    if (threadId == 0) {
+        m_running.store(false);
+        if (m_thread.joinable()) {
+            m_thread.join();
+        }
+        return false;
     }
-    return m_threadId != 0;
+    m_started.store(true);
+    /* v2.62: prima lettura SUBITO, senza aspettare un evento della shell. */
+    if (!PostThreadMessageW(threadId, kMsgRead, 0, 0)) {
+        m_running.store(false);
+        PostThreadMessageW(threadId, WM_QUIT, 0, 0);
+        if (m_thread.joinable()) {
+            m_thread.join();
+        }
+        m_threadId = 0;
+        m_started.store(false);
+        return false;
+    }
+    return true;
 }
 
 void Win11TrayReader::Stop() {
-    if (!m_started.load()) {
+    if (!m_started.load() && !m_thread.joinable()) {
         return;
     }
     m_running.store(false);
-    if (m_threadId != 0) {
-        PostThreadMessageW(m_threadId, WM_QUIT, 0, 0);
+    const DWORD threadId = m_threadId.load();
+    if (threadId != 0) {
+        PostThreadMessageW(threadId, WM_QUIT, 0, 0);
     }
     if (m_thread.joinable()) {
-        /* Chiusura con limite: una chiamata UI Automation bloccata (shell
-         * appesa) non deve impedire l'uscita del processo. Oltre il budget
-         * il thread si stacca e lo porta via ExitProcess. */
-        constexpr ULONGLONG kJoinBudgetMs = 2000;
-        const ULONGLONG t0 = GetTickCount64();
-        while (GetTickCount64() - t0 < kJoinBudgetMs && !m_threadDone.load()) {
-            Sleep(20);
-        }
-        if (m_threadDone.load()) {
-            m_thread.join();
-        } else {
-            m_thread.detach();
-        }
+        /* UIA non offre un cancel portabile per una chiamata in corso. Si
+         * attende la fine reale invece di fare detach: il detach lasciava il
+         * worker con un puntatore a questo singleton durante la distruzione. */
+        m_thread.join();
     }
     m_threadId = 0;
     m_started.store(false);
 }
 
 void Win11TrayReader::RequestRead() {
-    if (m_threadId != 0) {
-        PostThreadMessageW(m_threadId, kMsgRead, 0, 0);
+    const DWORD threadId = m_threadId.load();
+    if (threadId != 0) {
+        PostThreadMessageW(threadId, kMsgRead, 0, 0);
     }
 }
 
 bool Win11TrayReader::RequestClick(uint32_t uid, bool rightButton) {
-    if (m_threadId == 0 || uid == 0) {
+    const DWORD threadId = m_threadId.load();
+    if (threadId == 0 || uid == 0) {
         return false;
     }
     Request* request = new (std::nothrow) Request();
@@ -645,7 +897,7 @@ bool Win11TrayReader::RequestClick(uint32_t uid, bool rightButton) {
     }
     request->uid = uid;
     request->rightButton = rightButton;
-    if (!PostThreadMessageW(m_threadId, kMsgClick, 0,
+    if (!PostThreadMessageW(threadId, kMsgClick, 0,
                             reinterpret_cast<LPARAM>(request))) {
         delete request;
         return false;
@@ -654,7 +906,8 @@ bool Win11TrayReader::RequestClick(uint32_t uid, bool rightButton) {
 }
 
 bool Win11TrayReader::RequestOverflowFlyout(const RECT& anchor) {
-    if (m_threadId == 0) {
+    const DWORD threadId = m_threadId.load();
+    if (threadId == 0) {
         return false;
     }
     Request* request = new (std::nothrow) Request();
@@ -662,7 +915,7 @@ bool Win11TrayReader::RequestOverflowFlyout(const RECT& anchor) {
         return false;
     }
     request->anchor = anchor;
-    if (!PostThreadMessageW(m_threadId, kMsgOverflow, 0,
+    if (!PostThreadMessageW(threadId, kMsgOverflow, 0,
                             reinterpret_cast<LPARAM>(request))) {
         delete request;
         return false;
@@ -703,81 +956,129 @@ SystemIconKind Win11TrayReader::KindOf(uint32_t uid) const {
 /* ------------------------------------------------------------------ */
 
 void Win11TrayReader::WorkerMain() {
+    /* Forza la creazione della message queue prima di pubblicare l'id:
+     * PostThreadMessage/WM_QUIT richiedono una coda appartenente al thread. */
+    MSG bootstrap{};
+    PeekMessageW(&bootstrap, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
     m_threadId = GetCurrentThreadId();
     m_threadDone.store(false);
 
     /* UIA is used from a worker: MTA is the recommended apartment for a
      * client that does not own a window. */
-    const HRESULT comHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    raii::ComInitializer com(COINIT_MULTITHREADED);
 
-    IUIAutomation* uia = nullptr;
-    if (SUCCEEDED(CoCreateInstance(kClsidCUIAutomation, nullptr,
+    raii::ComPtr<IUIAutomation> uia;
+    if (com.succeeded() &&
+        SUCCEEDED(CoCreateInstance(kClsidCUIAutomation, nullptr,
                                    CLSCTX_INPROC_SERVER, kIidIUIAutomation,
-                                   reinterpret_cast<void**>(&uia))) &&
-        uia != nullptr) {
+                                   reinterpret_cast<void**>(uia.Put()))) &&
+        uia) {
         AppendCoreLog(L"tray Win11: lettura via UI Automation attiva");
     } else {
         AppendCoreLog(L"tray Win11: UI Automation non disponibile");
-        if (uia != nullptr) {
-            uia->Release();
-            uia = nullptr;
-        }
     }
 
-    std::map<uint32_t, IUIAutomationElement*> elements;
-    IUIAutomationElement* chevron = nullptr;
-    HWINEVENTHOOK flyoutHook = nullptr;
+    std::map<uint32_t, raii::ComPtr<IUIAutomationElement>> elements;
+    raii::ComPtr<IUIAutomationElement> chevron;
+    UniqueWinEventHook flyoutHook;
 
-    /* v2.62: ascolto dei cambi di proprieta' dell'isola della tray. */
-    TrayPropertyChangeHandler* propertyHandler = nullptr;
-    IUIAutomationElement* watchedRoot = nullptr;
-    HWND watchedIsland = nullptr;
+    /* v2.62: ascolto dei cambi di proprieta' e della struttura delle isole.
+     * Si tengono piu' radici: la barra principale e l'overflow XAML sono
+     * finestre top-level diverse, soprattutto mentre il flyout e' aperto. */
+    raii::ComPtr<TrayPropertyChangeHandler> propertyHandler;
+    raii::ComPtr<TrayStructureChangeHandler> structureHandler;
+    struct WatchedRoot {
+        HWND hwnd = nullptr;
+        raii::ComPtr<IUIAutomationElement> element;
+        bool propertyAdded = false;
+        bool structureAdded = false;
+    };
+    std::vector<WatchedRoot> watchedRoots;
+
+    auto clearWatchedRoots = [&]() {
+        for (WatchedRoot& watched : watchedRoots) {
+            if (uia && watched.element) {
+                if (watched.propertyAdded && propertyHandler) {
+                    uia->RemovePropertyChangedEventHandler(
+                        watched.element.Get(), propertyHandler.Get());
+                }
+                if (watched.structureAdded && structureHandler) {
+                    uia->RemoveStructureChangedEventHandler(
+                        watched.element.Get(), structureHandler.Get());
+                }
+            }
+        }
+        watchedRoots.clear();
+    };
 
     auto watchIslandProperties = [&](HWND island) {
-        if (uia == nullptr || island == nullptr || island == watchedIsland) {
+        if (!uia || island == nullptr) {
             return;
         }
-        if (watchedRoot != nullptr && propertyHandler != nullptr) {
-            uia->RemovePropertyChangedEventHandler(watchedRoot, propertyHandler);
-            watchedRoot->Release();
-            watchedRoot = nullptr;
-            watchedIsland = nullptr;
-        }
-        if (propertyHandler == nullptr) {
-            propertyHandler = new (std::nothrow) TrayPropertyChangeHandler();
-            if (propertyHandler == nullptr) {
+        for (const WatchedRoot& watched : watchedRoots) {
+            if (watched.hwnd == island) {
                 return;
             }
-            propertyHandler->AttachTo(m_threadId);
         }
-        IUIAutomationElement* root = nullptr;
-        if (FAILED(uia->ElementFromHandle(island, &root)) || root == nullptr) {
+        if (!propertyHandler) {
+            propertyHandler = raii::ComPtr<TrayPropertyChangeHandler>(
+                new (std::nothrow) TrayPropertyChangeHandler());
+            if (!propertyHandler) {
+                return;
+            }
+            propertyHandler->AttachTo(m_threadId.load());
+        }
+        if (!structureHandler) {
+            structureHandler = raii::ComPtr<TrayStructureChangeHandler>(
+                new (std::nothrow) TrayStructureChangeHandler());
+            if (!structureHandler) {
+                return;
+            }
+            structureHandler->AttachTo(m_threadId.load());
+        }
+
+        raii::ComPtr<IUIAutomationElement> root;
+        if (FAILED(uia->ElementFromHandle(island, root.Put())) || !root) {
             return;
         }
-        /* Nome e stato attivo: sono le due proprieta' che cambiano quando
-         * un'icona cambia stato (percentuale, rete, notifiche). */
-        PROPERTYID properties[] = { UIA_NamePropertyId, UIA_IsEnabledPropertyId };
-        if (SUCCEEDED(uia->AddPropertyChangedEventHandlerNativeArray(
-                root, TreeScope_Subtree, nullptr, propertyHandler,
-                properties, 2))) {
-            watchedRoot = root;     /* tenuto per la disiscrizione */
-            watchedIsland = island;
-        } else {
-            root->Release();
+        /* Nome e stato attivo coprono i tooltip e i cambi di stato; la
+         * struttura copre NIM_ADD/NIM_DELETE riflessi dalla shell XAML. */
+        PROPERTYID properties[] = {
+            UIA_NamePropertyId,
+            UIA_IsEnabledPropertyId,
+            UIA_IsOffscreenPropertyId,
+        };
+        const bool propertyAdded = SUCCEEDED(
+            uia->AddPropertyChangedEventHandlerNativeArray(
+                root.Get(), TreeScope_Subtree, nullptr, propertyHandler.Get(),
+                properties, ARRAYSIZE(properties)));
+        const bool structureAdded = SUCCEEDED(
+            uia->AddStructureChangedEventHandler(
+                root.Get(), TreeScope_Subtree, nullptr, structureHandler.Get()));
+        if (propertyAdded || structureAdded) {
+            try {
+                WatchedRoot watched;
+                watched.hwnd = island;
+                watched.propertyAdded = propertyAdded;
+                watched.structureAdded = structureAdded;
+                watched.element = std::move(root);
+                watchedRoots.push_back(std::move(watched));
+            } catch (...) {
+                if (propertyAdded) {
+                    uia->RemovePropertyChangedEventHandler(root.Get(),
+                                                           propertyHandler.Get());
+                }
+                if (structureAdded) {
+                    uia->RemoveStructureChangedEventHandler(root.Get(),
+                                                            structureHandler.Get());
+                }
+            }
         }
     };
 
     auto releaseElements = [&]() {
-        for (auto& pair : elements) {
-            if (pair.second != nullptr) {
-                pair.second->Release();
-            }
-        }
         elements.clear();
-        if (chevron != nullptr) {
-            chevron->Release();
-            chevron = nullptr;
-        }
+        chevron.Reset();
     };
 
     auto postReady = [&]() {
@@ -788,212 +1089,285 @@ void Win11TrayReader::WorkerMain() {
             target = m_notifyWnd;
             message = m_notifyMsg;
         }
-        if (target != nullptr && IsWindow(target)) {
+        if (target != nullptr && message != 0 && IsWindow(target)) {
             PostMessageW(target, message, 0, 0);
         }
     };
 
     /* --- collection of the tray elements --------------------------- */
 
-    auto isTrayIconClass = [](const std::wstring& cls) {
-        return cls.find(L"SystemTray") != std::wstring::npos;
-    };
+    /* I nomi delle classi sono quelli osservabili dal provider UIA. Non si
+     * accetta "SystemTray" in generale: TextIconContent e ImageIconContent
+     * sono figli visuali, non icone, e produrrebbero doppioni. */
     auto isChevron = [](const std::wstring& cls, const std::wstring& id) {
         return cls.find(L"Chevron") != std::wstring::npos ||
                id.find(L"Chevron") != std::wstring::npos ||
                id.find(L"Overflow") != std::wstring::npos;
     };
+    auto isNotifyIconView = [](const std::wstring& cls) {
+        return cls.find(L"SystemTray.NotifyIconView") != std::wstring::npos;
+    };
+    auto isSystemIconView = [](const std::wstring& cls,
+                               const std::wstring& id,
+                               const std::wstring& text) {
+        if (cls.find(L"SystemTray.IconView") == std::wstring::npos) {
+            return false;
+        }
+        /* Nelle build osservate l'AutomationId e' SystemTrayIcon; il nome
+         * puo' essere vuoto per un provider XAML, quindi si accetta anche il
+         * testo solo come seconda forma, mai il solo prefisso SystemTray. */
+        return id == L"SystemTrayIcon" || text == L"SystemTrayIcon" ||
+               (!id.empty() && id.find(L"SystemTrayIcon") != std::wstring::npos);
+    };
 
     auto collectIsland = [&](HWND island, bool hidden, int& order,
                              std::set<uint32_t>& usedUids,
-                             std::vector<Win11TrayItem>& out) {
-        if (uia == nullptr || island == nullptr) {
-            return;
+                             std::set<std::wstring>& seenElements,
+                             std::vector<Win11TrayItem>& out) -> bool {
+        if (!uia || island == nullptr) {
+            return false;
         }
-        IUIAutomationElement* root = nullptr;
-        if (FAILED(uia->ElementFromHandle(island, &root)) || root == nullptr) {
-            return;
+        raii::ComPtr<IUIAutomationElement> root;
+        if (FAILED(uia->ElementFromHandle(island, root.Put())) || !root) {
+            return false;
         }
-        IUIAutomationCondition* all = nullptr;
-        if (FAILED(uia->CreateTrueCondition(&all)) || all == nullptr) {
-            root->Release();
-            return;
+        raii::ComPtr<IUIAutomationCondition> all;
+        if (FAILED(uia->CreateTrueCondition(all.Put())) || !all) {
+            return false;
         }
-        IUIAutomationElementArray* found = nullptr;
-        const HRESULT hr = root->FindAll(TreeScope_Descendants, all, &found);
-        all->Release();
-        root->Release();
-        if (FAILED(hr) || found == nullptr) {
-            return;
+        raii::ComPtr<IUIAutomationElementArray> found;
+        const HRESULT hr = root->FindAll(TreeScope_Descendants, all.Get(),
+                                         found.Put());
+        if (FAILED(hr) || !found) {
+            return false;
         }
 
         int length = 0;
-        if (SUCCEEDED(found->get_Length(&length))) {
-            for (int i = 0; i < length; ++i) {
-                IUIAutomationElement* element = nullptr;
-                if (FAILED(found->GetElement(i, &element)) || element == nullptr) {
+        if (FAILED(found->get_Length(&length))) {
+            return false;
+        }
+
+        for (int i = 0; i < length; ++i) {
+            raii::ComPtr<IUIAutomationElement> element;
+            if (FAILED(found->GetElement(i, element.Put())) || !element) {
+                continue;
+            }
+
+            Bstr name, cls, automationId;
+            int pid = 0;
+            element->get_CurrentName(&name.value);
+            element->get_CurrentClassName(&cls.value);
+            element->get_CurrentAutomationId(&automationId.value);
+            element->get_CurrentProcessId(&pid);
+
+            const std::wstring className = cls.str();
+            const std::wstring id = automationId.str();
+            const std::wstring text = name.str();
+
+            if (isChevron(className, id)) {
+                if (!chevron) {
+                    chevron = std::move(element);
+                }
+                continue;
+            }
+
+            const bool notifyIconView = isNotifyIconView(className);
+            const bool systemIconView = isSystemIconView(className, id, text);
+            if (!notifyIconView && !systemIconView) {
+                /* Il tipo UIA non viene usato come filtro: XAML espone
+                 * NotifyIconView come Custom su varie build, non come Button.
+                 * IsOffscreen non viene usato: il prodotto nasconde la
+                 * taskbar di Explorer e il flyout overflow puo' essere chiuso,
+                 * ma gli elementi registrati restano la fonte della lettura. */
+                continue;
+            }
+
+            Win11TrayItem item;
+            item.hidden = hidden;
+            item.order = order++;
+            item.pid = static_cast<uint32_t>(pid);
+            item.name = text;
+
+            /* CurrentProcessId identifica il provider UIA (quasi sempre
+             * explorer.exe), NON il processo che ha registrato l'icona.
+             * Usarlo come proprietario faceva classificare ogni app come
+             * icona di sistema e la scartava. Per un'icona XAML generica
+             * l'owner resta volutamente ignoto: il clic passa da UIA e il
+             * modello usa un bitmap di ripiego, senza inventare un HWND. */
+            const std::wstring providerPath = ExePathOf(static_cast<uint32_t>(pid));
+            const bool providerIsShell =
+                IsShellProcess(ExeNameOf(providerPath));
+            item.exePath = providerIsShell ? std::wstring() : providerPath;
+            item.systemOwned = systemIconView && providerIsShell;
+
+            if (item.systemOwned) {
+                item.kind = ClassifySystemIcon(text);
+                if (item.kind == SystemIconKind::None) {
+                    /* Campanella, posizione, Copilot e altri elementi della
+                     * shell moderna non hanno un equivalente Win7. */
                     continue;
                 }
-
-                Bstr name, cls, automationId;
-                CONTROLTYPEID controlType = 0;
-                BOOL offscreen = FALSE;
-                int pid = 0;
-                element->get_CurrentName(&name.value);
-                element->get_CurrentClassName(&cls.value);
-                element->get_CurrentAutomationId(&automationId.value);
-                element->get_CurrentControlType(&controlType);
-                element->get_CurrentIsOffscreen(&offscreen);
-                element->get_CurrentProcessId(&pid);
-
-                const std::wstring className = cls.str();
-                const std::wstring id = automationId.str();
-                const std::wstring text = name.str();
-
-                if (isChevron(className, id)) {
-                    if (chevron == nullptr) {
-                        chevron = element;      /* keep the reference */
-                    } else {
-                        element->Release();
-                    }
+                if (!TrayFallbackIcons::Render(item.kind, item.bitmap)) {
                     continue;
                 }
-
-                const bool isButton = controlType == UIA_ButtonControlTypeId ||
-                                      controlType == UIA_ListItemControlTypeId;
-                if (!isButton || text.empty() || offscreen != FALSE ||
-                    !isTrayIconClass(className)) {
-                    element->Release();
-                    continue;
-                }
-
-                Win11TrayItem item;
-                item.hidden = hidden;
-                item.order = order++;
-                item.pid = static_cast<uint32_t>(pid);
-                item.name = text;
-                item.exePath = ExePathOf(item.pid);
-                item.systemOwned = IsShellProcess(ExeNameOf(item.exePath));
-
-                if (item.systemOwned) {
-                    item.kind = ClassifySystemIcon(text);
-                    if (item.kind == SystemIconKind::None) {
-                        /* Bell, location, Copilot...: not part of the
-                         * Windows 7 tray, so not part of ours. */
-                        element->Release();
-                        continue;
-                    }
-                    if (!TrayFallbackIcons::Render(item.kind, item.bitmap)) {
-                        element->Release();
-                        continue;
-                    }
-                } else if (!LoadProcessWindowIcon(item.pid, item.bitmap)) {
-                    /* Nessuna finestra del processo espone un'icona: si
-                     * ripiega su quella dell'eseguibile (per la maggior
-                     * parte delle applicazioni sono la stessa immagine) e
-                     * solo se anche quella manca sull'icona generica. */
+            } else {
+                if (!providerIsShell &&
+                    !LoadProcessWindowIcon(static_cast<DWORD>(pid), item.bitmap)) {
                     LoadImageIcon(item.exePath, item.bitmap);
                 }
-
-                /* Identita' STABILE: pid + nome accessibile. L'ordine di
-                 * enumerazione NON entra nel token, altrimenti spostare
-                 * un'icona fra barra e overflow (che cambia l'ordine)
-                 * cambierebbe la chiave, e per il modello sarebbe
-                 * un'icona sparita piu' una nuova: doppioni e salti.
-                 * Due icone identiche nello stesso processo (caso raro)
-                 * si distinguono con un suffisso assegnato in ordine di
-                 * lettura. */
-                /* Il processo cambia a ogni avvio: nell'identita' entra il
-                 * NOME dell'eseguibile, cosi' la chiave (e quindi la
-                 * preferenza dell'utente) sopravvive al riavvio. */
-                std::wstring owner = ExeNameOf(item.exePath);
-                if (owner.empty()) {
-                    owner = std::to_wstring(item.pid);
+                if (item.bitmap.empty()) {
+                    /* La tray XAML non espone l'HICON. Un elemento con nome
+                     * valido resta comunque cliccabile e visibile nel
+                     * modello: il generico evita un buco vuoto. */
+                    LoadImageIcon(std::wstring(), item.bitmap);
                 }
-                /* v2.62 - IDENTITA' STABILE, SENZA IL TOOLTIP.
-                 *
-                 * Il nome accessibile di un'icona e' un bersaglio mobile:
-                 * "Batteria 87%" diventa 86% dopo un minuto, un client di
-                 * posta ci mette il numero di messaggi, un download manager
-                 * la velocita'. Con il nome dentro la chiave ogni lettura
-                 * creava un'icona NUOVA e ne faceva sparire un'altra:
-                 * l'utente vedeva l'icona lampeggiare, la posizione e la
-                 * preferenza pin/nascondi andavano perse e il modello si
-                 * riempiva di doppioni.
-                 *
-                 * La chiave e' quindi il processo (piu' il tipo, per le
-                 * icone di sistema che la shell espone): resta la stessa
-                 * finche' l'icona esiste. Il nome continua ad arrivare al
-                 * modello e ad aggiornare il tooltip (entry.tooltip), che e'
-                 * esattamente dove deve stare. */
-                std::wstring token;
-                if (item.systemOwned) {
-                    token = L"uia:system|";
-                    token += (item.kind == SystemIconKind::Volume) ? L"volume"
-                           : (item.kind == SystemIconKind::Network) ? L"network"
-                                                                    : L"battery";
-                } else {
-                    token = L"uia:" + owner;
-                }
-                uint32_t uid = UidFromToken(token);
-                for (int suffix = 1; usedUids.count(uid) != 0 ||
-                                    uid == 0x77000000u; ++suffix) {
-                    uid = UidFromToken(token + L"#" + std::to_wstring(suffix));
-                }
-                item.token = token;
-                item.uid = uid;
-                usedUids.insert(uid);
-                out.push_back(std::move(item));
-                elements[out.back().uid] = element;
             }
+
+            /* RuntimeId non include il tooltip e distingue due elementi
+             * dello stesso provider; e' piu' onesto del falso "owner exe".
+             * Se il provider non lo offre, l'AutomationId e il nome sono il
+             * ripiego locale e l'isteresi del servizio evita rimozioni su un
+             * singolo giro transitorio. */
+            const std::wstring runtimeId = RuntimeIdOf(element.Get());
+            std::wstring token;
+            if (item.systemOwned) {
+                token = L"uia:system|";
+                token += (item.kind == SystemIconKind::Volume) ? L"volume"
+                       : (item.kind == SystemIconKind::Network) ? L"network"
+                                                                : L"battery";
+            } else if (!runtimeId.empty()) {
+                token = L"uia:runtime|" + runtimeId;
+            } else {
+                token = L"uia:element|" + className + L"|" + id;
+                if (token.back() == L'|') {
+                    token += text;
+                }
+            }
+            if (!runtimeId.empty() || item.systemOwned) {
+                const std::wstring dedupeKey = item.systemOwned
+                    ? token : (L"runtime|" + runtimeId);
+                if (!seenElements.insert(dedupeKey).second) {
+                    continue;
+                }
+            }
+            uint32_t uid = UidFromToken(token);
+            for (int suffix = 1; usedUids.count(uid) != 0 ||
+                                uid == 0x77000000u; ++suffix) {
+                uid = UidFromToken(token + L"#" + std::to_wstring(suffix));
+            }
+            item.token = token;
+            item.uid = uid;
+            usedUids.insert(uid);
+            out.push_back(std::move(item));
+            const uint32_t uidKey = out.back().uid;
+            elements.emplace(uidKey, std::move(element));
         }
-        found->Release();
+        return true;
     };
 
     auto readNow = [&]() {
         releaseElements();
         std::vector<Win11TrayItem> items;
         std::set<uint32_t> usedUids;
+        std::set<std::wstring> seenElements;
         int order = 0;
-        HWND taskbar = FindShellTaskbar();
-        HWND overflow = FindOverflowIsland();
+        const std::vector<HWND> taskbars = FindShellTaskbars();
+        const std::vector<HWND> overflows = FindOverflowIslands();
 
-        if (uia == nullptr || (taskbar == nullptr && overflow == nullptr)) {
-            /* No island at all: the shell is restarting or not ready. Keep
-             * the last good snapshot, a failed read never clears icons.
-             * v2.61: la lettura si dichiara NON valida, cosi' il chiamante
-             * ritenta in backoff invece di considerare la tray vuota. */
+        if (!uia || (taskbars.empty() && overflows.empty())) {
+            /* Explorer sta ricreando le finestre o UIA non e' disponibile:
+             * una lettura fallita non deve cancellare l'ultima fotografia. */
             m_lastReadValid.store(false);
+            m_lastReadMainValid.store(false);
+            m_lastReadOverflowValid.store(false);
+            postReady();
             return;
         }
 
-        collectIsland(taskbar, false, order, usedUids, items);
-        collectIsland(overflow, true, order, usedUids, items);
+        bool traversedMain = false;
+        for (HWND taskbar : taskbars) {
+            const size_t beforeTaskbar = items.size();
+            traversedMain = collectIsland(taskbar, false, order, usedUids,
+                                          seenElements, items) || traversedMain;
+
+            /* ElementFromHandle(Shell_TrayWnd) non include sempre il bridge
+             * XAML nel provider UIA. Si prova il bridge di QUESTA taskbar
+             * quando la radice non ha prodotto alcun elemento; non si usa il
+             * risultato della taskbar primaria per saltare una secondaria. */
+            if (items.size() == beforeTaskbar) {
+                const std::vector<HWND> bridges = FindXamlBridgeWindows(taskbar);
+                for (HWND bridge : bridges) {
+                    traversedMain = collectIsland(bridge, false, order,
+                                                  usedUids, seenElements,
+                                                  items) || traversedMain;
+                }
+            }
+        }
+
+        bool traversedOverflow = false;
+        for (HWND overflow : overflows) {
+            traversedOverflow = collectIsland(overflow, true, order, usedUids,
+                                               seenElements, items) ||
+                                traversedOverflow;
+        }
+
+        /* La presenza dell'host non basta: ElementFromHandle/FindAll possono
+         * fallire mentre Explorer e' in ricostruzione. Solo una traversata
+         * riuscita autorizza il servizio a considerare vuoto lo snapshot. */
+        const bool valid = traversedMain || traversedOverflow;
+        m_lastReadMainValid.store(traversedMain);
+        m_lastReadOverflowValid.store(traversedOverflow);
+        if (!valid) {
+            m_lastReadValid.store(false);
+            postReady();
+            return;
+        }
 
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_snapshot = items;
         }
-        /* L'isola c'era ed e' stata attraversata: la lettura e' valida anche
-         * se non ha trovato nulla (tutte le icone nascoste dall'utente). */
         m_lastReadValid.store(true);
 
         /* Da adesso i cambi di stato della shell arrivano da soli. */
-        watchIslandProperties(taskbar != nullptr ? taskbar : overflow);
-        /* v1.7: la lettura gira ogni ~350 ms e sulla build 26100 il
-         * conto oscilla fra 0 e 3: si registra SOLO il CAMBIAMENTO,
-         * altrimenti il log e' un rumore continuo (il vecchio testo
-         * "0 icone" ripetuto ogni frazione di secondo). */
+        clearWatchedRoots();
+        for (HWND taskbar : taskbars) {
+            watchIslandProperties(taskbar);
+            for (HWND bridge : FindXamlBridgeWindows(taskbar)) {
+                watchIslandProperties(bridge);
+            }
+        }
+        for (HWND overflow : overflows) {
+            watchIslandProperties(overflow);
+        }
+        /* v1.7: si registra SOLO il cambiamento del conteggio; l'evento di
+         * struttura/property copre nel frattempo aggiunte e modifiche. */
         static std::atomic<int> s_lastLoggedCount{ -1 };
         if (s_lastLoggedCount.exchange(
                 static_cast<int>(items.size())) !=
             static_cast<int>(items.size())) {
-            wchar_t line[160] = {};
-            swprintf(line, 160, L"tray Win11: %u icone (UI Automation)",
-                     static_cast<unsigned>(items.size()));
+            wchar_t line[192] = {};
+            swprintf(line, 192,
+                     L"tray Win11: %u icone (UI Automation), overflow=%s",
+                     static_cast<unsigned>(items.size()),
+                     traversedOverflow ? L"letto" : L"non disponibile");
             AppendCoreLog(line);
         }
         postReady();
+    };
+
+    auto safeReadNow = [&]() noexcept {
+        try {
+            readNow();
+        } catch (...) {
+            releaseElements();
+            clearWatchedRoots();
+            m_lastReadValid.store(false);
+            m_lastReadMainValid.store(false);
+            m_lastReadOverflowValid.store(false);
+            OutputDebugStringW(L"Win11TrayReader: eccezione nella lettura UIA\n");
+            postReady();
+        }
     };
 
     /* --- clicks ---------------------------------------------------- */
@@ -1022,22 +1396,20 @@ void Win11TrayReader::WorkerMain() {
                 AppendCoreLog(L"tray Win11: tasto Menu non consegnato");
             }
         } else {
-            IUIAutomationInvokePattern* invoke = nullptr;
+            raii::ComPtr<IUIAutomationInvokePattern> invoke;
             if (SUCCEEDED(element->GetCurrentPatternAs(
                     UIA_InvokePatternId, kIidInvokePattern,
-                    reinterpret_cast<void**>(&invoke))) &&
-                invoke != nullptr) {
+                    reinterpret_cast<void**>(invoke.Put()))) &&
+                invoke) {
                 done = SUCCEEDED(invoke->Invoke());
-                invoke->Release();
             }
             if (!done) {
-                IUIAutomationLegacyIAccessiblePattern* legacy = nullptr;
+                raii::ComPtr<IUIAutomationLegacyIAccessiblePattern> legacy;
                 if (SUCCEEDED(element->GetCurrentPatternAs(
                         UIA_LegacyIAccessiblePatternId, kIidLegacyPattern,
-                        reinterpret_cast<void**>(&legacy))) &&
-                    legacy != nullptr) {
+                        reinterpret_cast<void**>(legacy.Put()))) &&
+                    legacy) {
                     done = SUCCEEDED(legacy->DoDefaultAction());
-                    legacy->Release();
                 }
             }
             if (!done) {
@@ -1152,10 +1524,7 @@ void Win11TrayReader::WorkerMain() {
 
     auto stopFlyoutWatch = [&]() {
         g_watchFlyout.store(false);
-        if (flyoutHook != nullptr) {
-            UnhookWinEvent(flyoutHook);
-            flyoutHook = nullptr;
-        }
+        flyoutHook.reset();
         KillTimer(nullptr, kTimerPlacement);
         g_flyoutHwnd = nullptr;
     };
@@ -1165,16 +1534,17 @@ void Win11TrayReader::WorkerMain() {
     MSG msg{};
     while (m_running.load() && GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (msg.message == kMsgRead) {
-            readNow();
+            safeReadNow();
             continue;
         }
         if (msg.message == kMsgClick) {
-            Request* request = reinterpret_cast<Request*>(msg.lParam);
+            std::unique_ptr<Request> request(
+                reinterpret_cast<Request*>(msg.lParam));
             if (request != nullptr) {
                 bool delivered = false;
                 auto it = elements.find(request->uid);
-                if (it != elements.end()) {
-                    delivered = callPattern(it->second, request->rightButton);
+                if (it != elements.end() && it->second) {
+                    delivered = callPattern(it->second.Get(), request->rightButton);
                 }
                 /* v2.62 - IL PUNTATORE PUO' ESSERE MORTO.
                  *
@@ -1185,41 +1555,40 @@ void Win11TrayReader::WorkerMain() {
                  * volta (la rilettura rilascia i puntatori vecchi, quindi
                  * dopo non si usa piu' quello di prima). */
                 if (!delivered) {
-                    readNow();
+                    safeReadNow();
                     auto again = elements.find(request->uid);
-                    if (again != elements.end()) {
-                        delivered = callPattern(again->second,
+                    if (again != elements.end() && again->second) {
+                        delivered = callPattern(again->second.Get(),
                                                 request->rightButton);
                     }
                 }
                 if (!delivered) {
                     AppendCoreLog(L"tray Win11: clic non consegnato");
                 }
-                delete request;
             }
             continue;
         }
         if (msg.message == kMsgOverflow) {
-            Request* request = reinterpret_cast<Request*>(msg.lParam);
+            std::unique_ptr<Request> request(
+                reinterpret_cast<Request*>(msg.lParam));
             if (request != nullptr) {
-                if (chevron == nullptr) {
-                    readNow();
+                if (!chevron) {
+                    safeReadNow();
                 }
-                if (chevron != nullptr) {
+                if (chevron) {
                     g_flyoutAnchor = request->anchor;
                     g_flyoutHwnd = nullptr;
                     g_watchFlyout.store(true);
-                    if (flyoutHook == nullptr) {
-                        flyoutHook = SetWinEventHook(
+                    if (!flyoutHook.valid()) {
+                        flyoutHook.reset(SetWinEventHook(
                             EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, nullptr,
-                            OverflowShownProc, 0, 0, WINEVENT_OUTOFCONTEXT);
+                            OverflowShownProc, 0, 0, WINEVENT_OUTOFCONTEXT));
                     }
                     SetTimer(nullptr, kTimerPlacement, 1500, nullptr);
-                    callPattern(chevron, false);
+                    callPattern(chevron.Get(), false);
                 } else {
                     AppendCoreLog(L"tray Win11: freccetta overflow non trovata");
                 }
-                delete request;
             }
             continue;
         }
@@ -1286,23 +1655,25 @@ void Win11TrayReader::WorkerMain() {
         }
     }
 
+    /* Se Stop() mette m_running a false mentre ci sono richieste accodate,
+     * la condizione del while puo' uscire prima di consumarle. Le due code
+     * contengono puntatori di proprieta' nostra: li si svuota esplicitamente
+     * prima di distruggere il worker. */
+    MSG pending{};
+    while (PeekMessageW(&pending, nullptr, kMsgClick, kMsgClick,
+                        PM_REMOVE) != FALSE) {
+        delete reinterpret_cast<Request*>(pending.lParam);
+    }
+    while (PeekMessageW(&pending, nullptr, kMsgOverflow, kMsgOverflow,
+                        PM_REMOVE) != FALSE) {
+        delete reinterpret_cast<Request*>(pending.lParam);
+    }
+
     stopFlyoutWatch();
     releaseElements();
-    if (watchedRoot != nullptr && propertyHandler != nullptr && uia != nullptr) {
-        uia->RemovePropertyChangedEventHandler(watchedRoot, propertyHandler);
-        watchedRoot->Release();
-        watchedRoot = nullptr;
-    }
-    if (propertyHandler != nullptr) {
-        propertyHandler->Release();
-        propertyHandler = nullptr;
-    }
-    if (uia != nullptr) {
-        uia->Release();
-    }
-    if (SUCCEEDED(comHr)) {
-        CoUninitialize();
-    }
+    clearWatchedRoots();
+    /* I ComPtr rilasciano UIA, gli handler e gli elementi anche se una
+     * chiamata precedente ha lasciato una risorsa a meta'. */
     m_threadId = 0;
     m_threadDone.store(true);
 }

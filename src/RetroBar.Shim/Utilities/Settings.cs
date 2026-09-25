@@ -34,9 +34,10 @@ namespace RetroBar.Utilities
         private bool _collapseNotifyIcons = true;
         private bool _showClock = true;
         private double _taskbarHeight = 40d;
-        // English: Real Windows flyout is default, recreated is fallback
-        // Italiano: Il riquadro vero di Windows e' la scelta predefinita: quello ricreato serve come alternativa
-        private bool _useNativeClockFlyout = false;
+        // Il flyout dell'orologio segue sempre il comportamento Windows 7:
+        // la vecchia scelta ricreato/nativo viene mantenuta solo per leggere
+        // configurazioni esistenti e non e' piu' modificabile dalla UI.
+        private bool _useNativeClockFlyout = true;
         // v2.47: anteprima del desktop (Aero Peek) attiva. E' la casella
         // "Anteprima del desktop con Aero Peek" della finestra Proprieta'.
         private bool _aeroPeek = true;
@@ -134,10 +135,10 @@ namespace RetroBar.Utilities
             set => SetField(ref _taskbarHeight, value);
         }
 
-        // v1.21.43 - rotazione della barra + blocco (copia semantica da
+        // v1.21.43 - posizione della barra + blocco (copia semantica da
         // RetroBar: Settings.Edge + Settings.LockTaskbar). TaskbarPosition:
-        // 0 = Basso, 1 = Alto, 2 = Sinistra, 3 = Destra (ordine della combo
-        // nelle Proprieta', vedi Strings.cpp ExtraStrings).
+        // 0 = Basso, 1 = Alto. I valori legacy 2 = Sinistra e 3 = Destra
+        // vengono convertiti a Basso quando la configurazione viene letta.
 
         private int _taskbarPosition = 0;
         private bool _lockTaskbar = true;
@@ -145,13 +146,19 @@ namespace RetroBar.Utilities
         public int TaskbarPosition
         {
             get => _taskbarPosition;
-            set => SetField(ref _taskbarPosition,
-                            value < 0 ? 0 : (value > 3 ? 3 : value));
+            set => SetField(ref _taskbarPosition, NormalizeTaskbarPosition(value));
+        }
+
+        private static int NormalizeTaskbarPosition(int value)
+        {
+            // Solo i bordi orizzontali sono piu' applicabili: qualunque valore
+            // vecchio o corrotto diverso da Alto ricade in Basso.
+            return value == 1 ? 1 : 0;
         }
 
         /// <summary>
-        /// true = barra bloccata (default, come Win7). Rotation between
-        /// Bottom/Top/Left/Right stays in Properties regardless of this flag.
+        /// true = barra bloccata (default, come Win7). Sono disponibili solo
+        /// le posizioni orizzontali Basso e Alto.
         /// </summary>
         public bool LockTaskbar
         {
@@ -194,12 +201,14 @@ namespace RetroBar.Utilities
         }
 
         /// <summary>
-        /// Clock flyout choice: true = native Windows immersive flyout, false = WPF recreated / Scelta calendario: true = nativo, false = ricreato
+        /// Flyout dell'orologio fissato al comportamento Windows 7. La
+        /// proprieta' resta per compatibilita' con settings.json e con il
+        /// protocollo nativo, ma un valore falso non e' piu' applicabile.
         /// </summary>
         public bool UseNativeClockFlyout
         {
             get => _useNativeClockFlyout;
-            set => SetField(ref _useNativeClockFlyout, value);
+            set => SetField(ref _useNativeClockFlyout, true);
         }
 
         /// <summary>
@@ -691,6 +700,21 @@ namespace RetroBar.Utilities
             {
                 settings._useNativeClockFlyout = true;
                 settings.ClockFlyoutNativeMigrated195 = true;
+                changed = true;
+            }
+
+            /* La UI non espone piu' il flyout ricreato: anche una
+             * configurazione gia' migrata deve diventare Windows 7. */
+            if (!settings._useNativeClockFlyout)
+            {
+                settings._useNativeClockFlyout = true;
+                changed = true;
+            }
+
+            int normalizedPosition = NormalizeTaskbarPosition(settings._taskbarPosition);
+            if (normalizedPosition != settings._taskbarPosition)
+            {
+                settings._taskbarPosition = normalizedPosition;
                 changed = true;
             }
 

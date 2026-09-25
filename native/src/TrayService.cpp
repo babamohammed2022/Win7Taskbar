@@ -637,18 +637,19 @@ bool IsOwnerExplorerCached(HWND owner, std::map<DWORD, bool>& cache) {
     }
 
     bool isExplorer = false;
-    HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (proc != nullptr) {
+    raii::GenericHandle proc(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
+                                          FALSE, pid));
+    if (proc) {
         wchar_t path[MAX_PATH] = {};
         DWORD len = static_cast<DWORD>(std::size(path));
-        if (QueryFullProcessImageNameW(proc, 0, path, &len) != FALSE && len > 0) {
+        if (QueryFullProcessImageNameW(proc.get(), 0, path, &len) != FALSE &&
+            len > 0) {
             const std::wstring image(path);
             const size_t slash = image.find_last_of(L"\\/");
             const std::wstring name = (slash == std::wstring::npos)
                                     ? image : image.substr(slash + 1);
             isExplorer = _wcsicmp(name.c_str(), L"explorer.exe") == 0;
         }
-        CloseHandle(proc);
     }
     cache[pid] = isExplorer;
     return isExplorer;
@@ -815,7 +816,19 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
              * concordi, e SOLO dove l'utente non ha una preferenza nostra:
              * la sua scelta vince, sempre. */
             if (!HasSavedPreference(key)) {
-                if (item.hidden == entry.hiddenDesired) {
+                if (item.promotionKnown) {
+                    /* IsPromoted e' una scelta persistita dell'utente, non
+                     * una fotografia transitoria della toolbar: adottarla
+                     * subito evita che il cassetto resti indietro di una
+                     * passata quando Windows 11 aggiorna il registro. */
+                    const bool pinned = !item.hidden;
+                    if (entry.isPinned != pinned) {
+                        entry.isPinned = pinned;
+                        changed = true;
+                    }
+                    entry.hiddenDesired = item.hidden;
+                    entry.hiddenPending = 0;
+                } else if (item.hidden == entry.hiddenDesired) {
                     if (entry.hiddenPending > 0) {
                         ++entry.hiddenPending;
                         if (entry.hiddenPending >= kConfirmReads) {
@@ -1507,10 +1520,11 @@ void TrayService::OnWatcherMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     (void)lParam;
     switch (msg) {
         case kMsgSettings:
-            /* Qualcosa e' cambiato nella chiave Explorer: la sola cosa che
-             * ci riguarda qui e' EnableAutoTray (regola di visibilita' per
-             * le icone senza preferenza). */
-            AppendCoreLog(L"chiave Explorer cambiata: riapplico la regola di visibilita'");
+            /* Il watcher osserva sia Explorer sia il ramo Control Panel che
+             * contiene NotifyIconSettings. Una modifica a IsPromoted deve
+             * rileggere la toolbar e la configurazione Windows 11, non una
+             * euristica locale. */
+            AppendCoreLog(L"configurazione tray cambiata: riapplico la regola di visibilita'");
             ScheduleReconcile(kReconcileSettings, 0);
             break;
 
@@ -1953,7 +1967,12 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
     }
 
     if (msg == WM_COPYDATA) {
-        return Instance().HandleCopyData(hwnd, reinterpret_cast<const COPYDATASTRUCT*>(lParam));
+        /* wParam e' l'HWND del mittente originale. Il messaggio viene
+         * prima applicato al modello locale e poi inoltrato alla vera
+         * Shell_TrayWnd di Explorer dal wrapper, mai ricorsivamente alla
+         * finestra dello shim. */
+        return Instance().HandleCopyData(
+            hwnd, wParam, reinterpret_cast<const COPYDATASTRUCT*>(lParam));
     }
 
     if (msg == WM_SETTINGCHANGE) {
@@ -2192,15 +2211,131 @@ LRESULT CALLBACK TrayService::TaskSwitchWndProc(HWND hwnd, UINT msg, WPARAM wPar
     return handled ? result : DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-LRESULT TrayService::HandleCopyData(HWND, const COPYDATASTRUCT* cds) {
+bool TrayService::ForwardCopyDataToExplorer(
+    WPARAM sender, const COPYDATASTRUCT* cds) const {
+    if (cds == nullptr || cds->dwData != kCopyDataTrayIcon) {
+        return false;
+    }
+
+    bool delivered = false;
+    W7T_SEH_TRY {
+        try {
+            const DWORD ourPid = GetCurrentProcessId();
+            HWND explorerTray = nullptr;
+            HWND explorerFallback = nullptr;
+            HWND candidate = nullptr;
+            while ((candidate = FindWindowExW(
+                        nullptr, candidate, L"Shell_TrayWnd", nullptr))
+                   != nullptr) {
+                if (candidate == m_trayWnd) {
+                    continue;
+                }
+                DWORD pid = 0;
+                GetWindowThreadProcessId(candidate, &pid);
+                if (pid == 0 || pid == ourPid) {
+                    continue;
+                }
+                const std::wstring image = GetProcessImagePath(pid);
+                const size_t slash = image.find_last_of(L"\\/");
+                const std::wstring name = slash == std::wstring::npos
+                    ? image : image.substr(slash + 1);
+                if (_wcsicmp(name.c_str(), L"explorer.exe") != 0) {
+                    continue;
+                }
+                if (explorerFallback == nullptr) {
+                    explorerFallback = candidate;
+                }
+                /* Una Shell_TrayWnd vera normalmente ha il figlio
+                 * TrayNotifyWnd: preferiamo quella per evitare finestre
+                 * omonime, ma il processo Explorer resta la prova decisiva.
+                 * Su build XAML dove il figlio non esiste, il fallback evita
+                 * di perdere il forwarding obbligatorio. */
+                if (FindWindowExW(candidate, nullptr,
+                                  L"TrayNotifyWnd", nullptr) != nullptr) {
+                    explorerTray = candidate;
+                    break;
+                }
+            }
+            if (explorerTray == nullptr) {
+                explorerTray = explorerFallback;
+            }
+
+            if (explorerTray == nullptr) {
+                AppendCoreLog(L"copydata: Shell_TrayWnd di Explorer non trovata,"
+                              L" nessun inoltro eseguito");
+            } else {
+                DWORD_PTR response = 0;
+                const LRESULT sent = SendMessageTimeoutW(
+                    explorerTray, WM_COPYDATA, sender,
+                    reinterpret_cast<LPARAM>(cds),
+                    SMTO_ABORTIFHUNG | SMTO_BLOCK, 1500, &response);
+                delivered = sent != 0;
+                if (!delivered) {
+                    wchar_t line[160];
+                    wsprintfW(line,
+                              L"copydata: inoltro a Explorer fallito err=%lu",
+                              static_cast<unsigned long>(GetLastError()));
+                    AppendCoreLog(line);
+                }
+            }
+        } catch (...) {
+            AppendCoreLog(L"copydata: eccezione durante l'inoltro a Explorer");
+            delivered = false;
+        }
+    } W7T_SEH_CATCH {
+        AppendCoreLog(L"copydata: fault durante l'inoltro a Explorer");
+        delivered = false;
+    } W7T_SEH_END
+    return delivered;
+}
+
+LRESULT TrayService::HandleCopyData(HWND hwnd, WPARAM sender,
+                                    const COPYDATASTRUCT* cds) {
+    (void)hwnd;
+    bool localHandled = false;
+    bool shouldForward = false;
+
+    /* Il forwarding non e' nel ramo locale: anche un payload corrotto o una
+     * eccezione dell'applicazione deve lasciare arrivare a Explorer il
+     * WM_COPYDATA originale, dopo il tentativo di elaborazione locale. */
+    W7T_SEH_TRY {
+        try {
+            shouldForward = cds != nullptr && cds->dwData == kCopyDataTrayIcon;
+            localHandled = HandleCopyDataLocal(cds) != FALSE;
+        } catch (...) {
+            AppendCoreLog(L"copydata: eccezione nell'elaborazione locale");
+            localHandled = false;
+        }
+    } W7T_SEH_CATCH {
+        AppendCoreLog(L"copydata: fault nell'elaborazione locale");
+        localHandled = false;
+        /* Se la lettura del campo dwData ha causato un fault, non si può
+         * affermare che il pacchetto sia SHELLTRAYDATA: nessun inoltro
+         * inventato a Explorer. */
+        shouldForward = false;
+    } W7T_SEH_END
+
+    bool forwarded = false;
+    if (shouldForward) {
+        forwarded = ForwardCopyDataToExplorer(sender, cds);
+    }
+    /* Un risultato non-zero significa che almeno il nostro percorso locale o
+     * il destinatario Explorer ha ricevuto il pacchetto. Non si dichiara
+     * successo quando entrambi hanno fallito. */
+    return (localHandled || forwarded) ? TRUE : FALSE;
+}
+
+LRESULT TrayService::HandleCopyDataLocal(const COPYDATASTRUCT* cds) {
     if (cds == nullptr || cds->lpData == nullptr) {
         return FALSE;
     }
 
     const auto* bytes = static_cast<const uint8_t*>(cds->lpData);
 
-    /* Protocollo reale di Shell_NotifyIcon (verificato contro il decompilato
-     * di shell32!Shell_NotifyIconA di Windows 98, che fa
+    /* Protocollo non documentato da Microsoft di Shell_NotifyIcon
+     * (verificato contro il decompilato di shell32!Shell_NotifyIconA di
+     * Windows 98 e reimplementazioni open source, quindi soggetto a
+     * variazioni per build): shell32 fa
      * FindWindow("Shell_TrayWnd") + SendMessage(WM_COPYDATA, owner,
      * COPYDATASTRUCT{ dwData=1, ... })):
      *   dwData = 0  messaggio AppBar;
@@ -2601,10 +2736,10 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
                 } else if (source != nullptr) {
                     /* L'handle appartiene al processo mittente, che potrebbe
                      * distruggerlo: ne prendiamo una copia nostra. */
-                    HICON owned = CopyIcon(source);
-                    if (owned != nullptr) {
+                    raii::IconHandle owned(CopyIcon(source));
+                    if (owned) {
                         ArgbBitmap bmp;
-                        if (IconToArgb(owned, bmp) && BitmapSane(bmp)) {
+                        if (IconToArgb(owned.get(), bmp) && BitmapSane(bmp)) {
                             const uint64_t hash = ArgbHash(bmp);
                             if (hash != entry.pixelHash) {
                                 entry.bitmap = std::move(bmp);
@@ -2612,7 +2747,6 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
                                 entry.iconRevision++;
                             }
                         }
-                        DestroyIcon(owned);
                     }
                 }
                 /* hIcon == NULL senza bitmap Wine: l'applicazione ha mandato
@@ -2981,7 +3115,7 @@ void TrayService::EnableWin11Tray() {
      * con quella classe compare/scompare, si rilegge. Filtro per classe:
      * l'hook e' globale ma costa una GetClassNameW per evento. */
     if (m_trayHostHook == nullptr) {
-        m_trayHostHook = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW,
+        m_trayHostHook = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_HIDE,
                                          nullptr, TrayHostChangedProc,
                                          0, 0,
                                          WINEVENT_OUTOFCONTEXT |
@@ -3191,8 +3325,14 @@ void TrayService::ApplyWin11TraySnapshot() {
         return;
     }
 
-    const std::vector<Win11TrayItem> raw =
-        Win11TrayReader::Instance().TakeSnapshot();
+    const bool readValid = Win11TrayReader::Instance().IsLastReadValid();
+    const std::vector<Win11TrayItem> raw = readValid
+        ? Win11TrayReader::Instance().TakeSnapshot()
+        : std::vector<Win11TrayItem>();
+    const bool mainRead = readValid &&
+        Win11TrayReader::Instance().IsLastReadMainValid();
+    const bool overflowRead = readValid &&
+        Win11TrayReader::Instance().IsLastReadOverflowValid();
 
     /* v2.62 - LE ICONE DI SISTEMA CHE RICREIAMO NON SI IMPORTANO.
      *
@@ -3442,6 +3582,15 @@ void TrayService::ApplyWin11TraySnapshot() {
             if (present.count(pair.first.uid) != 0) {
                 continue;
             }
+            /* L'isola dell'overflow e' spesso creata solo quando il flyout
+             * viene aperto. Una lettura valida della barra principale non e'
+             * una prova che una voce gia' vista nel cassetto sia stata
+             * rimossa: la conserviamo finche' UIA non attraversa davvero
+             * l'overflow. */
+            if ((!mainRead && !entry.hiddenDesired) ||
+                (!overflowRead && entry.hiddenDesired)) {
+                continue;
+            }
             if (++entry.missCount >= 2) {
                 toRemove.push_back(pair.first);
             }
@@ -3496,6 +3645,7 @@ void CALLBACK TrayService::TrayHostChangedProc(HWINEVENTHOOK, DWORD,
     const bool isTrayHost =
         wcsstr(cls, L"TopLevelWindowForOverflowXamlIsland") != nullptr ||
         wcsstr(cls, L"DesktopWindowContentBridge") != nullptr ||
+        _wcsicmp(cls, L"Windows.UI.Input.InputSite.WindowClass") == 0 ||
         _wcsicmp(cls, L"Shell_TrayWnd") == 0 ||
         _wcsicmp(cls, L"Shell_SecondaryTrayWnd") == 0;
     if (!isTrayHost) {
@@ -3874,14 +4024,14 @@ bool IsFlyoutProcess(HWND hwnd) {
     if (pid == 0) {
         return false;
     }
-    HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (proc == nullptr) {
+    raii::GenericHandle proc(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
+                                          FALSE, pid));
+    if (!proc) {
         return false;
     }
     wchar_t path[MAX_PATH] = {};
     DWORD len = static_cast<DWORD>(std::size(path));
-    const bool ok = QueryFullProcessImageNameW(proc, 0, path, &len) != FALSE;
-    CloseHandle(proc);
+    const bool ok = QueryFullProcessImageNameW(proc.get(), 0, path, &len) != FALSE;
     if (!ok || len == 0) {
         return false;
     }
@@ -4440,22 +4590,23 @@ static BOOL BestEffortRestoreBatteryKeyNoAlloc() {
     if (!g_batteryKeyTouched) {
         return TRUE;
     }
-    HKEY key = nullptr;
+    HKEY rawKey = nullptr;
     if (RegOpenKeyExW(HKEY_CURRENT_USER,
                       L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
-                      0, KEY_SET_VALUE, &key) != ERROR_SUCCESS || key == nullptr) {
+                      0, KEY_SET_VALUE, &rawKey) != ERROR_SUCCESS ||
+        rawKey == nullptr) {
         return FALSE;
     }
+    raii::RegKeyHandle key(rawKey);
     LSTATUS s = ERROR_SUCCESS;
     if (g_batteryKeyPrevExists) {
-        s = RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
+        s = RegSetValueExW(key.get(), L"UseWin32BatteryFlyout", 0, REG_DWORD,
                            reinterpret_cast<const BYTE*>(&g_batteryKeyPrevValue),
                            sizeof(g_batteryKeyPrevValue));
     } else {
-        s = RegDeleteValueW(key, L"UseWin32BatteryFlyout");
+        s = RegDeleteValueW(key.get(), L"UseWin32BatteryFlyout");
         if (s == ERROR_FILE_NOT_FOUND) s = ERROR_SUCCESS;
     }
-    RegCloseKey(key);
     return (s == ERROR_SUCCESS) ? TRUE : FALSE;
 }
 
@@ -4509,9 +4660,10 @@ static void WriteBatteryFlyoutBackup(bool prevExists, DWORD prevValue) {
             CreateDirectoryW(path.substr(0, slash).c_str(), nullptr);
         }
     }
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
-                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
+    raii::GenericHandle h(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                                       CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                       nullptr));
+    if (!h) {
         return;
     }
     uint8_t buf[1 + 4];
@@ -4521,8 +4673,7 @@ static void WriteBatteryFlyoutBackup(bool prevExists, DWORD prevValue) {
     buf[3] = static_cast<uint8_t>((prevValue >> 16) & 0xFFu);
     buf[4] = static_cast<uint8_t>((prevValue >> 24) & 0xFFu);
     DWORD written = 0;
-    BOOL okWrite = WriteFile(h, buf, sizeof(buf), &written, nullptr);
-    CloseHandle(h);
+    BOOL okWrite = WriteFile(h.get(), buf, sizeof(buf), &written, nullptr);
     if (!okWrite || written != sizeof(buf)) {
         /* Scrittura fallita o incompleta: meglio NESSUN backup che un
          * file corrotto che mentirebbe sul valore precedente. */
@@ -4543,16 +4694,15 @@ static void RecoverBatteryFlyoutKeyFromBackup() {
     if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
         return;
     }
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                           nullptr, OPEN_EXISTING, 0, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
+    raii::GenericHandle h(CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                                       nullptr, OPEN_EXISTING, 0, nullptr));
+    if (!h) {
         return;
     }
     uint8_t buf[1 + 4] = {};
     DWORD readN = 0;
-    const bool ok = ReadFile(h, buf, sizeof(buf), &readN, nullptr) == TRUE
+    const bool ok = ReadFile(h.get(), buf, sizeof(buf), &readN, nullptr) == TRUE
                  && readN == sizeof(buf);
-    CloseHandle(h);
     if (!ok) {
         DeleteFileW(path.c_str());
         return;
@@ -4562,24 +4712,26 @@ static void RecoverBatteryFlyoutKeyFromBackup() {
                          | (static_cast<DWORD>(buf[2]) << 8)
                          | (static_cast<DWORD>(buf[3]) << 16)
                          | (static_cast<DWORD>(buf[4]) << 24);
-    HKEY key = nullptr;
+    HKEY rawKey = nullptr;
+    raii::RegKeyHandle key;
     if (RegCreateKeyExW(
             HKEY_CURRENT_USER,
             L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
             0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE,
-            nullptr, &key, nullptr) == ERROR_SUCCESS && key != nullptr) {
-        if (prevExists) {
-            RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
-                           reinterpret_cast<const BYTE*>(&prevValue),
-                           sizeof(prevValue));
-        } else {
-            RegDeleteValueW(key, L"UseWin32BatteryFlyout");
+            nullptr, &rawKey, nullptr) == ERROR_SUCCESS && rawKey != nullptr) {
+        key.reset(rawKey);
+        const LSTATUS restoreResult = prevExists
+            ? RegSetValueExW(key.get(), L"UseWin32BatteryFlyout", 0, REG_DWORD,
+                             reinterpret_cast<const BYTE*>(&prevValue),
+                             sizeof(prevValue))
+            : RegDeleteValueW(key.get(), L"UseWin32BatteryFlyout");
+        if (restoreResult == ERROR_SUCCESS ||
+            (!prevExists && restoreResult == ERROR_FILE_NOT_FOUND)) {
+            /* Cancelliamo il backup solo DOPO un Reg* di successo. */
+            DeleteFileW(path.c_str());
+            LogTagged(L"GATE",
+                      L"batteria: recuperata chiave legacy da backup (terminazione anomala precedente)");
         }
-        RegCloseKey(key);
-        /* Cancelliamo il backup solo DOPO un Reg* di successo. */
-        DeleteFileW(path.c_str());
-        LogTagged(L"GATE",
-                  L"batteria: recuperata chiave legacy da backup (terminazione anomala precedente)");
     }
     /* Se il restore e' fallito (key non apribile, ecc.), lasciamo il
      * file sul disco: il prossimo avvio riprovera'. */
@@ -4589,19 +4741,21 @@ static void EnsureWin32BatteryFlyoutValue() {
     if (g_batteryKeyTouched) {
         return;   /* un tentativo e' gia' in corso: non toccare due volte */
     }
-    HKEY key = nullptr;
+    HKEY rawKey = nullptr;
+    raii::RegKeyHandle key;
     const LSTATUS opened = RegCreateKeyExW(
         HKEY_CURRENT_USER,
         L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
         0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE | KEY_QUERY_VALUE,
-        nullptr, &key, nullptr);
-    if (opened != ERROR_SUCCESS) {
+        nullptr, &rawKey, nullptr);
+    if (opened != ERROR_SUCCESS || rawKey == nullptr) {
         return;
     }
+    key.reset(rawKey);
     DWORD value = 0;
     DWORD size = sizeof(value);
     DWORD type = 0;
-    const LSTATUS read = RegQueryValueExW(key, L"UseWin32BatteryFlyout",
+    const LSTATUS read = RegQueryValueExW(key.get(), L"UseWin32BatteryFlyout",
                                           nullptr, &type,
                                           reinterpret_cast<LPBYTE>(&value),
                                           &size);
@@ -4628,7 +4782,6 @@ static void EnsureWin32BatteryFlyoutValue() {
         w7t::RegistryPolicy::WriteWithBackup(batteryFlyout);
         g_batteryKeyTouched = true;
     }
-    RegCloseKey(key);
 }
 
 /* Ripristina il valore precedente (o cancella la voce che non c'era). */
