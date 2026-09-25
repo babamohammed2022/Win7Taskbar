@@ -159,7 +159,9 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
         }
         return W7T_OK;
     }
-    m_inSetPos = true;
+    /* RAII: ogni ritorno anticipato, compreso un fault SEH nella chiamata
+     * alla shell, deve sbloccare la posa rientrante. */
+    ScopeFlag setPosGuard(m_inSetPos);
 
     /* Rettangolo FISICO del monitor su cui vive la barra.
      *
@@ -243,7 +245,14 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
      * dall'area che la shell aveva davvero riservato, soprattutto cambiando
      * fra Basso e Alto. */
     const UINT_PTR queryResult = SHAppBarMessage(ABM_QUERYPOS, &abd);
-    (void)queryResult; /* rc resta utilizzabile anche su shell legacy. */
+    if (queryResult == 0 || abd.rc.right <= abd.rc.left ||
+        abd.rc.bottom <= abd.rc.top) {
+        m_lastSetPosTick = GetTickCount64();
+        if (out != nullptr && m_haveLastRect) {
+            *out = m_lastRect;
+        }
+        return W7T_ERR_APPBAR;
+    }
 
     /* QUERYPOS ha gia' scelto il rettangolo disponibile sul monitor e sul
      * bordo. Si modifica solo la dimensione ortogonale, conservando i
@@ -266,7 +275,6 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
     }
 
     if (abd.rc.right <= abd.rc.left || abd.rc.bottom <= abd.rc.top) {
-        m_inSetPos = false;
         m_lastSetPosTick = GetTickCount64();
         if (out != nullptr && m_haveLastRect) {
             *out = m_lastRect;
@@ -278,7 +286,6 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
      * questa chiamata e' il rettangolo approvato dalla shell. */
     if (SHAppBarMessage(ABM_SETPOS, &abd) == 0 ||
         abd.rc.right <= abd.rc.left || abd.rc.bottom <= abd.rc.top) {
-        m_inSetPos = false;
         m_lastSetPosTick = GetTickCount64();
         if (out != nullptr && m_haveLastRect) {
             *out = m_lastRect;
@@ -307,10 +314,9 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
                  abd.rc.right - abd.rc.left, abd.rc.bottom - abd.rc.top,
                  SWP_NOZORDER | SWP_NOACTIVATE);
     } W7T_SEH_CATCH {
-        /* Fault dentro la negoziazione: meglio una posa rimandata che un
-         * barra (o una shell) in crash. Il flag va sbloccato qui perche'
-         * il cammino normale non viene raggiunto. */
-        m_inSetPos        = false;
+        /* Fault dentro la negoziazione: meglio una posa rimandata che una
+         * barra (o una shell) in crash. ScopeFlag sblocca il flag anche
+         * quando il cammino normale non viene raggiunto. */
         m_lastSetPosTick  = GetTickCount64();
         if (out != nullptr && m_haveLastRect) {
             *out = m_lastRect;
@@ -344,7 +350,6 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
     if (out != nullptr) {
         *out = abd.rc;
     }
-    m_inSetPos = false;
     return W7T_OK;
 }
 
