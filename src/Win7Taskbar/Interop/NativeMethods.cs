@@ -696,6 +696,12 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_JumpListHitRow(int screenX, int screenY);
 
+        /// <summary>v3.17: chiede che il PROSSIMO open della jump list
+        /// entri con lo scivolo rapido dal basso verso l'alto (trigger
+        /// drag-up Windows 7); il flag e' consumato dal singolo open.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_JumpListSetAnimateFromBelow(int yes);
+
         /// <summary>Trasferisce il popup dal gesto catturato all'input
         /// ordinario; il rilascio non attiva alcuna riga.</summary>
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]

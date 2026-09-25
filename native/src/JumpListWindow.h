@@ -129,6 +129,14 @@ public:
      * exactly where the Windows 7 shell opens its jump view. */
     int32_t SetHover(int32_t screenX, int32_t screenY);
 
+    /* v3.17: asks for the fast bottom-to-top entrance animation on the
+     * NEXT Open only (the Windows 7 drag-up trigger from the taskbar:
+     * the list slides from the bar to its final position in ~150 ms and,
+     * once released, stays open). Every open that follows consumes the
+     * flag again, so a stale request can never leak into a plain
+     * right-click open. */
+    void SetAnimateFromBelowOnNextOpen(bool yes);
+
     /* Row under the screen point, -1 when none; no side effects. The
      * release decision (activate / keep open / cancel) is the managed
      * state machine's, this is only its hit-test. */
@@ -183,7 +191,8 @@ private:
     void OnPaint(HWND hwnd);
     void BuildRows();
     void Layout();
-    void Place(HWND hwnd, const RECT& button, int32_t edge);
+    void Place(HWND hwnd, const RECT& button, int32_t edge,
+                 bool animateFromBelow);
     /* Client layout size → window size including the Aero WS_THICKFRAME
      * chrome. Growing the HWND (not removing the border) is what keeps
      * rows from being clipped by the flyout frame. */
@@ -250,6 +259,9 @@ private:
     RECT m_popupRect = {};      /* screen px */
     RECT m_buttonRect = {};     /* screen px */
     RECT m_area = {};           /* interaction area, screen px */
+
+    /* Consumed once by Open: slide the popup in from below (drag-up). */
+    bool m_animateFromBelow = false;
 };
 
 } // namespace w7t

@@ -150,6 +150,19 @@ SOFTWARE.
 
 ---
 
+## RetroBar — vertical taskbar alignment recipe (v3.17)
+
+For the vertical taskbar the project adopted the alignment recipe of
+RetroBar's `StartButton` orientation triggers (theme "Windows Vista Aero",
+`RetroBar/Themes/Windows Vista Aero.xaml`): when `Orientation == Vertical`
+the Start orb is horizontally centered and its overhang margins collapse
+to a small bottom gap. RetroBar does not ship a Windows 7-specific orb
+size for vertical bars; on top of the recipe Win7Taskbar keeps the orb
+inside the bar's bounds (48 DIP) so a bar at the left/right screen edge
+can never clip the sprite. RetroBar is Apache-2.0-licensed
+(https://github.com/dremin/RetroBar); the measurement values were taken
+from the referenced theme, no XAML content was copied.
+
 ## Windows 11 native-tray research credits (Phase 0, 2026-09)
 
 The recon for consuming the Windows 11 tray without ExplorerPatcher

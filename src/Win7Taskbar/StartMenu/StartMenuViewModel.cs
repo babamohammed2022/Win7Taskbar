@@ -1105,6 +1105,10 @@ namespace Win7Taskbar.StartMenu
                 {
                     break;
                 }
+                /* v3.17: metrica icone della riga di ricerca (-4% e
+                 * spostamento a sinistra, + calibrazione per le icone
+                 * moderne imbottite tipo Strumento di cattura). */
+                StartMenuIcons.ApplySearchRowMetrics(item);
                 SearchHits.Add(item);
                 shown++;
             }

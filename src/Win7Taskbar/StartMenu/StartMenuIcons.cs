@@ -686,5 +686,76 @@ namespace Win7Taskbar.StartMenu
 
         [DllImport("comctl32.dll")]
         private static extern IntPtr ImageList_GetIcon(IntPtr himl, int i, uint flags);
+
+        // --------- v3.17: padded-icon calibration of the search rows ---------
+
+        /// <summary>Fraction of opaque pixels of a decoration icon
+        /// (alpha > 10). Modern icons with a big transparent canvas
+        /// (snipping tool family) sit well below 0.34; classic Win7
+        /// icons fill almost the whole frame. Everything is guarded:
+        /// any failure reports full coverage (no adjustment).</summary>
+        public static double OpaqueCoverage(ImageSource? icon)
+        {
+            const double full = 1.0;
+            try
+            {
+                if (icon is not BitmapSource bmp ||
+                    bmp.PixelWidth <= 0 || bmp.PixelHeight <= 0)
+                {
+                    return full;
+                }
+                int w = bmp.PixelWidth;
+                int h = bmp.PixelHeight;
+                int stride = w * 4;
+                byte[] pixels = new byte[stride * h];
+                BitmapSource source = bmp;
+                if (bmp.Format != PixelFormats.Bgra32 &&
+                    bmp.Format != PixelFormats.Pbgra32)
+                {
+                    source = new FormatConvertedBitmap(bmp,
+                        PixelFormats.Bgra32, null, 0);
+                }
+                source.CopyPixels(pixels, stride, 0);
+                int opaque = 0;
+                for (int i = 3; i < pixels.Length; i += 4)
+                {
+                    if (pixels[i] > 10)
+                    {
+                        opaque++;
+                    }
+                }
+                return (double)opaque / (w * h);
+            }
+            catch (Exception)
+            {
+                return full;   // no adjustment on unknown content
+            }
+        }
+
+        /// <summary>Search-row icon metrics (v3.17): every row already
+        /// inherits the -4% size (19.2) and the left-shifted margin
+        /// (15.2). Icons whose opaque coverage is small (padded modern
+        /// glyphs) render slightly smaller and further left - the
+        /// user's calibration for Strumento di cattura & co. Everything
+        /// wrapped: a failure leaves the defaults untouched.</summary>
+        public static void ApplySearchRowMetrics(StartMenuItem item)
+        {
+            try
+            {
+                if (item?.Icon == null)
+                {
+                    return;
+                }
+                if (OpaqueCoverage(item.Icon) < 0.34)
+                {
+                    item.SearchIconSize = 18.4;
+                    item.SearchIconLeft = 10.6;
+                }
+            }
+            catch (Exception)
+            {
+                /* defaults stand */
+            }
+        }
     }
 }

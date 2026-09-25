@@ -977,7 +977,8 @@ RECT JumpListWindow::WorkAreaForButton() const {
  * button, centered on the icon, small gap. Growing the HWND for Aero
  * chrome without centering shifted the client to the right of the icon.
  * Gap and margin are DPI-scaled; no unscaled offsets. */
-void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge) {
+void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge,
+                                  bool animateFromBelow) {
     /* Glue the popup to the Superbar button. The bar lives in the
      * monitor reserved strip, which sits *outside* rcWork; clamping the
      * attached axis to the work area lifted a bottom-bar list off the
@@ -1037,8 +1038,27 @@ void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge) {
              * button. WM_WINDOWPOSCHANGING is sent synchronously inside
              * SetWindowPos, so the property is set and removed around it. */
             SetPropW(hwnd, L"W7T_AllowOneResize", reinterpret_cast<HANDLE>(1));
-            SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
-                         SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            /* v3.17: con l'apertura da trascinamento (SetAnimateFromBelow
+             * consumato da Open) il popup ENTRA con uno scivolo rapido
+             * dal basso verso l'alto (AnimateWindow, stessa meccanica
+             * documentata AW_SLIDE | AW_VER_POSITIVE): la posizione
+             * finale non cambia, il resto del gesto non lo distingue.
+             * E' racchiuso qui, dentro lo stesso blocco guardato, e la
+             * finestra resta nascosta finche' l'animazione non parte. */
+            if (animateFromBelow) {
+                const bool wasHidden = !IsWindowVisible(hwnd);
+                if (!wasHidden) {
+                    ::ShowWindow(hwnd, SW_HIDE);
+                }
+                SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
+                             SWP_NOACTIVATE);
+                AnimateWindow(hwnd, 150, AW_SLIDE | AW_VER_POSITIVE);
+                SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
+                             SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            } else {
+                SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
+                             SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            }
             RemovePropW(hwnd, L"W7T_AllowOneResize");
             m_popupRect = RECT{ x, y, x + w, y + h };
         } catch (...) {
@@ -1200,7 +1220,9 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
          * MakeInteractive removes this bit only after that mouse-up. */
         SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE,
             GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
-        Place(m_hwnd, m_buttonRect, m_edge);
+        const bool animateFromBelow = m_animateFromBelow;
+        m_animateFromBelow = false;
+        Place(m_hwnd, m_buttonRect, m_edge, animateFromBelow);
         UpdateInteractionArea();
         InvalidateRect(m_hwnd, nullptr, TRUE);
         LogTagged(L"JUMPLIST",
@@ -1291,6 +1313,11 @@ void JumpListWindow::UpdateHoverFromScreen(POINT screenPt) {
             InvalidateRect(m_hwnd, &r, FALSE);
         }
     }
+}
+
+void JumpListWindow::SetAnimateFromBelowOnNextOpen(bool yes) {
+    /* v3.17 - RAII: solo un flag POD, nessuna risorsa acquisita. */
+    m_animateFromBelow = yes;
 }
 
 int32_t JumpListWindow::SetHover(int32_t screenX, int32_t screenY) {

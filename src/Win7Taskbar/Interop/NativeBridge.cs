@@ -1092,6 +1092,20 @@ namespace Win7Taskbar.Interop
         public int JumpListHitRow(int screenX, int screenY)
             => NativeMethods.W7T_JumpListHitRow(screenX, screenY);
 
+        /// <summary>v3.17: drag-up entrance animation for the next open.
+        /// Old cores without the export no-op silently.</summary>
+        public void JumpListSetAnimateFromBelow(bool yes)
+        {
+            try
+            {
+                NativeMethods.W7T_JumpListSetAnimateFromBelow(yes ? 1 : 0);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                /* Old core: no animation, everything else unchanged. */
+            }
+        }
+
         /// <summary>Attiva la riga sotto il punto schermo nel popup
         /// (la chiude dopo); bits riporta l'esito per il chiamante
         /// (1 = documento aperto, 2 = app avviata, 4 = pin commutato).</summary>

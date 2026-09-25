@@ -683,14 +683,20 @@
                                               VerticalAlignment="Center"
                                               Margin="9,0,0,0"
                                               Visibility="Collapsed" />
-                                        <!-- icona item: box x=29-44 dal
-                                             bordo; mai sugli header. -->
+                                        <!-- v3.17: icone -4% (19.2 DIP)
+                                             e 1.2% di pannello piu' a
+                                             sinistra; le icone moderne con
+                                             grande cornice trasparente
+                                             (Strumento di cattura e simili)
+                                             hanno una metrica propria
+                                             calcolata a riga. -->
                                         <Image x:Name="SectionIcon"
                                                Source="{Binding Icon}"
-                                               Width="20" Height="20"
+                                               Width="{Binding SearchIconSize}"
+                                               Height="{Binding SearchIconSize}"
                                                HorizontalAlignment="Left"
                                                VerticalAlignment="Center"
-                                               Margin="20,0,0,0"
+                                               Margin="{Binding SearchIconMargin}"
                                                RenderOptions.BitmapScalingMode="HighQuality" />
                                         <!-- testo item: colonna UNICA a
                                              x=48.5 (margine 39) con e senza
@@ -756,13 +762,12 @@
                              scorre e non dipende dai risultati trovati.
                              v3.13.1: rimpicciolito del 5% su altezza, icona
                              e font (22 -> 21, 20 -> 19, 12 -> 11.4). -->
-                        <!-- v3.15.1: footer ancora -5% (21 -> 20 px,
-                             icona 19 -> 18, font 11.4 -> 10.8) e spostato
-                             un po' a sinistra rispetto alla colonna item
-                             (icona da margine 20 a 14, testo da 39 a 32). -->
+                        <!-- v3.17: footer -2.5% ancora (19.5 px, icona
+                             17.6, font 10.5); la posizione a sinistra non
+                             cambia rispetto alla v3.15.1. -->
                         <Border x:Name="InternetSearchFooter"
                                 Grid.Row="1"
-                                Height="20"
+                                Height="19.5"
                                 Background="Transparent"
                                 Cursor="Hand"
                                 BorderBrush="#FFA5B9DD"
@@ -779,14 +784,14 @@
                             </Border.Style>
                             <Grid HorizontalAlignment="Stretch">
                                 <Image x:Name="InternetFooterIcon"
-                                       Width="18" Height="18"
+                                       Width="17.6" Height="17.6"
                                        HorizontalAlignment="Left"
                                        VerticalAlignment="Center"
                                        Margin="14,0,0,0"
                                        RenderOptions.BitmapScalingMode="HighQuality" />
                                 <TextBlock Text="{DynamicResource lang_sm_search_internet}"
                                            FontFamily="Segoe UI"
-                                           FontSize="10.8"
+                                           FontSize="10.5"
                                            Foreground="#FF000000"
                                            VerticalAlignment="Center"
                                            Margin="32,0,8,0"

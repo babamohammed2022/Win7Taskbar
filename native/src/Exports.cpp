@@ -1152,6 +1152,19 @@ extern "C" W7T_API int32_t W7T_CALL W7T_JumpListOpen(
 
 /* Movimento del cursore durante il gesto: aggiorna la riga evidenziata
  * e risponde 1 se il punto e' ancora nell'area di interazione. */
+/* v3.17: chiede che il PROSSIMO open entri con lo scivolo rapido
+ * dal basso verso l'alto (trigger drag-up Windows 7). Il flag e'
+ * consumato da Open; un open qualunque lo resetta, mai persistente. */
+extern "C" W7T_API void W7T_CALL W7T_JumpListSetAnimateFromBelow(
+        int32_t yes) {
+    W7T_SEH_TRY {
+        w7t::JumpListWindow::Instance().SetAnimateFromBelowOnNextOpen(
+            yes != 0);
+    } W7T_SEH_CATCH {
+        w7t::LogTagged(L"JUMPLIST", L"fault at the export boundary (anim)");
+    } W7T_SEH_END
+}
+
 extern "C" W7T_API int32_t W7T_CALL W7T_JumpListSetHover(int32_t screenX,
         int32_t screenY) {
     W7T_SEH_TRY {
