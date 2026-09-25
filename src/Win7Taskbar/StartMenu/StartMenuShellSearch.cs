@@ -324,9 +324,16 @@ namespace Win7Taskbar.StartMenu
                 return;
             }
             string parse = ReadName(item, SigdnDesktopAbsoluteParsing);
+            /* v3.13: SOLO voci reali, secondo la documentazione Microsoft:
+             * SIGDN_DESKTOPABSOLUTEPARSING restituisce il nome di parsing
+             * assoluto (C:\..., shell:..., ::{CLSID}) che ShellExecute /
+             * ParseDisplayName sanno sempre lanciare. Se manca, la voce e'
+             * un "link morto" (il vecchio fallback "shell:<nome mostrato>"
+             * produceva URI non risolvibili, cliccabili ma inutili) e va
+             * SCARTATA, non pubblicata a meta'. */
             if (string.IsNullOrWhiteSpace(parse))
             {
-                parse = name;
+                return;
             }
             if (!parse.StartsWith("shell:", StringComparison.OrdinalIgnoreCase) &&
                 !parse.StartsWith("::", StringComparison.Ordinal) &&

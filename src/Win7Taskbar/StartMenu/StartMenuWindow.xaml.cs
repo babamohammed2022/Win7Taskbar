@@ -333,6 +333,51 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
+        /* v3.13: footer FISSO del pannello dei risultati, presente con
+         * ogni ricerca: apre la ricerca web nel browser predefinito
+         * (stessa URL costruita per la riga internet che lo precedeva). */
+        private void OnSearchInternetFooter(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                string url = StartMenuShellSearch.InternetSearchUrl(_vm.SearchText);
+                _vm.Launch(new StartMenuItem
+                {
+                    Name = StartMenuViewModel.T("lang_sm_search_internet",
+                                                "Search the Internet"),
+                    Path = url,
+                    Folder = "internet"
+                });
+            }
+            catch (Exception)
+            {
+            }
+            Dismiss();
+            e.Handled = true;
+        }
+
+        /* v3.13: icona del BROWSER predefinito per il footer, caricata una
+         * sola volta (la stessa scelta del vecchio item internet). */
+        private bool _internetFooterIconLoaded;
+        private void EnsureInternetFooterIcon()
+        {
+            if (_internetFooterIconLoaded || InternetFooterIcon == null)
+            {
+                return;
+            }
+            _internetFooterIconLoaded = true;
+            try
+            {
+                InternetFooterIcon.Source =
+                    StartMenuIcons.FromDefaultBrowser(20)
+                        ?? StartMenuIcons.FromDll("imageres.dll", 220, 20)
+                        ?? StartMenuIcons.FromDll("shell32.dll", 14, 20);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         private void OnLeftListContext(object sender, MouseButtonEventArgs e)
         {
             if (e.Handled)
@@ -1073,6 +1118,7 @@ namespace Win7Taskbar.StartMenu
                 ApplySearchShutdownInk(searching);
                 if (searching)
                 {
+                    EnsureInternetFooterIcon();
                     SearchHost.Visibility = Visibility.Visible;
                     SearchHost.IsHitTestVisible = true;
                     SearchHost.BeginAnimation(OpacityProperty,

@@ -1072,29 +1072,12 @@ namespace Win7Taskbar.StartMenu
                 });
             }
 
-            try
-            {
-                string url = StartMenuShellSearch.InternetSearchUrl(_searchText);
-                /* v3.10: icona del BROWSER predefinito (UserChoice http),
-                 * come il menu di Windows 7 che mostra il browser scelto. */
-                SearchHits.Add(new StartMenuItem
-                {
-                    Name = T("lang_sm_search_internet", "Search the Internet"),
-                    Path = url,
-                    Folder = "internet",
-                    /* v3.12: gap di ~32 px dalla fine delle categorie
-                     * (circa 1,5 righe della griglia da 22), misurato sul
-                     * pannello vero di Windows 7: fuori dalla riga, cosi'
-                     * la riga stessa resta alta 22 come tutte le altre. */
-                    GapBefore = 32,
-                    Icon = StartMenuIcons.FromDefaultBrowser(24)
-                        ?? StartMenuIcons.FromDll("imageres.dll", 220, 24)
-                        ?? StartMenuIcons.FromDll("shell32.dll", 14, 24)
-                });
-            }
-            catch (Exception)
-            {
-            }
+            /* v3.13: "Cerca in Internet" NON e' piu' una voce della lista
+             * (appariva solo con certi risultati e scorreva via col resto):
+             * ora e' un piccolo FOOTER FISSO del pannello, presente in ogni
+             * ricerca - vive nello XAML del SearchHost e la sua azione usa
+             * StartMenuShellSearch.InternetSearchUrl(SearchText) dal
+             * code-behind della finestra. */
             }
             catch (Exception)
             {
