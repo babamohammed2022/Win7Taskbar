@@ -2304,6 +2304,10 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
          * bandierina e si fa tutto tra poco su questo thread: il wndproc
          * non deve bloccarsi qui dentro. */
         self.m_explorerRestarted.store(true);
+        /* WORKAROUND: la forma della tray puo' cambiare dopo il riavvio di
+         * Explorer. La cache "Classic" del rilevatore Win11 deve quindi
+         * essere invalidata prima della prossima riconciliazione. */
+        Win11TrayReader::Instance().NoteExplorerRestart();
         self.ScheduleReconcile(kReconcileExplorer, 2500);
         return 0;
     }

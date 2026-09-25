@@ -92,6 +92,11 @@ public:
      * disable this reader. Cheap: only window lookups, no COM. */
     static bool Detect();
 
+    /* WORKAROUND: segnala che Explorer si e' (ri)avviato e la forma della
+     * tray puo' essere cambiata. La successiva Detect() azzera la cache
+     * negativa e ri-risolve da capo; il flag e' atomico. */
+    void NoteExplorerRestart();
+
     /* Where the worker posts "snapshot ready" (the tray service window). */
     void SetNotify(HWND wnd, UINT message);
 

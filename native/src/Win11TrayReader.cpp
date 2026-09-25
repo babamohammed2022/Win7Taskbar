@@ -326,6 +326,88 @@ bool HasXamlBridge(HWND taskbar) {
     return !FindOverflowIslands().empty();
 }
 
+/* Struttura della toolbar legacy della tray sotto una taskbar specifica. */
+bool HasClassicTrayToolbarUnder(HWND tray) {
+    if (tray == nullptr) {
+        return false;
+    }
+    HWND notify = FindWindowExW(tray, nullptr, L"TrayNotifyWnd", nullptr);
+    if (notify == nullptr) {
+        return false;
+    }
+    if (FindWindowExW(notify, nullptr, L"SysPager", nullptr) == nullptr) {
+        return false;
+    }
+    return FindWindowExW(notify, nullptr, L"ToolbarWindow32", nullptr) != nullptr;
+}
+
+/* ------------------------------------------------------------------ */
+/*  WORKAROUND — risoluzione REALE dello stato della tray              */
+/*                                                                     */
+/*  Su Windows 11 < 24H2 Explorer puo' lasciare la gerarchia legacy     */
+/*  TrayNotifyWnd -> SysPager -> ToolbarWindow32 come guscio vuoto     */
+/*  accanto alla tray XAML. La sola presenza della catena non basta:   */
+/*  si interroga il numero reale dei pulsanti prima di scegliere il    */
+/*  lettore classico o quello UI Automation.                           */
+/* ------------------------------------------------------------------ */
+
+enum class TrayShellState : int {
+    Unknown = 0,
+    Classic = 1,
+    Xaml = 2,
+};
+
+/* Generazione del riavvio di Explorer, consumata dalla cache di Detect(). */
+std::atomic<ULONGLONG> g_explorerRestartGeneration{ 0 };
+
+/* TB_BUTTONCOUNT senza dipendere da commctrl.h in questo translation unit. */
+constexpr UINT kTbButtonCount = WM_USER + 24;
+
+bool HasRealClassicTrayToolbar(HWND taskbar) {
+    if (!HasClassicTrayToolbarUnder(taskbar)) {
+        return false;
+    }
+    HWND toolbar = FindWindowExW(taskbar, nullptr, L"TrayNotifyWnd", nullptr);
+    if (toolbar != nullptr) {
+        toolbar = FindWindowExW(toolbar, nullptr, L"SysPager", nullptr);
+    }
+    if (toolbar != nullptr) {
+        toolbar = FindWindowExW(toolbar, nullptr, L"ToolbarWindow32", nullptr);
+    }
+    if (toolbar == nullptr) {
+        return false;
+    }
+
+    DWORD_PTR buttons = 0;
+    if (SendMessageTimeoutW(toolbar, kTbButtonCount, 0, 0,
+                            SMTO_ABORTIFHUNG | SMTO_NORMAL, 200,
+                            &buttons) == 0) {
+        return false;
+    }
+    return buttons != 0;
+}
+
+TrayShellState ResolveTrayShellState() {
+    const std::vector<HWND> taskbars = FindShellTaskbars();
+    if (taskbars.empty()) {
+        return TrayShellState::Unknown;
+    }
+
+    bool classic = false;
+    bool xaml = false;
+    for (HWND taskbar : taskbars) {
+        classic = HasRealClassicTrayToolbar(taskbar) || classic;
+        xaml = HasXamlBridge(taskbar) || xaml;
+    }
+    if (xaml && !classic) {
+        return TrayShellState::Xaml;
+    }
+    if (classic) {
+        return TrayShellState::Classic;
+    }
+    return TrayShellState::Unknown;
+}
+
 std::wstring ExePathOf(uint32_t pid) {
     if (pid == 0) {
         return std::wstring();
@@ -818,35 +900,54 @@ Win11TrayReader& Win11TrayReader::Instance() {
 }
 
 bool Win11TrayReader::Detect() {
-    /* L'esito viene memorizzato per un secondo sia quando il bridge esiste
-     * sia quando non esiste ancora. Cosi' una ricreazione di Explorer o un
-     * bridge creato in ritardo viene rilevato senza interrogare User32 a ogni
-     * evento; dopo l'avvio positivo gli aggiornamenti ordinari arrivano dagli
-     * eventi UIA. */
-    static std::atomic<int> cached{ 0 };   /* 0 = ignoto, 1 = si', 2 = no */
+    /* WORKAROUND: la rilevazione risolve lo stato reale della tray. Su
+     * Windows 11 < 24H2 la catena legacy puo' sopravvivere come guscio
+     * vuoto: TB_BUTTONCOUNT vale zero anche se la tray XAML e' attiva.
+     *
+     * Caching:
+     *  - il risultato POSITIVO (XAML) resta definitivo;
+     *  - Classic resta in cache solo 2 secondi;
+     *  - Unknown non viene mai memorizzato come risultato negativo. */
+    static std::atomic<int> cached{ 0 };       /* 0 = unknown, 1 = Xaml, 2 = Classic */
     static std::atomic<ULONGLONG> lastCheck{ 0 };
+    static std::atomic<ULONGLONG> lastRestartGenerationSeen{ 0 };
 
-    const int previous = cached.load();
     const ULONGLONG now = GetTickCount64();
-    if (previous != 0 && now - lastCheck.load() < 1000) {
-        return previous == 1;
+    if (cached.load() == 1) {
+        return true;
+    }
+    if (cached.load() == 2 && now - lastCheck.load() < 2000) {
+        return false;
     }
     lastCheck.store(now);
 
-    const std::vector<HWND> taskbars = FindShellTaskbars();
-    bool hasXaml = false;
-    for (HWND taskbar : taskbars) {
-        if (HasXamlBridge(taskbar)) {
-            hasXaml = true;
-            break;
-        }
+    /* Dopo un rebuild di Explorer la forma della tray puo' essere cambiata. */
+    const ULONGLONG restartGen = g_explorerRestartGeneration.load();
+    if (restartGen != lastRestartGenerationSeen.load()) {
+        lastRestartGenerationSeen.store(restartGen);
+        cached.store(0);
     }
-    /* La presenza occasionale della toolbar legacy non basta a escludere
-     * XAML: su alcune build Windows 11 la shell mantiene entrambi i livelli.
-     * Il requisito discriminante e' il bridge/isola XAML osservabile. */
-    const bool win11 = !taskbars.empty() && hasXaml;
-    cached.store(win11 ? 1 : 2);
-    return win11;
+
+    const TrayShellState state = ResolveTrayShellState();
+    switch (state) {
+        case TrayShellState::Xaml:
+            cached.store(1);
+            return true;
+        case TrayShellState::Classic:
+            cached.store(2);
+            lastCheck.store(GetTickCount64());
+            return false;
+        case TrayShellState::Unknown:
+        default:
+            cached.store(0);
+            return false;
+    }
+}
+
+void Win11TrayReader::NoteExplorerRestart() {
+    /* Explorer puo' aver cambiato forma della tray: la prossima Detect()
+     * deve risolvere nuovamente il livello legacy/XAML. */
+    g_explorerRestartGeneration.fetch_add(1);
 }
 
 void Win11TrayReader::SetNotify(HWND wnd, UINT message) {
@@ -1224,10 +1325,14 @@ void Win11TrayReader::WorkerMain() {
             }
 
             Bstr name, cls, automationId;
+            int controlType = UIA_CustomControlTypeId;
+            BOOL offscreen = FALSE;
             int pid = 0;
             element->get_CurrentName(&name.value);
             element->get_CurrentClassName(&cls.value);
             element->get_CurrentAutomationId(&automationId.value);
+            element->get_CurrentControlType(&controlType);
+            element->get_CurrentIsOffscreen(&offscreen);
             element->get_CurrentProcessId(&pid);
 
             const std::wstring className = cls.str();
@@ -1241,14 +1346,27 @@ void Win11TrayReader::WorkerMain() {
                 continue;
             }
 
-            const bool notifyIconView = isNotifyIconView(className);
-            const bool systemIconView = isSystemIconView(className, id, text);
-            if (!notifyIconView && !systemIconView) {
-                /* Il tipo UIA non viene usato come filtro: XAML espone
-                 * NotifyIconView come Custom su varie build, non come Button.
-                 * IsOffscreen non viene usato: il prodotto nasconde la
-                 * taskbar di Explorer e il flyout overflow puo' essere chiuso,
-                 * ma gli elementi registrati restano la fonte della lettura. */
+            const bool isButton =
+                controlType == UIA_ButtonControlTypeId ||
+                controlType == UIA_ListItemControlTypeId ||
+                controlType == UIA_CustomControlTypeId;
+
+            /* WORKAROUND (overflow vuoto): regole di ritenzione per ruolo.
+             * La barra principale richiede un elemento on-screen, nominato e
+             * appartenente alla tray; l'overflow conserva anche elementi
+             * off-screen e senza nome, perche' il flyout chiuso li espone
+             * proprio in quello stato. Il tipo Custom resta ammesso: diverse
+             * build XAML pubblicano NotifyIconView senza Button/ListItem. */
+            const bool roleOverflow = hidden;
+            const bool trayClass = notifyIconView || systemIconView;
+            const bool trayishClass =
+                className.find(L"Tray") != std::wstring::npos ||
+                className.find(L"Icon") != std::wstring::npos;
+
+            if (!isButton || !(trayClass || (roleOverflow && trayishClass))) {
+                continue;
+            }
+            if (!roleOverflow && (offscreen != FALSE || text.empty())) {
                 continue;
             }
 
@@ -1256,7 +1374,6 @@ void Win11TrayReader::WorkerMain() {
             item.hidden = hidden;
             item.order = order++;
             item.pid = static_cast<uint32_t>(pid);
-            item.name = text;
 
             /* CurrentProcessId identifica il provider UIA (quasi sempre
              * explorer.exe), NON il processo che ha registrato l'icona.
@@ -1269,9 +1386,21 @@ void Win11TrayReader::WorkerMain() {
                 IsShellProcess(ExeNameOf(providerPath));
             item.exePath = providerIsShell ? std::wstring() : providerPath;
             item.systemOwned = systemIconView && providerIsShell;
+            item.name = text;
+            if (item.name.empty()) {
+                /* Identita' di ripiego per i provider UIA senza CurrentName. */
+                std::wstring owner = ExeNameOf(item.exePath);
+                if (owner.empty()) {
+                    wchar_t buf[32] = {};
+                    swprintf(buf, 32, L"App %u",
+                             static_cast<unsigned>(item.pid));
+                    owner = buf;
+                }
+                item.name = owner;
+            }
 
             if (item.systemOwned) {
-                item.kind = ClassifySystemIcon(text);
+                item.kind = ClassifySystemIcon(item.name);
                 if (item.kind == SystemIconKind::None) {
                     /* Campanella, posizione, Copilot e altri elementi della
                      * shell moderna non hanno un equivalente Win7. */
