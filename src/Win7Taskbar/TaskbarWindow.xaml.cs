@@ -127,7 +127,7 @@ namespace Win7Taskbar
             }
         }
 
-        /* Rotation Bottom/Top/Left/Right is live (EdgeFromPosition).
+        /* La posizione configurabile e' orizzontale: Bottom/Top.
          * User-controlled thickness resize was removed. */
 
         internal TaskbarWindow(NativeBridge bridge)
@@ -711,6 +711,9 @@ namespace Win7Taskbar
                         int pos = 0;
                         try { pos = RetroBar.Utilities.Settings.Instance.TaskbarPosition; }
                         catch (Exception) { pos = 0; }
+                        /* Anche il fallback WPF applica solo Basso/Alto:
+                         * eventuali valori legacy verticali diventano Basso. */
+                        pos = pos == 1 ? 1 : 0;
                         switch (pos)
                         {
                             case 1: /* Top: apri sotto la freccetta */
@@ -2438,46 +2441,29 @@ namespace Win7Taskbar
         }
 
         /// <summary>
-        /// v1.21.43 - CONVERSIONE ESPLICITA posizione persistita -> bordo:
-        ///   // posizione (persistita)   -> TaskbarEdge / AppBarEdgeValue
-        ///   // 0 Basso                  -> TaskbarEdge.Bottom (3)
-        ///   // 1 Alto                   -> TaskbarEdge.Top    (1)
-        ///   // 2 Sinistra               -> TaskbarEdge.Left   (0)
-        ///   // 3 Destra                 -> TaskbarEdge.Right  (2)
-        /// Era il pezzo mancante quando l'opzione "Posizione" fu ritirata
-        /// (v1.21.28): il cast diretto (TaskbarEdge)position spostava ogni
-        /// scelta e le anteprime DWM restavano sul lato sbagliato.
+        /// v1.21.43 - conversione esplicita posizione persistita -> bordo.
+        /// La configurazione attuale ammette soltanto 0 = Basso e 1 = Alto;
+        /// qualunque valore legacy o corrotto viene trattato come Basso prima
+        /// di toccare la finestra o l'AppBar.
         /// </summary>
         private static TaskbarEdge EdgeFromPosition(int position) =>
-            position switch
-            {
-                1 => TaskbarEdge.Top,
-                2 => TaskbarEdge.Left,
-                3 => TaskbarEdge.Right,
-                _ => TaskbarEdge.Bottom,
-            };
+            position == 1 ? TaskbarEdge.Top : TaskbarEdge.Bottom;
 
         /// <summary>Stesso bordo in valori AppBar (ABE_*) per il core nativo.</summary>
         private static int AppBarEdgeFromPosition(int position) =>
-            position switch
-            {
-                1 => AppBarEdgeValue.Top,
-                2 => AppBarEdgeValue.Left,
-                3 => AppBarEdgeValue.Right,
-                _ => AppBarEdgeValue.Bottom,
-            };
+            position == 1 ? AppBarEdgeValue.Top : AppBarEdgeValue.Bottom;
 
         /// <summary>
-        /// Fixed theme thickness in DIP. Left/Right use this as WIDTH.
-        /// User-controlled resizing was removed: the bar is always the
-        /// Windows 7 Superbar height from the active theme.
+        /// Fixed theme thickness in DIP. La barra resta orizzontale e usa
+        /// questo valore come altezza. User-controlled resizing was removed:
+        /// la barra e' sempre la Windows 7 Superbar del tema attivo.
         /// </summary>
         private double TaskbarThicknessDip => Math.Max(1.0, ThemeTaskbarHeightDip);
 
         /// <summary>
         /// Riga "Blocca la barra": lo stato vive in Settings.LockTaskbar
         /// (persistente) e il menu contestuale lo spunta/toglie come in Windows 7.
-        /// Rotation (Bottom/Top/Left/Right) stays available from Properties.
+        /// La posizione resta limitata a Basso/Alto.
         /// </summary>
         private bool _taskbarLocked
         {
@@ -2828,7 +2814,8 @@ namespace Win7Taskbar
                 }
 
                 int seconds      = System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 0);
-                int nativeFlyout = System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 4);
+                /* Offset 4 resta nel protocollo per compatibilita', ma il
+                 * flyout dell'orologio e' ormai fisso al comportamento Windows 7. */
                 int enableSearch = System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 8);
                 int lang         = System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 12);
                 int openSearch   = System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 16);
@@ -2861,7 +2848,9 @@ namespace Win7Taskbar
                 int tbLinks = hasToolbars
                     ? System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 48) : -1;
                 st.ShowClockSeconds   = seconds == 1;
-                st.UseNativeClockFlyout = nativeFlyout == 1;
+                /* Il pacchetto conserva il campo storico nativeFlyout, ma la
+                 * scelta non e' piu' esposta: si applica sempre Windows 7. */
+                st.UseNativeClockFlyout = true;
                 st.EnableAppSearch    = enableSearch == 1;
                 /* Indice fuori elenco: inglese, mai italiano per omissione. */
                 string newLang = (lang >= 0 && lang < kLangCodes.Length)
@@ -3005,7 +2994,7 @@ namespace Win7Taskbar
                                 (autoStart == 1 ? "attivato" : "disattivato") +
                                 " (logica RetroBar)");
                 }
-                /* v1.21.43 - rotazione della barra + blocco (schema RetroBar
+                /* v1.21.43 - posizione orizzontale + blocco (schema RetroBar
                  * Edge/LockTaskbar). Campi in CODA: offset 80/84, pacchetto da
                  * 88 byte; si leggono solo se il nativo li contiene davvero. */
                 bool geometryChanged = false;
@@ -3013,7 +3002,10 @@ namespace Win7Taskbar
                 {
                     int taskbarPosition = System.Runtime.InteropServices.Marshal
                         .ReadInt32(cds.lpData, 80);
-                    if (taskbarPosition is < 0 or > 3) taskbarPosition = 0;
+                    /* La configurazione nuova conosce solo Basso (0) e Alto
+                     * (1). 2/3 sono i valori legacy Sinistra/Destra e tornano
+                     * a Basso prima di toccare la geometria. */
+                    if (taskbarPosition != 1) taskbarPosition = 0;
                     if (taskbarPosition != st.TaskbarPosition)
                     {
                         st.TaskbarPosition = taskbarPosition;
@@ -9076,7 +9068,9 @@ namespace Win7Taskbar
                     Math.Max(0, Array.IndexOf(kLangCodes,
                         st.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode)),
                     st.ShowClockSeconds ? 1 : 0,
-                    st.UseNativeClockFlyout ? 1 : 0,
+                    /* Il selettore del flyout orologio e' stato rimosso:
+                     * il comportamento Windows 7 viene sempre richiesto. */
+                    1,
                     st.EnableAppSearch ? 1 : 0,
                     st.NetworkFlyoutMode,
                     st.UseClassicVolumeMixer ? 1 : 0,
@@ -9097,8 +9091,8 @@ namespace Win7Taskbar
                      * (LoadAutoStart), per la casella della scheda
                      * Informazioni. */
                     Win7Taskbar.Utilities.AutoStart.IsEnabled() ? 1 : 0,
-                    /* v1.21.43: posizione barra (0..3) + blocco (sezione
-                     * "Impostazioni extra", riga "Posizione"). */
+                    /* Posizione barra: solo 0=Basso e 1=Alto; il setter delle
+                     * impostazioni ha gia' convertito i valori legacy 2/3. */
                     st.TaskbarPosition,
                     st.LockTaskbar ? 1 : 0,
                     st.WindowsKeyOpensOurMenu ? 1 : 0);

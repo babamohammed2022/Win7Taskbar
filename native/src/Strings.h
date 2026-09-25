@@ -217,7 +217,9 @@ struct ExtraStrings {
     const wchar_t* optPrivacyNormal;
     const wchar_t* optPrivacyPrivate;
     const wchar_t* txtPrivacyHint;
-    /* Taskbar group: skin and icon order. */
+    /* Gruppo barra: tema/posizione nella pagina principale, blocco e tasto
+     * Windows nella pagina extra. Le stringhe dell'ordine restano per
+     * compatibilita', anche se il testo esplicativo e' nascosto. */
     const wchar_t* grpTaskbar;
     const wchar_t* lblTheme;
     const wchar_t* themeWin7;
