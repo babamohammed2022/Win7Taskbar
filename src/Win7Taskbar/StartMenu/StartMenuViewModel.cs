@@ -266,12 +266,7 @@ namespace Win7Taskbar.StartMenu
             }
             if (string.Equals(item.Folder, "seemore", StringComparison.Ordinal))
             {
-                /* "See more results": the full query in Explorer, exactly
-                 * like Open-Shell's LaunchExternalSearch on the category. */
-                if (!string.IsNullOrEmpty(item.Path))
-                {
-                    OpenShellUri(item.Path);
-                }
+                OpenSearchResults(item.Path);
                 return;
             }
             if (item.IsFolder)
@@ -465,6 +460,55 @@ namespace Win7Taskbar.StartMenu
         public void OpenShellUri(string uri)
         {
             StartProcess(uri, null);
+        }
+
+        /* v3.19: "Visualizza altri risultati" prima NON apriva nulla su
+         * molti sistemi: invocare direttamente l'URI "search-ms:..."
+         * dipende dalla registrazione del protocollo (quando l'handler
+         * e' il motore di ricerca moderno senza UI esporre finestra il
+         * ProcessStartInfo viene osservato come "non fa nulla"). Il 7
+         * e Open-Shell passano invece l'URI a EXPLORER.exe: si apre la
+         * cartella dei risultati di ricerca. Doppi fallback documentati:
+         * la cartella shell dei risultati (CLSID documentato da COM) e,
+         * in estremis, la shell window di Esplora file. */
+        private void OpenSearchResults(string? searchUri)
+        {
+            if (string.IsNullOrEmpty(searchUri))
+            {
+                return;
+            }
+            if (TryStartProcess("explorer.exe", searchUri))
+            {
+                return;
+            }
+            if (TryStartProcess("explorer.exe",
+                "shell:::{9343812e-1c37-4a49-a12e-4b2d810d956b}"))
+            {
+                return;
+            }
+            OpenShellUri(searchUri!);
+        }
+
+        private static bool TryStartProcess(string fileName,
+            string? arguments)
+        {
+            try
+            {
+                var info = new ProcessStartInfo
+                {
+                    FileName = fileName,
+                    UseShellExecute = true
+                };
+                if (!string.IsNullOrEmpty(arguments))
+                {
+                    info.Arguments = arguments;
+                }
+                return Process.Start(info) != null;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         /// <summary>
@@ -1408,7 +1452,14 @@ namespace Win7Taskbar.StartMenu
                 Path = "https://support.microsoft.com",
                 IsRightPane = true,
                 Infotip = T("lang_sm_tip_help", "Opens Microsoft support in your browser for help topics, tutorials, and troubleshooting."),
-                Icon = IconFromDll("imageres.dll", 99)
+                /* v3.19: per "Guida in linea e supporto" si usa la
+                 * STESSA icona della riga "Visualizza altri risultati"
+                 * (shell32 #23), come richiesto; quella precedente
+                 * (imageres #99) resta come fallback - e tanto piu'
+                 * l'ultima cartella Help. */
+                Icon = StartMenuIcons.FromDll("shell32.dll", 23, 50)
+                    ?? StartMenuIcons.FromDll("imageres.dll", 11, 50)
+                    ?? IconFromDll("imageres.dll", 99)
                     ?? IconFromParsingName(@"%SystemRoot%\Help")
             };
         }
