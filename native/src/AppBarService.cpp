@@ -228,70 +228,62 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
      * fault si esce sbloccando il flag rientrante e lasciando la
      * registrazione coerente. */
     W7T_SEH_TRY {
-    /* ABM_QUERYPOS leaves Explorer's still-registered taskbar in the way
-     * and would park us ON TOP of that bar. Re-pin to the physical monitor
-     * edge so our bar is anchored to the screen, not stacked above another
-     * taskbar. Native Explorer is hidden separately (ABS_AUTOHIDE). */
-    SHAppBarMessage(ABM_QUERYPOS, &abd);
+    /* Protocollo AppBar pubblico Microsoft:
+     *
+     *   1. ABM_QUERYPOS riceve il rettangolo candidato e restituisce nella
+     *      stessa APPBARDATA l'area disponibile sul bordo richiesto;
+     *   2. si applica a QUEL rettangolo lo spessore desiderato;
+     *   3. ABM_SETPOS negozia la prenotazione finale e puo' modificare ancora
+     *      rc per tenere conto di altre AppBar;
+     *   4. il rc uscito da ABM_SETPOS e' l'unico rettangolo approvato: non
+     *      va ricostruito dal monitor dopo la chiamata.
+     *
+     * In precedenza il risultato di QUERYPOS veniva ignorato e rc veniva
+     * riscritto dopo SETPOS: la finestra visibile poteva quindi divergere
+     * dall'area che la shell aveva davvero riservato, soprattutto cambiando
+     * fra Basso e Alto. */
+    const UINT_PTR queryResult = SHAppBarMessage(ABM_QUERYPOS, &abd);
+    (void)queryResult; /* rc resta utilizzabile anche su shell legacy. */
 
+    /* QUERYPOS ha gia' scelto il rettangolo disponibile sul monitor e sul
+     * bordo. Si modifica solo la dimensione ortogonale, conservando i
+     * limiti approvati dalla shell e l'eventuale coordinata non-zero di un
+     * monitor secondario. */
     switch (edge) {
         case W7T_EDGE_TOP:
-            abd.rc.left   = monitor.left;
-            abd.rc.top    = monitor.top;
-            abd.rc.right  = monitor.right;
-            abd.rc.bottom = monitor.top + sizePx;
+            abd.rc.bottom = abd.rc.top + sizePx;
             break;
         case W7T_EDGE_LEFT:
-            abd.rc.left   = monitor.left;
-            abd.rc.top    = monitor.top;
-            abd.rc.right  = monitor.left + sizePx;
-            abd.rc.bottom = monitor.bottom;
+            abd.rc.right = abd.rc.left + sizePx;
             break;
         case W7T_EDGE_RIGHT:
-            abd.rc.left   = monitor.right - sizePx;
-            abd.rc.top    = monitor.top;
-            abd.rc.right  = monitor.right;
-            abd.rc.bottom = monitor.bottom;
+            abd.rc.left = abd.rc.right - sizePx;
             break;
         case W7T_EDGE_BOTTOM:
         default:
-            abd.rc.left   = monitor.left;
-            abd.rc.top    = monitor.bottom - sizePx;
-            abd.rc.right  = monitor.right;
-            abd.rc.bottom = monitor.bottom;
+            abd.rc.top = abd.rc.bottom - sizePx;
             break;
     }
 
-    SHAppBarMessage(ABM_SETPOS, &abd);
+    if (abd.rc.right <= abd.rc.left || abd.rc.bottom <= abd.rc.top) {
+        m_inSetPos = false;
+        m_lastSetPosTick = GetTickCount64();
+        if (out != nullptr && m_haveLastRect) {
+            *out = m_lastRect;
+        }
+        return W7T_ERR_APPBAR;
+    }
 
-    /* SETPOS can still shrink us off the edge; force the window onto the
-     * monitor side we asked for. */
-    switch (edge) {
-        case W7T_EDGE_TOP:
-            abd.rc.left   = monitor.left;
-            abd.rc.top    = monitor.top;
-            abd.rc.right  = monitor.right;
-            abd.rc.bottom = monitor.top + sizePx;
-            break;
-        case W7T_EDGE_LEFT:
-            abd.rc.left   = monitor.left;
-            abd.rc.top    = monitor.top;
-            abd.rc.right  = monitor.left + sizePx;
-            abd.rc.bottom = monitor.bottom;
-            break;
-        case W7T_EDGE_RIGHT:
-            abd.rc.left   = monitor.right - sizePx;
-            abd.rc.top    = monitor.top;
-            abd.rc.right  = monitor.right;
-            abd.rc.bottom = monitor.bottom;
-            break;
-        case W7T_EDGE_BOTTOM:
-        default:
-            abd.rc.left   = monitor.left;
-            abd.rc.top    = monitor.bottom - sizePx;
-            abd.rc.right  = monitor.right;
-            abd.rc.bottom = monitor.bottom;
-            break;
+    /* ABM_SETPOS e' in/out: il rettangolo che rimane in APPBARDATA dopo
+     * questa chiamata e' il rettangolo approvato dalla shell. */
+    if (SHAppBarMessage(ABM_SETPOS, &abd) == 0 ||
+        abd.rc.right <= abd.rc.left || abd.rc.bottom <= abd.rc.top) {
+        m_inSetPos = false;
+        m_lastSetPosTick = GetTickCount64();
+        if (out != nullptr && m_haveLastRect) {
+            *out = m_lastRect;
+        }
+        return W7T_ERR_APPBAR;
     }
 
     m_edge = edge;

@@ -2486,6 +2486,23 @@ namespace Win7Taskbar
             set => RetroBar.Utilities.Settings.Instance.LockTaskbar = value;
         }
 
+        /* La finestra e' gia' senza bordi e ResizeMode=NoResize, ma il sistema
+         * puo' comunque inviare SC_MOVE/SC_SIZE (per esempio da un comando
+         * Win32 o da un accessibilita' che avvia il movimento). In caso di
+         * configurazione non leggibile si sceglie il comportamento sicuro:
+         * la barra resta bloccata. */
+        private bool IsTaskbarLockedSafely()
+        {
+            try
+            {
+                return _taskbarLocked;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
         /// <summary>
         /// v1.21.43: applica la geometria corrente (posizione + spessore) alla
         /// finestra e all'area riservata in shell. Punto unico, chiamato
@@ -3292,6 +3309,8 @@ namespace Win7Taskbar
             const int WM_WINDOWPOSCHANGED = 0x0047;
             const int WM_SIZE = 0x0005;
             const int WM_SYSCOMMAND = 0x0112;
+            const int SC_SIZE = 0xF000;
+            const int SC_MOVE = 0xF010;
             const int SC_MINIMIZE = 0xF020;
             const int SIZE_MINIMIZED = 1;
             const int SW_SHOWNOACTIVATE = 4;
@@ -3393,11 +3412,24 @@ namespace Win7Taskbar
                     }
                     break;
                 case WM_SYSCOMMAND:
+                    long systemCommand = wParam.ToInt64() & 0xFFF0;
+                    /* LockTaskbar non e' un flag AppBar pubblico: il blocco
+                     * della geometria passa dal rifiuto dei comandi Win32 di
+                     * movimento/ridimensionamento. La geometria AppBar resta
+                     * comunque sempre riaffermata sul rettangolo approvato
+                     * dalla shell. */
+                    if (IsTaskbarLockedSafely() &&
+                        (systemCommand == SC_MOVE || systemCommand == SC_SIZE))
+                    {
+                        handled = true;
+                        return IntPtr.Zero;
+                    }
+
                     // v2.19: il pulsante Aero Peek / Mostra desktop / Win+D
                     // minimizza ogni finestra top-level: la nostra taskbar
                     // deve restare visibile come quella vera -> ingoia
                     // SC_MINIMIZE.
-                    if ((wParam.ToInt64() & 0xFFF0) == SC_MINIMIZE)
+                    if (systemCommand == SC_MINIMIZE)
                     {
                         handled = true;
                         return IntPtr.Zero;
