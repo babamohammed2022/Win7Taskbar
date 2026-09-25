@@ -191,14 +191,10 @@ bool IconToArgb(HICON icon, std::vector<uint32_t>& outPx,
                 /* icona monocolore pura: il color bitmap dei due resta
                  * il fallback FromHICON di DrawIconGp. */
                 if (ii.hbmMask != nullptr) DeleteObject(ii.hbmMask);
-                if (ii.hbmIcon != nullptr) DeleteObject(ii.hbmIcon);
                 return false;
             }
             const UniqueGdiObject color(ii.hbmColor);
             const UniqueGdiObject mask(ii.hbmMask);
-            if (ii.hbmIcon != nullptr) {
-                DeleteObject(ii.hbmIcon);
-            }
             BITMAP bm{};
             if (GetObjectW(ii.hbmColor, sizeof(bm), &bm) != sizeof(bm) ||
                 bm.bmWidth <= 0 || bm.bmHeight <= 0) {
