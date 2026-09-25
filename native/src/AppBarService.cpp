@@ -32,6 +32,39 @@ namespace {
  * ("Flip3DControllerWndClass") e' una finestra message-only (HWND_MESSAGE)
  * e non compare mai a schermo: non serve sorvegliarla. */
 constexpr wchar_t kFlip3dOverlayClass[] = L"Flip3DOverlayWndClass";
+
+/* Diagnostica soltanto: l'area di lavoro viene letta con l'API pubblica
+ * SPI_GETWORKAREA, mai scritta implicitamente. SPI_SETWORKAREA altererebbe
+ * anche le riserve di altre AppBar e per questo non fa parte del percorso
+ * normale di Win7Taskbar. */
+void LogAppBarDiagnostics(const wchar_t* phase, HWND appbar,
+                         const RECT* negotiated) {
+    RECT windowRect = {};
+    RECT workArea = {};
+    const bool haveWindow = appbar != nullptr && GetWindowRect(appbar, &windowRect);
+    const bool haveWork = SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0) != FALSE;
+    wchar_t line[320] = {};
+    swprintf(line, ARRAYSIZE(line),
+             L"appbar: %ls hwnd=%p negotiated=(%ld,%ld)-(%ld,%ld) "
+             L"window=%ls(%ld,%ld)-(%ld,%ld) workarea=%ls(%ld,%ld)-(%ld,%ld)",
+             phase != nullptr ? phase : L"state",
+             appbar,
+             negotiated != nullptr ? negotiated->left : 0L,
+             negotiated != nullptr ? negotiated->top : 0L,
+             negotiated != nullptr ? negotiated->right : 0L,
+             negotiated != nullptr ? negotiated->bottom : 0L,
+             haveWindow ? L"yes" : L"no",
+             haveWindow ? windowRect.left : 0L,
+             haveWindow ? windowRect.top : 0L,
+             haveWindow ? windowRect.right : 0L,
+             haveWindow ? windowRect.bottom : 0L,
+             haveWork ? L"yes" : L"no",
+             haveWork ? workArea.left : 0L,
+             haveWork ? workArea.top : 0L,
+             haveWork ? workArea.right : 0L,
+             haveWork ? workArea.bottom : 0L);
+    AppendCoreLog(line);
+}
 } /* namespace */
 
 AppBarService& AppBarService::Instance() {
@@ -159,7 +192,9 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
         }
         return W7T_OK;
     }
-    m_inSetPos = true;
+    /* RAII: ogni ritorno anticipato, compreso un fault SEH nella chiamata
+     * alla shell, deve sbloccare la posa rientrante. */
+    ScopeFlag setPosGuard(m_inSetPos);
 
     /* Rettangolo FISICO del monitor su cui vive la barra.
      *
@@ -228,70 +263,67 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
      * fault si esce sbloccando il flag rientrante e lasciando la
      * registrazione coerente. */
     W7T_SEH_TRY {
-    /* ABM_QUERYPOS leaves Explorer's still-registered taskbar in the way
-     * and would park us ON TOP of that bar. Re-pin to the physical monitor
-     * edge so our bar is anchored to the screen, not stacked above another
-     * taskbar. Native Explorer is hidden separately (ABS_AUTOHIDE). */
-    SHAppBarMessage(ABM_QUERYPOS, &abd);
+    /* Protocollo AppBar pubblico Microsoft:
+     *
+     *   1. ABM_QUERYPOS riceve il rettangolo candidato e restituisce nella
+     *      stessa APPBARDATA l'area disponibile sul bordo richiesto;
+     *   2. si applica a QUEL rettangolo lo spessore desiderato;
+     *   3. ABM_SETPOS negozia la prenotazione finale e puo' modificare ancora
+     *      rc per tenere conto di altre AppBar;
+     *   4. il rc uscito da ABM_SETPOS e' l'unico rettangolo approvato: non
+     *      va ricostruito dal monitor dopo la chiamata.
+     *
+     * In precedenza il risultato di QUERYPOS veniva ignorato e rc veniva
+     * riscritto dopo SETPOS: la finestra visibile poteva quindi divergere
+     * dall'area che la shell aveva davvero riservato, soprattutto cambiando
+     * fra Basso e Alto. */
+    const UINT_PTR queryResult = SHAppBarMessage(ABM_QUERYPOS, &abd);
+    if (queryResult == 0 || abd.rc.right <= abd.rc.left ||
+        abd.rc.bottom <= abd.rc.top) {
+        m_lastSetPosTick = GetTickCount64();
+        if (out != nullptr && m_haveLastRect) {
+            *out = m_lastRect;
+        }
+        return W7T_ERR_APPBAR;
+    }
 
+    /* QUERYPOS ha gia' scelto il rettangolo disponibile sul monitor e sul
+     * bordo. Si modifica solo la dimensione ortogonale, conservando i
+     * limiti approvati dalla shell e l'eventuale coordinata non-zero di un
+     * monitor secondario. */
     switch (edge) {
         case W7T_EDGE_TOP:
-            abd.rc.left   = monitor.left;
-            abd.rc.top    = monitor.top;
-            abd.rc.right  = monitor.right;
-            abd.rc.bottom = monitor.top + sizePx;
+            abd.rc.bottom = abd.rc.top + sizePx;
             break;
         case W7T_EDGE_LEFT:
-            abd.rc.left   = monitor.left;
-            abd.rc.top    = monitor.top;
-            abd.rc.right  = monitor.left + sizePx;
-            abd.rc.bottom = monitor.bottom;
+            abd.rc.right = abd.rc.left + sizePx;
             break;
         case W7T_EDGE_RIGHT:
-            abd.rc.left   = monitor.right - sizePx;
-            abd.rc.top    = monitor.top;
-            abd.rc.right  = monitor.right;
-            abd.rc.bottom = monitor.bottom;
+            abd.rc.left = abd.rc.right - sizePx;
             break;
         case W7T_EDGE_BOTTOM:
         default:
-            abd.rc.left   = monitor.left;
-            abd.rc.top    = monitor.bottom - sizePx;
-            abd.rc.right  = monitor.right;
-            abd.rc.bottom = monitor.bottom;
+            abd.rc.top = abd.rc.bottom - sizePx;
             break;
     }
 
-    SHAppBarMessage(ABM_SETPOS, &abd);
+    if (abd.rc.right <= abd.rc.left || abd.rc.bottom <= abd.rc.top) {
+        m_lastSetPosTick = GetTickCount64();
+        if (out != nullptr && m_haveLastRect) {
+            *out = m_lastRect;
+        }
+        return W7T_ERR_APPBAR;
+    }
 
-    /* SETPOS can still shrink us off the edge; force the window onto the
-     * monitor side we asked for. */
-    switch (edge) {
-        case W7T_EDGE_TOP:
-            abd.rc.left   = monitor.left;
-            abd.rc.top    = monitor.top;
-            abd.rc.right  = monitor.right;
-            abd.rc.bottom = monitor.top + sizePx;
-            break;
-        case W7T_EDGE_LEFT:
-            abd.rc.left   = monitor.left;
-            abd.rc.top    = monitor.top;
-            abd.rc.right  = monitor.left + sizePx;
-            abd.rc.bottom = monitor.bottom;
-            break;
-        case W7T_EDGE_RIGHT:
-            abd.rc.left   = monitor.right - sizePx;
-            abd.rc.top    = monitor.top;
-            abd.rc.right  = monitor.right;
-            abd.rc.bottom = monitor.bottom;
-            break;
-        case W7T_EDGE_BOTTOM:
-        default:
-            abd.rc.left   = monitor.left;
-            abd.rc.top    = monitor.bottom - sizePx;
-            abd.rc.right  = monitor.right;
-            abd.rc.bottom = monitor.bottom;
-            break;
+    /* ABM_SETPOS e' in/out: il rettangolo che rimane in APPBARDATA dopo
+     * questa chiamata e' il rettangolo approvato dalla shell. */
+    if (SHAppBarMessage(ABM_SETPOS, &abd) == 0 ||
+        abd.rc.right <= abd.rc.left || abd.rc.bottom <= abd.rc.top) {
+        m_lastSetPosTick = GetTickCount64();
+        if (out != nullptr && m_haveLastRect) {
+            *out = m_lastRect;
+        }
+        return W7T_ERR_APPBAR;
     }
 
     m_edge = edge;
@@ -314,11 +346,11 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
                  abd.rc.left, abd.rc.top,
                  abd.rc.right - abd.rc.left, abd.rc.bottom - abd.rc.top,
                  SWP_NOZORDER | SWP_NOACTIVATE);
+    LogAppBarDiagnostics(L"dopo SetPos", hwnd, &abd.rc);
     } W7T_SEH_CATCH {
-        /* Fault dentro la negoziazione: meglio una posa rimandata che un
-         * barra (o una shell) in crash. Il flag va sbloccato qui perche'
-         * il cammino normale non viene raggiunto. */
-        m_inSetPos        = false;
+        /* Fault dentro la negoziazione: meglio una posa rimandata che una
+         * barra (o una shell) in crash. ScopeFlag sblocca il flag anche
+         * quando il cammino normale non viene raggiunto. */
         m_lastSetPosTick  = GetTickCount64();
         if (out != nullptr && m_haveLastRect) {
             *out = m_lastRect;
@@ -352,7 +384,6 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
     if (out != nullptr) {
         *out = abd.rc;
     }
-    m_inSetPos = false;
     return W7T_OK;
 }
 
@@ -603,8 +634,11 @@ void AppBarService::SetNativeTaskbarVisibility(bool hide) {
 }
 
 void AppBarService::DoHideNativeTaskbar() {
+    const HWND taskbar = FindNativeTaskbar();
+    LogAppBarDiagnostics(L"prima DoHideNativeTaskbar", taskbar, nullptr);
     SetNativeTaskbarState(ABS_AUTOHIDE);
     SetNativeTaskbarVisibility(true);
+    LogAppBarDiagnostics(L"dopo DoHideNativeTaskbar", FindNativeTaskbar(), nullptr);
 }
 
 namespace {

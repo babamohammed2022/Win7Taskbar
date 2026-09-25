@@ -19,6 +19,7 @@
 #include "Common.h"
 #include "SehGuard.h"
 #include "ScopeGuards.h"      /* v3.7.2: RAII per DC/GDI */
+#include "../include/RaiiWrappers.h" /* handle RAII anche per processi */
 
 #include <cstdarg>      /* v2.63: LogTagged */
 #include <string>
@@ -288,17 +289,17 @@ std::wstring GetProcessImagePath(DWORD pid) {
     if (pid == 0) {
         return std::wstring();
     }
-    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (process == nullptr) {
+    raii::GenericHandle process(
+        OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+    if (!process) {
         return std::wstring();
     }
     wchar_t buffer[MAX_PATH] = {};
     DWORD size = MAX_PATH;
     std::wstring result;
-    if (QueryFullProcessImageNameW(process, 0, buffer, &size)) {
+    if (QueryFullProcessImageNameW(process.get(), 0, buffer, &size)) {
         result.assign(buffer, size);
     }
-    CloseHandle(process);
     return result;
 }
 

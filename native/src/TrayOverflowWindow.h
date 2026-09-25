@@ -1,10 +1,12 @@
 // Win7Taskbar - pannello overflow nativo con vetro Aero
 // Copyright (c) 2026 Win7Taskbar contributors - GPL v3 or later
 //
-// v2.7: finestra Win32 propria (come la vera NotifyIconOverflowWindow)
-// con blur DWM vero (AeroGlass), griglia 3 colonne e link "Personalizza
-// elementi di notifica...". Sostituisce il Popup WPF quando la creazione
-// riesce; il Popup resta solo come fallback raro (vedi TaskbarWindow).
+// v2.7: finestra Win32 propria con blur DWM vero (AeroGlass), griglia 3
+// colonne e link "Personalizza elementi di notifica...". Sostituisce il
+// Popup WPF quando la creazione riesce; il Popup resta solo come fallback
+// raro (vedi TaskbarWindow). Il nome di classe è quello compatibile richiesto
+// per il pannello overflow effettivamente mostrato, non per il mirror del
+// ToolbarWindow32 interno.
 
 #pragma once
 #include <windows.h>
@@ -16,7 +18,9 @@ namespace w7t {
 
 /* Nome classe del pannello: usato anche da TrayService per notificare
  * cambiamenti della tray senza accoppiamenti forti. */
-inline constexpr wchar_t kOverflowClassName[] = L"Win7Taskbar_TrayOverflow";
+/* Finestra Win32 reale mostrata all'utente. Il mirror invisibile di
+ * TrayToolbar usa deliberatamente un nome diverso. */
+inline constexpr wchar_t kOverflowClassName[] = L"NotifyIconOverflowWindow";
 
 /* Messaggio registrato-like (WM_APP privato): "ricarica le icone". */
 constexpr UINT kMsgOverflowRefresh = WM_APP + 40;

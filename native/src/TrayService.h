@@ -17,7 +17,10 @@
  *
  * Reimplementazione completa dell'area di notifica: registriamo noi le
  * window class "Shell_TrayWnd" / "TrayNotifyWnd" e riceviamo direttamente
- * i WM_COPYDATA che shell32!Shell_NotifyIconW invia alla shell.
+ * i WM_COPYDATA che shell32!Shell_NotifyIconW invia alla shell. Ogni
+ * SHELLTRAYDATA (dwData == 1) viene prima applicato al modello locale e poi
+ * inoltrato alla Shell_TrayWnd reale di Explorer, esclusa questa finestra,
+ * così la tray nativa non perde le registrazioni.
  *
  * Il modello dei pulsanti vive in un ToolbarWindow32 reale (TrayToolbar.*):
  * ordine, TBSTATE_HIDDEN per l'overflow e rettangoli a schermo nascono dai
@@ -192,6 +195,10 @@ public:
     void EnsureToolbarModel();
     void SyncToolbarModel();
 
+    /* Mirror comctl32 opt-in: viene richiamato dal medesimo punto che
+     * notifica il pannello overflow, ma non è mai una fonte UI o Shell. */
+    void SyncLegacyToolbarShim();
+
     /* Passata periodica di sola verifica proprietari vivi + diff leggero. */
     void WatchdogLoop();
 
@@ -278,7 +285,7 @@ public:
     SystemIconKind KindOf(uint64_t ownerHwnd, uint32_t uid) const;
 
     /* true quando questa sessione usa la tray XAML di Windows 11. */
-    bool IsWin11Tray() const { return m_win11Tray; }
+    bool IsWin11Tray() const { return m_win11Tray.load(); }
 
     /* true dopo la prima richiesta di importazione. */
     bool m_importStarted = false;
@@ -321,7 +328,11 @@ private:
                                              HWND hwnd, LONG idObject,
                                              LONG idChild, DWORD thread,
                                              DWORD time);
-    LRESULT HandleCopyData(HWND hwnd, const COPYDATASTRUCT* cds);
+    LRESULT HandleCopyData(HWND hwnd, WPARAM sender,
+                           const COPYDATASTRUCT* cds);
+    LRESULT HandleCopyDataLocal(const COPYDATASTRUCT* cds);
+    bool ForwardCopyDataToExplorer(WPARAM sender,
+                                   const COPYDATASTRUCT* cds) const;
 
     /* Vista normalizzata di NOTIFYICONDATAW, indipendente dal bitness
      * del processo mittente. */
@@ -469,6 +480,7 @@ private:
     static constexpr UINT kMsgRetryImport   = WM_APP + 105; // secondo giro import
     static constexpr UINT kMsgToolbarSync   = WM_APP + 106; // sync rinviato al thread dei messaggi
     static constexpr UINT kMsgUiaTray       = WM_APP + 107; // v2.60: snapshot tray Win11 pronto
+    static constexpr UINT kMsgLegacyShim    = WM_APP + 108; // mirror opt-in coalescente
     static constexpr UINT kTimerDebounce    = 0xB1;
     static constexpr UINT kTimerBackstop    = 0xB2;
     /* v2.61: risveglio leggero (10 s) delle sole icone sintetiche mentre si
@@ -486,6 +498,7 @@ private:
 
     std::atomic<uint32_t> m_pendingSources{ 0 };
     std::atomic<bool>     m_importDone{ false };
+    std::atomic<bool>     m_legacyShimPosted{ false };
 
     /* Proprietari in uscita rilevati dal WinEventHook: rimossi con un
      * piccolo ritardo per dare tempo a eventuali NIM_DELETE di arrivare. */
@@ -493,7 +506,7 @@ private:
 
     HWINEVENTHOOK m_ownerHook = nullptr;
     HWINEVENTHOOK m_trayHostHook = nullptr;   /* v2.60: isole della tray Win11 */
-    bool          m_win11Tray = false;
+    std::atomic<bool> m_win11Tray{ false };
 
     /* v3.8: ripiego "icone sparite" (idea dalla mod Disappearing Tray
      * Icons Fix): il broadcast TaskbarCreated a meta' sessione viene
@@ -561,6 +574,12 @@ private:
     void SchedulePixelRetryIfNeeded(bool anyEmptyBitmap, bool wasCapturePass);
 
     static constexpr ULONGLONG m_pixelRetryMinMs = 3000;
+
+    /* Raccolta silenziosa della tray moderna: una richiesta all'avvio e poi
+     * non più spesso di circa venti secondi. Il tick è letto solo sul thread
+     * del servizio, quindi non servono lock aggiuntivi né timer duplicati. */
+    std::atomic<ULONGLONG> m_lastWin11OverflowHarvestTick{ 0 };
+    static constexpr ULONGLONG kWin11OverflowHarvestDebounceMs = 20000;
 };
 
 } /* namespace w7t */

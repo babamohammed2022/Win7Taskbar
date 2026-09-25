@@ -22,22 +22,31 @@
  * toolbar (Shell_TrayWnd -> TrayNotifyWnd -> SysPager -> ToolbarWindow32),
  * and ExplorerTrayReader enumerates its buttons.
  *
- * Windows 11 removed that toolbar: the tray is drawn by XAML
- * (Taskbar.View/Taskbar.dll inside explorer.exe, hosted in the windows
- * TopLevelWindowForOverflowXamlIsland and in the taskbar island). There is
- * no window to enumerate, so on Windows 11 the classic reader legitimately
- * finds nothing and every icon that was already registered before our
- * process started stayed invisible.
+ * Windows 11 normally draws the visible tray through XAML
+ * (Taskbar.View/Taskbar.dll inside explorer.exe, hosted in the taskbar
+ * island and, for overflow, TopLevelWindowForOverflowXamlIsland). A legacy
+ * toolbar may remain as a hidden compatibility layer, but it is not a
+ * complete or stable source on those builds; the classic reader can
+ * legitimately find no existing icon and a process-start snapshot must not
+ * assume that an empty toolbar means an empty tray.
  *
- * The one public, documented interface that still describes every tray icon
- * of Windows 11 is UI Automation: the XAML islands expose their elements
- * through the accessibility bridge, and the tray icons are ordinary buttons
- * (ClassName "SystemTray.SystemTrayIcon"). Each element gives us the
- * tooltip text, the owning process and the element identity; the icon
- * bitmap comes from the owner executable (or from our own Windows 7
- * artwork for the system icons we recreate), and clicks are delivered by
- * the element's own Invoke/LegacyIAccessible patterns, so no synthetic
- * input and no registry change is involved.
+ * UI Automation is the only documented, out-of-process observation path
+ * that can expose parts of those XAML islands. It is not a Microsoft contract
+ * for a complete notification-area enumerator: the provider may omit an icon,
+ * report no name, or disappear while Explorer rebuilds the island. The reader
+ * therefore treats UIA as a best-effort snapshot, never as proof from one
+ * read that an absent element was deleted. Registration/update/delete traffic is handled
+ * separately by the real Shell_TrayWnd shim through the legacy shell protocol
+ * where that protocol is available; that protocol is explicitly non-public
+ * and is documented as a compatibility fallback in TrayService.cpp.
+ *
+ * XAML elements normally expose a SystemTray.NotifyIconView or
+ * SystemTray.IconView class. CurrentProcessId is the provider process
+ * (normally explorer.exe), not the application that registered the icon, so
+ * this reader does not pretend it knows an owner HWND or HICON. It uses the
+ * element's Invoke/LegacyIAccessible patterns for clicks, a generic bitmap
+ * when no public bitmap is exposed, and Windows 7 artwork only for known
+ * system icons recreated by the product.
  *
  * The reader owns a worker thread with its own COM apartment: UIA calls are
  * cross-process and must not run on the taskbar UI thread. Everything is
@@ -63,7 +72,7 @@ namespace w7t {
 /* One tray icon as seen through the accessibility tree. */
 struct Win11TrayItem {
     uint32_t     uid     = 0;      /* identity inside our tray model        */
-    uint32_t     pid     = 0;      /* owning process                        */
+    uint32_t     pid     = 0;      /* processo del provider UIA, non owner */
     int          order   = 0;      /* enumeration order in the bar          */
     bool         hidden  = false;  /* true: it lives in the overflow flyout */
     bool         systemOwned = false; /* owner is a shell process           */
@@ -78,9 +87,9 @@ class Win11TrayReader {
 public:
     static Win11TrayReader& Instance();
 
-    /* True when this session uses the Windows 11 tray: Explorer has no
-     * Win32 notification toolbar and the taskbar hosts the XAML bridge.
-     * Cheap: only window lookups, no COM, safe on any thread. */
+    /* True when this session exposes a Windows 11 XAML taskbar bridge.
+     * A legacy toolbar may coexist on some builds; its presence does not
+     * disable this reader. Cheap: only window lookups, no COM. */
     static bool Detect();
 
     /* Where the worker posts "snapshot ready" (the tray service window). */
@@ -92,7 +101,8 @@ public:
     /* Asks for a fresh snapshot; returns immediately. */
     void RequestRead();
 
-    /* Copy of the last successful snapshot (empty when the read failed). */
+    /* Copy of the last successful snapshot. Check IsLastReadValid() before
+     * treating it as the result of the most recent request. */
     std::vector<Win11TrayItem> TakeSnapshot();
 
     /* System icon class of a snapshot entry (Network/Volume/Battery/None). */
@@ -112,7 +122,10 @@ public:
     /* Opens the real Windows 11 overflow flyout (our own overflow panel has
      * nothing to show when the hidden icons cannot be enumerated) and places
      * it above the anchor rectangle. */
-    bool RequestOverflowFlyout(const RECT& anchor);
+    /* Apre il flyout reale della shell. silent=true serve alla raccolta
+     * periodica: il lettore lo porta fuori schermo, attraversa l'isola UIA
+     * materializzata e lo richiude senza mostrare il pannello all'utente. */
+    bool RequestOverflowFlyout(const RECT& anchor, bool silent = false);
 
     /**
      * Vero se il lettore ha un thread vivo che sta consegnando snapshot.
@@ -124,7 +137,9 @@ public:
      * per sempre, ed e' uno dei motivi per cui le icone comparivano solo
      * dopo molti minuti, se comparivano.
      */
-    bool IsRunning() const { return m_started.load() && m_threadId != 0; }
+    bool IsRunning() const {
+        return m_started.load() && m_threadId.load() != 0;
+    }
 
     /**
      * Vero se l'ULTIMA lettura ha davvero attraversato la tray della shell.
@@ -134,6 +149,20 @@ public:
      * una lettura non valida non deve mai essere interpretata come assenza.
      */
     bool IsLastReadValid() const { return m_lastReadValid.load(); }
+
+    /* Vero se l'ultima lettura ha attraversato almeno una radice della barra
+     * principale. Un'eventuale lettura valida della sola isola overflow non
+     * autorizza a rimuovere le voci visibili della barra. */
+    bool IsLastReadMainValid() const { return m_lastReadMainValid.load(); }
+
+    /* Vero se l'ultima lettura ha anche attraversato l'isola dell'overflow.
+     * La finestra XAML dell'overflow puo' non esistere finche' il flyout non
+     * viene aperto: in quel caso una fotografia valida della barra principale
+     * non autorizza a cancellare dal nostro modello le voci nascoste viste in
+     * una passata precedente. */
+    bool IsLastReadOverflowValid() const {
+        return m_lastReadOverflowValid.load();
+    }
 
 private:
     /* v2.64: constructor/destructor live in Win11TrayReaderResilience.cpp so
@@ -152,10 +181,12 @@ private:
     void HandleOverflow(const Request& request);
 
     std::thread        m_thread;
-    DWORD              m_threadId = 0;
+    std::atomic<DWORD> m_threadId{ 0 };
     std::atomic<bool>  m_running{ false };
     std::atomic<bool>  m_started{ false };
     std::atomic<bool>  m_lastReadValid{ false };
+    std::atomic<bool>  m_lastReadMainValid{ false };
+    std::atomic<bool>  m_lastReadOverflowValid{ false };
     std::atomic<bool>  m_threadDone{ false };
 
     mutable std::mutex         m_mutex;

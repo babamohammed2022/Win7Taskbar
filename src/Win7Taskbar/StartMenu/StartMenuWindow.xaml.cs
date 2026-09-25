@@ -341,18 +341,21 @@ namespace Win7Taskbar.StartMenu
             try
             {
                 string url = StartMenuShellSearch.InternetSearchUrl(_vm.SearchText);
-                _vm.Launch(new StartMenuItem
+                bool opened = _vm.Launch(new StartMenuItem
                 {
                     Name = StartMenuViewModel.T("lang_sm_search_internet",
                                                 "Search the Internet"),
                     Path = url,
                     Folder = "internet"
                 });
+                if (opened)
+                {
+                    Dismiss();
+                }
             }
             catch (Exception)
             {
             }
-            Dismiss();
             e.Handled = true;
         }
 
@@ -373,12 +376,14 @@ namespace Win7Taskbar.StartMenu
                         ?? StartMenuIcons.FromDefaultBrowser(18)
                         ?? StartMenuIcons.FromDll("imageres.dll", 220, 18)
                         ?? StartMenuIcons.FromDll("shell32.dll", 14, 18);
-                /* v3.18: pipeline GDI+ (jumbo 256 -> bicubica HQ) per
-                   l'icona del footer; box sempre 17.6 DIP, bitmap a 18
-                   per non rinunciare ai pixel (HighQuality ridisegna). */
+                /* v3.19: la sorgente resta l'icona del browser predefinito;
+                   il box XAML da 16.3 DIP applica un ulteriore -2.5%
+                   rispetto ai 16.72 DIP precedenti, senza cambiare posizione. */
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"icona footer Internet: {ex.Message}");
             }
         }
 
@@ -412,8 +417,10 @@ namespace Win7Taskbar.StartMenu
             if (sender is ListBoxItem { DataContext: StartMenuItem item } &&
                 !item.IsSeparator)
             {
-                _vm.OpenRightLink(item);
-                Dismiss();
+                if (_vm.OpenRightLink(item))
+                {
+                    Dismiss();
+                }
                 e.Handled = true;
             }
         }
@@ -860,8 +867,13 @@ namespace Win7Taskbar.StartMenu
                 _vm.ToggleFolder(item);
                 return;
             }
-            _vm.Launch(item);
-            Dismiss();
+            /* Il popup si chiude solo dopo che il tentativo di apertura ha
+             * restituito un esito reale; in particolare search-ms non deve
+             * sparire se nessun handler ha accettato l'URI. */
+            if (_vm.Launch(item))
+            {
+                Dismiss();
+            }
         }
 
         private void OnShutdown(object sender, MouseButtonEventArgs e)

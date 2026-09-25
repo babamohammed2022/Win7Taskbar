@@ -253,7 +253,7 @@ private:
     DWORD m_tipStart = 0;
     bool m_tipShown = false;
 
-    int m_width = 300;      /* device px, already scaled */
+    int m_width = 288;      /* minimo 96-DPI; Layout lo adatta alle label */
     int m_totalH = 0;       /* device px */
     int m_hover = -1;       /* row index under the cursor, -1 none */
     RECT m_popupRect = {};      /* screen px */

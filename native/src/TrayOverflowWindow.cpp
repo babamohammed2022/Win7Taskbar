@@ -331,6 +331,11 @@ void TrayOverflowWindow::ShowNear(RECT btnScreen) {
 }
 
 void TrayOverflowWindow::NotifyTrayChanged() {
+    /* È lo stesso punto di sincronizzazione del pannello: il mirror
+     * ToolbarWindow32 opt-in riceve qui uno snapshot coalescente, senza
+     * introdurre un secondo osservatore o un nuovo trigger Shell. */
+    TrayService::Instance().SyncLegacyToolbarShim();
+
     // Conservativo: cerca il pannello solo se esiste (classe registrata da
     // questo modulo) e gli chiede di ricaricarsi sul proprio thread.
     HWND h = FindWindowW(kOverflowClassName, nullptr);
