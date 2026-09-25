@@ -224,6 +224,60 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
+        /// <summary>
+        /// Estrae un'icona da una DLL con la dimensione richiesta usando
+        /// SHDefExtractIconW, API documentata della shell, e la converte con
+        /// la stessa pipeline GDI+ delle altre icone del menu Start. E' utile
+        /// per icone di sistema che non hanno un percorso ShellItem proprio.
+        /// </summary>
+        public static ImageSource? FromDllGdiPlus(string dll, int index, int size)
+        {
+            IntPtr large = IntPtr.Zero;
+            IntPtr small = IntPtr.Zero;
+            try
+            {
+                size = Math.Clamp(size, 4, 256);
+                string path = Path.Combine(Environment.SystemDirectory, dll);
+                uint packedSize = (uint)size | ((uint)size << 16);
+                int hr = NativeMethods.SHDefExtractIconW(path, index, 0,
+                    out large, out small, packedSize);
+                if (hr < 0)
+                {
+                    return null;
+                }
+
+                IntPtr pick;
+                if (large != IntPtr.Zero)
+                {
+                    pick = large;
+                    large = IntPtr.Zero;
+                }
+                else
+                {
+                    pick = small;
+                    small = IntPtr.Zero;
+                }
+                return pick == IntPtr.Zero
+                    ? null
+                    : FromHicon(pick, size, destroy: true);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                if (small != IntPtr.Zero)
+                {
+                    NativeMethods.DestroyIcon(small);
+                }
+                if (large != IntPtr.Zero)
+                {
+                    NativeMethods.DestroyIcon(large);
+                }
+            }
+        }
+
         public static ImageSource? FromHicon(IntPtr hicon, int size, bool destroy)
         {
             if (hicon == IntPtr.Zero)

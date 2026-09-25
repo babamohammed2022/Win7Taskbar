@@ -1138,6 +1138,16 @@ namespace Win7Taskbar.Interop
                                                 out IntPtr phiconLarge, out IntPtr phiconSmall,
                                                 uint nIcons);
 
+        /* API documentata: permette di chiedere alla shell la dimensione
+         * desiderata dell'icona estratta da una DLL, evitando di ingrandire
+         * a posteriori una risorsa 16/32 px. */
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode,
+            EntryPoint = "SHDefExtractIconW")]
+        public static extern int SHDefExtractIconW(string pszIconFile, int iIndex,
+                                                   uint uFlags, out IntPtr phiconLarge,
+                                                   out IntPtr phiconSmall,
+                                                   uint nIconSize);
+
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         public struct SHELLEXECUTEINFO
         {

@@ -37,6 +37,7 @@ namespace Win7Taskbar.Controls
         private readonly DispatcherTimer _verificationTimer;
         private EventHandler? _renderingHandler;
         private IntPtr _thumbHandle;
+        private int _sourceRegistrationGeneration;
 
         /* v1.21.8: ultimo rettangolo consegnato a DWM, per non ripetere la
          * stessa chiamata a ogni fotogramma. */
@@ -87,12 +88,28 @@ namespace Win7Taskbar.Controls
         public static readonly DependencyProperty SourceWindowHandleProperty =
             DependencyProperty.Register(nameof(SourceWindowHandle),
                 typeof(IntPtr), typeof(TaskThumbnail),
-                new PropertyMetadata(IntPtr.Zero));
+                new PropertyMetadata(IntPtr.Zero, OnSourceWindowHandleChanged));
 
         public IntPtr SourceWindowHandle
         {
             get => (IntPtr)GetValue(SourceWindowHandleProperty);
             set => SetValue(SourceWindowHandleProperty, value);
+        }
+
+        /// <summary>
+        /// Segnale interno al contenitore: quando la relazione DWM viene
+        /// registrata di nuovo o cambia il rettangolo corrente, il bordo puo'
+        /// essere ridisegnato usando le dimensioni attuali del frame.
+        /// </summary>
+        public event EventHandler? DwmGeometryChanged;
+
+        private static void OnSourceWindowHandleChanged(
+            DependencyObject dependencyObject, DependencyPropertyChangedEventArgs e)
+        {
+            if (dependencyObject is TaskThumbnail thumbnail)
+            {
+                thumbnail.RestartDwmThumbnailForNewSource();
+            }
         }
 
         public static readonly DependencyProperty TitleProperty =
@@ -371,14 +388,151 @@ namespace Win7Taskbar.Controls
                     return;
                 }
 
+                bool geometryChanged = !_hasDwmUpdate ||
+                    destination.Left != _lastDestination.Left ||
+                    destination.Top != _lastDestination.Top ||
+                    destination.Right != _lastDestination.Right ||
+                    destination.Bottom != _lastDestination.Bottom ||
+                    sourceRect.Left != _lastSource.Left ||
+                    sourceRect.Top != _lastSource.Top ||
+                    sourceRect.Right != _lastSource.Right ||
+                    sourceRect.Bottom != _lastSource.Bottom;
                 _hasDwmUpdate = true;
                 _lastDestination = destination;
                 _lastSource = sourceRect;
+
+                if (geometryChanged)
+                {
+                    try
+                    {
+                        /* Il contenitore puo' essere stato riciclato o il
+                         * popup puo' essersi spostato senza produrre un nuovo
+                         * SizeChanged sul frame: il genitore ridisegna ora il
+                         * bordo sulla geometria corrente. */
+                        DwmGeometryChanged?.Invoke(this, EventArgs.Empty);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"TaskThumbnail geometry event: {ex.Message}");
+                    }
+                }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"TaskThumbnail.Refresh: {ex.Message}");
+                StopDwmThumbnail();
+                ShowIdentityFallback();
+            }
+        }
+
+        private void RestartDwmThumbnailForNewSource()
+        {
+            try
+            {
+                int generation = unchecked(++_sourceRegistrationGeneration);
+                if (!IsLoaded)
+                {
+                    return;
+                }
+
+                /* DwmRegisterThumbnail lega l'handle sorgente alla relazione
+                 * corrente: quando il binding passa a un'altra finestra non
+                 * basta aggiornare rcSource, bisogna deregistrare la relazione
+                 * precedente e crearne una nuova con l'HWND top-level nuovo. */
+                StopDwmThumbnail();
+                ShowIdentityFallback();
+                if (SourceWindowHandle == IntPtr.Zero)
+                {
+                    return;
+                }
+
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+                {
+                    try
+                    {
+                        if (!IsLoaded || generation != _sourceRegistrationGeneration ||
+                            SourceWindowHandle == IntPtr.Zero)
+                        {
+                            return;
+                        }
+                        RegisterDwmThumbnail();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"TaskThumbnail source change: {ex.Message}");
+                        StopDwmThumbnail();
+                        ShowIdentityFallback();
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"TaskThumbnail source change: {ex.Message}");
+                StopDwmThumbnail();
+                ShowIdentityFallback();
+            }
+        }
+
+        private void RegisterDwmThumbnail()
+        {
+            try
+            {
+                if (!IsLoaded || _thumbHandle != IntPtr.Zero)
+                {
+                    return;
+                }
+
+                if (!NativeMethods.IsCompositionEnabled() ||
+                    SourceWindowHandle == IntPtr.Zero || Handle == IntPtr.Zero)
+                {
+                    ShowValidatedFallbackOrIdentity();
+                    return;
+                }
+
+                int hr = NativeMethods.DwmRegisterThumbnail(
+                    Handle, SourceWindowHandle, out _thumbHandle);
+                if (hr < 0 || _thumbHandle == IntPtr.Zero)
+                {
+                    StopDwmThumbnail();
+                    ShowValidatedFallbackOrIdentity();
+                    return;
+                }
+
+                if (!_layoutRefreshHooked)
+                {
+                    _layoutRefreshHooked = true;
+                    SizeChanged += OnLayoutRefresh;
+                    LayoutUpdated += OnLayoutRefresh;
+                }
+
+                CaptureFallbackImage.Source = null;
+                CaptureFallbackImage.Visibility = Visibility.Collapsed;
+                IdentityFallback.Visibility = Visibility.Collapsed;
+
+                Refresh();
+                if (_thumbHandle == IntPtr.Zero)
+                {
+                    return;
+                }
+
+                _renderingHandler = (s, a) =>
+                    Dispatcher.BeginInvoke(DispatcherPriority.Render,
+                        new Action(Refresh));
+                CompositionTarget.Rendering += _renderingHandler;
+
+                /* Registration success does not prove composition. Probe once
+                 * after DWM has had several frames to draw. */
+                _verificationTimer.Stop();
+                _verificationTimer.Start();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"TaskThumbnail register: {ex.Message}");
                 StopDwmThumbnail();
                 ShowIdentityFallback();
             }
@@ -391,39 +545,7 @@ namespace Win7Taskbar.Controls
                 /* v1.21.8: il fattore di scala non si memorizza piu': si
                  * legge a ogni aggiornamento con VisualTreeHelper.GetDpi
                  * (segue il monitor su cui si apre il popup). */
-                if (!_layoutRefreshHooked)
-                {
-                    _layoutRefreshHooked = true;
-                    SizeChanged += OnLayoutRefresh;
-                    LayoutUpdated += OnLayoutRefresh;
-                }
-
-                bool registered = NativeMethods.IsCompositionEnabled() &&
-                    SourceWindowHandle != IntPtr.Zero && Handle != IntPtr.Zero &&
-                    NativeMethods.DwmRegisterThumbnail(Handle,
-                        SourceWindowHandle, out _thumbHandle) == 0;
-
-                if (registered)
-                {
-                    Refresh();
-                    _renderingHandler = (s, a) =>
-                        Dispatcher.BeginInvoke(DispatcherPriority.Render,
-                            new Action(Refresh));
-                    CompositionTarget.Rendering += _renderingHandler;
-
-                    // Registration success doesn't prove composition. Probe
-                    // once after DWM has had several frames to draw.
-                    _verificationTimer.Stop();
-                    _verificationTimer.Start();
-                }
-                else if (Settings.Instance.UseThumbnailCaptureFallback)
-                {
-                    ShowValidatedFallbackOrIdentity();
-                }
-                else
-                {
-                    ShowIdentityFallback();
-                }
+                RegisterDwmThumbnail();
             }
             catch (Exception ex)
             {

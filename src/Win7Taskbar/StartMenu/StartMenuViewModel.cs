@@ -1418,12 +1418,15 @@ namespace Win7Taskbar.StartMenu
 
         private static StartMenuItem HelpLink()
         {
-            /* Durante il fade della foto il collegamento Guida usa lo
-             * stesso glifo di "Visualizza altri risultati". Il glifo storico
-             * della Guida resta un ripiego esplicito: un'installazione senza
-             * quelle risorse non deve lasciare la foto vuota. */
-            ImageSource? helpFallback = IconFromDll("imageres.dll", 99)
-                ?? IconFromParsingName(@"%SystemRoot%\Help");
+            /* Prima si chiede l'icona Help di imageres.dll con la dimensione
+             * reale del controllo tramite SHDefExtractIconW, poi la si passa
+             * alla pipeline GDI+ condivisa dalle altre icone. I percorsi Shell
+             * documentati restano fallback; il glifo di "altri risultati" non
+             * viene piu' scelto prima dell'icona Guida. */
+            ImageSource? helpIcon = IconFromDllGdiPlus("imageres.dll", 99)
+                ?? IconFromParsingName(@"%SystemRoot%\Help")
+                ?? IconFromDll("imageres.dll", 99)
+                ?? SeeMoreResultsIcon();
             return new StartMenuItem
             {
                 Name = T("lang_sm_help", "Help and Support"),
@@ -1431,7 +1434,7 @@ namespace Win7Taskbar.StartMenu
                 Path = "https://support.microsoft.com",
                 IsRightPane = true,
                 Infotip = T("lang_sm_tip_help", "Opens Microsoft support in your browser for help topics, tutorials, and troubleshooting."),
-                Icon = SeeMoreResultsIcon() ?? helpFallback
+                Icon = helpIcon
             };
         }
 
@@ -1991,12 +1994,16 @@ namespace Win7Taskbar.StartMenu
             return StartMenuIcons.FromPath(path, target, size);
         }
 
-        /* Photo-frame hover icons: jumbo shell extract + GDI+ bicubic to 50px. */
+        /* Icone del menu: ShellItem/immagini di sistema + conversione GDI+
+         * alla dimensione del controllo, senza usare bitmap inventate. */
         private static ImageSource? IconFromParsingName(string? probe)
             => StartMenuIcons.FromParsingName(probe, 50);
 
         private static ImageSource? IconFromDll(string dll, int index)
             => StartMenuIcons.FromDll(dll, index, 50);
+
+        private static ImageSource? IconFromDllGdiPlus(string dll, int index)
+            => StartMenuIcons.FromDllGdiPlus(dll, index, 50);
 
         private void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

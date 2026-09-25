@@ -4894,6 +4894,43 @@ namespace Win7Taskbar
         private void PreviewFrameHost_SizeChanged(object sender, SizeChangedEventArgs e)
             => ApplyNativePreviewFrame(sender as ContentControl);
 
+        private void PreviewDwmGeometryChanged(object? sender, EventArgs e)
+        {
+            try
+            {
+                if (sender is DependencyObject child &&
+                    FindPreviewFrameHostAncestor(child) is ContentControl frameHost)
+                {
+                    /* Il rettangolo DWM puo' cambiare anche senza una nuova
+                     * misura del ContentControl: cambio HWND sorgente, resize
+                     * della finestra sorgente o spostamento del popup. La
+                     * cornice viene riallineata al frame attuale, senza API
+                     * DWM non documentate e senza inventare coordinate. */
+                    ApplyNativePreviewFrame(frameHost);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"preview border geometry: {ex.Message}");
+            }
+        }
+
+        private static ContentControl? FindPreviewFrameHostAncestor(DependencyObject child)
+        {
+            /* TaskThumbnail eredita da UserControl/ContentControl: si parte
+             * dal genitore per non restituire il controllo DWM stesso. */
+            DependencyObject? current = VisualTreeHelper.GetParent(child);
+            for (int depth = 0; current != null && depth < 8; depth++)
+            {
+                if (current is ContentControl host)
+                {
+                    return host;
+                }
+                current = VisualTreeHelper.GetParent(current);
+            }
+            return null;
+        }
+
         /// <summary>
         /// Offers one preview frame the chance to draw its border with the
         /// core's native 9-slice renderer (native/src/AeroThumbnailFrame.cpp,

@@ -377,8 +377,8 @@ namespace Win7Taskbar.StartMenu
                         ?? StartMenuIcons.FromDll("imageres.dll", 220, 18)
                         ?? StartMenuIcons.FromDll("shell32.dll", 14, 18);
                 /* v3.18: pipeline GDI+ (jumbo 256 -> bicubica HQ) per
-                   l'icona del footer; box sempre 17.6 DIP, bitmap a 18
-                   per non rinunciare ai pixel (HighQuality ridisegna). */
+                   l'icona del footer; il box XAML da 16.72 DIP applica il
+                   ridimensionamento del 5% senza cambiare la posizione. */
             }
             catch (Exception)
             {

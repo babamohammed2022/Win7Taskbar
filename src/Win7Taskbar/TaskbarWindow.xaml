@@ -97,6 +97,7 @@
                                               SourceWindowHandle="{Binding HandlePtr}"
                                               ApplicationName="{Binding ApplicationName}"
                                               Title="{Binding Title}"
+                                              DwmGeometryChanged="PreviewDwmGeometryChanged"
                                               HorizontalAlignment="Stretch"
                                               VerticalAlignment="Stretch" />
                 </ContentControl>

@@ -783,15 +783,11 @@
                                 </Style>
                             </Border.Style>
                             <Grid HorizontalAlignment="Stretch">
-                                <!-- v3.18: icona 1.5% piu' a sinistra e
-                                     1.5% piu' in basso: -6 DIP in x
-                                     (1.5% della larghezza tipica del pane
-                                     ~400) e +2 DIP in y sopra il centro
-                                     della riga da 19.5 (TranslateTransform
-                                     perche' il margin verticale cozza con
-                                     VerticalAlignment=Center). -->
+                                <!-- v3.18: posizione invariata; dimensione
+                                     ridotta del 5% rispetto ai 17.6 DIP
+                                     precedenti (17.6 * 0.95 = 16.72). -->
                                 <Image x:Name="InternetFooterIcon"
-                                       Width="17.6" Height="17.6"
+                                       Width="16.72" Height="16.72"
                                        HorizontalAlignment="Left"
                                        VerticalAlignment="Center"
                                        Margin="8,0,0,0"
