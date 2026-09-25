@@ -1346,6 +1346,8 @@ void Win11TrayReader::WorkerMain() {
                 continue;
             }
 
+            const bool notifyIconView = isNotifyIconView(className);
+            const bool systemIconView = isSystemIconView(className, id, text);
             const bool isButton =
                 controlType == UIA_ButtonControlTypeId ||
                 controlType == UIA_ListItemControlTypeId ||
