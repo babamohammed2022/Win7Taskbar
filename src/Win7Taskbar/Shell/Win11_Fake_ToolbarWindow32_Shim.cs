@@ -108,7 +108,7 @@ namespace Win7Taskbar.Shell
     /// la preferenza di visibilità decisa EREDITATA dal sistema (registro),
     /// non inventata: voce assente = overflow.
     /// </summary>
-    internal struct TrayIconEntry
+    internal struct ShimTrayIconEntry
     {
         public ShimNotifyData Nid;
         public int CommandId;
@@ -311,7 +311,7 @@ namespace Win7Taskbar.Shell
         IntPtr _hShell, _hNotify, _hPager, _hToolbar;
         IntPtr _hRealTray;                 // Shell_TrayWnd VERA, al di fuori nostra
         uint _msgTaskbarCreated;
-        readonly List<TrayIconEntry> _icons = new List<TrayIconEntry>();
+        readonly List<ShimTrayIconEntry> _icons = new List<ShimTrayIconEntry>();
         readonly Dictionary<uint, string> _exeByPid =
             new Dictionary<uint, string>();
         readonly object _lock = new object();
@@ -324,7 +324,7 @@ namespace Win7Taskbar.Shell
         public event EventHandler? IconsChanged;
 
         /// <summary>Snapshot delle icone intercettate (copia difensiva).</summary>
-        public TrayIconEntry[] Icons
+        public ShimTrayIconEntry[] Icons
         {
             get { lock (_lock) return _icons.ToArray(); }
         }
@@ -611,7 +611,7 @@ namespace Win7Taskbar.Shell
                         case NIM_ADD:
                             if (existing < 0)
                             {
-                                var entry = new TrayIconEntry
+                                var entry = new ShimTrayIconEntry
                                 {
                                     Nid = trayData.nid,
                                     CommandId = _nextCommandId++,
@@ -1099,7 +1099,7 @@ namespace Win7Taskbar.Shell
         IntPtr HandleGetButton(IntPtr wParam, IntPtr lParam)
         {
             int index = wParam.ToInt32();
-            TrayIconEntry entry;
+            ShimTrayIconEntry entry;
             lock (_lock)
             {
                 var visible = _icons.FindAll(i => i.IsPromoted);
