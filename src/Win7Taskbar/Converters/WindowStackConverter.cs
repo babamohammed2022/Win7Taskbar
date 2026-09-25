@@ -246,10 +246,22 @@ namespace Win7Taskbar.Converters
                  * width right (0.02*2 + 0.048 + 0.025), the inner one
                  * +10.3% (0.02*2 + 0.048 + 0.015). Count-invariant, so the
                  * same border renders identically with 2 sheets and with 3+
-                 * — the same colour by construction. */
-                double ratio = parameter as string is "inner" ? 0.103 : 0.113;
+                 * — the same colour by construction.
+                 * v3.11: il segno meno in testa al parametro ("-outer",
+                 * "-inner") chiede l'offset NEGATO: la variante verticale
+                 * delle linee le ancora al bordo INFERIORE del pulsante e
+                 * le spinge in alto della stessa percentuale della
+                 * ActualHeight (il valore legato al posto di ActualWidth). */
+                string? token = parameter as string;
+                bool negated = token != null && token.StartsWith('-');
+                if (negated)
+                {
+                    token = token!.Substring(1);
+                }
+                double ratio = token is "inner" ? 0.103 : 0.113;
 
-                return width * ratio;
+                double offset = width * ratio;
+                return negated ? -offset : offset;
             }
             catch
             {

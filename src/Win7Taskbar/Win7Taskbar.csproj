@@ -374,7 +374,23 @@
          click-outside dismissal instead of failing. The assembly version
          moves so a startup crash recorded by an older build does not force
          this one into safe mode. -->
-    <Version>1.3.28-alpha</Version>
+    <!-- v3.11: ORIENTAMENTO VERTICALE (bordi Left/Right) per il cromato
+         delle texture (Proprieta' > posizione della barra). La freccia
+         dell'overflow punta ora verso il CENTRO dello schermo anche sui
+         bordi laterali (trigger per bordo: Left -> +90 gradi, Right -> -90;
+         la texture della barra sul bordo destro usa il pennello ruotato in
+         senso antiorario); le linee "finestre impilate" dei pulsanti hanno
+         una variante verticale (stessa strip PNG, ruotata via
+         LayoutTransform, ancorata al bordo inferiore con le stesse
+         percentuali della v2.63 su ActualHeight); le ICONE dei pulsanti e
+         della tray NON ruotano mai e restano centrate. Ogni ri-disposizione
+         e' protetta: converter a prova di eccezione, e in
+         ApplyTaskbarGeometry il fallimento ripristina orientamento, bordo e
+         box precedenti (log su bridge). Nessun asset nuovo e nessuna
+         estrazione da binari Windows: solo RotateTransform delle
+         BitmapSource gia' nel progetto. Nessun cambio nativo: il layout
+         per-bordo del core gestisce gia' Left/Right. -->
+    <Version>1.3.29-alpha</Version>
     <AssemblyVersion>1.3.26.0</AssemblyVersion>
     <FileVersion>1.3.26.0</FileVersion>
   

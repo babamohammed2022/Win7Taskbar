@@ -2444,6 +2444,34 @@
                                 </Setter>
                             </DataTrigger.Setters>
                         </DataTrigger>
+                        <!-- v3.11: bordo SINISTRO - il popup dell'overflow
+                             si apre verso DESTRA (centro schermo): la
+                             freccia, a riposo rivolta in ALTO, ruota di
+                             +90 gradi (orario) per puntare a destra. -->
+                        <DataTrigger Binding="{Binding Path=AppBarEdge, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                     Value="Left">
+                            <DataTrigger.Setters>
+                                <Setter TargetName="ChevronImg"
+                                        Property="LayoutTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="90" />
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger.Setters>
+                        </DataTrigger>
+                        <!-- v3.11: bordo DESTRO - il popup si apre verso
+                             SINISTRA: -90 gradi (antiorario). -->
+                        <DataTrigger Binding="{Binding Path=AppBarEdge, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                     Value="Right">
+                            <DataTrigger.Setters>
+                                <Setter TargetName="ChevronImg"
+                                        Property="LayoutTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="-90" />
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger.Setters>
+                        </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

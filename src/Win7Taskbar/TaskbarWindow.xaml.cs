@@ -2022,6 +2022,20 @@ namespace Win7Taskbar
         /// </summary>
         internal void ApplyTaskbarGeometry()
         {
+            /* v3.11: snapshot dello stato renderizzato PRIMA della
+             * ri-disposizione (orientamento, bordo logico e box della
+             * finestra). Se il cambio di orientamento/bordo fallisce a
+             * meta' strada si ripristina il layout precedente, fermo e coerente,
+             * invece di restare con una finestra mezza orientata (requisito:
+             * ogni operazione di rendering/trasformazione fallita deve
+             * ricadere sul layout precedente, con log). */
+            var fallbackOrientation = Orientation;
+            var fallbackAppBarEdge = AppBarEdge;
+            var fallbackEdgeIndex = AppBarEdgeIndex;
+            double fallbackWidth = Width;
+            double fallbackHeight = Height;
+            double fallbackLeft = Left;
+            double fallbackTop = Top;
             try
             {
                 PositionOnScreen();
@@ -2033,6 +2047,20 @@ namespace Win7Taskbar
             catch (Exception ex)
             {
                 _bridge.Log($"geometria barra: {ex.Message}");
+                try
+                {
+                    Orientation = fallbackOrientation;
+                    AppBarEdge = fallbackAppBarEdge;
+                    AppBarEdgeIndex = fallbackEdgeIndex;
+                    Width = fallbackWidth;
+                    Height = fallbackHeight;
+                    Left = fallbackLeft;
+                    Top = fallbackTop;
+                }
+                catch (Exception restoreEx)
+                {
+                    _bridge.Log($"geometria barra: ripristino fallito: {restoreEx.Message}");
+                }
             }
         }
 

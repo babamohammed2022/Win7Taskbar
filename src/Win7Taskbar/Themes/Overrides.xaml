@@ -381,7 +381,14 @@
                        RenderOptions.BitmapScalingMode="HighQuality"
                        VerticalAlignment="Center" />
             </StackPanel>
-            <Grid IsHitTestVisible="False">
+            <!-- v3.11: il contenitore delle linee "finestre impilate" e'
+                 nominato perche' un DataTrigger su Orientation=Vertical lo
+                 sostituisce con la variante verticale qui sotto. La
+                 visibilita' NON si puo' intercettare direttamente sulle
+                 due Image (hanno un binding locale sul count, che ha
+                 precedenza su qualunque trigger), quindi si commuta il
+                 contenitore padre. -->
+            <Grid x:Name="StackLinesH" IsHitTestVisible="False">
                 <!-- linea piu' vicina al bordo destro (2 finestre) -->
                 <!-- v2.63: the OUTER line sits at a FIXED +11.3% of the
                      button width at every count (the v1.7.2 per-sheet
@@ -445,6 +452,74 @@
                     </Image.RenderTransform>
                 </Image>
             </Grid>
+            <!-- v3.11: variante VERTICALE delle linee "finestre
+                 impilate" (barra su bordo sinistro/destro). La STESSA strip
+                 PNG 3x43 (mai ridisegnata, mai estratta da binari Windows),
+                 ruotata di 90 gradi via LayoutTransform: le percentuali
+                 congelate della v2.63 si applicano a ActualHeight invece
+                 che a ActualWidth, col segno negativo (parametro "-outer" /
+                 "-inner" del converter) perche' le linee ora SALGONO dal
+                 bordo inferiore del pulsante invece di avanzare da quello
+                 destro. 2 finestre -> 1 linea, 3+ -> 2 linee, come sopra.
+                 Di default nascosto: lo attiva il trigger su
+                 Orientation=Vertical in fondo al DataTemplate. -->
+            <Grid x:Name="StackLinesV" IsHitTestVisible="False"
+                  Visibility="Collapsed">
+                <!-- linea piu' vicina al bordo inferiore (2 finestre) -->
+                <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
+                       Width="3" Height="40"
+                       Stretch="Fill"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Bottom"
+                       Margin="0,0,0,1"
+                       SnapsToDevicePixels="True"
+                       Visibility="{Binding WindowCount,
+                                    Converter={StaticResource WindowStackVisibility},
+                                    ConverterParameter=1}">
+                    <Image.LayoutTransform>
+                        <RotateTransform Angle="90" />
+                    </Image.LayoutTransform>
+                    <Image.RenderTransform>
+                        <TranslateTransform>
+                            <TranslateTransform.Y>
+                                <MultiBinding Converter="{StaticResource WindowStackOuterBorderOffset}"
+                                              ConverterParameter="-outer">
+                                    <Binding RelativeSource="{RelativeSource AncestorType=Button}"
+                                             Path="ActualHeight" />
+                                    <Binding Path="WindowCount" />
+                                </MultiBinding>
+                            </TranslateTransform.Y>
+                        </TranslateTransform>
+                    </Image.RenderTransform>
+                </Image>
+                <!-- seconda linea, un gradino piu' in alto (3+ finestre) -->
+                <Image Source="{DynamicResource Win7_WindowStackBorderImage}"
+                       Width="3" Height="40"
+                       Stretch="Fill"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Bottom"
+                       Margin="0,0,0,6"
+                       SnapsToDevicePixels="True"
+                       Visibility="{Binding WindowCount,
+                                    Converter={StaticResource WindowStackVisibility},
+                                    ConverterParameter=2}">
+                    <Image.LayoutTransform>
+                        <RotateTransform Angle="90" />
+                    </Image.LayoutTransform>
+                    <Image.RenderTransform>
+                        <TranslateTransform>
+                            <TranslateTransform.Y>
+                                <MultiBinding Converter="{StaticResource WindowStackOuterBorderOffset}"
+                                              ConverterParameter="-inner">
+                                    <Binding RelativeSource="{RelativeSource AncestorType=Button}"
+                                             Path="ActualHeight" />
+                                    <Binding Path="WindowCount" />
+                                </MultiBinding>
+                            </TranslateTransform.Y>
+                        </TranslateTransform>
+                    </Image.RenderTransform>
+                </Image>
+            </Grid>
             <!-- Named for JumpList.cs hit-testing. Always collapsed:
                  jump lists open from left-press + drag-up only. -->
             <Path x:Name="JumpListArrow"
@@ -461,6 +536,24 @@
                   Visibility="Collapsed"
                   IsHitTestVisible="False"/>
         </Grid>
+        <DataTemplate.Triggers>
+            <!-- v3.11: barra verticale - si nascondono le linee
+                 "impilate" orizzontali e si attivano quelle ruotate di 90
+                 gradi ancorate al bordo inferiore del pulsante. Il
+                 contenuto (icona) non viene toccato: resta centrato e non
+                 ruotato a qualunque orientamento. -->
+            <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                         Value="Vertical">
+                <DataTrigger.Setters>
+                    <Setter TargetName="StackLinesH"
+                            Property="Visibility"
+                            Value="Collapsed" />
+                    <Setter TargetName="StackLinesV"
+                            Property="Visibility"
+                            Value="Visible" />
+                </DataTrigger.Setters>
+            </DataTrigger>
+        </DataTemplate.Triggers>
     </DataTemplate>
 
     <!-- ==================================================================
