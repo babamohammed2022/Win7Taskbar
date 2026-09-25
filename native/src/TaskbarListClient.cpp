@@ -3,8 +3,27 @@
 // Licensed under the GNU General Public License version 3 or later.
 
 #include "TaskbarListClient.h"
+#include "SehGuard.h"
 
 namespace w7t {
+
+/* v3.15: i forwarding verso ITaskbarList3 girano dentro COM e toccano le
+ * finestre di ALTRE applicazioni (AddTab/DeleteTab di terzi nel flusso
+ * della nostra barra): una rigida doppia rete SEH + try su OGNI metodo.
+ * Un HRESULT cattivo e' un dettaglio; un fault che attraversa questo
+ * confine e' un hang di chi ha inviato. */
+#define W7T_TB3_SAFE_FORWARD(call)                                        \
+    HRESULT w7tHr = E_UNEXPECTED;                                         \
+    W7T_SEH_TRY {                                                         \
+        try {                                                             \
+            w7tHr = m_list ? m_list->call : E_UNEXPECTED;                 \
+        } catch (...) {                                                   \
+            w7tHr = E_FAIL;                                               \
+        }                                                                 \
+    } W7T_SEH_CATCH {                                                     \
+        w7tHr = E_FAIL;                                                   \
+    } W7T_SEH_END                                                         \
+    return w7tHr;
 
 TaskbarListClient::TaskbarListClient() {
     /* Apartment check (phase rule: verify CoInit/thread model first):
@@ -52,8 +71,7 @@ TaskbarListClient& TaskbarListClient::operator=(TaskbarListClient&& other) noexc
     return *this;
 }
 
-#define W7T_TB3_FORWARD(call) \
-    return m_list ? m_list->call : E_UNEXPECTED;
+#define W7T_TB3_FORWARD(call) W7T_TB3_SAFE_FORWARD(call)
 
 HRESULT TaskbarListClient::HrInit() {
     W7T_TB3_FORWARD(HrInit())
@@ -96,5 +114,6 @@ HRESULT TaskbarListClient::SetThumbnailTooltip(HWND hwnd, LPCWSTR tooltip) {
 }
 
 #undef W7T_TB3_FORWARD
+#undef W7T_TB3_SAFE_FORWARD
 
 } // namespace w7t

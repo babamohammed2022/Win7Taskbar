@@ -80,7 +80,20 @@ over (see the deviations section of the notes).
 ## Open-Shell-Menu (inspiration only)
 
 Reference / inspiration for Start Menu pin storage, small folder icons,
-IContextMenu usage, and All Programs tree measurements:
+IContextMenu usage, and All Programs tree measurements. Since v3.15, two
+more techniques are taken as inspiration (reimplemented as original code,
+following documented shell APIs and Open-Shell's design):
+
+- Start Menu search icons are resolved through `IShellItemImageFactory`
+  at every row size (16 px included) as a final fallback, the same way
+  Open-Shell's item icons are always obtained from the shell rather than
+  from legacy `ExtractIcon` paths.
+- Control Panel / Settings catalog entries whose absolute parsing name
+  is unavailable are kept (instead of dropped) by composing the parent's
+  parsing name with the child's relative parsing name
+  (`SIGDN_PARENTRELATIVEPARSING`), mirroring how the Open-Shell search
+  maintains its Settings catalog, and verified by an actual
+  `SHCreateItemFromParsingName` round-trip.
 
 - Project: **Open-Shell-Menu**
 - Source: https://github.com/Open-Shell/Open-Shell-Menu

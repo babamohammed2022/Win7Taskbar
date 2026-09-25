@@ -86,6 +86,20 @@ namespace Win7Taskbar
         private readonly uint _taskbarCreatedMessage =
             NativeMethods.RegisterWindowMessage("TaskbarCreated");
         private bool _geometrySyncPending;
+        // v3.15: coalescing delle notifiche AppBar asincrone (mai
+        // eseguire AppBarNotify dentro il WndProc - vedi il gestore del
+        // messaggio callback).
+        private bool _appBarNotifyPending;
+        private uint _appBarNotifyW;
+        private int _appBarNotifyL;
+        // v3.15: salvavita anti ping-pong geometria: il conteggio scatta
+        // ogni volta che MaybeReassertAppBarRect programma un giro di
+        // ScheduleGeometrySync e si azzera dopo 2 s di quiete; oltre 8
+        // giri ravvicinati la rinegoziazione si ferma (log diagnostico)
+        // invece di saturare il dispatcher - il caso visto in verticale,
+        // dove ogni SetPos del core generava un altro WM_WINDOWPOSCHANGED.
+        private int _geometrySyncBurst;
+        private DateTime _geometrySyncLast = DateTime.MinValue;
 
         // Ultimo rettangolo confermato dalla shell (PIXEL FISICI). Serve a
         // WM_WINDOWPOSCHANGED per capire se la barra e' stata spostata da
@@ -889,6 +903,23 @@ namespace Win7Taskbar
                 return;
             }
 
+            /* v3.15: in VERTICALE la compattazione orizzontale non ha
+             * senso (i pulsanti si impilano, la loro larghezza e' quella
+             * della colonna) ed era uno dei ganci del congelamento: ad
+             * ogni passata assegnava larghezze nuove e forzava
+             * UpdateLayout dentro il dispatcher. Qui i pulsanti tornano
+             * a dimensione naturale e basta aggiornare le frecce. */
+            if (Orientation == Orientation.Vertical)
+            {
+                foreach (TaskGroup g in _viewModel.Groups)
+                {
+                    g.ButtonMinWidth = _taskButtonThemeMinWidth;
+                    g.ButtonWidth = double.NaN;
+                }
+                SyncTaskListScrollButtons();
+                return;
+            }
+
             IList<TaskGroup> groups = _viewModel.Groups;
             int count = groups.Count;
             if (count == 0)
@@ -1041,12 +1072,29 @@ namespace Win7Taskbar
 
         /* Le frecce compaiono solo quando c'e' davvero qualcosa da scorrere
          * (stessa regola della barra vera) e si spengono ai due estremi. */
+        private bool _syncingScrollButtons;
+
         private void SyncTaskListScrollButtons()
         {
             if (TaskListScroller == null)
             {
                 return;
             }
+
+            /* v3.15 - mai rientrare: la visibilita' delle frecce vive in
+             * righe/colonne Auto, quindi ogni cambio rifa passare il
+             * layout (e rifa scattare ScrollChanged/SizeChanged). Se
+             * questa funzione e' gia' in esecuzione una seconda
+             * sincronizzazione non aggiungerebbe nulla: si esce. Senza
+             * questo guard il caso verticale oscillava (frecce su/giu'
+             * ad ogni passata -> barra congelata, CPU al massimo). */
+            if (_syncingScrollButtons)
+            {
+                return;
+            }
+            try
+            {
+                _syncingScrollButtons = true;
 
             /* v3.12: l'asse di scorrimento segue l'orientamento della
              * barra: larghezza in orizzontale, altezza in verticale. Le
@@ -1061,16 +1109,39 @@ namespace Win7Taskbar
                 : TaskListScroller.HorizontalOffset;
             bool overflow = scrollable > 0.5;
 
+            /* v3.15: i set di Visibility/IsEnabled vanno fatti SOLO se il
+             * valore cambia - ogni assegnazione ripetuta invalida il
+             * layout e riaccende la catena di scroll-sync. */
             if (TaskListScrollLeft != null)
             {
-                TaskListScrollLeft.Visibility = overflow ? Visibility.Visible : Visibility.Collapsed;
-                TaskListScrollLeft.IsEnabled = overflow && offset > 0.5;
+                Visibility leftV = overflow ? Visibility.Visible : Visibility.Collapsed;
+                if (TaskListScrollLeft.Visibility != leftV)
+                {
+                    TaskListScrollLeft.Visibility = leftV;
+                }
+                bool leftEnabled = overflow && offset > 0.5;
+                if (TaskListScrollLeft.IsEnabled != leftEnabled)
+                {
+                    TaskListScrollLeft.IsEnabled = leftEnabled;
+                }
             }
             if (TaskListScrollRight != null)
             {
-                TaskListScrollRight.Visibility = overflow ? Visibility.Visible : Visibility.Collapsed;
-                TaskListScrollRight.IsEnabled = overflow &&
-                    offset < scrollable - 0.5;
+                Visibility rightV = overflow ? Visibility.Visible : Visibility.Collapsed;
+                if (TaskListScrollRight.Visibility != rightV)
+                {
+                    TaskListScrollRight.Visibility = rightV;
+                }
+                bool rightEnabled = overflow && offset < scrollable - 0.5;
+                if (TaskListScrollRight.IsEnabled != rightEnabled)
+                {
+                    TaskListScrollRight.IsEnabled = rightEnabled;
+                }
+            }
+            }
+            finally
+            {
+                _syncingScrollButtons = false;
             }
         }
 
@@ -2521,6 +2592,25 @@ namespace Win7Taskbar
             {
                 return;
             }
+            /* v3.15: salvavita anti ping-pong - se la geometria viene
+             * rinegoziata piu' di 8 volte in rapida successione qualcosa
+             * (shell + nostra posa) sta rimbalzando: si spezza il ciclo,
+             * lasciando la barra sulla posizione corrente invece di
+             * saturare il dispatcher fino al congelamento. Il contatore
+             * si azzera dopo 2 secondi di quiete, quindi le
+             * rinegoziazioni prudenziali distanziate passano sempre. */
+            DateTime now = DateTime.UtcNow;
+            if ((now - _geometrySyncLast).TotalSeconds > 2)
+            {
+                _geometrySyncBurst = 0;
+            }
+            _geometrySyncLast = now;
+            if (++_geometrySyncBurst > 8)
+            {
+                Debug.WriteLine(
+                    "[Win7Taskbar] geometry sync burst interrotto (anti ping-pong)");
+                return;
+            }
             _geometrySyncPending = true;
             Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
@@ -3076,10 +3166,49 @@ namespace Win7Taskbar
             // sparisce, cambia un monitor) la nostra area riservata restava
             // quella di prima. Il core dentro AppBarNotify riesegue
             // QUERYPOS/SETPOS e risistema la finestra (flusso ManagedShell).
+            //
+            // v3.15: MAI eseguire AppBarNotify DENTRO il WndProc: la
+            // notifica puo' arrivare mentre la shell e' nel mezzo di un
+            // broadcast in cui aspetta una nostra risposta, e richiamare
+            // SHAppBarMessage sincrono li' dentro blocca entrambi i
+            // processi (barra "non risponde" + Explorer al 70% di CPU).
+            // Si accoda UNA sola riesecuzione asincrona con i parametri
+            // dell'ultima notifica (coalescing: le tempeste di
+            // ABN_POSCHANGED si comprimono in una sola rinegoziazione).
             if (_appBarCallbackMessage != 0 && msg == _appBarCallbackMessage)
             {
-                _bridge.AppBarNotify((uint)wParam.ToInt64(), lParam.ToInt32());
                 handled = true;
+                /* Con un giro gia' in coda si SOVRASCRIVONO i parametri:
+                 * l'ultima notifica vince. Per ABN_POSCHANGED e' il
+                 * coalescing della tempesta; per ABN_FULLSCREENAPP/ARRANGE
+                 * evita di perdere il "show" dopo un "hide" ravvicinati
+                 * (il caso pericoloso del drop puro). Il core renegozia
+                 * comunque sempre sullo stato corrente del bordo, quindi
+                 * l'ultimo evento e' quello che conta. */
+                _appBarNotifyW = unchecked((uint)wParam.ToInt64());
+                _appBarNotifyL = lParam.ToInt32();
+                if (_appBarNotifyPending)
+                {
+                    return IntPtr.Zero;  // un giro e' gia' in coda
+                }
+                _appBarNotifyPending = true;
+                Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                    new Action(() =>
+                    {
+                        uint w = _appBarNotifyW;
+                        int l = _appBarNotifyL;
+                        _appBarNotifyPending = false;
+                        if (_shuttingDown)
+                        {
+                            return;
+                        }
+                        try { _bridge.AppBarNotify(w, l); }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine(
+                                $"[Win7Taskbar] AppBarNotify async failed: {ex}");
+                        }
+                    }));
                 return IntPtr.Zero;
             }
 

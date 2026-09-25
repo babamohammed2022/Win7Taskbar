@@ -121,7 +121,26 @@ namespace Win7Taskbar.StartMenu
                 if (!string.IsNullOrEmpty(path) &&
                     !string.Equals(path, probe, StringComparison.OrdinalIgnoreCase))
                 {
-                    return FromShGetFileInfo(path, File.Exists(path) || Directory.Exists(path), size);
+                    ImageSource? alt = FromShGetFileInfo(path, File.Exists(path) || Directory.Exists(path), size);
+                    if (alt != null)
+                    {
+                        return alt;
+                    }
+                }
+
+                /* v3.15 - ispirazione Open-Shell (l'icona si chiede SEMPRE
+                 * alla shell, anche per i 16px dell'albero "Tutti i
+                 * programmi"): la vecchia soglia "fabbrica solo > 16" lasciava
+                 * senza icona i programmi il cui collegamento risolve solo
+                 * tramite IShellItemImageFactory (app UWP, estensioni
+                 * registrate, voci del Pannello di controllo puntate da
+                 * .lnk di sistema). Qui e' l'ultima spiaggia: jumbo a 16 li'
+                 * dove tutto il resto ha fallito, non come scelta primaria
+                 * (le cartelle standard restano sul SHIL_SMALL nitido). */
+                ImageSource? last = FromShellItemFactory(probe, size);
+                if (last != null)
+                {
+                    return last;
                 }
                 return null;
             }

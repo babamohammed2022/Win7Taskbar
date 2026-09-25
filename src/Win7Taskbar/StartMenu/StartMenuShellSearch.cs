@@ -52,6 +52,15 @@ namespace Win7Taskbar.StartMenu
 
         private const uint SigdnNormalDisplay = 0;
         private const uint SigdnDesktopAbsoluteParsing = 0x80028000;
+        /* v3.15: ricostruzione del parsing name quando l'assoluto fallisce
+         * (alcuni provider del Pannello di controllo rifiutano il formato
+         * assoluto su installazioni localizzate): chiede al figlio il
+         * parsing RELATIVO alla propria cartella e lo appende al nome di
+         * parsing della cartella padre, che noi stiamo enumerando e che
+         * conosciamo gia'. Stessa tecnica del catalogo di Open-Shell per
+         * gli elementi "Settings": mai scartare una voce davvero
+         * presente nella cartella virtuale. */
+        private const uint SigdnParentRelativeParsing = 0x80018001;
 
         public static bool IsReady
         {
@@ -275,7 +284,7 @@ namespace Win7Taskbar.StartMenu
                             itemObj = Marshal.GetObjectForIUnknown(itemPtr);
                             if (itemObj is IShellItem item)
                             {
-                                AddShellItem(item, list, seen);
+                                AddShellItem(item, parsingName, list, seen);
                             }
                         }
                         catch (Exception)
@@ -311,6 +320,10 @@ namespace Win7Taskbar.StartMenu
 
         private static void AddShellItem(IShellItem item, List<ShellSearchHit> list,
             HashSet<string> seen)
+            => AddShellItem(item, null, list, seen);
+
+        private static void AddShellItem(IShellItem item, string? parentParsing,
+            List<ShellSearchHit> list, HashSet<string> seen)
         {
             /* v3.12: normalizza PRIMA del controllo di deduplicazione.
              * Senza questo trim, whitespace invisibili (spazi finali, NBSP,
@@ -324,6 +337,29 @@ namespace Win7Taskbar.StartMenu
                 return;
             }
             string parse = ReadName(item, SigdnDesktopAbsoluteParsing);
+            /* v3.15: il parsing assoluto manca a diversi provider del
+             * Pannello di controllo (la regola v3.13 "solo nomi reali" li
+             * scartava tutti - niente icone/risultati). Prima di
+             * rinunciare si ricostruisce: parsing relativo alla cartella +
+             * nome di parsing della cartella padre che stiamo enumerando.
+             * Rimane un VERO percorso lanciabile da SHCreateItemFromParsingName,
+             * semplicemente ottenuto a pezzi anziche' in un colpo solo. */
+            if (string.IsNullOrWhiteSpace(parse) &&
+                !string.IsNullOrWhiteSpace(parentParsing))
+            {
+                string relative = ReadName(item, SigdnParentRelativeParsing);
+                if (!string.IsNullOrWhiteSpace(relative))
+                {
+                    string rebuilt = parentParsing.TrimEnd('\\')
+                        + "\\" + relative.Trim('\\');
+                    /* Verifica documentata: solo se la shell riconosce il
+                     * percorso ricostruito la voce viene pubblicata. */
+                    if (ShellItemExists(rebuilt))
+                    {
+                        parse = rebuilt;
+                    }
+                }
+            }
             /* v3.13: SOLO voci reali, secondo la documentazione Microsoft:
              * SIGDN_DESKTOPABSOLUTEPARSING restituisce il nome di parsing
              * assoluto (C:\..., shell:..., ::{CLSID}) che ShellExecute /
@@ -391,6 +427,31 @@ namespace Win7Taskbar.StartMenu
                     cleaned.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
             }
             return cleaned;
+        }
+
+        /// <summary>v3.15: verifica che un nome di parsing ricostruito sia
+        /// davvero risolvibile dalla shell (come farebbe il click nel menu):
+        /// solo allora la voce viene tenuta. Tutto protetto: COM rilasciato
+        /// anche sul ramo di uscita forzata.</summary>
+        private static bool ShellItemExists(string parsingName)
+        {
+            Guid iidItem = IidShellItem;
+            try
+            {
+                int hr = SHCreateItemFromParsingName(parsingName, IntPtr.Zero,
+                    ref iidItem, out IShellItem? probe);
+                if (hr != 0 || probe == null)
+                {
+                    return false;
+                }
+                try { Marshal.ReleaseComObject(probe); }
+                catch (Exception) { }
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         private static string ReadName(IShellItem item, uint sigdn)

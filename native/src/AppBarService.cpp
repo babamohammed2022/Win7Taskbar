@@ -18,6 +18,7 @@
 
 #include "AppBarService.h"
 #include "TaskbarButtonNotify.h"
+#include "SehGuard.h"
 
 #include <cstdlib>
 
@@ -98,7 +99,15 @@ int32_t AppBarService::Register(HWND hwnd, int32_t edge, int32_t sizePx) {
     abd.hWnd             = hwnd;
     abd.uCallbackMessage = m_callbackMessage;
 
-    if (SHAppBarMessage(ABM_NEW, &abd) == 0) {
+    /* v3.15: ABM_NEW e' una SendMessage verso la shell - SEH anche qui,
+     * una shell morta a meta' handshake non deve portarci giu'. */
+    int32_t registered = 0;
+    W7T_SEH_TRY {
+        registered = (int32_t)(SHAppBarMessage(ABM_NEW, &abd) != 0);
+    } W7T_SEH_CATCH {
+        registered = 0;
+    } W7T_SEH_END
+    if (registered == 0) {
         return W7T_ERR_APPBAR;
     }
 
@@ -128,6 +137,29 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
     if (!m_registered) {
         return W7T_ERR_APPBAR;
     }
+    /* v3.15: SetPos MAI rientrante. Catena evitata:
+     * ABN_POSCHANGED -> SetPos -> ABM_WINDOWPOSCHANGED -> (eco shell)
+     * ABN_POSCHANGED -> SetPos -> ... = barra congelata, CPU al massimo.
+     * Se arriviamo da un eco interno ci fermiamo subito e restituiamo
+     * l'ultimo rettangolo confermato. */
+    if (m_inSetPos) {
+        if (out != nullptr && m_haveLastRect) {
+            *out = m_lastRect;
+        }
+        return W7T_OK;
+    }
+    /* Debounce: due SetPos allo stesso bordo/misura in meno di 120 ms
+     * sono la stessa rinegoziazione ripetuta (broadcast multipli della
+     * shell mentre risistema le AppBar) - si serve l'ultimo risultato. */
+    if (m_haveLastRect &&
+        GetTickCount64() - m_lastSetPosTick < 120ULL &&
+        m_edge == edge && m_size == sizePx) {
+        if (out != nullptr) {
+            *out = m_lastRect;
+        }
+        return W7T_OK;
+    }
+    m_inSetPos = true;
 
     /* Rettangolo FISICO del monitor su cui vive la barra.
      *
@@ -189,6 +221,13 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
             break;
     }
 
+    /* v3.15: rete SEH su OGNI negoziazione con la shell. SHAppBarMessage
+     * e' una SendMessage verso Explorer: un crash del target dentro il
+     * nostro processo (shell sostituita a meta' handshake, tabbed shell
+     * in chiusura) non deve poter far saltare anche noi. In caso di
+     * fault si esce sbloccando il flag rientrante e lasciando la
+     * registrazione coerente. */
+    W7T_SEH_TRY {
     /* ABM_QUERYPOS leaves Explorer's still-registered taskbar in the way
      * and would park us ON TOP of that bar. Re-pin to the physical monitor
      * edge so our bar is anchored to the screen, not stacked above another
@@ -275,15 +314,45 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
                  abd.rc.left, abd.rc.top,
                  abd.rc.right - abd.rc.left, abd.rc.bottom - abd.rc.top,
                  SWP_NOZORDER | SWP_NOACTIVATE);
+    } W7T_SEH_CATCH {
+        /* Fault dentro la negoziazione: meglio una posa rimandata che un
+         * barra (o una shell) in crash. Il flag va sbloccato qui perche'
+         * il cammino normale non viene raggiunto. */
+        m_inSetPos        = false;
+        m_lastSetPosTick  = GetTickCount64();
+        if (out != nullptr && m_haveLastRect) {
+            *out = m_lastRect;
+        }
+        return W7T_ERR_APPBAR;
+    } W7T_SEH_END
 
-    /* La shell deve sapere che il nostro rettangolo e' cambiato: le altre
-     * AppBar ricalcolano la loro posizione rispetto alla nostra
-     * (stessa chiamata che ManagedShell fa da WM_WINDOWPOSCHANGED). */
-    NotifyWindowPosChanged(hwnd);
+    /* v3.15: si notifica la shell SOLO se il rettangolo e' davvero
+     * cambiato rispetto all'ultima posa. La chiamata incondizionata di
+     * ABM_WINDOWPOSCHANGED faceva partire un nuovo giro di
+     * ABN_POSCHANGED alla volta (concentrato ai cambi di bordo, e in
+     * verticale a ogni rinegoziazione di larghezza del menu' tray):
+     * identico schema di ManagedShell (AppBarWindow notifica da
+     * WM_WINDOWPOSCHANGED vero, non a ogni SetPos interno). */
+    const bool rectChanged =
+        !m_haveLastRect ||
+        m_lastRect.left   != abd.rc.left   ||
+        m_lastRect.top    != abd.rc.top    ||
+        m_lastRect.right  != abd.rc.right  ||
+        m_lastRect.bottom != abd.rc.bottom;
+    m_lastRect      = abd.rc;
+    m_haveLastRect  = true;
+    m_lastSetPosTick = GetTickCount64();
+    if (rectChanged) {
+        /* La shell deve sapere che il nostro rettangolo e' cambiato: le
+         * altre AppBar ricalcolano la loro posizione rispetto alla nostra
+         * (stessa chiamata che ManagedShell fa da WM_WINDOWPOSCHANGED). */
+        NotifyWindowPosChanged(hwnd);
+    }
 
     if (out != nullptr) {
         *out = abd.rc;
     }
+    m_inSetPos = false;
     return W7T_OK;
 }
 
@@ -300,7 +369,13 @@ void AppBarService::NotifyWindowPosChanged(HWND hwnd) {
     APPBARDATA abd = {};
     abd.cbSize = sizeof(abd);
     abd.hWnd   = hwnd;
-    SHAppBarMessage(ABM_WINDOWPOSCHANGED, &abd);
+    /* v3.15: anche questa singola chiamata verso la shell resta dentro
+     * la rete SEH (e' ancora una SendMessage verso la shell). */
+    W7T_SEH_TRY {
+        SHAppBarMessage(ABM_WINDOWPOSCHANGED, &abd);
+    } W7T_SEH_CATCH {
+        /* notifica persa: ci pensano i controlli successivi */
+    } W7T_SEH_END
 }
 
 void AppBarService::Activate(HWND hwnd) {
@@ -348,6 +423,19 @@ bool AppBarService::HandleCallback(uint32_t wParam, int32_t lParam) {
      * ManagedShell (AppBarWindow.WndProc, AppBarNotifications.PosChanged). */
     switch (wParam) {
         case ABN_POSCHANGED:
+            /* v3.15 - soppressione dell'ECO: un ABN_POSCHANGED che arriva
+             * mentre un nostro SetPos e' in corso, o nei 300 ms dalla sua
+             * fine, e' quasi certamente scatenato dalla nostra stessa
+             * richiesta ABM_WINDOWPOSCHANGED: rispondere con un altro
+             * SetPos aprirebbe il ciclo infinito app<->shell (barra
+             * congelata, CPU al massimo - la regressione verticale).
+             * Le notifiche genuine (altre AppBar che compaiono/spariscono,
+             * cambio monitor) arrivano al di fuori di questo ingresso. */
+            if (m_inSetPos ||
+                (m_haveLastRect &&
+                 GetTickCount64() - m_lastSetPosTick < 300ULL)) {
+                return true;
+            }
             /* Riesegue la sequenza QUERYPOS/SETPOS e risistema la finestra
              * sul rettangolo confermato (vedi SetPos). */
             SetPos(m_hwnd, m_edge, m_size, nullptr);
@@ -442,10 +530,17 @@ int32_t AppBarService::Unregister(HWND hwnd) {
     abd.cbSize = sizeof(abd);
     abd.hWnd   = (hwnd != nullptr) ? hwnd : m_hwnd;
 
-    SHAppBarMessage(ABM_REMOVE, &abd);
+    /* v3.15: SEH anche in uscita - una shell gia' morta (riavvio di
+     * Explorer) fa fallire ABM_REMOVE dentro un processo host assente. */
+    W7T_SEH_TRY {
+        SHAppBarMessage(ABM_REMOVE, &abd);
+    } W7T_SEH_CATCH {
+    } W7T_SEH_END
 
-    m_registered = false;
-    m_hwnd       = nullptr;
+    m_registered    = false;
+    m_hwnd          = nullptr;
+    m_haveLastRect  = false;  /* rettangolo stantio: non riusarlo */
+    m_inSetPos      = false;
     return W7T_OK;
 }
 

@@ -429,7 +429,26 @@
          RetroBar (Apache 2.0, dremin - vedi CREDITS.txt) applica al suo
          DockPanel: Start in testa, Superbar a riempire, tray/orologio/
          Mostra desktop in coda. -->
-    <Version>1.3.32-alpha</Version>
+    <!-- v3.15: Congelamento verticale (app non rispondeva, CPU ~70%):
+         anti ping-pong su TUTTA la catena AppBar - il core notifica
+         ABM_WINDOWPOSCHANGED solo su rettangolo cambiato e ignora l'eco
+         ABN_POSCHANGED entro 300 ms (fuori = rinegoziazione vera);
+         AppBarNotify mai piu' eseguito dentro il WndProc (o deadlock
+         col broadcast della shell); salvavita sulla sincronizzazione
+         geometria (max 8 giri ravvicinati); frecce Superbar mai
+         rientranti e senza set ripetuti; la compattazione orizzontale
+         dei pulsanti non corre in verticale. Ricerca app DISATTIVATA di
+         predefinito (si riattiva dalle Proprieta'). Icone: pipeline
+         IShellItemImageFactory come ultima spiaggia anche a 16 px
+         (programmi senza icona nel menu) e ricostruzione dei parsing
+         name del Pannello di controllo da relative+parent, verificata con
+         SHCreateItemFromParsingName (ispirazione Open-Shell, MIT - vedi
+         THIRD-PARTY-NOTICES.md). Hygiene: reti SEH+try/RAII estese ai
+         callback di confine con Explorer (SHELLHOOK, WndProc tray,
+         task-switch, WinEvent dell'host tray, callback AppBar nativo) ->
+         nessun fault puo' piu' bloccare una SendMessage/pendente della
+         shell. -->
+    <Version>1.3.33-alpha</Version>
     <AssemblyVersion>1.3.26.0</AssemblyVersion>
     <FileVersion>1.3.26.0</FileVersion>
   

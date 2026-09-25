@@ -54,7 +54,11 @@ namespace RetroBar.Utilities
         // v3.0: optional app search / ricerca app opzionale.
         // v3.3: ON by default (lente a sinistra dello Start durante
         // l'esecuzione); si disattiva dalle Proprieta'.
-        private bool _enableAppSearch = true;
+        // v3.15: ricerca applicazioni ORA disattivata per impostazione
+        // predefinita (il motore di ricerca si attiva una sola volta dalle
+        // proprieta' della barra, quando serve): su richiesta dell'utente
+        // la scansione non deve partire all'avvio.
+        private bool _enableAppSearch = false;
         private bool _showJumpListHoverArrow = false;
         private bool _showControlCenterButton;
         private bool _showNotificationCenterButton;

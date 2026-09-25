@@ -33,6 +33,7 @@
 #include "ExplorerTrayReader.h"
 #include "Win11TrayReader.h"
 #include "TrayToolbar.h"
+#include "SehGuard.h"   /* v3.15: reti SEH sui confini verso la shell */
 #include "TrayFallbackIcons.h"
 #include "TrayPrefsStore.h"
 #include "SystemEventsWatch.h"
@@ -1465,7 +1466,17 @@ void CALLBACK OwnerDestroyedProc(HWINEVENTHOOK hook, DWORD event,
     if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF || hwnd == nullptr) {
         return;
     }
-    TrayService::Instance().NotifyOwnerDiedAsync(hwnd);
+    /* v3.15: il WinEvent entra nel dispatch di events del sistema: un
+     * fault qui (lettura icone, lock) blocca la catena degli eventi
+     * accessibilita' per TUTTE le finestre, incluse quelle di Explorer.
+     * Doppia rete come sugli altri confini. */
+    W7T_SEH_TRY {
+        try {
+            TrayService::Instance().NotifyOwnerDiedAsync(hwnd);
+        } catch (...) {
+        }
+    } W7T_SEH_CATCH {
+    } W7T_SEH_END
 }
 
 } /* namespace */
@@ -1888,11 +1899,22 @@ void TrayService::ThreadMain() {
  * qualsiasi cosa e si delega al comportamento di default. */
 
 LRESULT CALLBACK TrayService::TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    try {
-        return TrayWndProcInner(hwnd, msg, wParam, lParam);
-    } catch (...) {
-        return DefWindowProcW(hwnd, msg, wParam, lParam);
-    }
+    /* v3.15: doppia rete - C++ try/catch (c'era gia') + SEH. Il fault
+     * hardware qui dentro lascerebbe il mittente di una SendMessage
+     * (spesso una finestra della shell, vedi il broadcast
+     * TaskbarButtonCreated) appeso sul nostro thread: con la guardia la
+     * risposta arriva sempre. */
+    LRESULT result = 0;
+    bool handled = false;
+    W7T_SEH_TRY {
+        try {
+            result = TrayWndProcInner(hwnd, msg, wParam, lParam);
+            handled = true;
+        } catch (...) {
+        }
+    } W7T_SEH_CATCH {
+    } W7T_SEH_END
+    return handled ? result : DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -2119,6 +2141,12 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
  * the code). */
 LRESULT CALLBACK TrayService::TaskSwitchWndProc(HWND hwnd, UINT msg, WPARAM wParam,
                                                 LPARAM lParam) {
+    /* v3.15: anche la finestra task-switch riceve il broadcast SHELLHOOK
+     * (HSHELL_* da Explorer): un fault qui dentro blocca la coda di chi
+     * ha inviato. SEH + try/catch anche su questo confine. */
+    LRESULT result = 0;
+    bool handled = false;
+    W7T_SEH_TRY {
     try {
         /* Same registered message the tray window already uses for
          * HSHELL_FLASH; RegisterWindowMessageW is cheap and returns the
@@ -2156,8 +2184,12 @@ LRESULT CALLBACK TrayService::TaskSwitchWndProc(HWND hwnd, UINT msg, WPARAM wPar
         }
         return DefWindowProcW(hwnd, msg, wParam, lParam);
     } catch (...) {
-        return DefWindowProcW(hwnd, msg, wParam, lParam);
+        result = DefWindowProcW(hwnd, msg, wParam, lParam);
+        handled = true;
     }
+    } W7T_SEH_CATCH {
+    } W7T_SEH_END
+    return handled ? result : DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 LRESULT TrayService::HandleCopyData(HWND, const COPYDATASTRUCT* cds) {
@@ -3472,7 +3504,16 @@ void CALLBACK TrayService::TrayHostChangedProc(HWINEVENTHOOK, DWORD,
 
     /* Il debounce e' gia' quello delle riconciliazioni: piu' eventi vicini
      * diventano una sola lettura. */
-    self.ScheduleReconcile(kReconcileUiaTray, 250);
+    /* v3.15: racchiuso in SEH + try anche questo callback WinEvent (stesso
+     * motivo di OwnerDestroyedProc: mai bloccare la catena degli eventi
+     * accessibilita' mentre la shell ridisegna le sue finestre). */
+    W7T_SEH_TRY {
+    try {
+        self.ScheduleReconcile(kReconcileUiaTray, 250);
+    } catch (...) {
+    }
+    } W7T_SEH_CATCH {
+    } W7T_SEH_END
 }
 
 int32_t TrayService::CopyTo(W7T_TrayIconInfo* buffer, int32_t capacity) {
