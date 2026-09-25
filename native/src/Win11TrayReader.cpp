@@ -513,26 +513,34 @@ bool LoadImageIcon(const std::wstring& exePath, ArgbBitmap& out) {
     /* NB: la variabile NON si puo' chiamare "small": rpcndr.h definisce
      * small/far/near/hyper/pascal come macro, e con MSVC la dichiarazione
      * diventa "HICON char" (dieci errori di sintassi a catena). Con MinGW
-     * compila lo stesso e il bug si vede solo in CI. */
-    raii::IconHandle iconSmall;
+     * compila lo stesso e il bug si vede solo in CI.
+     *
+     * Il blocco SEH protegge esclusivamente la chiamata Win32 e contiene solo
+     * tipi banali. Un longjmp non deve mai attraversare IconHandle o
+     * ArgbBitmap: la conversione, che possiede oggetti C++, avviene dopo il
+     * blocco protetto e resta quindi sotto RAII normale. */
     if (!exePath.empty()) {
+        HICON rawIcon = nullptr;
+        UINT extracted = 0;
         W7T_SEH_TRY {
-            HICON rawIcon = nullptr;
-            const UINT extracted = ExtractIconExW(
+            extracted = ExtractIconExW(
                 exePath.c_str(), 0, nullptr, &rawIcon, 1);
-            if (rawIcon != nullptr) {
-                iconSmall.reset(rawIcon);
-            }
-            if (extracted > 0 && iconSmall) {
-                ArgbBitmap bmp;
-                if (IconToArgb(iconSmall.get(), bmp) && BitmapSane(bmp) &&
-                    BitmapHasContent(bmp)) {
-                    out = std::move(bmp);
-                }
-            }
         } W7T_SEH_CATCH {
-            out.clear();
+            if (rawIcon != nullptr) {
+                DestroyIcon(rawIcon);
+                rawIcon = nullptr;
+            }
+            extracted = 0;
         } W7T_SEH_END
+
+        if (extracted > 0 && rawIcon != nullptr) {
+            raii::IconHandle iconSmall(rawIcon);
+            ArgbBitmap bmp;
+            if (IconToArgb(iconSmall.get(), bmp) && BitmapSane(bmp) &&
+                BitmapHasContent(bmp)) {
+                out = std::move(bmp);
+            }
+        }
     }
     if (!out.empty()) {
         return true;
@@ -540,21 +548,22 @@ bool LoadImageIcon(const std::wstring& exePath, ArgbBitmap& out) {
 
     /* Last resort: the generic application icon. Never leave a tray slot
      * empty: an icon with a tooltip is always better than a hole. */
-    HICON generic = LoadIconW(nullptr, IDI_APPLICATION);
+    HICON generic = nullptr;
+    W7T_SEH_TRY {
+        generic = LoadIconW(nullptr, IDI_APPLICATION);
+    } W7T_SEH_CATCH {
+        generic = nullptr;
+    } W7T_SEH_END
     if (generic == nullptr) {
         return false;
     }
-    bool ok = false;
-    W7T_SEH_TRY {
-        ArgbBitmap bmp;
-        if (IconToArgb(generic, bmp) && BitmapSane(bmp)) {
-            out = std::move(bmp);
-            ok = true;
-        }
-    } W7T_SEH_CATCH {
-        ok = false;
-    } W7T_SEH_END
-    return ok;
+
+    ArgbBitmap bmp;
+    if (!IconToArgb(generic, bmp) || !BitmapSane(bmp)) {
+        return false;
+    }
+    out = std::move(bmp);
+    return true;
 }
 
 /* Stable identity of an accessibility element: the tray has no numeric id,
