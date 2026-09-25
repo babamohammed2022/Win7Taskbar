@@ -1020,16 +1020,16 @@ namespace Win7Taskbar
              * effettivi, senza una larghezza verticale inventata. */
             if (Orientation == Orientation.Vertical)
             {
-                double available = TaskListScroller.ActualWidth;
-                if (available <= 0)
+                double verticalAvailable = TaskListScroller.ActualWidth;
+                if (verticalAvailable <= 0)
                 {
                     SyncTaskListScrollButtons();
                     return;
                 }
 
-                double scale = DevicePixelScale();
+                double verticalScale = DevicePixelScale();
                 double sideMargin = GetTaskButtonHorizontalMargin();
-                double width = Math.Floor(Math.Max(0, available - sideMargin) * scale) / scale;
+                double width = Math.Floor(Math.Max(0, verticalAvailable - sideMargin) * verticalScale) / verticalScale;
                 if (width <= 0)
                 {
                     SyncTaskListScrollButtons();
