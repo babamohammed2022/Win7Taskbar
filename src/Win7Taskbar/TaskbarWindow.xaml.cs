@@ -173,10 +173,16 @@ namespace Win7Taskbar
          * precedenti la v3.12: UNA riga implicita a stella, tutto disteso
          * sull'intera altezza) e in VERTICALE con righe create a runtime:
          * Auto per leading/trailing, riga stella per il fill della
-         * Superbar. Ritornando in orizzontale le RowDefinitions vengono
-         * RIMOSSE del tutto, riportando il layout identico a prima.
+         * Superbar. Anche l'asse trasversale usa una sola colonna stella,
+         * cosi' il contenuto segue lo spessore reale della finestra.
+         * Ritornando in orizzontale le RowDefinitions vengono RIMOSSE e le
+         * ColumnDefinitions originali vengono reinserite, riportando il
+         * layout identico a prima.
          * Schema derivato da RetroBar, https://github.com/dremin/RetroBar,
          * Copyright (c) dremin, licenza Apache 2.0: vedi CREDITS.txt. */
+        private ColumnDefinition[]? _rootHorizontalColumns;
+        private ColumnDefinition[]? _taskListHorizontalColumns;
+
         private static void OnOrientationChanged(DependencyObject d,
             DependencyPropertyChangedEventArgs e)
         {
@@ -197,6 +203,40 @@ namespace Win7Taskbar
                  * successione, col resize dell'AppBar ancora in corso, non
                  * deve poter buttare giu' il processo). */
                 window.ResetLayoutGridsToSafeState();
+            }
+        }
+
+        /// <summary>
+        /// In verticale tutti i contenuti stanno nella stessa colonna, che
+        /// deve essere una stella: le colonne storiche Auto/*/Auto
+        /// descrivono l'asse orizzontale e, se restano attive, restringono la
+        /// banda alla larghezza desiderata dal suo contenuto. Le definizioni
+        /// originali vengono conservate e riutilizzate al ritorno in
+        /// orizzontale, senza introdurre una misura fissa.
+        /// </summary>
+        private static void UseVerticalContentColumn(Grid grid,
+                                                     ref ColumnDefinition[]? horizontalColumns)
+        {
+            horizontalColumns ??= grid.ColumnDefinitions.ToArray();
+            grid.ColumnDefinitions.Clear();
+            grid.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = new GridLength(1, GridUnitType.Star)
+            });
+        }
+
+        private static void RestoreHorizontalContentColumns(Grid grid,
+                                                            ColumnDefinition[]? horizontalColumns)
+        {
+            if (horizontalColumns == null)
+            {
+                return;
+            }
+
+            grid.ColumnDefinitions.Clear();
+            foreach (ColumnDefinition definition in horizontalColumns)
+            {
+                grid.ColumnDefinitions.Add(definition);
             }
         }
 
@@ -303,11 +343,15 @@ namespace Win7Taskbar
                  * a righe inesistenti. */
                 if (vertical)
                 {
+                    UseVerticalContentColumn(RootLayoutGrid,
+                                             ref _rootHorizontalColumns);
                     EnsureOrientationRows(RootLayoutGrid, true, 7, 2);
                     SwapGridAxes(RootLayoutGrid, orientation);
                 }
                 else
                 {
+                    RestoreHorizontalContentColumns(RootLayoutGrid,
+                                                    _rootHorizontalColumns);
                     SwapGridAxes(RootLayoutGrid, orientation);
                     EnsureOrientationRows(RootLayoutGrid, false, 0, 0);
                 }
@@ -321,15 +365,21 @@ namespace Win7Taskbar
             {
                 if (vertical)
                 {
+                    UseVerticalContentColumn(TaskListBandGrid,
+                                             ref _taskListHorizontalColumns);
                     EnsureOrientationRows(TaskListBandGrid, true, 3, 1);
                     SwapGridAxes(TaskListBandGrid, orientation);
                 }
                 else
                 {
+                    RestoreHorizontalContentColumns(TaskListBandGrid,
+                                                    _taskListHorizontalColumns);
                     SwapGridAxes(TaskListBandGrid, orientation);
                     EnsureOrientationRows(TaskListBandGrid, false, 0, 0);
                 }
             }
+
+            ApplyTrayOrientationLayout(vertical);
 
             if (StartButton != null)
             {
@@ -352,7 +402,41 @@ namespace Win7Taskbar
 
             /* Le frecce di scorrimento della Superbar ragionano su un solo
              * asse: rieffettua la sincronizzazione su quello nuovo. */
+            ScheduleTaskButtonLayout();
             SyncTaskListScrollButtons();
+        }
+
+        /// <summary>
+        /// La risorsa del tema usa una StackPanel orizzontale per la tray.
+        /// Quando la barra gira sul bordo laterale la sostituiamo con il
+        /// pannello verticale locale, senza modificare la risorsa del tema e
+        /// senza lasciare un valore locale quando si torna in orizzontale.
+        /// </summary>
+        private void ApplyTrayOrientationLayout(bool vertical)
+        {
+            if (TrayIcons == null)
+            {
+                return;
+            }
+
+            if (vertical)
+            {
+                if (TryFindResource("VerticalTrayItemsPanel") is not ItemsPanelTemplate panel)
+                {
+                    throw new InvalidOperationException(
+                        "La risorsa del pannello tray verticale non e' disponibile.");
+                }
+
+                TrayIcons.ItemsPanel = panel;
+                TrayIcons.HorizontalAlignment = HorizontalAlignment.Stretch;
+                TrayIcons.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            }
+            else
+            {
+                TrayIcons.ClearValue(ItemsControl.ItemsPanelProperty);
+                TrayIcons.ClearValue(FrameworkElement.HorizontalAlignmentProperty);
+                TrayIcons.ClearValue(Control.HorizontalContentAlignmentProperty);
+            }
         }
 
         /// <summary>
@@ -907,6 +991,19 @@ namespace Win7Taskbar
             return scale > 0 ? scale : 1.0;
         }
 
+        private double GetTaskButtonHorizontalMargin()
+        {
+            if (TryFindResource("TaskButtonMargin") is Thickness margin)
+            {
+                return Math.Max(0, margin.Left + margin.Right);
+            }
+
+            /* Fallback coerente con il tema base se una skin non dichiara la
+             * chiave: il calcolo resta basato sul layout, non su una larghezza
+             * fissa del pulsante. */
+            return 2;
+        }
+
         private void UpdateTaskButtonLayout()
         {
             if (TaskListScroller == null || TaskList == null || _viewModel == null)
@@ -914,19 +1011,41 @@ namespace Win7Taskbar
                 return;
             }
 
-            /* v3.15: in VERTICALE la compattazione orizzontale non ha
-             * senso (i pulsanti si impilano, la loro larghezza e' quella
-             * della colonna) ed era uno dei ganci del congelamento: ad
-             * ogni passata assegnava larghezze nuove e forzava
-             * UpdateLayout dentro il dispatcher. Qui i pulsanti tornano
-             * a dimensione naturale e basta aggiornare le frecce. */
+            /* In VERTICALE la larghezza non puo' restare quella minima della
+             * Superbar orizzontale: la finestra laterale e' larga quanto lo
+             * spessore della barra e una MinWidth da 52 DIP sposterebbe il
+             * centro dell'icona fuori dal vetro, tagliandone il lato destro.
+             * Si usa quindi la misura reale della colonna, meno il margine
+             * orizzontale del tema; il valore segue DPI, skin e spessore
+             * effettivi, senza una larghezza verticale inventata. */
             if (Orientation == Orientation.Vertical)
             {
+                double available = TaskListScroller.ActualWidth;
+                if (available <= 0)
+                {
+                    SyncTaskListScrollButtons();
+                    return;
+                }
+
+                double scale = DevicePixelScale();
+                double sideMargin = GetTaskButtonHorizontalMargin();
+                double width = Math.Floor(Math.Max(0, available - sideMargin) * scale) / scale;
+                if (width <= 0)
+                {
+                    SyncTaskListScrollButtons();
+                    return;
+                }
+
                 foreach (TaskGroup g in _viewModel.Groups)
                 {
-                    g.ButtonMinWidth = _taskButtonThemeMinWidth;
-                    g.ButtonWidth = double.NaN;
+                    /* Width e MinWidth devono avere lo stesso valore: se il
+                     * minimo del tema restasse attivo WPF riallargerebbe il
+                     * pulsante durante Arrange, vanificando il centraggio. */
+                    g.ButtonMinWidth = width;
+                    g.ButtonWidth = width;
                 }
+                _taskButtonAppliedWidth = double.NaN;
+                _taskButtonCompactLogged = false;
                 SyncTaskListScrollButtons();
                 return;
             }

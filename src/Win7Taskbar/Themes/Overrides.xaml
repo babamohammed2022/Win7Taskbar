@@ -778,6 +778,15 @@
                 <Setter TargetName="HoverTile" Property="Background"
                         Value="{DynamicResource TaskButtonBackgroundPressed}" />
             </Trigger>
+            <!-- In verticale il contenuto occupa tutta la cella: i margini
+                 laterali della tessera orizzontale non devono spostare il
+                 centro dell'icona verso il bordo esterno. -->
+            <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                         Value="Vertical">
+                <Setter TargetName="Content"
+                        Property="Margin"
+                        Value="0" />
+            </DataTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
@@ -862,6 +871,15 @@
                     </Storyboard>
                 </BeginStoryboard>
             </EventTrigger>
+            <!-- In verticale la cornice resta larga quanto la colonna e
+                 l'icona va centrata senza il padding orizzontale della barra
+                 orizzontale. -->
+            <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                         Value="Vertical">
+                <Setter TargetName="Content"
+                        Property="Margin"
+                        Value="0" />
+            </DataTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
@@ -951,6 +969,15 @@
                     </Storyboard>
                 </BeginStoryboard>
             </EventTrigger>
+            <!-- Lo stato attivo usa un margine inferiore leggermente diverso
+                 in orizzontale; sul bordo laterale tutti gli stati devono
+                 condividere lo stesso centro geometrico. -->
+            <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                         Value="Vertical">
+                <Setter TargetName="Content"
+                        Property="Margin"
+                        Value="0" />
+            </DataTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
@@ -1032,6 +1059,14 @@
                     </Storyboard>
                 </BeginStoryboard>
             </EventTrigger>
+            <!-- Anche la notifica deve usare il centro della colonna
+                 verticale, non il padding della tessera orizzontale. -->
+            <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                         Value="Vertical">
+                <Setter TargetName="Content"
+                        Property="Margin"
+                        Value="0" />
+            </DataTrigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
