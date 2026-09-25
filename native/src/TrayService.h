@@ -281,7 +281,7 @@ public:
     SystemIconKind KindOf(uint64_t ownerHwnd, uint32_t uid) const;
 
     /* true quando questa sessione usa la tray XAML di Windows 11. */
-    bool IsWin11Tray() const { return m_win11Tray; }
+    bool IsWin11Tray() const { return m_win11Tray.load(); }
 
     /* true dopo la prima richiesta di importazione. */
     bool m_importStarted = false;
@@ -500,7 +500,7 @@ private:
 
     HWINEVENTHOOK m_ownerHook = nullptr;
     HWINEVENTHOOK m_trayHostHook = nullptr;   /* v2.60: isole della tray Win11 */
-    bool          m_win11Tray = false;
+    std::atomic<bool> m_win11Tray{ false };
 
     /* v3.8: ripiego "icone sparite" (idea dalla mod Disappearing Tray
      * Icons Fix): il broadcast TaskbarCreated a meta' sessione viene

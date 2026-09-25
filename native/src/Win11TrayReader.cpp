@@ -956,9 +956,28 @@ SystemIconKind Win11TrayReader::KindOf(uint32_t uid) const {
 /* ------------------------------------------------------------------ */
 
 void Win11TrayReader::WorkerMain() {
-    /* Forza la creazione della message queue prima di pubblicare l'id:
-     * PostThreadMessage/WM_QUIT richiedono una coda appartenente al thread. */
-    MSG bootstrap{};
+    /* Nessuna eccezione deve attraversare std::thread: oltre a terminare il
+     * processo, lascerebbe l'istanza con il worker marcato vivo. La guardia
+     * ripristina anche lo stato globale usato dal clic passante/flyout quando
+     * un'operazione UIA o una allocazione fallisce a meta'. */
+    try {
+        const auto workerCleanup = raii::on_scope_exit([]() noexcept {
+            g_watchFlyout.store(false);
+            KillTimer(nullptr, kTimerPlacement);
+            KillTimer(nullptr, kTimerClickThrough);
+            g_flyoutHwnd = nullptr;
+            for (const auto& saved : g_clickThroughSaved) {
+                if (IsWindow(saved.hwnd)) {
+                    SetWindowLongPtrW(saved.hwnd, GWL_EXSTYLE, saved.exStyle);
+                }
+            }
+            g_clickThroughSaved.clear();
+            g_clickThroughActive = false;
+        });
+
+        /* Forza la creazione della message queue prima di pubblicare l'id:
+         * PostThreadMessage/WM_QUIT richiedono una coda appartenente al thread. */
+        MSG bootstrap{};
     PeekMessageW(&bootstrap, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
     m_threadId = GetCurrentThreadId();
     m_threadDone.store(false);
@@ -1010,6 +1029,8 @@ void Win11TrayReader::WorkerMain() {
         }
         watchedRoots.clear();
     };
+    const auto watchedRootsCleanup = raii::on_scope_exit(
+        [&]() noexcept { clearWatchedRoots(); });
 
     auto watchIslandProperties = [&](HWND island) {
         if (!uia || island == nullptr) {
@@ -1674,8 +1695,26 @@ void Win11TrayReader::WorkerMain() {
     clearWatchedRoots();
     /* I ComPtr rilasciano UIA, gli handler e gli elementi anche se una
      * chiamata precedente ha lasciato una risorsa a meta'. */
-    m_threadId = 0;
-    m_threadDone.store(true);
+        m_running.store(false);
+        m_threadId = 0;
+        m_started.store(false);
+        m_threadDone.store(true);
+    } catch (...) {
+        MSG pending{};
+        while (PeekMessageW(&pending, nullptr, kMsgClick, kMsgClick,
+                            PM_REMOVE) != FALSE) {
+            delete reinterpret_cast<Request*>(pending.lParam);
+        }
+        while (PeekMessageW(&pending, nullptr, kMsgOverflow, kMsgOverflow,
+                            PM_REMOVE) != FALSE) {
+            delete reinterpret_cast<Request*>(pending.lParam);
+        }
+        m_running.store(false);
+        m_threadId = 0;
+        m_started.store(false);
+        m_threadDone.store(true);
+        OutputDebugStringW(L"Win11TrayReader: eccezione non gestita nel worker UIA\n");
+    }
 }
 
 } /* namespace w7t */

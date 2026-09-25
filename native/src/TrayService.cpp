@@ -661,7 +661,12 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
     /* Windows 11 non ha nessuna toolbar della tray da leggere: la passata
      * classica finirebbe in "lettura non valida" a ogni giro. Il modello lo
      * riempie il lettore UI Automation, che risponde in modo asincrono su
-     * kMsgUiaTray (vedi ApplyWin11TraySnapshot). */
+     * kMsgUiaTray (vedi ApplyWin11TraySnapshot). La detection viene ripetuta
+     * anche quando la toolbar legacy risponde validamente: all'avvio il
+     * bridge XAML puo' essere creato dopo la prima fotografia. */
+    if (!m_win11Tray) {
+        EnableWin11Tray();
+    }
     if (m_win11Tray) {
         /* v2.61: alimentazione e rete cambiano il DISEGNO delle nostre tre
          * icone. Si aggiornano subito, senza aspettare la lettura della
@@ -3105,6 +3110,10 @@ void TrayService::EnableWin11Tray() {
     int added = 0, updated = 0;
     bool pixel = false;
     EnsureSyntheticSystemIcons(nullptr, nullptr, &added, &updated, &pixel);
+    if (added != 0 || updated != 0 || pixel) {
+        SyncToolbarModel();
+        TrayOverflowWindow::NotifyTrayChanged();
+    }
 
     /* Risveglio leggero dello stato (il volume non manda eventi alla tray):
      * non tocca Explorer, non apre nulla, non muove finestre. */
@@ -3425,6 +3434,7 @@ void TrayService::ApplyWin11TraySnapshot() {
             m_uiaRetryDelayMs = (std::min)(15000ul, m_uiaRetryDelayMs * 2);
         } else {
             m_uiaRetryDelayMs = 1000;
+            m_uiaFastRetries = 0;
         }
         return;
     }
