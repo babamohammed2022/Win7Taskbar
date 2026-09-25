@@ -2442,21 +2442,36 @@ namespace Win7Taskbar
 
         /// <summary>
         /// v1.21.43 - conversione esplicita posizione persistita -> bordo.
-        /// La configurazione attuale ammette soltanto 0 = Basso e 1 = Alto;
-        /// qualunque valore legacy o corrotto viene trattato come Basso prima
-        /// di toccare la finestra o l'AppBar.
+        /// I rami Left/Right restano nel codice per non cancellare il layout
+        /// verticale gia' implementato; la configurazione pubblica, il setter
+        /// e il protocollo WM_COPYDATA normalizzano 2/3 prima di arrivare qui.
         /// </summary>
         private static TaskbarEdge EdgeFromPosition(int position) =>
-            position == 1 ? TaskbarEdge.Top : TaskbarEdge.Bottom;
+            position switch
+            {
+                1 => TaskbarEdge.Top,
+                2 => TaskbarEdge.Left,
+                3 => TaskbarEdge.Right,
+                _ => TaskbarEdge.Bottom,
+            };
 
-        /// <summary>Stesso bordo in valori AppBar (ABE_*) per il core nativo.</summary>
+        /// <summary>Stesso bordo in valori AppBar (ABE_*) per il core nativo.
+        /// I valori 2/3 sono mantenuti solo per il codice verticale dormiente.
+        /// </summary>
         private static int AppBarEdgeFromPosition(int position) =>
-            position == 1 ? AppBarEdgeValue.Top : AppBarEdgeValue.Bottom;
+            position switch
+            {
+                1 => AppBarEdgeValue.Top,
+                2 => AppBarEdgeValue.Left,
+                3 => AppBarEdgeValue.Right,
+                _ => AppBarEdgeValue.Bottom,
+            };
 
         /// <summary>
-        /// Fixed theme thickness in DIP. La barra resta orizzontale e usa
-        /// questo valore come altezza. User-controlled resizing was removed:
-        /// la barra e' sempre la Windows 7 Superbar del tema attivo.
+        /// Fixed theme thickness in DIP. Le opzioni pubbliche mantengono la
+        /// barra orizzontale; i rami di layout verticale restano nel codice,
+        /// ma non sono raggiungibili dalla configurazione normalizzata.
+        /// User-controlled resizing was removed.
         /// </summary>
         private double TaskbarThicknessDip => Math.Max(1.0, ThemeTaskbarHeightDip);
 
