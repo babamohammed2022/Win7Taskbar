@@ -36,7 +36,7 @@ namespace Win7Taskbar.Controls
         private readonly DispatcherTimer _toolTipTimer;
         private readonly DispatcherTimer _verificationTimer;
         private EventHandler? _renderingHandler;
-        private IntPtr _thumbHandle;
+        private SafeDwmThumbnailHandle? _thumbHandle;
         private int _sourceRegistrationGeneration;
 
         /* v1.21.8: ultimo rettangolo consegnato a DWM, per non ripetere la
@@ -268,7 +268,8 @@ namespace Win7Taskbar.Controls
         {
             try
             {
-                if (_thumbHandle == IntPtr.Zero)
+                SafeDwmThumbnailHandle? thumbnail = _thumbHandle;
+                if (thumbnail == null || thumbnail.IsInvalid)
                 {
                     return;
                 }
@@ -290,9 +291,9 @@ namespace Win7Taskbar.Controls
                     fSourceClientAreaOnly = true
                 };
                 if (NativeMethods.DwmUpdateThumbnailProperties(
-                        _thumbHandle, ref clientOnly) < 0 ||
+                        thumbnail.DangerousGetHandle(), ref clientOnly) < 0 ||
                     NativeMethods.DwmQueryThumbnailSourceSize(
-                        _thumbHandle, out NativeMethods.SIZE size) < 0 ||
+                        thumbnail.DangerousGetHandle(), out NativeMethods.SIZE size) < 0 ||
                     size.cx <= 0 || size.cy <= 0)
                 {
                     // v3.9: fallimento DWM = finestra sorgente non esiste piu'
@@ -379,7 +380,7 @@ namespace Win7Taskbar.Controls
                     rcSource = sourceRect
                 };
                 if (NativeMethods.DwmUpdateThumbnailProperties(
-                        _thumbHandle, ref props) < 0)
+                        thumbnail.DangerousGetHandle(), ref props) < 0)
                 {
                     // v3.9: se anche l'update finale fallisce, tratta come
                     // finestra chiusa: evita riquadro vuoto persistente
@@ -481,7 +482,8 @@ namespace Win7Taskbar.Controls
         {
             try
             {
-                if (!IsLoaded || _thumbHandle != IntPtr.Zero)
+                if (!IsLoaded ||
+                    (_thumbHandle != null && !_thumbHandle.IsInvalid))
                 {
                     return;
                 }
@@ -494,13 +496,16 @@ namespace Win7Taskbar.Controls
                 }
 
                 int hr = NativeMethods.DwmRegisterThumbnail(
-                    Handle, SourceWindowHandle, out _thumbHandle);
-                if (hr < 0 || _thumbHandle == IntPtr.Zero)
+                    Handle, SourceWindowHandle, out IntPtr rawThumbnail);
+                var registeredThumbnail = new SafeDwmThumbnailHandle(rawThumbnail);
+                if (hr < 0 || registeredThumbnail.IsInvalid)
                 {
+                    registeredThumbnail.Dispose();
                     StopDwmThumbnail();
                     ShowValidatedFallbackOrIdentity();
                     return;
                 }
+                _thumbHandle = registeredThumbnail;
 
                 if (!_layoutRefreshHooked)
                 {
@@ -514,7 +519,7 @@ namespace Win7Taskbar.Controls
                 IdentityFallback.Visibility = Visibility.Collapsed;
 
                 Refresh();
-                if (_thumbHandle == IntPtr.Zero)
+                if (_thumbHandle == null || _thumbHandle.IsInvalid)
                 {
                     return;
                 }
@@ -563,7 +568,8 @@ namespace Win7Taskbar.Controls
             _verificationTimer.Stop();
             try
             {
-                if (_thumbHandle != IntPtr.Zero && DwmDestinationLooksComposed())
+                if (_thumbHandle != null && !_thumbHandle.IsInvalid &&
+                    DwmDestinationLooksComposed())
                 {
                     return;
                 }
@@ -885,22 +891,51 @@ namespace Win7Taskbar.Controls
 
         private void StopDwmThumbnail()
         {
-            _verificationTimer.Stop();
+            try { _verificationTimer.Stop(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"TaskThumbnail timer cleanup: {ex.Message}");
+            }
+
             if (_layoutRefreshHooked)
             {
                 _layoutRefreshHooked = false;
-                SizeChanged -= OnLayoutRefresh;
-                LayoutUpdated -= OnLayoutRefresh;
+                try { SizeChanged -= OnLayoutRefresh; }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"TaskThumbnail size cleanup: {ex.Message}");
+                }
+                try { LayoutUpdated -= OnLayoutRefresh; }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"TaskThumbnail layout cleanup: {ex.Message}");
+                }
             }
             if (_renderingHandler != null)
             {
-                CompositionTarget.Rendering -= _renderingHandler;
+                EventHandler handler = _renderingHandler;
                 _renderingHandler = null;
+                try { CompositionTarget.Rendering -= handler; }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"TaskThumbnail rendering cleanup: {ex.Message}");
+                }
             }
-            if (_thumbHandle != IntPtr.Zero)
+
+            SafeDwmThumbnailHandle? thumbnail = _thumbHandle;
+            _thumbHandle = null;
+            if (thumbnail != null)
             {
-                _ = NativeMethods.DwmUnregisterThumbnail(_thumbHandle);
-                _thumbHandle = IntPtr.Zero;
+                try { thumbnail.Dispose(); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"TaskThumbnail DWM cleanup: {ex.Message}");
+                }
             }
             _hasDwmUpdate = false;
         }
@@ -926,30 +961,91 @@ namespace Win7Taskbar.Controls
 
         private void ToolTipTimer_Tick(object? sender, EventArgs e)
         {
-            if (ToolTip is ToolTip tip)
+            try
             {
-                tip.PlacementTarget = this;
-                tip.IsOpen = true;
+                if (ToolTip is ToolTip tip)
+                {
+                    tip.PlacementTarget = this;
+                    tip.IsOpen = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"TaskThumbnail tooltip: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// RAII per la relazione DWM tra finestra contenitore e sorgente.
+        /// DwmUnregisterThumbnail viene sempre chiamata su Dispose, inclusa
+        /// la finalizzazione in caso di errore durante la registrazione.
+        /// </summary>
+        private sealed class SafeDwmThumbnailHandle : SafeHandleZeroOrMinusOneIsInvalid
+        {
+            internal SafeDwmThumbnailHandle(IntPtr handle) : base(ownsHandle: true)
+            {
+                SetHandle(handle);
+            }
+
+            protected override bool ReleaseHandle()
+            {
+                try
+                {
+                    return NativeMethods.DwmUnregisterThumbnail(handle) >= 0;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"DwmUnregisterThumbnail: {ex.Message}");
+                    return false;
+                }
             }
         }
 
         private sealed class SafeScreenDc : SafeHandleZeroOrMinusOneIsInvalid
         {
             internal SafeScreenDc(IntPtr handle) : base(true) => SetHandle(handle);
+
             protected override bool ReleaseHandle()
-                => NativeMethods.ReleaseWindowClientDC(IntPtr.Zero, handle) != 0;
+            {
+                try { return NativeMethods.ReleaseWindowClientDC(IntPtr.Zero, handle) != 0; }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Release screen DC: {ex.Message}");
+                    return false;
+                }
+            }
         }
 
         private sealed class SafeMemoryDc : SafeHandleZeroOrMinusOneIsInvalid
         {
             internal SafeMemoryDc(IntPtr handle) : base(true) => SetHandle(handle);
-            protected override bool ReleaseHandle() => NativeMethods.DeleteDC(handle);
+
+            protected override bool ReleaseHandle()
+            {
+                try { return NativeMethods.DeleteDC(handle); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Delete memory DC: {ex.Message}");
+                    return false;
+                }
+            }
         }
 
         private sealed class SafeGdiBitmap : SafeHandleZeroOrMinusOneIsInvalid
         {
             internal SafeGdiBitmap(IntPtr handle) : base(true) => SetHandle(handle);
-            protected override bool ReleaseHandle() => NativeMethods.DeleteObject(handle);
+
+            protected override bool ReleaseHandle()
+            {
+                try { return NativeMethods.DeleteObject(handle); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Delete GDI bitmap: {ex.Message}");
+                    return false;
+                }
+            }
         }
 
         private sealed class SelectedGdiObject : IDisposable
@@ -970,9 +1066,20 @@ namespace Win7Taskbar.Controls
 
             public void Dispose()
             {
-                if (_dc != IntPtr.Zero)
+                if (_dc == IntPtr.Zero)
+                {
+                    return;
+                }
+                try
                 {
                     _ = NativeMethods.SelectObject(_dc, _previous);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"restore GDI object: {ex.Message}");
+                }
+                finally
+                {
                     _dc = IntPtr.Zero;
                 }
             }

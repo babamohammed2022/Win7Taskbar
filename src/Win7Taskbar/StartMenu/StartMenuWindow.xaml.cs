@@ -376,12 +376,14 @@ namespace Win7Taskbar.StartMenu
                         ?? StartMenuIcons.FromDefaultBrowser(18)
                         ?? StartMenuIcons.FromDll("imageres.dll", 220, 18)
                         ?? StartMenuIcons.FromDll("shell32.dll", 14, 18);
-                /* v3.18: pipeline GDI+ (jumbo 256 -> bicubica HQ) per
-                   l'icona del footer; il box XAML da 16.72 DIP applica il
-                   ridimensionamento del 5% senza cambiare la posizione. */
+                /* v3.19: la sorgente resta l'icona del browser predefinito;
+                   il box XAML da 16.3 DIP applica un ulteriore -2.5%
+                   rispetto ai 16.72 DIP precedenti, senza cambiare posizione. */
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"icona footer Internet: {ex.Message}");
             }
         }
 

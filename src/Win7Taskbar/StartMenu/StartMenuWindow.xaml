@@ -783,11 +783,12 @@
                                 </Style>
                             </Border.Style>
                             <Grid HorizontalAlignment="Stretch">
-                                <!-- v3.18: posizione invariata; dimensione
-                                     ridotta del 5% rispetto ai 17.6 DIP
-                                     precedenti (17.6 * 0.95 = 16.72). -->
+                                <!-- v3.19: posizione invariata; ulteriore
+                                     riduzione del 2.5% rispetto ai 16.72 DIP
+                                     correnti (16.72 * 0.975 = 16.302, arrotondato
+                                     a 16.3 DIP). -->
                                 <Image x:Name="InternetFooterIcon"
-                                       Width="16.72" Height="16.72"
+                                       Width="16.3" Height="16.3"
                                        HorizontalAlignment="Left"
                                        VerticalAlignment="Center"
                                        Margin="8,0,0,0"

@@ -17,6 +17,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
+using Microsoft.Win32.SafeHandles;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -176,51 +177,33 @@ namespace Win7Taskbar.StartMenu
 
         public static ImageSource? FromDll(string dll, int index, int size)
         {
-            IntPtr large = IntPtr.Zero;
-            IntPtr small = IntPtr.Zero;
             try
             {
                 string path = Path.Combine(Environment.SystemDirectory, dll);
                 uint n = NativeMethods.ExtractIconEx(path, index,
-                    out large, out small, 1);
+                    out IntPtr rawLarge, out IntPtr rawSmall, 1);
+                using var large = new SafeHiconHandle(rawLarge);
+                using var small = new SafeHiconHandle(rawSmall);
                 if (n == 0)
                 {
                     return null;
                 }
-                IntPtr pick = (size <= 16 && small != IntPtr.Zero) ? small : large;
-                if (pick == IntPtr.Zero)
+
+                SafeHiconHandle pick = size <= 16 && !small.IsInvalid
+                    ? small
+                    : large;
+                if (pick.IsInvalid)
                 {
-                    return null;
+                    pick = !small.IsInvalid ? small : large;
                 }
-                if (large != IntPtr.Zero && large != pick)
-                {
-                    NativeMethods.DestroyIcon(large);
-                    large = IntPtr.Zero;
-                }
-                if (small != IntPtr.Zero && small != pick && small != large)
-                {
-                    NativeMethods.DestroyIcon(small);
-                    small = IntPtr.Zero;
-                }
-                large = IntPtr.Zero;
-                small = IntPtr.Zero;
-                return FromHicon(pick, size, destroy: true);
+                return pick.IsInvalid
+                    ? null
+                    : FromHicon(pick.DangerousGetHandle(), size, destroy: false);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"icona DLL: {ex.Message}");
                 return null;
-            }
-            finally
-            {
-                if (small != IntPtr.Zero && small != large)
-                {
-                    NativeMethods.DestroyIcon(small);
-                    small = IntPtr.Zero;
-                }
-                if (large != IntPtr.Zero)
-                {
-                    NativeMethods.DestroyIcon(large);
-                }
             }
         }
 
@@ -232,49 +215,30 @@ namespace Win7Taskbar.StartMenu
         /// </summary>
         public static ImageSource? FromDllGdiPlus(string dll, int index, int size)
         {
-            IntPtr large = IntPtr.Zero;
-            IntPtr small = IntPtr.Zero;
             try
             {
                 size = Math.Clamp(size, 4, 256);
                 string path = Path.Combine(Environment.SystemDirectory, dll);
                 uint packedSize = (uint)size | ((uint)size << 16);
                 int hr = NativeMethods.SHDefExtractIconW(path, index, 0,
-                    out large, out small, packedSize);
+                    out IntPtr rawLarge, out IntPtr rawSmall, packedSize);
+                using var large = new SafeHiconHandle(rawLarge);
+                using var small = new SafeHiconHandle(rawSmall);
                 if (hr < 0)
                 {
                     return null;
                 }
 
-                IntPtr pick;
-                if (large != IntPtr.Zero)
-                {
-                    pick = large;
-                    large = IntPtr.Zero;
-                }
-                else
-                {
-                    pick = small;
-                    small = IntPtr.Zero;
-                }
-                return pick == IntPtr.Zero
+                SafeHiconHandle pick = !large.IsInvalid ? large : small;
+                return pick.IsInvalid
                     ? null
-                    : FromHicon(pick, size, destroy: true);
+                    : FromHicon(pick.DangerousGetHandle(), size, destroy: false);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"icona DLL GDI+: {ex.Message}");
                 return null;
-            }
-            finally
-            {
-                if (small != IntPtr.Zero)
-                {
-                    NativeMethods.DestroyIcon(small);
-                }
-                if (large != IntPtr.Zero)
-                {
-                    NativeMethods.DestroyIcon(large);
-                }
             }
         }
 
@@ -284,6 +248,28 @@ namespace Win7Taskbar.StartMenu
             {
                 return null;
             }
+
+            try
+            {
+                if (destroy)
+                {
+                    /* Il chiamante trasferisce la proprieta' dell'HICON a un
+                     * SafeHandle: la conversione avviene prima del Dispose,
+                     * anche quando GDI+ restituisce un errore. */
+                    using var owned = new SafeHiconHandle(hicon);
+                    return FromBorrowedHicon(owned.DangerousGetHandle(), size);
+                }
+                return FromBorrowedHicon(hicon, size);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"conversione HICON: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static ImageSource? FromBorrowedHicon(IntPtr hicon, int size)
+        {
             try
             {
                 ImageSource? scaled = ScaleHiconGdiPlus(hicon, size);
@@ -297,16 +283,11 @@ namespace Win7Taskbar.StartMenu
                 src.Freeze();
                 return src;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"conversione HICON GDI+: {ex.Message}");
                 return null;
-            }
-            finally
-            {
-                if (destroy)
-                {
-                    NativeMethods.DestroyIcon(hicon);
-                }
             }
         }
 
@@ -636,13 +617,12 @@ namespace Win7Taskbar.StartMenu
                     return null;
                 }
                 IntPtr hicon = ImageList_GetIcon(list, index, IldTransparent);
-                if (hicon == IntPtr.Zero)
+                using var ownedIcon = new SafeHiconHandle(hicon);
+                if (ownedIcon.IsInvalid)
                 {
                     return null;
                 }
-                ImageSource? img = GdiPlusRedraw(hicon, size);
-                NativeMethods.DestroyIcon(hicon);
-                return img;
+                return GdiPlusRedraw(ownedIcon.DangerousGetHandle(), size);
             }
             catch (Exception)
             {
@@ -958,6 +938,33 @@ namespace Win7Taskbar.StartMenu
 
         [DllImport("comctl32.dll")]
         private static extern IntPtr ImageList_GetIcon(IntPtr himl, int i, uint flags);
+
+        /// <summary>
+        /// Proprietario RAII per gli HICON restituiti dalla Shell/GDI. La
+        /// distruzione resta garantita anche se la conversione WPF/GDI+
+        /// lancia o ritorna in anticipo.
+        /// </summary>
+        private sealed class SafeHiconHandle : SafeHandleZeroOrMinusOneIsInvalid
+        {
+            internal SafeHiconHandle(IntPtr handle) : base(ownsHandle: true)
+            {
+                SetHandle(handle);
+            }
+
+            protected override bool ReleaseHandle()
+            {
+                try
+                {
+                    return NativeMethods.DestroyIcon(handle);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"DestroyIcon: {ex.Message}");
+                    return false;
+                }
+            }
+        }
 
         // --------- v3.17: padded-icon calibration of the search rows ---------
 

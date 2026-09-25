@@ -1418,15 +1418,15 @@ namespace Win7Taskbar.StartMenu
 
         private static StartMenuItem HelpLink()
         {
-            /* Prima si chiede l'icona Help di imageres.dll con la dimensione
-             * reale del controllo tramite SHDefExtractIconW, poi la si passa
-             * alla pipeline GDI+ condivisa dalle altre icone. I percorsi Shell
-             * documentati restano fallback; il glifo di "altri risultati" non
-             * viene piu' scelto prima dell'icona Guida. */
-            ImageSource? helpIcon = IconFromDllGdiPlus("imageres.dll", 99)
+            /* Si conserva la stessa icona gia' mostrata dal collegamento
+             * Guida: shell32.dll, indice 23. Si migliora soltanto il percorso
+             * di estrazione, chiedendo a SHDefExtractIconW la dimensione
+             * richiesta e passando poi dalla pipeline GDI+. Le altre risorse
+             * restano fallback, non diventano una nuova icona primaria. */
+            ImageSource? helpIcon = SeeMoreResultsIcon()
+                ?? IconFromDllGdiPlus("imageres.dll", 99)
                 ?? IconFromParsingName(@"%SystemRoot%\Help")
-                ?? IconFromDll("imageres.dll", 99)
-                ?? SeeMoreResultsIcon();
+                ?? IconFromDll("imageres.dll", 99);
             return new StartMenuItem
             {
                 Name = T("lang_sm_help", "Help and Support"),
@@ -1442,11 +1442,17 @@ namespace Win7Taskbar.StartMenu
         {
             try
             {
-                return IconFromDll("shell32.dll", 23)
+                /* La sorgente e l'ordine restano quelli gia' usati dal menu:
+                 * cambia solo la qualita' dell'estrazione. */
+                return IconFromDllGdiPlus("shell32.dll", 23)
+                    ?? IconFromDllGdiPlus("imageres.dll", 11)
+                    ?? IconFromDll("shell32.dll", 23)
                     ?? IconFromDll("imageres.dll", 11);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"icona Guida/risultati: {ex.Message}");
                 return null;
             }
         }

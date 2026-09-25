@@ -2619,35 +2619,107 @@ namespace Win7Taskbar
                 return;
             }
 
-            double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-            int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
-            var st = RetroBar.Utilities.Settings.Instance;
-            int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
-
-            _appBarRegistered = _bridge.RegisterAppBar(
-                _hwndSource.Handle, edge, sizePx);
-            if (_appBarRegistered)
+            try
             {
+                double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
+                var st = RetroBar.Utilities.Settings.Instance;
+                int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
+
+                _appBarRect = Rect.Empty;
+                if (!_bridge.RegisterAppBar(_hwndSource.Handle, edge, sizePx))
+                {
+                    _appBarRegistered = false;
+                    _appBarCallbackMessage = 0;
+                    return;
+                }
+
+                _appBarRegistered = true;
                 // Il core, dentro la Register, esegue gia' QUERYPOS/SETPOS e
                 // sposta la finestra sul rettangolo confermato dalla shell.
                 _appBarCallbackMessage = _bridge.AppBarCallbackMessage();
-                UpdateAppBarPosition();   // registra _appBarRect
+                UpdateAppBarPosition();
+                if (_appBarRect.IsEmpty)
+                {
+                    /* Registrazione senza rettangolo approvato: non lasciare
+                     * una AppBar a meta' che impedisce al menu Start di
+                     * ripristinare correttamente la barra. */
+                    try { _bridge.UnregisterAppBar(_hwndSource.Handle); }
+                    catch (Exception cleanupEx)
+                    {
+                        Debug.WriteLine($"appbar cleanup: {cleanupEx.Message}");
+                    }
+                    _appBarRegistered = false;
+                    _appBarCallbackMessage = 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"appbar register: {ex}");
+                if (_appBarRegistered && _hwndSource != null)
+                {
+                    try { _bridge.UnregisterAppBar(_hwndSource.Handle); }
+                    catch (Exception cleanupEx)
+                    {
+                        Debug.WriteLine($"appbar cleanup: {cleanupEx.Message}");
+                    }
+                }
+                _appBarRegistered = false;
+                _appBarCallbackMessage = 0;
+                _appBarRect = Rect.Empty;
             }
         }
 
         /// <summary>
-        /// Re-apply the AppBar edge after the Start Menu host starts so the
-        /// bar stays on the configured edge (default bottom) instead of
-        /// drifting when a second STA window is created.
+        /// Riapplica l'AppBar dopo la creazione/visualizzazione del menu Start.
+        /// La shell puo' ricalcolare le AppBar quando compare una seconda
+        /// finestra STA; se la registrazione e' sparita, la si ricrea prima di
+        /// chiedere di nuovo il rettangolo approvato.
         /// </summary>
         internal void ReassertAppBar()
         {
             try
             {
-                UpdateAppBarPosition();
+                if (_shuttingDown || _hwndSource == null || StartupGuard.SafeMode)
+                {
+                    return;
+                }
+
+                bool nativeRegistered = false;
+                try
+                {
+                    nativeRegistered = _bridge.IsAppBarRegistered;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"appbar state: {ex.Message}");
+                }
+
+                if (!_appBarRegistered || !nativeRegistered)
+                {
+                    if (_appBarRegistered || nativeRegistered)
+                    {
+                        try { _bridge.UnregisterAppBar(_hwndSource.Handle); }
+                        catch (Exception cleanupEx)
+                        {
+                            Debug.WriteLine($"appbar stale cleanup: {cleanupEx.Message}");
+                        }
+                    }
+                    _appBarRegistered = false;
+                    _appBarCallbackMessage = 0;
+                    _appBarRect = Rect.Empty;
+                    RegisterAppBar();
+                }
+
+                if (_appBarRegistered)
+                {
+                    UpdateDpiScaling();
+                    UpdateAppBarPosition();
+                }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Debug.WriteLine($"appbar reassert: {ex}");
             }
         }
 
@@ -2666,22 +2738,35 @@ namespace Win7Taskbar
                 return;
             }
 
-            double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-            if (scale <= 0)
+            try
             {
-                scale = 1.0;
-            }
-            int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
-            var st = RetroBar.Utilities.Settings.Instance;
-            int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
+                double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                if (scale <= 0)
+                {
+                    scale = 1.0;
+                }
+                int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
+                var st = RetroBar.Utilities.Settings.Instance;
+                int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
 
-            // Il rettangolo confermato dalla shell e' in PIXEL FISICI: il core
-            // ci sposta lui stesso la finestra (SetWindowPos con SWP_NOZORDER,
-            // lo stato topresta intatto) e notifica ABM_WINDOWPOSCHANGED.
-            if (_bridge.SetAppBarPos(_hwndSource.Handle, edge,
-                                     sizePx, out Rect reserved) && !reserved.IsEmpty)
+                // Il rettangolo confermato dalla shell e' in PIXEL FISICI: il core
+                // ci sposta lui stesso la finestra (SetWindowPos con SWP_NOZORDER,
+                // lo stato topresta intatto) e notifica ABM_WINDOWPOSCHANGED.
+                if (_bridge.SetAppBarPos(_hwndSource.Handle, edge,
+                                         sizePx, out Rect reserved) && !reserved.IsEmpty)
+                {
+                    _appBarRect = reserved;
+                }
+                else
+                {
+                    _appBarRect = Rect.Empty;
+                    _bridge.Log("appbar: la shell non ha restituito un rettangolo valido");
+                }
+            }
+            catch (Exception ex)
             {
-                _appBarRect = reserved;
+                _appBarRect = Rect.Empty;
+                Debug.WriteLine($"appbar set position: {ex}");
             }
         }
 
@@ -3793,13 +3878,36 @@ namespace Win7Taskbar
                 return;
             }
 
-            Dispatcher.BeginInvoke(new Action(() =>
+            try
             {
-                if (StartButton != null)
+                Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    StartButton.IsChecked = e.Visible;
-                }
-            }));
+                    try
+                    {
+                        if (StartButton != null)
+                        {
+                            StartButton.IsChecked = e.Visible;
+                        }
+                        if (e.Visible)
+                        {
+                            /* Vale anche per il menu nativo: l'apertura puo'
+                             * cambiare l'ordine/z-order delle AppBar mentre la
+                             * shell aggiorna il proprio Start. */
+                            ReassertAppBar();
+                            ScheduleGeometrySync();
+                            _bridge.ReassertNativeTaskbarHidden();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Native Start/AppBar attach: {ex}");
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Native Start visibility dispatch: {ex}");
+            }
         }
 
         private void OnOurStartMenuVisibility(bool visible)
@@ -3808,14 +3916,33 @@ namespace Win7Taskbar
             {
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    if (StartButton != null)
+                    try
                     {
-                        StartButton.IsChecked = visible;
+                        if (StartButton != null)
+                        {
+                            StartButton.IsChecked = visible;
+                        }
+
+                        if (visible)
+                        {
+                            /* La comparsa della seconda finestra STA puo'
+                             * provocare una nuova negoziazione della shell:
+                             * verificare registrazione, rettangolo e posizione
+                             * dopo che il menu e' realmente visibile. */
+                            ReassertAppBar();
+                            ScheduleGeometrySync();
+                            _bridge.ReassertNativeTaskbarHidden();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Start menu/AppBar attach: {ex}");
                     }
                 }));
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Debug.WriteLine($"Start menu visibility dispatch: {ex}");
             }
         }
 

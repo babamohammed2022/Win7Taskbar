@@ -35,6 +35,7 @@ namespace Win7Taskbar.StartMenu
         private static Process? _helper;
         private static int _started;
         private static int _scanReady;
+        private static readonly object LifecycleLock = new();
         private static readonly object AnchorLock = new();
         private static Rect _taskbarRect;
         private static Rect _orbRect;
@@ -70,11 +71,15 @@ namespace Win7Taskbar.StartMenu
 
         public static void Start(NativeBridge bridge)
         {
+            if (bridge == null)
+            {
+                throw new ArgumentNullException(nameof(bridge));
+            }
             if (Interlocked.Exchange(ref _started, 1) == 1)
             {
                 return;
             }
-            _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
+            _bridge = bridge;
 
             try
             {
@@ -108,7 +113,17 @@ namespace Win7Taskbar.StartMenu
             {
             }
 
-            var ready = new ManualResetEventSlim(false);
+            using var ready = new ManualResetEventSlim(false);
+            void SignalReady()
+            {
+                try { ready.Set(); }
+                catch (ObjectDisposedException) { }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"StartMenu ready signal: {ex.Message}");
+                }
+            }
+
             _thread = new Thread(() =>
             {
                 try
@@ -147,7 +162,7 @@ namespace Win7Taskbar.StartMenu
                     _winKeyWaiter.Start();
 
                     StartHelperProcess();
-                    ready.Set();
+                    SignalReady();
                     try
                     {
                         if (Volatile.Read(ref _scanReady) != 0)
@@ -160,28 +175,143 @@ namespace Win7Taskbar.StartMenu
                     }
                     Dispatcher.Run();
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    ready.Set();
+                    Debug.WriteLine($"StartMenu STA: {ex}");
+                    SignalReady();
                 }
             })
             {
                 IsBackground = true,
                 Name = "Win7Taskbar.StartMenu"
             };
-            _thread.SetApartmentState(ApartmentState.STA);
-            _thread.Start();
-            ready.Wait(TimeSpan.FromSeconds(8));
+            try
+            {
+                _thread.SetApartmentState(ApartmentState.STA);
+                _thread.Start();
+                ready.Wait(TimeSpan.FromSeconds(8));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"StartMenu thread start: {ex}");
+                Stop();
+            }
         }
 
         public static void Stop()
         {
-            try { _heartbeatTimer?.Stop(); } catch (Exception) { }
-            try { _winKeyEvent?.Set(); } catch (Exception) { }
-            try { _dispatcher?.InvokeShutdown(); } catch (Exception) { }
-            try { _helper?.Close(); } catch (Exception) { }
-            _helper = null;
-            Interlocked.Exchange(ref _started, 0);
+            if (Interlocked.Exchange(ref _started, 0) == 0)
+            {
+                return;
+            }
+
+            Thread? waiter;
+            Thread? host;
+            Dispatcher? dispatcher;
+            lock (LifecycleLock)
+            {
+                waiter = _winKeyWaiter;
+                host = _thread;
+                dispatcher = _dispatcher;
+            }
+
+            try
+            {
+                /* Il dispatcher del menu possiede il timer e la Window: lo
+                 * smontaggio avviene sul suo STA prima del BeginInvokeShutdown.
+                 * L'evento del waiter viene segnalato dopo aver chiuso il
+                 * produttore, così non può riaprire il menu durante lo stop. */
+                if (dispatcher != null)
+                {
+                    try
+                    {
+                        dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            try { _heartbeatTimer?.Stop(); }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"StartMenu timer cleanup: {ex.Message}");
+                            }
+                            try { _window?.Dismiss(); }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"StartMenu window cleanup: {ex.Message}");
+                            }
+                            try
+                            {
+                                dispatcher.BeginInvokeShutdown(DispatcherPriority.Send);
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"StartMenu dispatcher shutdown: {ex.Message}");
+                            }
+                        }), DispatcherPriority.Send);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"StartMenu dispatcher cleanup: {ex.Message}");
+                        try { dispatcher.BeginInvokeShutdown(DispatcherPriority.Send); }
+                        catch (Exception shutdownEx)
+                        {
+                            Debug.WriteLine($"StartMenu dispatcher force stop: {shutdownEx.Message}");
+                        }
+                    }
+                }
+
+                try { _winKeyEvent?.Set(); }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"StartMenu wait event signal: {ex.Message}");
+                }
+
+                JoinThread(waiter, "WinKeyWait", 1500);
+                JoinThread(host, "StartMenu", 3000);
+            }
+            finally
+            {
+                /* RAII: nessun handle/evento/timer resta radicato dopo la
+                 * chiusura del secondo STA, anche se una fase precedente ha
+                 * fallito o ha restituito prima del previsto. */
+                try { _heartbeatTimer?.Stop(); } catch (Exception) { }
+                try { _heartbeatTimer = null; } catch (Exception) { }
+                try { _winKeyEvent?.Dispose(); } catch (Exception) { }
+                try { _heartbeatEvent?.Dispose(); } catch (Exception) { }
+                try { _helper?.Close(); } catch (Exception) { }
+                try { _helper?.Dispose(); } catch (Exception) { }
+
+                lock (LifecycleLock)
+                {
+                    _winKeyEvent = null;
+                    _heartbeatEvent = null;
+                    _heartbeatTimer = null;
+                    _winKeyWaiter = null;
+                    _thread = null;
+                    _dispatcher = null;
+                    _window = null;
+                    _helper = null;
+                    _bridge = null;
+                    Interlocked.Exchange(ref _scanReady, 0);
+                }
+            }
+        }
+
+        private static void JoinThread(Thread? thread, string name, int timeoutMs)
+        {
+            if (thread == null || thread == Thread.CurrentThread)
+            {
+                return;
+            }
+            try
+            {
+                if (thread.IsAlive && !thread.Join(timeoutMs))
+                {
+                    Debug.WriteLine($"StartMenu cleanup: thread {name} non terminato");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"StartMenu cleanup {name}: {ex.Message}");
+            }
         }
 
         public static void SetAnchor(Rect taskbarScreenDip, Rect orbScreenDip)
@@ -202,23 +332,31 @@ namespace Win7Taskbar.StartMenu
             {
                 return;
             }
-            d.BeginInvoke(new Action(() =>
+            try
             {
-                try
+                d.BeginInvoke(new Action(() =>
                 {
-                    if (w.IsMenuVisible)
+                    try
                     {
-                        w.Dismiss();
+                        if (w.IsMenuVisible)
+                        {
+                            w.Dismiss();
+                        }
+                        else
+                        {
+                            ShowCore(w);
+                        }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        ShowCore(w);
+                        Debug.WriteLine($"StartMenu toggle: {ex}");
                     }
-                }
-                catch (Exception)
-                {
-                }
-            }));
+                }));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"StartMenu toggle dispatch: {ex}");
+            }
         }
 
         public static void Show()
@@ -229,7 +367,21 @@ namespace Win7Taskbar.StartMenu
             {
                 return;
             }
-            d.BeginInvoke(new Action(() => ShowCore(w)));
+            try
+            {
+                d.BeginInvoke(new Action(() =>
+                {
+                    try { ShowCore(w); }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"StartMenu show: {ex}");
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"StartMenu show dispatch: {ex}");
+            }
         }
 
         public static void Hide()
@@ -240,7 +392,21 @@ namespace Win7Taskbar.StartMenu
             {
                 return;
             }
-            d.BeginInvoke(new Action(() => w.Dismiss()));
+            try
+            {
+                d.BeginInvoke(new Action(() =>
+                {
+                    try { w.Dismiss(); }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"StartMenu hide: {ex}");
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"StartMenu hide dispatch: {ex}");
+            }
         }
 
         private static void ShowCore(StartMenuWindow w)
