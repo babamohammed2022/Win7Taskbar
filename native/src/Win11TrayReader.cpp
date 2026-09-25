@@ -175,6 +175,26 @@ DWORD WindowProcessId(HWND hwnd) {
     return pid;
 }
 
+bool IsExplorerProcess(DWORD pid) {
+    if (pid == 0) {
+        return false;
+    }
+    raii::GenericHandle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
+                                            FALSE, pid));
+    if (!process) {
+        return false;
+    }
+    wchar_t path[MAX_PATH * 2] = {};
+    DWORD length = static_cast<DWORD>(sizeof(path) / sizeof(path[0]));
+    if (QueryFullProcessImageNameW(process.get(), 0, path, &length) == FALSE ||
+        length == 0) {
+        return false;
+    }
+    const wchar_t* slash = wcsrchr(path, L'\\');
+    const wchar_t* name = slash == nullptr ? path : slash + 1;
+    return _wcsicmp(name, L"explorer.exe") == 0;
+}
+
 struct WindowList {
     DWORD processId = 0;
     std::vector<HWND> windows;
@@ -192,7 +212,8 @@ BOOL CALLBACK CollectExplorerTaskbars(HWND hwnd, LPARAM parameter) {
         return TRUE;
     }
     const DWORD pid = WindowProcessId(hwnd);
-    if (pid == 0 || pid == GetCurrentProcessId()) {
+    if (pid == 0 || pid == GetCurrentProcessId() ||
+        !IsExplorerProcess(pid)) {
         return TRUE;
     }
     try {
