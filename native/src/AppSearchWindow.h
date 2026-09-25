@@ -39,6 +39,9 @@ public:
     }
 private:
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
+    static LRESULT CALLBACK OutsideMouseProc(int, WPARAM, LPARAM);
+    void InstallOutsideMouseHook();
+    void RemoveOutsideMouseHook();
     void MaybeRescanIfStale();
     void ScanInstalledApps();
     void ApplyFilter(const std::wstring& query);
@@ -80,6 +83,15 @@ private:
 
     int32_t m_theme = 0;
     HWND m_hWnd = nullptr;
+    /* Taskbar window that opened the panel. A click that lands on the
+     * taskbar (or on one of its own child windows) belongs to the taskbar:
+     * the managed layer closes the panel there, and closing it from the hook
+     * as well would race with the search button's own toggle. */
+    HWND m_owner = nullptr;
+    /* Screen rectangle of the panel while it is visible; used to tell an
+     * outside click from a click on the panel itself. */
+    RECT m_windowRect = {};
+    HHOOK m_outsideMouseHook = nullptr;
     HICON m_searchIcon = nullptr;
     std::thread m_scanThread;
     std::mutex m_scanMutex;
@@ -106,6 +118,11 @@ private:
     std::vector<uint32_t> m_openPixels; int m_openW = 0, m_openH = 0;
     std::vector<uint32_t> m_folderPixels; int m_folderW = 0, m_folderH = 0;
     std::vector<uint32_t> m_shieldLarge; int m_shieldLargeW = 0, m_shieldLargeH = 0;
+    /* The mouse hook is a global callback with no window handle of its own,
+     * so the panel it belongs to is kept here. There is exactly one app
+     * search window per process (g_appSearch in Exports.cpp); Create and
+     * Destroy keep the pointer in step with the real instance. */
+    static AppSearchWindow* s_hookOwner;
     static constexpr int kLeftWidth = 260;
     static constexpr int kRightWidth = 250;
     static constexpr int kTotalWidth = kLeftWidth + kRightWidth;

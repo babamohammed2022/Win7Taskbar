@@ -103,6 +103,12 @@ bool IconToArgb(HICON icon, ArgbBitmap& out);
  * primo disegno: si scarta prima di consegnarla al livello gestito. */
 bool BitmapSane(const ArgbBitmap& bmp);
 
+/* True only when the bitmap draws at least one visible pixel. A conversion
+ * that returns a well-formed but fully transparent (or fully black) image is
+ * what an empty taskbar button looks like, so it is treated as a failure and
+ * the caller is expected to try the next icon source. */
+bool BitmapHasContent(const ArgbBitmap& bmp);
+
 
 
 /* v1.21.18: la revisione da cui il core e' stato compilato. La workflow di

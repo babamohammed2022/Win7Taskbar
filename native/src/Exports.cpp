@@ -1775,7 +1775,11 @@ extern "C" W7T_API int32_t W7T_CALL W7T_GetExeIconBitmap(const wchar_t* exePath,
         if (SHGetFileInfoW(exePath, 0, &sfi, sizeof(sfi), flags) != 0 &&
             sfi.hIcon != nullptr) {
             ArgbBitmap bmp;
-            const bool ok = IconToArgb(sfi.hIcon, bmp) && BitmapSane(bmp);
+            /* BitmapHasContent rejects a conversion that comes back empty or
+             * fully transparent: that is an empty button, not an icon, and
+             * the caller falls back to the window icon instead. */
+            const bool ok = IconToArgb(sfi.hIcon, bmp) && BitmapSane(bmp) &&
+                BitmapHasContent(bmp);
             DestroyIcon(sfi.hIcon);
             if (ok) {
                 result = EmitBitmap(bmp, width, height, pixels, pixelsBytes);

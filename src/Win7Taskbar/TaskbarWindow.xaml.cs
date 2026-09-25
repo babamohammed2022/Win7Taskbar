@@ -8767,8 +8767,19 @@ namespace Win7Taskbar
                 {
                     _bridge.AppSearchHide();
                     _searchToggleConsumed = true;
-                    e.Handled = true;
+                    /* NB: the event is NOT marked handled here. Marking it
+                     * handled stops the button from raising Click, which
+                     * leaves _searchToggleConsumed set forever and swallows
+                     * the next click on the lens. The flag is reset below
+                     * instead, and SearchButton_Click consumes it. */
+                    return;
                 }
+
+                /* The panel is not up, so no click of this sequence has been
+                 * consumed yet: a flag left over from an earlier one (for
+                 * instance a press released outside the button, which never
+                 * raises Click) must not swallow this click. */
+                _searchToggleConsumed = false;
             }
             catch (Exception)
             {
