@@ -374,7 +374,108 @@
          click-outside dismissal instead of failing. The assembly version
          moves so a startup crash recorded by an older build does not force
          this one into safe mode. -->
-    <Version>1.3.26-alpha</Version>
+    <!-- v3.11: ORIENTAMENTO VERTICALE (bordi Left/Right) per il cromato
+         delle texture (Proprieta' > posizione della barra). La freccia
+         dell'overflow punta ora verso il CENTRO dello schermo anche sui
+         bordi laterali (trigger per bordo: Left -> +90 gradi, Right -> -90;
+         la texture della barra sul bordo destro usa il pennello ruotato in
+         senso antiorario); le linee "finestre impilate" dei pulsanti hanno
+         una variante verticale (stessa strip PNG, ruotata via
+         LayoutTransform, ancorata al bordo inferiore con le stesse
+         percentuali della v2.63 su ActualHeight); le ICONE dei pulsanti e
+         della tray NON ruotano mai e restano centrate. Ogni ri-disposizione
+         e' protetta: converter a prova di eccezione, e in
+         ApplyTaskbarGeometry il fallimento ripristina orientamento, bordo e
+         box precedenti (log su bridge). Nessun asset nuovo e nessuna
+         estrazione da binari Windows: solo RotateTransform delle
+         BitmapSource gia' nel progetto. Nessun cambio nativo: il layout
+         per-bordo del core gestisce gia' Left/Right. -->
+    <!-- v3.12: (a) ricerca: fine dei duplicati "link vuoto" (es.
+         "Pannello di controllo" x2) - i nomi visualizzati dello shell sono
+         normalizzati (NBSP, spazi doppi, trim) PRIMA dello HashSet di
+         dedup, un'unica funzione di normalizzazione per tutto il catalogo,
+         e le voci senza percorso risolvibile vengono scartate
+         (StartMenuShellSearch). (b) Barra VERTICALE ora disposta davvero:
+         il Grid della finestra scambia Grid.Column<->Grid.Row al cambio di
+         Orientation (callback sulla DP, con fallback a stato sicuro e
+         clip dei contenuti eccedenti), Start ancorato IN ALTO, pannelli e
+         scorrimento Superbar consapevoli dell'asse (frecce ruotate di 90
+         gradi, scrollbar verticale, Shift+rotellina e frecce sull'asse
+         giusto). (c) Pannello risultati di ricerca pixel-accurate Win7:
+         frame 9 px (2 #13395A + bevel 6 #2E6A97->#3D78A5 + 1 #3A3A3A),
+         righe FISSE 22 px, colonne misurate (chevron x=18-25, icona
+         20x20 x=29-44, testo header #003399 x=31 + divisore #A5B9DD, testo
+         item #000 x=48.5 unico con/senza icona), footer "Cerca in
+         Internet" con gap ~32 px fuori griglia. -->
+    <!-- v3.13: correttivi immediati su segnalazione dell'utente alla
+         v3.12. (a) ELIMINATA la pila di bordi azzurri del pannello
+         risultati (2 px #13395A + bevel 6 px + 1 px #3A3A3A): tornata la
+         cornice singola originale (1 px #90A0B4C8, bianco); restano le
+         proporzioni v3.12 approvate (righe fisse 22 px, colonne misurate,
+         header #003399, divisore #A5B9DD). (b) Ricerca: pubblicate SOLO
+         voci con un vero percorso lanciabile secondo documentazione
+         Microsoft (SIGDN_DESKTOPABSOLUTEPARSING); eliminato il vecchio
+         fallback "shell:<nome mostrato>" che produceva link non
+         funzionali. (c) "Cerca in Internet" e' un piccolo FOOTER FISSO
+         del pannello, presente con QUALUNQUE ricerca (icona del browser
+         predefinito), rimpicciolito del 5% in v3.13.2.
+         v3.13.2 - REGRESSIONE ORIZZONTALE RIATA: le RowDefinition fisse
+         introdotte dalla v3.12 nel Grid della finestra impedivano ai
+         contenuti di distendersi per tutta l'altezza (bottoni/icone della
+         barra piu' piccoli di quel che erano sempre stati). Ora in
+         orizzontale le RowDefinitions non esistono proprio (riga implicita
+         a stella, layout IDENTICO a prima della v3.12) e in verticale le
+         crea il code-behind secondo lo schema leading/trailing/fill che
+         RetroBar (Apache 2.0, dremin - vedi CREDITS.txt) applica al suo
+         DockPanel: Start in testa, Superbar a riempire, tray/orologio/
+         Mostra desktop in coda. -->
+    <!-- v3.15: Congelamento verticale (app non rispondeva, CPU ~70%):
+         anti ping-pong su TUTTA la catena AppBar - il core notifica
+         ABM_WINDOWPOSCHANGED solo su rettangolo cambiato e ignora l'eco
+         ABN_POSCHANGED entro 300 ms (fuori = rinegoziazione vera);
+         AppBarNotify mai piu' eseguito dentro il WndProc (o deadlock
+         col broadcast della shell); salvavita sulla sincronizzazione
+         geometria (max 8 giri ravvicinati); frecce Superbar mai
+         rientranti e senza set ripetuti; la compattazione orizzontale
+         dei pulsanti non corre in verticale. Ricerca app DISATTIVATA di
+         predefinito (si riattiva dalle Proprieta'). Icone: pipeline
+         IShellItemImageFactory come ultima spiaggia anche a 16 px
+         (programmi senza icona nel menu) e ricostruzione dei parsing
+         name del Pannello di controllo da relative+parent, verificata con
+         SHCreateItemFromParsingName (ispirazione Open-Shell, MIT - vedi
+         THIRD-PARTY-NOTICES.md). Hygiene: reti SEH+try/RAII estese ai
+         callback di confine con Explorer (SHELLHOOK, WndProc tray,
+         task-switch, WinEvent dell'host tray, callback AppBar nativo) ->
+         nessun fault puo' piu' bloccare una SendMessage/pendente della
+         shell. -->
+    <!-- v3.17: (a) Jump list: con il trascinamento verso l'alto la lista
+         ENTRA con uno scivolo rapido dal basso verso l'alto (~150 ms,
+         AnimateWindow AW_SLIDE|AW_VER_POSITIVE) e RESTA SEMPRE APERTA al
+         rilascio (regola Windows 7: rilascio su riga = attiva, altrove =
+         lista normale). (b) Ricerca: icone -4% (19.2 DIP) e 1.2% del
+         pannello piu' a sinistra; le icone moderne imbottite (Strumento
+         di cattura) hanno metrica propria dalla copertura opaca; footer
+         -2.5% (19.5px/17.6/10.5). (c) Ricerca impostazioni: le cartelle
+         madri (Pannello di controllo, Tutti gli elementi, Tutte le
+         attivita') entrano in catalogo come voci lanciabili; indice
+         BILINGUE (nomi canonici inglesi dai parsing names), niente piu'
+         righe non lanciabili (percorsi canonici padre+relativo sempre).
+         (d) Barra verticale: Start orb centrato E contenuto nei bordi
+         (48 DIP, ricetta RetroBar Vista Aero + guardie; crediti nei
+         THIRD-PARTY-NOTICES). -->
+    <!-- v3.16: (a) Jump list: le posizioni testuali pin/unpin/Chiudi
+         erano SBAGLIATE in quasi tutte le lingue (in italiano dicevano
+         Ripristina/Sposta/Dimensiona sopra le icone giuste - la voce
+         "Dimensiona" con l'icona di chiusura): corrette in tutte le 11
+         lingue con i testi di Windows 7; per progetto nelle jump list
+         NON esiste nessuna voce Dimensiona/Sposta/Ripristina, solo
+         Chiudi finestra. (b) Footer "Cerca in Internet": ancora -5%
+         (20px/18px/10.8pt) e piu' a sinistra (margini 14/32). (c) Ricerca
+         impostazioni: ripristinate le voci del Pannello di controllo che
+         non appaiono piu' dopo la v3.13 - quando nemmeno la
+         ricostruzione padre+relativo (v3.15) produce un parsing name,
+         la voce resta pubblicata col nome mostrato come prima di v3.13. -->
+    <Version>1.3.36-alpha</Version>
     <AssemblyVersion>1.3.26.0</AssemblyVersion>
     <FileVersion>1.3.26.0</FileVersion>
   

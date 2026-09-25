@@ -65,6 +65,24 @@
             <RotateTransform Angle="90" />
         </ImageBrush.Transform>
     </ImageBrush>
+    <!-- v3.11: barra verticale sul bordo DESTRO dello schermo. La STESSA
+         texture PNG, ruotata di -90 gradi (antenorario) invece che +90
+         (orario): regola per-bordo ABE_LEFT -> rotazione oraria / ABE_RIGHT
+         -> antioraria, perche' la caduta di luce della texture deve seguire
+         lo schermo dal bordo opposto rispetto al lato sinistro. Mai
+         ridisegnata e mai estratta da binari Windows: e' solo un
+         RotateTransform della BitmapSource gia' nel progetto. -->
+    <ImageBrush x:Key="Win7_Win7_TaskbarTextureBrushVerticalRight"
+                ImageSource="{StaticResource Win7_TaskbarTextureImage}"
+                TileMode="Tile"
+                Viewport="0,0,40,600"
+                ViewportUnits="Absolute"
+                Stretch="Fill"
+                Opacity="1">
+        <ImageBrush.Transform>
+            <RotateTransform Angle="-90" />
+        </ImageBrush.Transform>
+    </ImageBrush>
 
 
 
@@ -778,6 +796,24 @@
                                         Value="-1,0,-1,0" />
                             </DataTrigger.Setters>
                         </DataTrigger>
+                        <!-- v3.11: barra sul bordo DESTRO: il layer della
+                             texture passa al pennello ruotato in senso
+                             ANTIORARIO (ABE_RIGHT -> -90°). Il trigger e'
+                             dichiarato DOPO quello su Orientation=Vertical
+                             qui sopra: a parita' di proprieta' presa di
+                             mira (Background di TaskbarTextureLayer) vince
+                             il trigger piu' in basso, quindi sul bordo
+                             destro subentra il pennello specchiato. Il
+                             gradiente di trasparenza non e' direzionale e
+                             resta quello verticale comune. -->
+                        <DataTrigger Binding="{Binding Path=AppBarEdge, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                     Value="Right">
+                            <DataTrigger.Setters>
+                                <Setter TargetName="TaskbarTextureLayer"
+                                        Property="Background"
+                                        Value="{DynamicResource Win7_Win7_TaskbarTextureBrushVerticalRight}" />
+                            </DataTrigger.Setters>
+                        </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
@@ -1461,11 +1497,22 @@
             </Setter.Value>
         </Setter>
         <Style.Triggers>
+            <!-- v3.17: barra VERTICALE - ricetta RetroBar (Windows Vista
+                 Aero theme, StartButton orientation trigger, Apache-2.0,
+                 crediti in THIRD-PARTY-NOTICES): centratura orizzontale,
+                 margine basso di 2 e, in piu', l'orb NON puo' uscire dai
+                 bordi della barra (54->48 DIP su entrambi gli assi): a
+                 bordo schermo sinistro/destro l'overflow centrato veniva
+                 tagliato dal bordo monitor e l'orb appariva disallineato. -->
             <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
                          Value="Vertical">
                 <DataTrigger.Setters>
                     <Setter Property="HorizontalAlignment"
                             Value="Center" />
+                    <Setter Property="Width"
+                            Value="48" />
+                    <Setter Property="Height"
+                            Value="48" />
                     <Setter Property="Margin"
                             Value="0,0,0,2" />
                 </DataTrigger.Setters>
@@ -2701,6 +2748,51 @@
                                     Property="Source"
                                     Value="{DynamicResource OverflowTileHoverImage}" />
                         </Trigger>
+                        <!-- v3.9: taskbar on the TOP edge - the chevron points
+                             STRAIGHT DOWN (into the panel that opens downwards):
+                             exactly 180 degrees from its bottom-edge look (which
+                             points up), like the real Windows 7 overflow arrow. -->
+                        <DataTrigger Binding="{Binding Path=AppBarEdge, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                     Value="Top">
+                            <DataTrigger.Setters>
+                                <Setter TargetName="ChevronImg"
+                                        Property="LayoutTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="180" />
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger.Setters>
+                        </DataTrigger>
+                        <!-- v3.11: barra sul bordo SINISTRO - il popup
+                             dell'overflow si apre verso DESTRA (il centro
+                             dello schermo). A riposo la freccia punta in
+                             ALTO: +90 gradi (orario) la fanno puntare a
+                             destra, come la vera freccia di Windows 7. -->
+                        <DataTrigger Binding="{Binding Path=AppBarEdge, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                     Value="Left">
+                            <DataTrigger.Setters>
+                                <Setter TargetName="ChevronImg"
+                                        Property="LayoutTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="90" />
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger.Setters>
+                        </DataTrigger>
+                        <!-- v3.11: barra sul bordo DESTRO - il popup si apre
+                             verso SINISTRA: -90 gradi (antiorario) dalla
+                             posizione a riposo. -->
+                        <DataTrigger Binding="{Binding Path=AppBarEdge, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                     Value="Right">
+                            <DataTrigger.Setters>
+                                <Setter TargetName="ChevronImg"
+                                        Property="LayoutTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="-90" />
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger.Setters>
+                        </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

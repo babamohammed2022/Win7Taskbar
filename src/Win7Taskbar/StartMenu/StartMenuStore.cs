@@ -197,10 +197,25 @@ namespace Win7Taskbar.StartMenu
             return value.IndexOf('\\') >= 0 || value.IndexOf('/') >= 0;
         }
 
+        /* v3.10: la colonna sinistra in stile Windows 7 ha posto per pochi
+         * programmi pinnati (l'utente ne vede al massimo 5): oltre il limite
+         * il pin viene rifiutato invece di crescere in modo invisibile. */
+        public const int MaxPinnedStartMenu = 5;
+
         public static bool PinShortcut(string sourcePath)
         {
             /* Writes only %AppData%\Win7Taskbar\Pinned\StartMenu. Never
              * Explorer User Pinned / Open-Shell / Classic. */
+            try
+            {
+                if (ReadPinnedShortcuts().Count >= MaxPinnedStartMenu)
+                {
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+            }
             if (!CopyOrCreateShortcut(sourcePath, StartMenuPinFolder, out string dest))
             {
                 return false;

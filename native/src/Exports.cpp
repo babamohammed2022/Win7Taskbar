@@ -1152,6 +1152,19 @@ extern "C" W7T_API int32_t W7T_CALL W7T_JumpListOpen(
 
 /* Movimento del cursore durante il gesto: aggiorna la riga evidenziata
  * e risponde 1 se il punto e' ancora nell'area di interazione. */
+/* v3.17: chiede che il PROSSIMO open entri con lo scivolo rapido
+ * dal basso verso l'alto (trigger drag-up Windows 7). Il flag e'
+ * consumato da Open; un open qualunque lo resetta, mai persistente. */
+extern "C" W7T_API void W7T_CALL W7T_JumpListSetAnimateFromBelow(
+        int32_t yes) {
+    W7T_SEH_TRY {
+        w7t::JumpListWindow::Instance().SetAnimateFromBelowOnNextOpen(
+            yes != 0);
+    } W7T_SEH_CATCH {
+        w7t::LogTagged(L"JUMPLIST", L"fault at the export boundary (anim)");
+    } W7T_SEH_END
+}
+
 extern "C" W7T_API int32_t W7T_CALL W7T_JumpListSetHover(int32_t screenX,
         int32_t screenY) {
     W7T_SEH_TRY {
@@ -1517,7 +1530,74 @@ void KeepSndVolFlyoutAlive(HWND h) {
                   L"si chiude da solo dopo ~2 s)");
 }
 
-void RepositionSndVolAbove(int x, int y) {
+/* v3.9: POSIZIONE DI SNDVOL SENSIBILE AL BORDO DELLA BARRA.
+ *
+ * Con la barra in basso resta il comportamento di sempre (il riquadro
+ * fluttua sopra l'icona, distacco 4,02% della propria altezza). Con la
+ * barra IN ALTO il riquadro apriva FUORI schermo (y negativa): qui apre
+ * VERSO IL BASSO sotto l'icona, appena staccato. Barre verticali: ai
+ * lati dell'icona. Centro-deduzione: il bordo "di attacco" e' quello
+ * dell'area di lavoro che il rettangolo dell'icona tocca (la nostra barra
+ * e' un AppBar: l'icona tocca il bordo riservato). */
+void SndVolPlaceAtAnchor(HWND flyout, const RECT& anchor) {
+    RECT rc{};
+    if (flyout == nullptr || !GetWindowRect(flyout, &rc)) {
+        return;
+    }
+    const int w = rc.right - rc.left;
+    const int hgt = rc.bottom - rc.top;
+    if (w <= 0 || hgt <= 0) {
+        return;
+    }
+    int gap = (hgt * 402) / 10000;
+    if (gap < 2) gap = 2;
+
+    /* Area di lavoro del monitor dell'icona (non del flyout: il flyout
+     * puo' essere ancora fuori posto mentre viene spostato). */
+    POINT probe{ (anchor.left + anchor.right) / 2,
+                 (anchor.top + anchor.bottom) / 2 };
+    HMONITOR mon = MonitorFromPoint(probe, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    RECT wa{ 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
+    if (mon != nullptr && GetMonitorInfoW(mon, &mi)) {
+        wa = mi.rcWork;
+    }
+
+    const int cx = probe.x;
+    int x = cx - w / 2;
+    int y;
+    if (anchor.top <= wa.top + 4) {
+        /* Barra in alto: il riquadro scende SOTTO l'icona. */
+        y = anchor.bottom + gap;
+    } else if (anchor.bottom >= wa.bottom - 4) {
+        /* Barra in basso: sopra l'icona, come la logica storica. */
+        y = anchor.top - hgt - gap;
+    } else if (anchor.left <= wa.left + 4) {
+        /* Barra a sinistra: a destra dell'icona, centrata in verticale. */
+        x = anchor.right + gap;
+        y = (anchor.top + anchor.bottom) / 2 - hgt / 2;
+    } else if (anchor.right >= wa.right - 4) {
+        /* Barra a destra: a sinistra dell'icona, centrata in verticale. */
+        x = anchor.left - w - gap;
+        y = (anchor.top + anchor.bottom) / 2 - hgt / 2;
+    } else {
+        /* Icona lontana dai bordi: come il precedente "sempre sopra". */
+        y = anchor.top - hgt - gap;
+    }
+
+    /* Mai fuori area di lavoro: un riquadro fuori monitor e' un clic
+     * che sembra non fare nulla. */
+    if (x < wa.left + 2) x = wa.left + 2;
+    if (y < wa.top + 2) y = wa.top + 2;
+    if (x + w > wa.right - 2) x = wa.right - w - 2;
+    if (y + hgt > wa.bottom - 2) y = wa.bottom - hgt - 2;
+
+    SetWindowPos(flyout, HWND_TOPMOST, x, y, 0, 0,
+                 SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+}
+
+void RepositionSndVolNear(const RECT& anchor) {
     /* v2.55: RIPRISTINATO il comportamento che funzionava.
      *
      * La v2.54 aveva provato a intercettare il riquadro prima che fosse
@@ -1529,8 +1609,8 @@ void RepositionSndVolAbove(int x, int y) {
      * nascondere/rimostrare la finestra, interferisce con quella sequenza.
      *
      * Qui si torna all'ordine precedente: si aspetta che il riquadro sia
-     * DAVVERO visibile (SndVol ha finito di posizionarsi), poi lo si sposta
-     * sopra l'icona, senza mai nasconderlo. */
+     * DAVVERO visibile (SndVol ha finito di posizionarsi), poi lo si
+     * sposta vicino all'icona, senza mai nasconderlo. */
     for (int i = 0; i < 30; ++i) {
         Sleep(50);
         struct Ctx { HWND found; };
@@ -1546,22 +1626,10 @@ void RepositionSndVolAbove(int x, int y) {
         if (ctx.found != nullptr) {
             RECT rc{};
             GetWindowRect(ctx.found, &rc);
-            const int w = rc.right - rc.left;
-            const int hgt = rc.bottom - rc.top;
-            /* v2.42: il riquadro ancora sopra l'icona fluttuando appena:
-             * 1,5% della propria altezza sopra il bordo superiore
-             * dell'icona (richiesta utente), non il distacco overflow.
-             * v2.43: richiesto di alzarlo ancora di un 1,5%: il distacco
-             * passa da 1,5% a 3% dell'altezza del riquadro, cosi' il
-             * flyout stile Windows 7 fluttua appena piu' in alto sopra
-             * l'icona di volume.
-             * v2.45: ultimo ritocco richiesto, +1,02%: distacco 4,02%
-             * (30 -> 40,2 su 1000) per centrare la posizione voluta. */
-            int gap = (hgt * 402) / 10000;
-            if (gap < 2) gap = 2;
-            SetWindowPos(ctx.found, HWND_TOPMOST,
-                         x - w / 2, y - hgt - gap, 0, 0,
-                         SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+            if (rc.right - rc.left <= 0 || rc.bottom - rc.top <= 0) {
+                continue;   /* finestra in creazione: riprova al giro dopo */
+            }
+            SndVolPlaceAtAnchor(ctx.found, anchor);
             /* v2.42: il flyout -f e' transiente se non riceve mai il
              * focus (si chiude da solo dopo ~2 s). Attivandolo resta
              * aperto finche' l'utente non clicca altrove (e un clic
@@ -1575,16 +1643,18 @@ void RepositionSndVolAbove(int x, int y) {
         }
     }
 }
+
 } /* namespace */
 
-/* v2.38 punto 1: mixer volume classico. SndVol.exe esiste in System32
- * su Win10/11; -f accetta le coordinate impaccate in un DWORD
- * (LOWORD=x, HIWORD=y, come documentato dal comportamento del binario
- * e dal mod windhawk "legacy-sound-flyout", MIT). CreateProcessW senza
- * attese: fire-and-forget; se il binario manca, ritorna 0 e il managed
- * ricade sul flyout attuale. */
-extern "C" W7T_API int32_t W7T_CALL W7T_LaunchClassicVolume(
-        int32_t x, int32_t y) {
+namespace w7t {
+
+/* v3.9: lancio SndVol con il rettangolo icona vero. E' il cammino della
+ * tray con la barra posizionabile: solo cosi' si sa se l'icona tocca il
+ * bordo alto e il riquadro deve aprire VERSO IL BASSO. Stessa macchina
+ * (debounce 400 ms, processo fire-and-forget, thread di ancoraggio) del
+ * vecchio export (x,y), che resta verso l'esterno come forma comoda. */
+int32_t LaunchClassicVolumeNear(const RECT& anchor) {
+    int32_t result = 0;
     W7T_SEH_TRY {
         static std::atomic<ULONGLONG> s_last{ 0 };
         const ULONGLONG now = GetTickCount64();
@@ -1595,7 +1665,8 @@ extern "C" W7T_API int32_t W7T_CALL W7T_LaunchClassicVolume(
         GetSystemDirectoryW(sys32, MAX_PATH);
         wchar_t cmd[1024]{};
         const DWORD encoded = static_cast<DWORD>(MAKELONG(
-            static_cast<SHORT>(x), static_cast<SHORT>(y)));
+            static_cast<SHORT>((anchor.left + anchor.right) / 2),
+            static_cast<SHORT>(anchor.top)));
         wsprintfW(cmd, L"\"%s\\SndVol.exe\" -f %u", sys32, encoded);
         STARTUPINFOW si{};
         si.cb = sizeof(si);
@@ -1605,13 +1676,32 @@ extern "C" W7T_API int32_t W7T_CALL W7T_LaunchClassicVolume(
                            nullptr, nullptr, &si, &pi)) {
             CloseHandle(pi.hProcess);
             CloseHandle(pi.hThread);
-            /* v2.40: ancora il riquadro sopra l'icona (best-effort). */
-            std::thread([x, y]() { RepositionSndVolAbove(x, y); }).detach();
-            return 1;
+            /* v2.40: ancora il riquadro vicino all'icona (best-effort). */
+            std::thread([anchor]() { RepositionSndVolNear(anchor); }).detach();
+            result = 1;
         }
-        return 0;
     } W7T_SEH_CATCH {} W7T_SEH_END
-    return 0;
+    return result;
+}
+
+} /* namespace w7t */
+
+/* v2.38 punto 1: mixer volume classico. SndVol.exe esiste in System32
+ * su Win10/11; -f accetta le coordinate impaccate in un DWORD
+ * (LOWORD=x, HIWORD=y, come documentato dal comportamento del binario
+ * e dal mod windhawk "legacy-sound-flyout", MIT). CreateProcessW senza
+ * attese: fire-and-forget; se il binario manca, ritorna 0 e il managed
+ * ricade sul flyout attuale.
+ * v3.9: la (x,y) e' interpretata come angolo in alto a sinistra
+ * dell'icona (la forma storica "centro X, top Y" del click); il
+ * rettangolo sintetico e' alto quanto l'icona, cosi' con la barra IN
+ * ALTO il riquadro scende VERSO IL BASSO sotto l'icona e con la barra
+ * in basso resta sopra, identico a prima. Il path sensibile al
+ * rettangolo vero e' w7t::LaunchClassicVolumeNear usato dalla tray. */
+extern "C" W7T_API int32_t W7T_CALL W7T_LaunchClassicVolume(
+        int32_t x, int32_t y) {
+    const RECT anchor{ x, y, x + 1, y + 24 };
+    return w7t::LaunchClassicVolumeNear(anchor);
 }
 
 /* v2.41: chiude il mixer classico (SndVol) quando un clic sulla nostra

@@ -3,8 +3,11 @@
 // Licensed under the GNU General Public License version 3 or later.
 
 #include "ShellHookReceiver.h"
+#include "SehGuard.h"
+#include "ScopeGuards.h"
 
 #include <stdexcept>
+#include <exception>
 
 namespace w7t {
 
@@ -63,10 +66,28 @@ bool ShellHookReceiver::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (msg != m_msgShellHook || msg == 0) {
         return false;
     }
+    /* v3.15: il messaggio SHELLHOOK viaggia dentro un broadcast della
+     * shell e il callback utente tocca lo stato della barra (enumerazione
+     * finestre, COM, ridisegno). Un'eccezione C++ o un fault hardware che
+     * attraversa qui il confine Win32 andrebbe a consumare la coda
+     * messaggi a meta' - lo stesso "hang" visto in verticale. Il messaggio
+     * viene risposto sempre coerentemente; l'evento utente e' protetto. */
     ShellHookEvent ev;
     ev.code = static_cast<int>(wp);
     ev.hwnd = reinterpret_cast<HWND>(lp);
-    if (m_onEvent) m_onEvent(ev);
+    if (m_onEvent) {
+        W7T_SEH_TRY {
+            try {
+                m_onEvent(ev);
+            } catch (...) {
+                /* L'hook non deve MAI propagare eccezioni C++ attraverso i
+                 * frame del sistema (UB -> in pratica crash dentro user32,
+                 * oppure una coda messaggi shell che resta bloccata). */
+            }
+        } W7T_SEH_CATCH {
+            /* hardware fault nel callback: la coda messaggi resta viva */
+        } W7T_SEH_END
+    }
     return true;
 }
 

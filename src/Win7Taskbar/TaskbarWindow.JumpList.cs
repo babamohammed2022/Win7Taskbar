@@ -597,6 +597,10 @@ namespace Win7Taskbar
                 return;
             }
 
+            /* v3.18: entrance animation REMOVED on request (the native
+             * export / managed flags survive as documented no-ops for
+             * compatibility with intermediate builds). */
+
             if (!OpenJumpListPopup(button))
             {
                 EndJumpDrag();
@@ -673,7 +677,10 @@ namespace Win7Taskbar
             }
 
             int row = HitRowAtSafe(x, y);
-            bool inside = _bridge.JumpListSetHover(x, y);
+            /* v3.17: the hover refresh at release is kept for its side
+             * effect (the row under the cursor gets its pressed/selected
+             * look before the list turns interactive). */
+            _ = _bridge.JumpListSetHover(x, y);
 
             if (row == -2)
             {
@@ -690,19 +697,14 @@ namespace Win7Taskbar
                 {
                     ActivateJumpListRowAt(x, y);
                 }
-                else if (inside)
-                {
-                    DiagnosticLogger.Write("JUMPLIST",
-                        "drag released over the list/button - the list" +
-                        " stays open");
-                    HandOverJumpListInput();
-                }
                 else
                 {
+                    // v3.17: the drag-up ALWAYS leaves the list open (the
+                    // Windows 7 rule - a release anywhere ends the gesture,
+                    // and the opened list stays as an ordinary click list).
                     DiagnosticLogger.Write("JUMPLIST",
-                        "drag released outside the interaction area -" +
-                        " cancelled");
-                    _bridge.JumpListHide();
+                        "drag released - the list stays open");
+                    HandOverJumpListInput();
                 }
                 return;
             }
@@ -713,18 +715,12 @@ namespace Win7Taskbar
                 return;
             }
 
-            if (inside)
-            {
-                DiagnosticLogger.Write("JUMPLIST",
-                    "drag released over the list/button - the list" +
-                    " stays open");
-                HandOverJumpListInput();
-                return;
-            }
-
+            // v3.17: anything that is not a row activation keeps the list
+            // open - on the popup, on the button, or anywhere else on the
+            // screen. The shell's jump view never cancels on release.
             DiagnosticLogger.Write("JUMPLIST",
-                "drag released outside the interaction area - cancelled");
-            _bridge.JumpListHide();
+                "drag released - the list stays open");
+            HandOverJumpListInput();
         }
 
         /// <summary>Activates the row under the point through the native

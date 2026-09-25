@@ -80,7 +80,20 @@ over (see the deviations section of the notes).
 ## Open-Shell-Menu (inspiration only)
 
 Reference / inspiration for Start Menu pin storage, small folder icons,
-IContextMenu usage, and All Programs tree measurements:
+IContextMenu usage, and All Programs tree measurements. Since v3.15, two
+more techniques are taken as inspiration (reimplemented as original code,
+following documented shell APIs and Open-Shell's design):
+
+- Start Menu search icons are resolved through `IShellItemImageFactory`
+  at every row size (16 px included) as a final fallback, the same way
+  Open-Shell's item icons are always obtained from the shell rather than
+  from legacy `ExtractIcon` paths.
+- Control Panel / Settings catalog entries whose absolute parsing name
+  is unavailable are kept (instead of dropped) by composing the parent's
+  parsing name with the child's relative parsing name
+  (`SIGDN_PARENTRELATIVEPARSING`), mirroring how the Open-Shell search
+  maintains its Settings catalog, and verified by an actual
+  `SHCreateItemFromParsingName` round-trip.
 
 - Project: **Open-Shell-Menu**
 - Source: https://github.com/Open-Shell/Open-Shell-Menu
@@ -134,3 +147,48 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+---
+
+## RetroBar — vertical taskbar alignment recipe (v3.17)
+
+For the vertical taskbar the project adopted the alignment recipe of
+RetroBar's `StartButton` orientation triggers (theme "Windows Vista Aero",
+`RetroBar/Themes/Windows Vista Aero.xaml`): when `Orientation == Vertical`
+the Start orb is horizontally centered and its overhang margins collapse
+to a small bottom gap. RetroBar does not ship a Windows 7-specific orb
+size for vertical bars; on top of the recipe Win7Taskbar keeps the orb
+inside the bar's bounds (48 DIP) so a bar at the left/right screen edge
+can never clip the sprite. RetroBar is Apache-2.0-licensed
+(https://github.com/dremin/RetroBar); the measurement values were taken
+from the referenced theme, no XAML content was copied.
+
+## Windows 11 native-tray research credits (Phase 0, 2026-09)
+
+The recon for consuming the Windows 11 tray without ExplorerPatcher
+(recon document `docs/WIN11-NATIVE-TRAY-RESEARCH.md`, probe in
+`tools/win11-native-tray-probe/`) stands on publicly available
+research. Nothing is shipped from these references; our probe and our
+readers are original Win7Taskbar code. The references remain credited
+because their structural findings (which window chains are alive on
+which build, how the legacy tray struct is laid out, what the XAML
+taskbar refuses) inform the feasibility matrix:
+
+* **Windhawk mods by m417z** (GPL-3.0, license-compatible research):
+  `taskbar-notification-icon-spacing`, `taskbar-tray-system-icon-tweaks`,
+  `windows-11-taskbar-styler`, `win10-taskbar-on-win11-24h2` and its
+  fix-mods (repository `ramensoftware/windhawk-mods`).
+  Source: https://github.com/ramensoftware/windhawk-mods
+* **mnotify** by blendonl (the balloon-ownership and `TaskbarCreated`
+  re-registration waypoints): https://github.com/blendonl/mnotify
+* **KRR1751, "Windows 11' SECRET Taskbar!"** — community video that
+  documented the legacy taskbar revival on Windows 11 24H2 and the
+  need to keep the XAML overlay windows alive while the classic
+  deskbands are shown. **The accompanying ``win32-classic-taskbar-revival``
+  mod source is unlicensed: it is treated here strictly as a
+  documentation/idea reference; Win7Taskbar contains zero lines from
+  it.**
+* **RetroBar / ManagedShell** (Apache-2.0) — the existing attribution
+  for `TrayService`-style enumeration and `NotifyIconList` carries over;
+  see the main section above.
+

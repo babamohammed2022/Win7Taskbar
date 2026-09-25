@@ -31,7 +31,6 @@
 #include "SehGuard.h"
 #include "ScopeGuards.h"
 #include "Common.h"
-#include "WindowManager.h"
 #include <windowsx.h>
 #include <shlobj.h>
 #include <shobjidl.h>
@@ -96,80 +95,6 @@ JumpListCapCache& JumpListCapCacheRef() {
     return cache;
 }
 
-/* Public GDI glyphs for Tasks (min/max/restore/move/size). Drawn, not
- * taken from Microsoft bitmaps. Marlett/DrawFrameControl are public too;
- * simple strokes stay sharp at every DPI. */
-void DrawTaskGlyph(HDC hdc, const RECT& box, int32_t cmd)
-{
-    try {
-    if (hdc == nullptr || box.right <= box.left + 2 || box.bottom <= box.top + 2) {
-        return;
-    }
-    const COLORREF ink = RGB(0x3A, 0x3A, 0x3A);
-    const int thickness = ((box.right - box.left) >= 12) ? 2 : 1;
-    UniqueGdiObject pen(CreatePen(PS_SOLID, thickness, ink));
-    if (!pen.valid()) {
-        return;
-    }
-    SelectGuard sg(hdc, pen.get());
-    HGDIOBJ oldBr = SelectObject(hdc, GetStockObject(NULL_BRUSH));
-    const int l = box.left + 1;
-    const int t = box.top + 1;
-    const int r = box.right - 1;
-    const int b = box.bottom - 1;
-    const int cx = (l + r) / 2;
-    const int cy = (t + b) / 2;
-    switch (cmd) {
-        case W7T_CMD_MINIMIZE:
-            MoveToEx(hdc, l + 1, b - 1, nullptr);
-            LineTo(hdc, r - 1, b - 1);
-            break;
-        case W7T_CMD_MAXIMIZE:
-            Rectangle(hdc, l, t, r, b);
-            MoveToEx(hdc, l, t + thickness, nullptr);
-            LineTo(hdc, r, t + thickness);
-            break;
-        case W7T_CMD_RESTORE: {
-            const int inset = (r - l) / 3;
-            Rectangle(hdc, l + inset, t, r, b - inset);
-            Rectangle(hdc, l, t + inset, r - inset, b);
-            break;
-        }
-        case W7T_CMD_CLOSE:
-            MoveToEx(hdc, l, t, nullptr);
-            LineTo(hdc, r, b);
-            MoveToEx(hdc, r - 1, t, nullptr);
-            LineTo(hdc, l - 1, b);
-            break;
-        case W7T_CMD_MOVE:
-            MoveToEx(hdc, cx, t, nullptr); LineTo(hdc, cx, b);
-            MoveToEx(hdc, l, cy, nullptr); LineTo(hdc, r, cy);
-            MoveToEx(hdc, cx, t, nullptr); LineTo(hdc, cx - 3, t + 4);
-            MoveToEx(hdc, cx, t, nullptr); LineTo(hdc, cx + 3, t + 4);
-            MoveToEx(hdc, cx, b, nullptr); LineTo(hdc, cx - 3, b - 4);
-            MoveToEx(hdc, cx, b, nullptr); LineTo(hdc, cx + 3, b - 4);
-            MoveToEx(hdc, l, cy, nullptr); LineTo(hdc, l + 4, cy - 3);
-            MoveToEx(hdc, l, cy, nullptr); LineTo(hdc, l + 4, cy + 3);
-            MoveToEx(hdc, r, cy, nullptr); LineTo(hdc, r - 4, cy - 3);
-            MoveToEx(hdc, r, cy, nullptr); LineTo(hdc, r - 4, cy + 3);
-            break;
-        case W7T_CMD_SIZE:
-            MoveToEx(hdc, l + 2, b, nullptr); LineTo(hdc, r, t + 2);
-            MoveToEx(hdc, r, t + 2, nullptr); LineTo(hdc, r - 4, t + 6);
-            MoveToEx(hdc, r, t + 2, nullptr); LineTo(hdc, r - 6, t + 2);
-            MoveToEx(hdc, l + 2, b, nullptr); LineTo(hdc, l + 6, b - 4);
-            MoveToEx(hdc, l + 2, b, nullptr); LineTo(hdc, l + 2, b - 6);
-            break;
-        default:
-            break;
-    }
-    if (oldBr != nullptr) {
-        SelectObject(hdc, oldBr);
-    }
-    } catch (...) {
-    }
-}
-
 bool EnsureJumpGdiplus()
 {
     static int state = 0;
@@ -192,69 +117,6 @@ bool EnsureJumpGdiplus()
 Gdiplus::Color GpColor(COLORREF c, BYTE a = 255)
 {
     return Gdiplus::Color(a, GetRValue(c), GetGValue(c), GetBValue(c));
-}
-
-void DrawTaskGlyphGp(Gdiplus::Graphics& g, const RECT& box, int32_t cmd)
-{
-    try {
-        if (box.right <= box.left + 2 || box.bottom <= box.top + 2) {
-            return;
-        }
-        const Gdiplus::REAL thickness =
-            ((box.right - box.left) >= 12) ? 2.0f : 1.0f;
-        Gdiplus::Pen pen(GpColor(RGB(0x3A, 0x3A, 0x3A)), thickness);
-        pen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound,
-                       Gdiplus::DashCapRound);
-        const Gdiplus::REAL l = static_cast<Gdiplus::REAL>(box.left + 1);
-        const Gdiplus::REAL t = static_cast<Gdiplus::REAL>(box.top + 1);
-        const Gdiplus::REAL r = static_cast<Gdiplus::REAL>(box.right - 1);
-        const Gdiplus::REAL b = static_cast<Gdiplus::REAL>(box.bottom - 1);
-        const Gdiplus::REAL cx = (l + r) * 0.5f;
-        const Gdiplus::REAL cy = (t + b) * 0.5f;
-        switch (cmd) {
-            case W7T_CMD_MINIMIZE:
-                g.DrawLine(&pen, l + 1, b - 1, r - 1, b - 1);
-                break;
-            case W7T_CMD_MAXIMIZE:
-                g.DrawRectangle(&pen, l, t, r - l, b - t);
-                g.DrawLine(&pen, l, t + thickness, r, t + thickness);
-                break;
-            case W7T_CMD_RESTORE: {
-                const Gdiplus::REAL inset = (r - l) / 3.0f;
-                g.DrawRectangle(&pen, l + inset, t,
-                                r - (l + inset), (b - inset) - t);
-                g.DrawRectangle(&pen, l, t + inset,
-                                (r - inset) - l, b - (t + inset));
-                break;
-            }
-            case W7T_CMD_CLOSE:
-                g.DrawLine(&pen, l, t, r, b);
-                g.DrawLine(&pen, r, t, l, b);
-                break;
-            case W7T_CMD_MOVE:
-                g.DrawLine(&pen, cx, t, cx, b);
-                g.DrawLine(&pen, l, cy, r, cy);
-                g.DrawLine(&pen, cx, t, cx - 3, t + 4);
-                g.DrawLine(&pen, cx, t, cx + 3, t + 4);
-                g.DrawLine(&pen, cx, b, cx - 3, b - 4);
-                g.DrawLine(&pen, cx, b, cx + 3, b - 4);
-                g.DrawLine(&pen, l, cy, l + 4, cy - 3);
-                g.DrawLine(&pen, l, cy, l + 4, cy + 3);
-                g.DrawLine(&pen, r, cy, r - 4, cy - 3);
-                g.DrawLine(&pen, r, cy, r - 4, cy + 3);
-                break;
-            case W7T_CMD_SIZE:
-                g.DrawLine(&pen, l + 2, b, r, t + 2);
-                g.DrawLine(&pen, r, t + 2, r - 4, t + 6);
-                g.DrawLine(&pen, r, t + 2, r - 6, t + 2);
-                g.DrawLine(&pen, l + 2, b, l + 6, b - 4);
-                g.DrawLine(&pen, l + 2, b, l + 2, b - 6);
-                break;
-            default:
-                break;
-        }
-    } catch (...) {
-    }
 }
 
 bool DrawHbmpGp(Gdiplus::Graphics& g, HBITMAP hb, int x, int y, int dw, int dh)
@@ -554,64 +416,38 @@ struct JumpStr {
     const wchar_t* pin;
     const wchar_t* unpin;
     const wchar_t* closeWindow;
-    const wchar_t* tasks;      /* section header (Windows 7 "Tasks")     */
-    const wchar_t* minimize;
-    const wchar_t* maximize;
-    const wchar_t* restore;
-    const wchar_t* move;
-    const wchar_t* size;
 };
 const JumpStr& Str(int lang) {
+    /* v3.15.1 - le posizioni 3/4/5 erano SBAGLIATE in quasi tutte le
+     * lingue (in italiano dicevano "Ripristina/Sposta/Dimensiona" mentre
+     * le azioni e le icone erano Pin-to-taskbar/Sgancia-pin/Chiudi: la
+     * jump list mostrava "Dimensiona" affiancata all'icona X della
+     * chiusura). Qui tornano i testi documentati di Windows 7; le
+     * posizioni 3/4/5 sono sempre: pin, unpin, Chiudi finestra - nessuna
+     * voce "Dimensiona" esiste di progetto (sta solo nel menu di sistema
+     * della finestra). */
     static const JumpStr kIt = {
-        L"Voci usate di recente", L"Voci usate di frequente",
-        L"Fissa questo programma alla barra delle applicazioni",
-        L"Rimuovi questo programma dalla barra delle applicazioni",
-        L"Chiudi la finestra",
-        L"Attivit\u00e0", L"Minimizza", L"Ingrandisci", L"Ripristina",
-        L"Sposta", L"Dimensiona" };
+        L"Voci usate di recente", L"Voci usate di frequente", L"Aggiungi questo programma alla barra delle applicazioni",
+        L"Rimuovi questo programma dalla barra delle applicazioni", L"Chiudi finestra" };
     static const JumpStr kEn = {
-        L"Recent items", L"Frequent items",
-        L"Pin this program to the taskbar",
-        L"Unpin this program from the taskbar",
-        L"Close window",
-        L"Tasks", L"Minimize", L"Maximize", L"Restore",
-        L"Move", L"Size" };
+        L"Recent items", L"Frequent items", L"Pin this program to the taskbar",
+        L"Unpin this program from the taskbar", L"Close window" };
     static const JumpStr kEs = {
-        L"Elementos recientes", L"Elementos frecuentes",
-        L"Anclar este programa a la barra de tareas",
-        L"Desanclar este programa de la barra de tareas",
-        L"Cerrar ventana",
-        L"Tareas", L"Minimizar", L"Maximizar", L"Restaurar",
-        L"Mover", L"Redimensionar" };
+        L"Elementos recientes", L"Elementos frecuentes", L"Anclar este programa a la barra de tareas",
+        L"Desanclar este programa de la barra de tareas", L"Cerrar ventana" };
     static const JumpStr kFr = {
-        L"\u00c9l\u00e9ments r\u00e9cents", L"\u00c9l\u00e9ments fr\u00e9quents",
-        L"\u00c9pingler ce programme \u00e0 la barre des t\u00e2ches",
-        L"D\u00e9tacher ce programme de la barre des t\u00e2ches",
-        L"Fermer la fen\u00eatre",
-        L"T\u00e2ches", L"R\u00e9duire", L"Agrandir", L"Restaurer",
-        L"D\u00e9placer", L"Redimensionner" };
+        L"\u00c9l\u00e9ments r\u00e9cents", L"\u00c9l\u00e9ments fr\u00e9quents", L"\u00c9pingler ce programme \u00e0 la barre des t\u00e2ches",
+        L"D\u00e9tacher ce programme de la barre des t\u00e2ches", L"Fermer la fen\u00eatre" };
     static const JumpStr kDe = {
         L"Zuletzt verwendete Elemente", L"H\u00e4ufig verwendete Elemente",
         L"Dieses Programm an die Taskleiste anheften",
-        L"Dieses Programm von der Taskleiste l\u00f6sen",
-        L"Fenster schlie\u00dfen",
-        L"Aufgaben", L"Minimieren", L"Maximieren",
-        L"Wiederherstellen",
-        L"Verschieben", L"Gr\u00f6\u00dfe \u00e4ndern" };
+        L"Dieses Programm von der Taskleiste l\u00f6sen", L"Fenster schlie\u00dfen" };
     static const JumpStr kPt = {
-        L"Itens recentes", L"Itens frequentes",
-        L"Fixar este programa na barra de tarefas",
-        L"Desafixar este programa da barra de tarefas",
-        L"Fechar janela",
-        L"Tarefas", L"Minimizar", L"Maximizar", L"Restaurar",
-        L"Mover", L"Redimensionar" };
+        L"Itens recentes", L"Itens frequentes", L"Fixar este programa na barra de tarefas",
+        L"Desafixar este programa da barra de tarefas", L"Fechar janela" };
     static const JumpStr kPl = {
-        L"Ostatnie elementy", L"Cz\u0119ste elementy",
-        L"Przypnij ten program do paska zada\u0144",
-        L"Odepnij ten program od paska zada\u0144",
-        L"Zamknij okno",
-        L"Zadania", L"Minimalizuj", L"Maksymalizuj", L"Przywr\u00f3\u0107",
-        L"Przesu\u0144", L"Zmie\u0144 rozmiar" };
+        L"Ostatnie elementy", L"Cz\u0119ste elementy", L"Przypnij ten program do paska zada\u0144",
+        L"Odepnij ten program od paska zada\u0144", L"Zamknij okno" };
     static const JumpStr kRu = {
         L"\u041d\u0435\u0434\u0430\u0432\u043d\u0438\u0435 \u044d\u043b\u0435"
         L"\u043c\u0435\u043d\u0442\u044b",
@@ -625,13 +461,7 @@ const JumpStr& Str(int lang) {
         L"\u0442\u0443 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c"
         L"\u0443 \u043e\u0442 \u043f\u0430\u043d\u0435\u043b\u0438 \u0437"
         L"\u0430\u0434\u0430\u0447",
-        L"\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u043e\u043a\u043d\u043e",
-        L"\u041e\u043f\u0435\u0440\u0430\u0446\u0438\u0438",
-        L"\u0421\u0432\u0435\u0440\u043d\u0443\u0442\u044c",
-        L"\u0420\u0430\u0437\u0432\u0435\u0440\u043d\u0443\u0442\u044c",
-        L"\u0412\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c",
-        L"\u041f\u0435\u0440\u0435\u043c\u0435\u0441\u0442\u0438\u0442\u044c",
-        L"\u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0440\u0430\u0437\u043c\u0435\u0440" };
+        L"\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u043e\u043a\u043d\u043e" };
     static const JumpStr kJa = {
         L"\u6700\u8fd1\u4f7f\u3063\u305f\u9805\u76ee",
         L"\u3088\u304f\u4f7f\u3046\u9805\u76ee",
@@ -639,25 +469,13 @@ const JumpStr& Str(int lang) {
         L"\u30af\u30d0\u30fc\u306b\u8868\u793a\u3059\u308b",
         L"\u3053\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u3092\u30bf\u30b9"
         L"\u30af\u30d0\u30fc\u306b\u8868\u793a\u3057\u306a\u3044",
-        L"\u30a6\u30a3\u30f3\u30c9\u30a6\u3092\u9589\u3058\u308b",
-        L"\u30bf\u30b9\u30af",
-        L"\u6700\u5c0f\u5316",
-        L"\u6700\u5927\u5316",
-        L"\u5143\u306b\u6253\u3064\u3059",
-        L"\u79fb\u52d5",
-        L"\u30b5\u30a4\u30ba\u5909\u66f4" };
+        L"\u30a6\u30a3\u30f3\u30c9\u30a6\u3092\u9589\u3058\u308b" };
     static const JumpStr kZh = {
-        L"\u6700\u8fd1\u4f7f\u7528\u3057\u305f\u9879\u76ee",
-        L"\u7ecf\u5e38\u4f7f\u7528\u3059\u308b\u9879\u76ee",
-        L"\u5c06\u6b64\u7a0b\u5e8f\u56fa\u5b9a\u5230\u4efb\u52a1\u680f",
-        L"\u5c06\u6b64\u7a0b\u5e8f\u4ece\u4efb\u52a1\u680f\u89e3\u9664",
-        L"\u5173\u95ed\u7a97\u53e3",
-        L"\u4efb\u52a1",
-        L"\u6700\u5c0f\u5316",
-        L"\u6700\u5927\u5316",
-        L"\u8fd8\u539f",
-        L"\u79fb\u52a8",
-        L"\u5927\u5c0f" };
+        L"\u6700\u8fd1\u4f7f\u7528\u7684\u9879\u76ee",
+        L"\u5e38\u7528\u9879\u76ee",
+        L"\u5c06\u6b64\u7a0b\u5e8f\u9501\u5b9a\u5230\u4efb\u52a1\u680f",
+        L"\u5c06\u6b64\u7a0b\u5e8f\u4ece\u4efb\u52a1\u680f\u4e2d\u53d6\u6d88\u56fa\u5b9a",
+        L"\u5173\u95ed\u7a97\u53e3" };
     static const JumpStr kAr = {
         L"\u0627\u0644\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0623"
         L"\u062e\u064a\u0631\u0629",
@@ -670,13 +488,7 @@ const JumpStr& Str(int lang) {
         L" \u0647\u0630\u0627 \u0627\u0644\u0628\u0631\u0646\u0627\u0645"
         L"\u062c \u0645\u0646 \u0634\u0631\u064a\u0637 \u0627\u0644\u0645"
         L"\u0647\u0627\u0645",
-        L"\u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0646\u0627\u0641\u0630\u0629",
-        L"\u0627\u0644\u0645\u0647\u0627\u0645",
-        L"\u062a\u0635\u063a\u064a\u0631",
-        L"\u062a\u0643\u0628\u064a\u0631",
-        L"\u0627\u0633\u062a\u0639\u0627\u062f\u0629",
-        L"\u062a\u062d\u0631\u064a\u0643",
-        L"\u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u062d\u062c\u0645" };
+        L"\u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0646\u0627\u0641\u0630\u0629" };
     switch (lang) {
         case 1: return kEn; case 2: return kEs; case 3: return kFr;
         case 4: return kDe; case 5: return kPt; case 6: return kPl;
@@ -955,9 +767,20 @@ void JumpListWindow::ClearContent() {
 void JumpListWindow::BuildRows() {
     m_rows.clear();
 
+    /* v3.18: tetto TOTALE di 10 righe documento (Recent + Frequent
+     * insieme). Il cap per-sezione esisteva gia' (10+10): le liste
+     * risultavano di un chilometro. Ora il budget e' complessivo:
+     * i Recent entrano per primi, i Frequent solo fino al saldo.
+     * Per la sezione applicazione (App/Pin/Close) il budget non
+     * serve: sono righe standard, sempre presenti. */
+    int32_t shownDocs = 0;
+    constexpr int32_t kShownDocsCap = 10;
+
     auto addDocs = [&](int32_t section, Row::Kind kind) {
         for (const JumpListDoc& doc : m_docs) {
             if (doc.section != section) continue;
+            if (shownDocs >= kShownDocsCap) break;
+            shownDocs++;
             Row r;
             r.kind = kind;
             r.label = doc.displayName;
@@ -969,8 +792,11 @@ void JumpListWindow::BuildRows() {
              * popup down, the entry simply paints without its icon. */
             SHFILEINFOW sfi{};
             W7T_SEH_TRY {
+                /* LARGEICON: GDI+ ridisegna la 32 px al formato della riga
+                 * con interpolazione bicubica - netta anche a 150/200%
+                 * (la piccola 16 px ingrandita sarebbe sgranata). */
                 if (SHGetFileInfoW(r.path.c_str(), 0, &sfi, sizeof(sfi),
-                                   SHGFI_ICON | SHGFI_SMALLICON)
+                                   SHGFI_ICON | SHGFI_LARGEICON)
                     && sfi.hIcon != nullptr) {
                     r.icon.reset(sfi.hIcon);  /* ownership moves into the row */
                 }
@@ -1007,40 +833,23 @@ void JumpListWindow::BuildRows() {
     app.label = m_title;
     m_rows.push_back(std::move(app));
 
-    if (!m_pinned) {
-        Row pin;
-        pin.kind = Row::Pin;
-        pin.label = Str(m_lang).pin;
-        m_rows.push_back(std::move(pin));
-    }
+    /* La riga Pin e' SEMPRE presente (come in Windows 7): con l'app
+     * pinnata diventa la voce di rimozione, e il nome cambia di
+     * conseguenza. L'icona a puntina la disegna OnPaint. */
+    Row pin;
+    pin.kind = Row::Pin;
+    pin.label = m_pinned ? Str(m_lang).unpin : Str(m_lang).pin;
+    m_rows.push_back(std::move(pin));
 
-    /* The Windows 7 Tasks section: only while the group has a live
-     * window, and it reuses the existing native window-command path
-     * (WindowManager::ExecuteCommand - the same one W7T_ExecuteWindow-
-     * Command exposes). The graphical close row below stays the fast
-     * close; the section adds the other window commands. */
+    /* Windows 7 NON aveva alcuna sezione con Ridimensiona/Sposta/
+     * Ripristina/Minimizza/Ingrandisci nelle jump list: quella roba sta
+     * solo nel menu di sistema della finestra (tasto destro classico,
+     * percorso ShellMenu, invariato). La riga finale e' la sola Chiudi,
+     * con la sua icona X - e solo mentre il gruppo ha una finestra viva. */
     if (m_representativeHwnd != nullptr && IsWindow(m_representativeHwnd)) {
-        const JumpStr& S = Str(m_lang);
-        struct {
-            const wchar_t* label;
-            int32_t cmd;
-        } tasks[] = {
-            { S.minimize, W7T_CMD_MINIMIZE },
-            { S.maximize, W7T_CMD_MAXIMIZE },
-            { S.restore,  W7T_CMD_RESTORE  },
-            { S.move,     W7T_CMD_MOVE     },
-            { S.size,     W7T_CMD_SIZE     },
-        };
-        for (const auto& t : tasks) {
-            Row r;
-            r.kind = Row::Task;
-            r.label = t.label;
-            r.cmd = t.cmd;
-            m_rows.push_back(std::move(r));
-        }
         Row close;
         close.kind = Row::Close;
-        close.label = S.closeWindow;
+        close.label = Str(m_lang).closeWindow;
         m_rows.push_back(std::move(close));
     }
     /* The "Pin this program to the taskbar" row above (the taskbar pin
@@ -1058,16 +867,16 @@ void JumpListWindow::Layout() {
         Row& r = m_rows[i];
         const bool isDoc =
             r.kind == Row::DocRecent || r.kind == Row::DocFrequent;
-        const bool isTask = r.kind == Row::Task;
 
-        /* Section header band before the first row of every section that
-         * has one: the document sections and Tasks. */
-        if ((isDoc || isTask) && (int)r.kind != lastKind) {
+        /* Section header band before the first row of every document
+         * section. */
+        if (isDoc && (int)r.kind != lastKind) {
             y += Sc(kHeader96);
         }
         /* Separator band before the application row, the pin row and the
-         * Tasks section (the Windows 7 list separates documents, the app
-         * link and the tasks). */
+         * close row (the Windows 7 list separates documents, the app
+         * link and the closing commands - the exact horizontal-bar
+         * rhythm of the shell). */
         if (!isDoc && (lastKind == (int)Row::DocRecent ||
                        lastKind == (int)Row::DocFrequent ||
                        lastKind == (int)Row::App ||
@@ -1179,7 +988,8 @@ RECT JumpListWindow::WorkAreaForButton() const {
  * button, centered on the icon, small gap. Growing the HWND for Aero
  * chrome without centering shifted the client to the right of the icon.
  * Gap and margin are DPI-scaled; no unscaled offsets. */
-void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge) {
+void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge,
+                                  bool animateFromBelow) {
     /* Glue the popup to the Superbar button. The bar lives in the
      * monitor reserved strip, which sits *outside* rcWork; clamping the
      * attached axis to the work area lifted a bottom-bar list off the
@@ -1239,6 +1049,11 @@ void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge) {
              * button. WM_WINDOWPOSCHANGING is sent synchronously inside
              * SetWindowPos, so the property is set and removed around it. */
             SetPropW(hwnd, L"W7T_AllowOneResize", reinterpret_cast<HANDLE>(1));
+            /* v3.18: animazione RIMOSSA su richiesta (v3.17 -> v3.18):
+             * il popup apre istantaneo alla posizione finale. Il flag
+             * animateFromBelow resta accettato e consumato come no-op per
+             * compatibilita' con le build managed intermedie. */
+            (void)animateFromBelow;
             SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
                          SWP_NOACTIVATE | SWP_SHOWWINDOW);
             RemovePropW(hwnd, L"W7T_AllowOneResize");
@@ -1402,7 +1217,9 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
          * MakeInteractive removes this bit only after that mouse-up. */
         SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE,
             GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
-        Place(m_hwnd, m_buttonRect, m_edge);
+        const bool animateFromBelow = m_animateFromBelow;
+        m_animateFromBelow = false;
+        Place(m_hwnd, m_buttonRect, m_edge, animateFromBelow);
         UpdateInteractionArea();
         InvalidateRect(m_hwnd, nullptr, TRUE);
         LogTagged(L"JUMPLIST",
@@ -1495,6 +1312,11 @@ void JumpListWindow::UpdateHoverFromScreen(POINT screenPt) {
     }
 }
 
+void JumpListWindow::SetAnimateFromBelowOnNextOpen(bool yes) {
+    /* v3.17 - RAII: solo un flag POD, nessuna risorsa acquisita. */
+    m_animateFromBelow = yes;
+}
+
 int32_t JumpListWindow::SetHover(int32_t screenX, int32_t screenY) {
     if (!IsVisible()) return 0;
     W7T_SEH_TRY {
@@ -1561,11 +1383,6 @@ int32_t JumpListWindow::ActivateRow(int32_t screenX, int32_t screenY,
                     }
                     break;
                 }
-                case Row::Task:
-                    ExecuteTask(row.cmd);
-                    LogTagged(L"JUMPLIST", L"item activated: task command"
-                                           L" %d", row.cmd);
-                    break;
                 case Row::App:
                     LaunchApp();
                     bits |= BitsLaunchedApp;
@@ -1638,26 +1455,6 @@ void JumpListWindow::PerformPinOrUnpin() {
         }
     } W7T_SEH_CATCH {
         LogTagged(L"JUMPLIST", L"hardware fault while toggling the pin");
-    } W7T_SEH_END
-}
-
-/* The Tasks section rows: the same window-command path W7T_Execute-
- * WindowCommand exposes (WindowManager), so the jump list and the rest
- * of the bar can never disagree about what Minimize/Maximize/... do. */
-void JumpListWindow::ExecuteTask(int32_t cmd) {
-    W7T_SEH_TRY {
-        if (m_representativeHwnd == nullptr ||
-            !IsWindow(m_representativeHwnd)) {
-            return;   /* the window went away; the rows vanish next open */
-        }
-        const int32_t rc = WindowManager::Instance().ExecuteCommand(
-            m_representativeHwnd, cmd);
-        if (rc != W7T_OK) {
-            LogTagged(L"JUMPLIST", L"task command %d failed code=%d",
-                      (int)cmd, (int)rc);
-        }
-    } W7T_SEH_CATCH {
-        LogTagged(L"JUMPLIST", L"hardware fault while executing a task");
     } W7T_SEH_END
 }
 
@@ -1798,12 +1595,61 @@ void JumpListWindow::GradientRect(HDC hdc, const RECT& r, COLORREF top,
     }
 }
 
+/* Offscreen paint buffer: every band below renders into a memory DC and
+ * the finished frame blits in one BitBlt. Without it each hover change
+ * repaints the gradient rows straight on screen and the popup visibly
+ * "refreshes" while the cursor only glides over it (the flicker the
+ * user reported). RAII: any early return or exception still releases
+ * the DC and the bitmap. */
+struct MemPaint {
+    HDC screen = nullptr;
+    HDC dc = nullptr;
+    HBITMAP bm = nullptr;
+    HGDIOBJ old = nullptr;
+    RECT rc{};
+    explicit MemPaint(HDC target) : screen(target) {}
+    ~MemPaint() {
+        if (bm != nullptr && old != nullptr) SelectObject(dc, old);
+        if (bm != nullptr) DeleteObject(bm);
+        if (dc != nullptr) DeleteDC(dc);
+    }
+    MemPaint(const MemPaint&) = delete;
+    MemPaint& operator=(const MemPaint&) = delete;
+    bool Begin(int width, int height) {
+        if (screen == nullptr || width <= 0 || height <= 0) return false;
+        rc = RECT{ 0, 0, width, height };
+        dc = CreateCompatibleDC(screen);
+        if (dc == nullptr) return false;
+        bm = CreateCompatibleBitmap(screen, width, height);
+        if (bm == nullptr) return false;
+        old = SelectObject(dc, bm);
+        if (old == nullptr) {
+            DeleteObject(bm);
+            bm = nullptr;
+            DeleteDC(dc);
+            dc = nullptr;
+            return false;
+        }
+        return true;
+    }
+    void Commit() {
+        if (dc == nullptr) return;
+        BitBlt(screen, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
+    }
+};
+
 void JumpListWindow::OnPaint(HWND hwnd) {
     PAINTSTRUCT ps;
-    HDC hdc = BeginPaint(hwnd, &ps);
-    if (hdc == nullptr) return;
+    HDC screenDc = BeginPaint(hwnd, &ps);
+    if (screenDc == nullptr) return;
     RECT client{};
     GetClientRect(hwnd, &client);
+
+    MemPaint buffer(screenDc);
+    HDC hdc = screenDc;
+    if (buffer.Begin(client.right, client.bottom)) {
+        hdc = buffer.dc;
+    }
 
     bool painted = false;
     try {
@@ -1852,17 +1698,16 @@ void JumpListWindow::OnPaint(HWND hwnd) {
                     const Row& r = m_rows[i];
                     const bool isDoc =
                         r.kind == Row::DocRecent || r.kind == Row::DocFrequent;
-                    const bool isTask = r.kind == Row::Task;
 
-                    if ((isDoc || isTask) && (int)r.kind != lastKind) {
+                    if (isDoc && (int)r.kind != lastKind) {
                         const int hy = r.rect.top - Sc(kHeader96);
                         Gdiplus::RectF hr(
                             static_cast<Gdiplus::REAL>(margin),
                             static_cast<Gdiplus::REAL>(hy),
                             static_cast<Gdiplus::REAL>(client.right - 2 * margin),
                             static_cast<Gdiplus::REAL>(Sc(kHeader96)));
-                        const wchar_t* header = isTask ? S.tasks
-                            : (r.kind == Row::DocFrequent ? S.frequent : S.recent);
+                        const wchar_t* header =
+                            (r.kind == Row::DocFrequent) ? S.frequent : S.recent;
                         g.DrawString(header, -1, &fontBold, hr, &fmt, &headBr);
                         hline(hy + Sc(kHeader96));
                     }
@@ -1880,7 +1725,7 @@ void JumpListWindow::OnPaint(HWND hwnd) {
                     }
 
                     const int iconLeft = Sc(14);
-                    const int textLeft = (isDoc || r.kind == Row::Task)
+                    const int textLeft = isDoc
                         ? iconLeft + Sc(kDocIcon96) + Sc(6)
                         : (r.kind == Row::App
                             ? iconLeft + Sc(kAppIcon96) + Sc(9)
@@ -1898,17 +1743,6 @@ void JumpListWindow::OnPaint(HWND hwnd) {
                         static_cast<Gdiplus::REAL>(r.rect.bottom - r.rect.top));
                     g.DrawString(r.label.c_str(), -1, &font, tr, &fmt,
                                  (r.kind == Row::Pin) ? &pinBr : &textBr);
-
-                    if (r.kind == Row::Task) {
-                        const int box = Sc(kDocIcon96);
-                        RECT glyph{
-                            iconLeft,
-                            r.rect.top + (Sc(kRowDoc96) - box) / 2 - lift,
-                            iconLeft + box,
-                            r.rect.top + (Sc(kRowDoc96) - box) / 2 - lift + box
-                        };
-                        DrawTaskGlyphGp(g, glyph, r.cmd);
-                    }
 
                     if (isDoc && r.icon.get() != nullptr) {
                         const int box = Sc(kDocIcon96);
@@ -1986,15 +1820,14 @@ void JumpListWindow::OnPaint(HWND hwnd) {
             const Row& r = m_rows[i];
             const bool isDoc =
                 r.kind == Row::DocRecent || r.kind == Row::DocFrequent;
-            const bool isTask = r.kind == Row::Task;
 
-            if ((isDoc || isTask) && (int)r.kind != lastKind) {
+            if (isDoc && (int)r.kind != lastKind) {
                 const int hy = r.rect.top - Sc(kHeader96);
                 if (fontBold.valid()) SelectObject(hdc, (HGDIOBJ)fontBold.get());
                 SetTextColor(hdc, RGB(0x40, 0x58, 0x78));
                 RECT hr{ margin, hy, client.right - margin, hy + Sc(kHeader96) };
-                const wchar_t* header = isTask ? S.tasks
-                    : (r.kind == Row::DocFrequent ? S.frequent : S.recent);
+                const wchar_t* header =
+                    (r.kind == Row::DocFrequent) ? S.frequent : S.recent;
                 DrawTextW(hdc, header, -1, &hr,
                           DT_SINGLELINE | DT_VCENTER | DT_LEFT);
                 if (font.valid()) SelectObject(hdc, (HGDIOBJ)font.get());
@@ -2016,7 +1849,7 @@ void JumpListWindow::OnPaint(HWND hwnd) {
             }
 
             const int iconLeft = Sc(14);
-            const int textLeft = (isDoc || r.kind == Row::Task)
+            const int textLeft = isDoc
                 ? iconLeft + Sc(kDocIcon96) + Sc(6)
                 : (r.kind == Row::App
                     ? iconLeft + Sc(kAppIcon96) + Sc(9)
@@ -2033,17 +1866,6 @@ void JumpListWindow::OnPaint(HWND hwnd) {
                      client.right - margin, r.rect.bottom - lift };
             DrawTextW(hdc, r.label.c_str(), -1, &tr,
                       DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-
-            if (r.kind == Row::Task) {
-                const int box = Sc(kDocIcon96);
-                RECT glyph{
-                    iconLeft,
-                    r.rect.top + (Sc(kRowDoc96) - box) / 2 - lift,
-                    iconLeft + box,
-                    r.rect.top + (Sc(kRowDoc96) - box) / 2 - lift + box
-                };
-                DrawTaskGlyph(hdc, glyph, r.cmd);
-            }
 
             if (isDoc && r.icon.get() != nullptr) {
                 const int box = Sc(kDocIcon96);
@@ -2073,6 +1895,7 @@ void JumpListWindow::OnPaint(HWND hwnd) {
             }
         }
     }
+    buffer.Commit();
     EndPaint(hwnd, &ps);
 }
 

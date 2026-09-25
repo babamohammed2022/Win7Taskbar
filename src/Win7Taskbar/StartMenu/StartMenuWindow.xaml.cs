@@ -333,6 +333,55 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
+        /* v3.13: footer FISSO del pannello dei risultati, presente con
+         * ogni ricerca: apre la ricerca web nel browser predefinito
+         * (stessa URL costruita per la riga internet che lo precedeva). */
+        private void OnSearchInternetFooter(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                string url = StartMenuShellSearch.InternetSearchUrl(_vm.SearchText);
+                _vm.Launch(new StartMenuItem
+                {
+                    Name = StartMenuViewModel.T("lang_sm_search_internet",
+                                                "Search the Internet"),
+                    Path = url,
+                    Folder = "internet"
+                });
+            }
+            catch (Exception)
+            {
+            }
+            Dismiss();
+            e.Handled = true;
+        }
+
+        /* v3.13: icona del BROWSER predefinito per il footer, caricata una
+         * sola volta (la stessa scelta del vecchio item internet). */
+        private bool _internetFooterIconLoaded;
+        private void EnsureInternetFooterIcon()
+        {
+            if (_internetFooterIconLoaded || InternetFooterIcon == null)
+            {
+                return;
+            }
+            _internetFooterIconLoaded = true;
+            try
+            {
+                InternetFooterIcon.Source =
+                    StartMenuIcons.FromDefaultBrowserGdiPlus(18)
+                        ?? StartMenuIcons.FromDefaultBrowser(18)
+                        ?? StartMenuIcons.FromDll("imageres.dll", 220, 18)
+                        ?? StartMenuIcons.FromDll("shell32.dll", 14, 18);
+                /* v3.18: pipeline GDI+ (jumbo 256 -> bicubica HQ) per
+                   l'icona del footer; box sempre 17.6 DIP, bitmap a 18
+                   per non rinunciare ai pixel (HighQuality ridisegna). */
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         private void OnLeftListContext(object sender, MouseButtonEventArgs e)
         {
             if (e.Handled)
@@ -767,11 +816,20 @@ namespace Win7Taskbar.StartMenu
         {
             if (list.SelectedItem is not StartMenuItem item)
             {
-                if (list.Items.Count > 0)
+                /* v3.9: with no selection, Enter launches the first REAL
+                 * result - never a section header (which would only
+                 * collapse the section, Open-Shell does the same). */
+                item = null;
+                for (int i = 0; i < list.Items.Count; i++)
                 {
-                    item = (StartMenuItem)list.Items[0];
+                    if (list.Items[i] is StartMenuItem candidate &&
+                        !candidate.IsSectionHeader && !candidate.IsSeparator)
+                    {
+                        item = candidate;
+                        break;
+                    }
                 }
-                else
+                if (item == null)
                 {
                     return;
                 }
@@ -783,6 +841,13 @@ namespace Win7Taskbar.StartMenu
         {
             if (item.IsSeparator)
             {
+                return;
+            }
+            if (item.IsSectionHeader)
+            {
+                /* v3.9: a section header collapses/expands in place like
+                 * Open-Shell - the menu stays open. */
+                _vm.Launch(item);
                 return;
             }
             if (item.IsAllPrograms)
@@ -1057,6 +1122,7 @@ namespace Win7Taskbar.StartMenu
                 ApplySearchShutdownInk(searching);
                 if (searching)
                 {
+                    EnsureInternetFooterIcon();
                     SearchHost.Visibility = Visibility.Visible;
                     SearchHost.IsHitTestVisible = true;
                     SearchHost.BeginAnimation(OpacityProperty,

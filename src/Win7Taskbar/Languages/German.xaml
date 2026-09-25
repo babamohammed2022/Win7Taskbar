@@ -55,6 +55,11 @@
     <s:String x:Key="lang_icon_order_drag_hint">Loslassen, um die Reihenfolge zu ändern</s:String>
     <!-- Start Menu (1.3.9) -->
     <s:String x:Key="lang_sm_search">Programme und Dateien durchsuchen</s:String>
+    <!-- v3.9: search section headers / actions (Open-Shell style). -->
+    <s:String x:Key="lang_sm_sec_programs">Programme</s:String>
+    <s:String x:Key="lang_sm_sec_files">Dateien</s:String>
+    <s:String x:Key="lang_sm_sec_folders">Ordner</s:String>
+    <s:String x:Key="lang_sm_see_more">Weitere Ergebnisse anzeigen</s:String>
     <s:String x:Key="lang_sm_all_programs">Alle Programme</s:String>
     <s:String x:Key="lang_sm_back">Zurück</s:String>
     <s:String x:Key="lang_sm_shutdown">Herunterfahren</s:String>

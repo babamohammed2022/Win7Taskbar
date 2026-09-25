@@ -184,6 +184,25 @@ private:
     int32_t m_edge          = W7T_EDGE_BOTTOM;
     int32_t m_size          = 40;
 
+    /* v3.15 - anti ping-pong AppBar (barra che si congela a CPU alta,
+     * soprattutto sui bordi verticali):
+     *
+     * Ogni SetPos terminava con ABM_WINDOWPOSCHANGED, la shell puo'
+     * riinviarci ABN_POSCHANGED, e il nostro HandleCallback rieseguiva
+     * SetPos: un ciclo chiuso app<->shell, un messaggio ogni passata.
+     * Bastano tre regole (le stesse di ManagedShell/RetroBar):
+     *   1. SetPos non e' rientrante (m_inSetPos);
+     *   2. si notifica ABM_WINDOWPOSCHANGED SOLO se il rettangolo e'
+     *      davvero cambiato (m_lastRect) - il rettangolo identico non
+     *      deve generare nuovi broadcast;
+     *   3. un ABN_POSCHANGED che arriva mentre noi stiamo posando o nei
+     *      300 ms dopo e' per definizione l'ECO della nostra stessa
+     *      richiesta: si scarta (eco soppresso). */
+    bool      m_inSetPos      = false;
+    RECT      m_lastRect      = {};
+    bool      m_haveLastRect  = false;
+    ULONGLONG m_lastSetPosTick = 0;
+
     /* v1.21.51 - stato della guardia Flip 3D. Gli hook vivono in guardie
      * RAII (UniqueWinEventHook di ScopeGuards.h): qualunque via d'uscita
      * li sgancia, mai un hook orfano che continui a ricevere eventi. */

@@ -40,6 +40,22 @@ std::wstring FoldAscii(const std::wstring& s);
 int RankMatch(const std::wstring& foldedName, const std::wstring& foldedQuery,
               int usageCount);
 
+/* Whole-query match (space-separated tokens, NLS-aware) used by the
+ * Start Menu file search too: INT_MAX = no match, otherwise the rank. */
+int RankMatchAll(const std::wstring& name, const std::wstring& query,
+                 int usageCount);
+
+/* Non-ranked boolean variant for the file walker. */
+bool NameMatchesQuery(const std::wstring& name, const std::wstring& query);
+
+/* Split a query into tokens on the menu-search separator set. */
+std::vector<std::wstring> SplitSearchTokens(const std::wstring& s);
+
+/* File-family letter used by every start-menu search backend: shared so
+ * the Shell Search Folder backend and the fallback file walker classify
+ * the same extension into the same section letter. */
+wchar_t FileKindFromExtension(const wchar_t* name);
+
 /*
  * Fill `out` with hits sorted by rank then name. `generation` is a
  * cancellation token: if *generation != expectedGeneration the walk

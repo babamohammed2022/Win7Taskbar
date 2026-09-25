@@ -1268,11 +1268,22 @@
             </Setter.Value>
         </Setter>
         <Style.Triggers>
+            <!-- v3.17: barra VERTICALE - ricetta RetroBar (Windows Vista
+                 Aero theme, StartButton orientation trigger, Apache-2.0,
+                 crediti in THIRD-PARTY-NOTICES): centratura orizzontale,
+                 margine basso di 2 e, in piu', l'orb NON puo' uscire dai
+                 bordi della barra (54->48 DIP su entrambi gli assi): a
+                 bordo schermo sinistro/destro l'overflow centrato veniva
+                 tagliato dal bordo monitor e l'orb appariva disallineato. -->
             <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
                          Value="Vertical">
                 <DataTrigger.Setters>
                     <Setter Property="HorizontalAlignment"
                             Value="Center" />
+                    <Setter Property="Width"
+                            Value="48" />
+                    <Setter Property="Height"
+                            Value="48" />
                     <Setter Property="Margin"
                             Value="0,0,0,2" />
                 </DataTrigger.Setters>
@@ -2429,6 +2440,49 @@
                                     Property="Source"
                                     Value="{DynamicResource OverflowTileHoverImage}" />
                         </Trigger>
+                        <!-- v3.9: taskbar on the TOP edge - the chevron points
+                             STRAIGHT DOWN (into the panel that opens downwards):
+                             exactly 180 degrees from its bottom-edge look (which
+                             points up), like the real Windows 7 overflow arrow. -->
+                        <DataTrigger Binding="{Binding Path=AppBarEdge, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                     Value="Top">
+                            <DataTrigger.Setters>
+                                <Setter TargetName="ChevronImg"
+                                        Property="LayoutTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="180" />
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger.Setters>
+                        </DataTrigger>
+                        <!-- v3.11: bordo SINISTRO - il popup dell'overflow
+                             si apre verso DESTRA (centro schermo): la
+                             freccia, a riposo rivolta in ALTO, ruota di
+                             +90 gradi (orario) per puntare a destra. -->
+                        <DataTrigger Binding="{Binding Path=AppBarEdge, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                     Value="Left">
+                            <DataTrigger.Setters>
+                                <Setter TargetName="ChevronImg"
+                                        Property="LayoutTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="90" />
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger.Setters>
+                        </DataTrigger>
+                        <!-- v3.11: bordo DESTRO - il popup si apre verso
+                             SINISTRA: -90 gradi (antiorario). -->
+                        <DataTrigger Binding="{Binding Path=AppBarEdge, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                     Value="Right">
+                            <DataTrigger.Setters>
+                                <Setter TargetName="ChevronImg"
+                                        Property="LayoutTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="-90" />
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger.Setters>
+                        </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

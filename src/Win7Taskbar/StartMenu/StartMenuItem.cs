@@ -22,6 +22,14 @@ namespace Win7Taskbar.StartMenu
         public string Target { get; set; } = string.Empty;
         public string Folder { get; set; } = string.Empty;
         /// <summary>
+        /// Search result section header (Open-Shell / Windows 7 layout:
+        /// "Programs (3)", "Settings (12)", "Files (1)"). Headers collapse
+        /// / expand their section on click. SectionId identifies the
+        /// section ("programs", "settings", "docs", ...).
+        /// </summary>
+        public bool IsSectionHeader { get; set; }
+        public string SectionId { get; set; } = string.Empty;
+        /// <summary>
         /// Right-pane hover flyout. Original wording; not a Microsoft string.
         /// </summary>
         public string? Infotip { get; set; }
@@ -76,6 +84,20 @@ namespace Win7Taskbar.StartMenu
             get => _icon;
             set { _icon = value; OnPropertyChanged(); }
         }
+
+        /* v3.17: search-row icon metrics. The base row shows icons 4%
+         * smaller (19.2 DIP instead of 20) and 1.2% of the results pane
+         * further left than before; padded modern icons (snipping tool
+         * style, lots of transparent canvas around the glyph) get one
+         * slightly smaller size and one slightly bigger left offset,
+         * per the user's calibration. The search-row template binds to
+         * these values; non-search rows never touch them. */
+        public double SearchIconSize { get; set; } = 19.2;
+        public double SearchIconLeft { get; set; } = 15.2;
+
+        /// <summary>Left margin of the search-row icon, built once from
+        /// SearchIconLeft when the row enters the search list.</summary>
+        public Thickness SearchIconMargin => new Thickness(SearchIconLeft, 0, 0, 0);
 
         public bool HasJumpList
         {

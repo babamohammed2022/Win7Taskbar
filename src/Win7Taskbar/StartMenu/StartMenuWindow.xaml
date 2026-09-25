@@ -621,9 +621,21 @@
                         </StackPanel>
                     </Grid>
 
-                    <!-- Full-width search overlay. Outer frame stays 411x476.
-                         Inspired by Win7 / Open-Shell search bitmap (full
-                         white pane); not copied from EJSnow's unlicensed skin. -->
+                    <!-- =====================================================
+                         v3.13: PANNELLO RISULTATI di Windows 7 - cornice
+                         SINGOLA (come era: la pila di bordi azzurri della
+                         v3.12 e' stata eliminata, su richiesta) con la
+                         metrica righe/colonne della v3.12, che va bene:
+                         righe FISSE 22 px per header e item, chevron quasi
+                         nero a x=18-25, icona 20x20 a x=29-44, header in
+                         #003399 a x=31 col divisore #A5B9DD (+4 dopo il
+                         testo), testo risultati nero a x=48.5 (unica
+                         colonna con e senza icona).
+
+                         "Cerca in Internet" e' un piccolo FOOTER FISSO in
+                         fondo al pannello, presente con QUALUNQUE ricerca
+                         (prima era un item della lista e spariva/scorreva).
+                         ===================================================== -->
                     <!-- No bottom border: the 1px #90A0B4C8 hairline sat on the
                          Arresta strip and read as a stray blue frame. Right
                          margin 0 so glass does not show as a blue corridor
@@ -634,11 +646,16 @@
                             BorderThickness="1,1,1,0" CornerRadius="2,2,0,0"
                             Opacity="0" Visibility="Collapsed"
                             IsHitTestVisible="False">
-                        <ListBox x:Name="SearchList"
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                        <ListBox x:Name="SearchList" Grid.Row="0"
                                  ItemsSource="{Binding SearchHits}"
                                  BorderThickness="0"
                                  Background="Transparent"
-                                 Padding="2,4"
+                                 Padding="0,0,9,0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  VirtualizingPanel.IsVirtualizing="True"
                                  VirtualizingPanel.VirtualizationMode="Recycling"
@@ -648,20 +665,151 @@
                             </ListBox.Resources>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Height="28">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="28"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <Image Source="{Binding Icon}" Width="16" Height="16"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Name}"
-                                                   VerticalAlignment="Center" Margin="4,0"
-                                                   TextTrimming="CharacterEllipsis"/>
+                                    <!-- Riga FISSA 22 px, sempre, per ogni
+                                         elemento. -->
+                                    <Grid Height="22">
+                                        <!-- chevron header: box x=18-25 dal
+                                             bordo, triangolo ~7x7 quasi
+                                             nero, ruota in giu' di 90 gradi
+                                             netti quando la sezione e'
+                                             aperta. -->
+                                        <Path x:Name="SectionArrow"
+                                              Data="M 1,0.75 L 6,3.5 L 1,6.25 Z"
+                                              Fill="#FF202020"
+                                              Width="7" Height="7"
+                                              Stretch="Uniform"
+                                              RenderTransformOrigin="0.5,0.5"
+                                              HorizontalAlignment="Left"
+                                              VerticalAlignment="Center"
+                                              Margin="9,0,0,0"
+                                              Visibility="Collapsed" />
+                                        <!-- v3.17: icone -4% (19.2 DIP)
+                                             e 1.2% di pannello piu' a
+                                             sinistra; le icone moderne con
+                                             grande cornice trasparente
+                                             (Strumento di cattura e simili)
+                                             hanno una metrica propria
+                                             calcolata a riga. -->
+                                        <Image x:Name="SectionIcon"
+                                               Source="{Binding Icon}"
+                                               Width="{Binding SearchIconSize}"
+                                               Height="{Binding SearchIconSize}"
+                                               HorizontalAlignment="Left"
+                                               VerticalAlignment="Center"
+                                               Margin="{Binding SearchIconMargin}"
+                                               RenderOptions.BitmapScalingMode="HighQuality" />
+                                        <!-- testo item: colonna UNICA a
+                                             x=48.5 (margine 39) con e senza
+                                             icona, nero pieno. -->
+                                        <TextBlock x:Name="ItemName"
+                                                   Text="{Binding Name}"
+                                                   FontFamily="Segoe UI"
+                                                   FontSize="12"
+                                                   Foreground="#FF000000"
+                                                   VerticalAlignment="Center"
+                                                   Margin="39,0,8,0"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <!-- header categoria: testo blu
+                                             #003399 a x=31 (margine 22) +
+                                             contatore gia' nel testo +
+                                             divisore #A5B9DD da 1 px che
+                                             parte +4 dopo il testo e arriva
+                                             al margine interno destro. -->
+                                        <Grid x:Name="SectionHeaderLine"
+                                              Margin="22,0,0,0"
+                                              Visibility="Collapsed">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="SectionName"
+                                                       Text="{Binding Name}"
+                                                       FontFamily="Segoe UI"
+                                                       FontSize="12"
+                                                       Foreground="#FF003399"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <Rectangle Grid.Column="1"
+                                                       Height="1"
+                                                       Fill="#FFA5B9DD"
+                                                       Margin="4,0,0,0"
+                                                       VerticalAlignment="Center"
+                                                       SnapsToDevicePixels="True" />
+                                        </Grid>
                                     </Grid>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsSectionHeader}" Value="True">
+                                            <Setter TargetName="SectionArrow" Property="Visibility" Value="Visible"/>
+                                            <Setter TargetName="SectionIcon" Property="Visibility" Value="Collapsed"/>
+                                            <Setter TargetName="ItemName" Property="Visibility" Value="Collapsed"/>
+                                            <Setter TargetName="SectionHeaderLine" Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                                            <Setter TargetName="SectionArrow" Property="LayoutTransform">
+                                                <Setter.Value>
+                                                    <RotateTransform Angle="90" />
+                                                </Setter.Value>
+                                            </Setter>
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
+                        <!-- v3.13: footer FISSO "Cerca in Internet" (stessa
+                             metrica righe da 22, icona del BROWSER predefinito
+                             nello stesso box delle icone item, testo nero
+                             sulla stessa colonna x=39): e' sempre qui, non
+                             scorre e non dipende dai risultati trovati.
+                             v3.13.1: rimpicciolito del 5% su altezza, icona
+                             e font (22 -> 21, 20 -> 19, 12 -> 11.4). -->
+                        <!-- v3.17: footer -2.5% ancora (19.5 px, icona
+                             17.6, font 10.5); la posizione a sinistra non
+                             cambia rispetto alla v3.15.1. -->
+                        <Border x:Name="InternetSearchFooter"
+                                Grid.Row="1"
+                                Height="19.5"
+                                Background="Transparent"
+                                Cursor="Hand"
+                                BorderBrush="#FFA5B9DD"
+                                BorderThickness="0,1,0,0"
+                                MouseLeftButtonUp="OnSearchInternetFooter">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="#E8F4FCFF" />
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Grid HorizontalAlignment="Stretch">
+                                <!-- v3.18: icona 1.5% piu' a sinistra e
+                                     1.5% piu' in basso: -6 DIP in x
+                                     (1.5% della larghezza tipica del pane
+                                     ~400) e +2 DIP in y sopra il centro
+                                     della riga da 19.5 (TranslateTransform
+                                     perche' il margin verticale cozza con
+                                     VerticalAlignment=Center). -->
+                                <Image x:Name="InternetFooterIcon"
+                                       Width="17.6" Height="17.6"
+                                       HorizontalAlignment="Left"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,0,0"
+                                       RenderOptions.BitmapScalingMode="HighQuality">
+                                    <Image.RenderTransform>
+                                        <TranslateTransform Y="2"/>
+                                    </Image.RenderTransform>
+                                </Image>
+                                <TextBlock Text="{DynamicResource lang_sm_search_internet}"
+                                           FontFamily="Segoe UI"
+                                           FontSize="10.5"
+                                           Foreground="#FF000000"
+                                           VerticalAlignment="Center"
+                                           Margin="32,0,8,0"
+                                           TextTrimming="CharacterEllipsis" />
+                            </Grid>
+                        </Border>
+                        </Grid>
                     </Border>
                 </Grid>
             </Border>

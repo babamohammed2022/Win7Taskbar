@@ -8,7 +8,7 @@ Win7Taskbar is a system utility that recreates the Windows 7-style taskbar and S
 
 The software has been tested on Windows 8.1, Windows 10 21H2, Windows 10 22H2, Windows 11 23H2 Windows 11 24H2, Windows 11 25H2 and Windows Server 2025. Windows 8.1 has been tested successfully and the software works reasonably well on this version, although some platform-specific differences may affect individual features. Some functionality on Windows 11, particularly the notification area, is recreated because newer versions of Windows no longer expose all of the same taskbar functionality available on previous versions.
 
-On Windows 11, **ExplorerPatcher is recommended for the best experience**, but it is optional. It can provide a more compatible Windows 10-style taskbar environment and allow Win7Taskbar to use more native notification-area functionality.
+On Windows 11, Win7Taskbar reads the notification area **out-of-process, without ExplorerPatcher**: today it does so through the accessibility strip of the XAML tray, and work is in progress to also use the legacy Win32 layer that still ships inside the modern taskbar as a *data/control plane only, never shown* (see `docs/WIN11-NATIVE-TRAY-RESEARCH.md` and the Phase 0 probe `tools/win11-native-tray-probe/`). **ExplorerPatcher remains optional**: use it only if you prefer a Windows 10-style taskbar environment; once the native-Windows-11 tray reaches verified parity it will stop being recommended at all.
 
 Win7Taskbar now ships its own Windows 7-style Start Menu (see below). **Open-Shell remains optional** if you prefer its menu instead: set **Windows key opens: Windows** in Properties → Extra.
 

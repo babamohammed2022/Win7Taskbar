@@ -45,6 +45,7 @@ add_library(Win7TaskbarCore SHARED
     src/TrayPrefsStore.cpp
     src/StartMenuIndex.cpp src/StartMenuScanner.cpp
     src/StartMenuPower.cpp src/StartMenuExports.cpp
+    src/StartMenuSearchFolder.cpp
     src/DpiMetrics.cpp src/WindowSubclass.cpp
     src/AppBarPositioner.cpp src/TaskbarWindow.cpp src/BandLayout.cpp
     src/TraySizer.cpp

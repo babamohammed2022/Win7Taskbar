@@ -5,12 +5,14 @@
 // SHCreateItemFromParsingName, FileVersionInfo). Open-Shell inspired the
 // result classes (bSearchSettings / God Mode / Search the Internet as a
 // clickable provider row) — no Open-Shell source is copied.
+// v3.10: 24px icons, the Open-Shell (MIT) Win7 search row metric.
 
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Windows.Media;
 using Microsoft.Win32;
@@ -22,6 +24,14 @@ namespace Win7Taskbar.StartMenu
         public string Name { get; set; } = string.Empty;
         public string Path { get; set; } = string.Empty;
         public ImageSource? Icon { get; set; }
+
+        /* v3.17: nomi ALTERNATIVI per il match bilingue ("pannello di
+         * controllo" e "control panel" devono trovare la stessa voce):
+         * il nome canonico inglese dal parsing relativo della shell
+         * (es. Microsoft.ControlPanel -> "Control Panel"), piu' per le
+         * cartelle madri anche l'etichetta inglese documentata.
+         * Separatore ';' tra piu' alias. Mai mostrato: solo indice. */
+        public string AltName { get; set; } = string.Empty;
     }
 
     /// <summary>
@@ -42,6 +52,25 @@ namespace Win7Taskbar.StartMenu
             "shell:::{ED7BA470-8E54-465E-825C-99712043E01C}"
         };
 
+        /* v3.17: per ciascuna cartella madre, in parallelo: (a) gli
+         * alias inglesi documentati per l'indice del match (mai
+         * mostrati), (b) il percorso lanciabile della cartella stessa -
+         * sempre il suo nome di parsing, che explorer/ShellExecute
+         * risolvono su ogni installazione (viene mostrata la voce solo
+         * se il display name localizzato arriva). */
+        private static readonly string[] kFolderAlts =
+        {
+            "Control Panel;Microsoft.ControlPanel.CategoryView",
+            "Control Panel;All Control Panel Items",
+            "All Tasks;God Mode"
+        };
+        private static readonly string[] kFolderPaths =
+        {
+            "shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}",
+            "shell:::{21EC2020-3AEA-1069-A2DD-08002B30309D}",
+            "shell:::{ED7BA470-8E54-465E-825C-99712043E01C}"
+        };
+
         private static readonly Guid IidShellItem =
             new("43826d1e-e718-42ee-bc55-a1e261c37bfe");
         private static readonly Guid IidEnumShellItems =
@@ -51,6 +80,15 @@ namespace Win7Taskbar.StartMenu
 
         private const uint SigdnNormalDisplay = 0;
         private const uint SigdnDesktopAbsoluteParsing = 0x80028000;
+        /* v3.15: ricostruzione del parsing name quando l'assoluto fallisce
+         * (alcuni provider del Pannello di controllo rifiutano il formato
+         * assoluto su installazioni localizzate): chiede al figlio il
+         * parsing RELATIVO alla propria cartella e lo appende al nome di
+         * parsing della cartella padre, che noi stiamo enumerando e che
+         * conosciamo gia'. Stessa tecnica del catalogo di Open-Shell per
+         * gli elementi "Settings": mai scartare una voce davvero
+         * presente nella cartella virtuale. */
+        private const uint SigdnParentRelativeParsing = 0x80018001;
 
         public static bool IsReady
         {
@@ -115,11 +153,28 @@ namespace Win7Taskbar.StartMenu
                     {
                         continue;
                     }
-                    if (item.Name.IndexOf(needle, StringComparison.CurrentCultureIgnoreCase) < 0)
+                    if (item.Name.IndexOf(needle, StringComparison.CurrentCultureIgnoreCase) >= 0)
                     {
+                        hits.Add(item);
                         continue;
                     }
-                    hits.Add(item);
+                    /* v3.17: match anche sui nomi alternativi (indice
+                     * bilingue): "control panel" trova la voce dal nome
+                     * localizzato e viceversa. Ogni segmento separato da
+                     * ';' contiene un alias completo. */
+                    if (!string.IsNullOrEmpty(item.AltName))
+                    {
+                        foreach (string alias in item.AltName.Split(';'))
+                        {
+                            string a = alias.Trim();
+                            if (a.Length > 0 && a.IndexOf(needle,
+                                StringComparison.CurrentCultureIgnoreCase) >= 0)
+                            {
+                                hits.Add(item);
+                                break;
+                            }
+                        }
+                    }
                 }
             }
             catch (Exception)
@@ -171,6 +226,23 @@ namespace Win7Taskbar.StartMenu
         {
             var list = new List<ShellSearchHit>(256);
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            /* v3.17: le TRE CARTELLE MADRI entrano in catalogo come voci
+             * vere (e lanciabili: il loro stesso nome shell:::). E' il
+             * comportamento storico di Windows 7: cercando "Pannello di
+             * controllo" la cartella stessa e' tra i risultati. I nomi
+             * localizzati vengono dal display name della shell; gli
+             * alias inglesi documentati permettono il match incrociato. */
+            for (int i = 0; i < kFolders.Length; i++)
+            {
+                try
+                {
+                    AddFolderHit(kFolders[i], kFolderAlts[i],
+                        kFolderPaths[i], list, seen);
+                }
+                catch (Exception)
+                {
+                }
+            }
             foreach (string folder in kFolders)
             {
                 try
@@ -206,7 +278,12 @@ namespace Win7Taskbar.StartMenu
                     FileVersionInfo info = FileVersionInfo.GetVersionInfo(cpl);
                     if (!string.IsNullOrWhiteSpace(info.FileDescription))
                     {
-                        name = info.FileDescription.Trim();
+                        /* v3.12: unica funzione di normalizzazione per
+                         * tutto il catalogo (prima era un .Trim() manuale,
+                         * incoerente col percorso shell e sorgente dei
+                         * duplicati "link vuoto" come "Pannello di
+                         * controllo" x2). */
+                        name = NormalizeDisplayName(info.FileDescription);
                     }
                 }
                 catch (Exception)
@@ -214,7 +291,8 @@ namespace Win7Taskbar.StartMenu
                 }
                 if (string.IsNullOrEmpty(name))
                 {
-                    name = Path.GetFileNameWithoutExtension(cpl) ?? string.Empty;
+                    name = NormalizeDisplayName(
+                        Path.GetFileNameWithoutExtension(cpl));
                 }
                 if (string.IsNullOrEmpty(name) || !seen.Add(name))
                 {
@@ -224,7 +302,7 @@ namespace Win7Taskbar.StartMenu
                 {
                     Name = name,
                     Path = cpl,
-                    Icon = StartMenuIcons.FromPath(cpl, cpl, 48)
+                    Icon = StartMenuIcons.FromPath(cpl, cpl, 24)
                 });
             }
         }
@@ -268,7 +346,7 @@ namespace Win7Taskbar.StartMenu
                             itemObj = Marshal.GetObjectForIUnknown(itemPtr);
                             if (itemObj is IShellItem item)
                             {
-                                AddShellItem(item, list, seen);
+                                AddShellItem(item, parsingName, list, seen);
                             }
                         }
                         catch (Exception)
@@ -304,16 +382,58 @@ namespace Win7Taskbar.StartMenu
 
         private static void AddShellItem(IShellItem item, List<ShellSearchHit> list,
             HashSet<string> seen)
+            => AddShellItem(item, null, list, seen);
+
+        private static void AddShellItem(IShellItem item, string? parentParsing,
+            List<ShellSearchHit> list, HashSet<string> seen)
         {
-            string name = ReadName(item, SigdnNormalDisplay);
-            if (string.IsNullOrWhiteSpace(name) || !seen.Add(name))
+            /* v3.12: normalizza PRIMA del controllo di deduplicazione.
+             * Senza questo trim, whitespace invisibili (spazi finali, NBSP,
+             * ritorni a capo residui restituiti da alcuni provider shell)
+             * facevano fallire silenziosamente l'HashSet e producevano
+             * voci duplicate ("Pannello di controllo" x2), una delle quali
+             * spesso con Path/Icon non risolti (il "link vuoto"). */
+            string name = NormalizeDisplayName(ReadName(item, SigdnNormalDisplay));
+            if (string.IsNullOrWhiteSpace(name))
             {
                 return;
             }
             string parse = ReadName(item, SigdnDesktopAbsoluteParsing);
+            /* v3.15: il parsing assoluto manca a diversi provider del
+             * Pannello di controllo (la regola v3.13 "solo nomi reali" li
+             * scartava tutti - niente icone/risultati). Prima di
+             * rinunciare si ricostruisce: parsing relativo alla cartella +
+             * nome di parsing della cartella padre che stiamo enumerando.
+             * Rimane un VERO percorso lanciabile da SHCreateItemFromParsingName,
+             * semplicemente ottenuto a pezzi anziche' in un colpo solo. */
+            string? alt = null;
+            if (string.IsNullOrWhiteSpace(parse) &&
+                !string.IsNullOrWhiteSpace(parentParsing))
+            {
+                string relative = ReadName(item, SigdnParentRelativeParsing);
+                if (!string.IsNullOrWhiteSpace(relative))
+                {
+                    /* v3.17: il percorso CANONICO e' sempre padre+relativo
+                     * (la forma documentata per i figli di namespace,
+                     * quella che explorer/ShellExecute lanciano sempre),
+                     * SENZA la sonda SHCreateItemFromParsingName di v3.15
+                     * che sul nostro process rispondeva "no" per motivi
+                     * indipendenti dalla lanciabilita' (COM/marshalling)
+                     * e faceva cadere la voce nel "link morto" del
+                     * fallback col nome solo. Il relativo alimenta anche
+                     * l'alias inglese dell'indice bilingue. */
+                    parse = parentParsing.TrimEnd('\\')
+                        + "\\" + relative.Trim('\\');
+                    alt = CanonicalAltName(relative);
+                }
+            }
             if (string.IsNullOrWhiteSpace(parse))
             {
-                parse = name;
+                /* Senza un percorso reale NE' lanciabile NE' canonico la
+                 * voce non entra MAI in catalogo: i "link disattivati"
+                 * visti in v3.15.1 nascevano qui (fallback col solo nome
+                 * mostrato). Scartare e' il comportamento pulito. */
+                return;
             }
             if (!parse.StartsWith("shell:", StringComparison.OrdinalIgnoreCase) &&
                 !parse.StartsWith("::", StringComparison.Ordinal) &&
@@ -322,13 +442,137 @@ namespace Win7Taskbar.StartMenu
             {
                 parse = "shell:" + parse;
             }
+            /* v3.12: scarta voci "morte": nessun percorso risolvibile.
+             * Il controllo di unicita' avviene SOLO ora, sul nome
+             * normalizzato: se fallisce, la voce e' un vero duplicato. */
+            if (string.IsNullOrWhiteSpace(parse) || !seen.Add(name))
+            {
+                return;
+            }
+            ImageSource? icon = null;
+            try
+            {
+                icon = StartMenuIcons.FromParsingName(parse, 24)
+                    ?? StartMenuIcons.FromDll("imageres.dll", 22, 24);
+            }
+            catch (Exception)
+            {
+                /* Nessuna risorsa nativa e' stata acquisita qui
+                 * (StartMenuIcons gestisce i propri handle): si prosegue
+                 * senza icona invece di propagare l'eccezione. */
+            }
             list.Add(new ShellSearchHit
             {
                 Name = name,
                 Path = parse,
-                Icon = StartMenuIcons.FromParsingName(parse, 48)
-                    ?? StartMenuIcons.FromDll("imageres.dll", 22, 48)
+                Icon = icon,
+                AltName = alt ?? string.Empty
             });
+        }
+
+        /* v3.17: alias canonico da un nome di parsing relativo:
+         * "Microsoft.NetworkAndSharingCenter" -> "Network And Sharing
+         * Center"; "Microsoft.ControlPanel" -> "Control Panel". Null
+         * quando il relativo non ha una coda utile. */
+        private static string? CanonicalAltName(string relative)
+        {
+            if (string.IsNullOrWhiteSpace(relative))
+            {
+                return null;
+            }
+            string tail = relative.Trim();
+            int dot = tail.LastIndexOf('.');
+            if (dot >= 0 && dot + 1 < tail.Length)
+            {
+                tail = tail.Substring(dot + 1);
+            }
+            if (tail.IndexOf('{') >= 0 || tail.Length < 2)
+            {
+                return null;
+            }
+            var sb = new StringBuilder(tail.Length + 8);
+            foreach (char ch in tail)
+            {
+                if (char.IsUpper(ch) && sb.Length > 0 &&
+                    sb[sb.Length - 1] != ' ' && !char.IsUpper(sb[sb.Length - 1]))
+                {
+                    sb.Append(' ');
+                }
+                sb.Append(ch);
+            }
+            string alt = sb.ToString().Trim();
+            return alt.Length > 1 ? alt : null;
+        }
+
+        /* v3.17: una cartella madre come voce di risultato. */
+        private static void AddFolderHit(string parsingName, string alts,
+            string launchPath, List<ShellSearchHit> list,
+            HashSet<string> seen)
+        {
+            string name = string.Empty;
+            Guid iidItem = IidShellItem;
+            int created = SHCreateItemFromParsingName(parsingName, IntPtr.Zero,
+                ref iidItem, out IShellItem? folder);
+            try
+            {
+                if (created == 0 && folder != null)
+                {
+                    name = NormalizeDisplayName(
+                        ReadName(folder, SigdnNormalDisplay));
+                }
+            }
+            finally
+            {
+                if (folder != null)
+                {
+                    try { Marshal.ReleaseComObject(folder); }
+                    catch (Exception) { }
+                }
+            }
+            if (string.IsNullOrWhiteSpace(name) || !seen.Add(name))
+            {
+                return;
+            }
+            ImageSource? icon = null;
+            try
+            {
+                icon = StartMenuIcons.FromParsingName(parsingName, 24)
+                    ?? StartMenuIcons.FromDll("imageres.dll", 27, 24);
+            }
+            catch (Exception)
+            {
+            }
+            list.Add(new ShellSearchHit
+            {
+                Name = name,
+                Path = launchPath,
+                Icon = icon,
+                AltName = alts
+            });
+        }
+
+        /// <summary>
+        /// v3.12: normalizza un nome visualizzato dallo shell: converte i
+        /// NBSP in spazi normali, rimuove il whitespace ai bordi (inclusi
+        /// tab e newline residui) e comprime gli spazi multipli interni,
+        /// cosi' che due IShellItem che mostrano lo stesso testo a video
+        /// producano SEMPRE la stessa chiave nel dedup HashSet.
+        /// </summary>
+        private static string NormalizeDisplayName(string? raw)
+        {
+            if (string.IsNullOrEmpty(raw))
+            {
+                return string.Empty;
+            }
+            /*   = non-breaking space, spesso restituito da provider
+             * shell localizzati al posto dello spazio normale. */
+            string cleaned = raw.Replace(' ', ' ').Trim();
+            if (cleaned.IndexOf("  ", StringComparison.Ordinal) >= 0)
+            {
+                cleaned = string.Join(' ',
+                    cleaned.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            }
+            return cleaned;
         }
 
         private static string ReadName(IShellItem item, uint sigdn)

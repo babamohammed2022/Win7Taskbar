@@ -32,12 +32,16 @@
 //   - application identity is the AppUserModelID of the group's window,
 //     else the shell metadata of the pinned shortcut, else the default id
 //     Windows derives from the executable path (see appids.md, MSDN);
-//   - the Windows 7 Tasks section (Minimize/Maximize/Restore/Move/Size)
-//     appears only while the group has a live window and reuses the
-//     existing native window-command path (WindowManager::ExecuteCommand);
+//   - NO window-command rows (Minimize/Maximize/Restore/Move/Size):
+//     the Windows 7 jump list never had them; window commands live in
+//     the classic right-click system menu (ShellMenu), untouched here.
+//     The bottom sections are, exactly as the Windows 7 shell:
+//     [Recent|Frequent] - bar - app icon+name - bar - pin icon +
+//     "Pin/Unpin this program to the taskbar" - bar - X icon + close row
+//     (close exists only while the group has a live window);
 //   - Start_JumpListItems = 0 (HKCU\...\Explorer\StartMenu) disables the
 //     jump lists, as in Windows 7 (open fails with code -4);
-//   - the two standard rows (application link + "Pin/Unpin this program
+//   - the standard rows (application link + "Pin/Unpin this program
 //     to the taskbar") act on the group's own window/shortcut data.
 //
 // All geometry constants are 96-DPI reference values scaled by the DPI of
@@ -125,6 +129,14 @@ public:
      * exactly where the Windows 7 shell opens its jump view. */
     int32_t SetHover(int32_t screenX, int32_t screenY);
 
+    /* v3.17: asks for the fast bottom-to-top entrance animation on the
+     * NEXT Open only (the Windows 7 drag-up trigger from the taskbar:
+     * the list slides from the bar to its final position in ~150 ms and,
+     * once released, stays open). Every open that follows consumes the
+     * flag again, so a stale request can never leak into a plain
+     * right-click open. */
+    void SetAnimateFromBelowOnNextOpen(bool yes);
+
     /* Row under the screen point, -1 when none; no side effects. The
      * release decision (activate / keep open / cancel) is the managed
      * state machine's, this is only its hit-test. */
@@ -160,15 +172,13 @@ private:
      * released through the raii handle (move-only row storage). */
     struct Row {
         enum Kind {
-            DocRecent = 0, DocFrequent = 1, App = 2, Close = 3, Pin = 4,
-            Task = 5          /* window task; cmd = W7T_CMD_* value    */
+            DocRecent = 0, DocFrequent = 1, App = 2, Close = 3, Pin = 4
         };
         Kind kind = App;
         RECT rect = {};
         std::wstring label;
         std::wstring path;
         raii::IconHandle icon;   /* real file icon or null */
-        int32_t cmd = 0;         /* Task rows only (W7T_CMD_*) */
 
         Row() = default;
         Row(Row&&) noexcept = default;
@@ -181,7 +191,8 @@ private:
     void OnPaint(HWND hwnd);
     void BuildRows();
     void Layout();
-    void Place(HWND hwnd, const RECT& button, int32_t edge);
+    void Place(HWND hwnd, const RECT& button, int32_t edge,
+                 bool animateFromBelow);
     /* Client layout size → window size including the Aero WS_THICKFRAME
      * chrome. Growing the HWND (not removing the border) is what keeps
      * rows from being clipped by the flyout frame. */
@@ -202,7 +213,6 @@ private:
     void LaunchApp();
     void CloseRunningApplication();
     void PerformPinOrUnpin();
-    void ExecuteTask(int32_t cmd);
     std::wstring TooltipFor(const Row& row) const;
     void ShowRowTooltip(int row, POINT clientPt);
     void ClearRowTooltip();
@@ -249,6 +259,9 @@ private:
     RECT m_popupRect = {};      /* screen px */
     RECT m_buttonRect = {};     /* screen px */
     RECT m_area = {};           /* interaction area, screen px */
+
+    /* Consumed once by Open: slide the popup in from below (drag-up). */
+    bool m_animateFromBelow = false;
 };
 
 } // namespace w7t

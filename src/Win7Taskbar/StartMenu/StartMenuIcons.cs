@@ -20,6 +20,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Microsoft.Win32;
 using Win7Taskbar.Interop;
 using GdiPixelFormat = System.Drawing.Imaging.PixelFormat;
 
@@ -56,6 +57,13 @@ namespace Win7Taskbar.StartMenu
                 ImageSource? made = ExtractFromPath(path, target, size);
                 lock (CacheLock)
                 {
+                    /* v3.10: piccola cache con tetto: oltre 512 voci si
+                     * svuota e riparte (le icone si ricreano in pochi ms,
+                     * la RAM della lista ricerca no). */
+                    if (Cache.Count > 512)
+                    {
+                        Cache.Clear();
+                    }
                     Cache[key] = made;
                 }
                 return made;
@@ -71,6 +79,20 @@ namespace Win7Taskbar.StartMenu
             try
             {
                 string probe = !string.IsNullOrEmpty(target) ? target : (path ?? string.Empty);
+                /* v3.10: prima la pipeline nativa della shell
+                 * (IShellItemImageFactory): file, collegamenti, voci del
+                 * Pannello di controllo e app UWP rendono la LORO icona al
+                 * formato esatto, qualita' GDI+ senza catene di upscale.
+                 * E' anche il motivo per cui i risultati senza icona ora
+                 * la mostrano. */
+                if (size > 16 && !string.IsNullOrEmpty(probe))
+                {
+                    ImageSource? factory = FromShellItemFactory(probe, size);
+                    if (factory != null)
+                    {
+                        return factory;
+                    }
+                }
                 ImageSource? src = FromShellImageList(probe, size);
                 if (src != null)
                 {
@@ -99,7 +121,26 @@ namespace Win7Taskbar.StartMenu
                 if (!string.IsNullOrEmpty(path) &&
                     !string.Equals(path, probe, StringComparison.OrdinalIgnoreCase))
                 {
-                    return FromShGetFileInfo(path, File.Exists(path) || Directory.Exists(path), size);
+                    ImageSource? alt = FromShGetFileInfo(path, File.Exists(path) || Directory.Exists(path), size);
+                    if (alt != null)
+                    {
+                        return alt;
+                    }
+                }
+
+                /* v3.15 - ispirazione Open-Shell (l'icona si chiede SEMPRE
+                 * alla shell, anche per i 16px dell'albero "Tutti i
+                 * programmi"): la vecchia soglia "fabbrica solo > 16" lasciava
+                 * senza icona i programmi il cui collegamento risolve solo
+                 * tramite IShellItemImageFactory (app UWP, estensioni
+                 * registrate, voci del Pannello di controllo puntate da
+                 * .lnk di sistema). Qui e' l'ultima spiaggia: jumbo a 16 li'
+                 * dove tutto il resto ha fallito, non come scelta primaria
+                 * (le cartelle standard restano sul SHIL_SMALL nitido). */
+                ImageSource? last = FromShellItemFactory(probe, size);
+                if (last != null)
+                {
+                    return last;
                 }
                 return null;
             }
@@ -120,7 +161,9 @@ namespace Win7Taskbar.StartMenu
                 if (probe.StartsWith("::{", StringComparison.Ordinal) ||
                     probe.StartsWith("shell:", StringComparison.OrdinalIgnoreCase))
                 {
-                    return FromPidl(probe, size) ?? FromShGetFileInfo(probe, exists: true, size);
+                    return FromShellItemFactory(probe, size)
+                        ?? FromPidl(probe, size)
+                        ?? FromShGetFileInfo(probe, exists: true, size);
                 }
                 string expanded = Environment.ExpandEnvironmentVariables(probe);
                 return FromPath(expanded, expanded, size);
@@ -298,6 +341,409 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
+        /* v3.10: icona via IShellItemImageFactory nel core nativo (Pbgra32
+         * premoltiplicato top-down). Null quando il core caricato non ha il
+         * nuovo export o la shell non ha un'icona: i chiamanti ripiegano
+         * sulla pipeline HICON classica. */
+        private static ImageSource? FromShellItemFactory(string probe, int size)
+        {
+            if (size < 4 || size > 256 || string.IsNullOrEmpty(probe))
+            {
+                return null;
+            }
+            try
+            {
+                int needed = NativeMethods.W7T_ShellItemIconBitmap(probe, size, null, 0);
+                if (needed <= 0)
+                {
+                    return null;
+                }
+                byte[] pixels = new byte[needed];
+                if (NativeMethods.W7T_ShellItemIconBitmap(probe, size, pixels, pixels.Length) != 0)
+                {
+                    return null;
+                }
+                var bitmap = BitmapSource.Create(
+                    size, size, 96, 96, PixelFormats.Pbgra32, null,
+                    pixels, size * 4);
+                bitmap.Freeze();
+                return bitmap;
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return null; /* core piu' vecchio dell'export: fallback */
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// v3.10: icona del browser predefinito, per la riga "Cerca su
+        /// Internet" della ricerca del menu Start (come il browser vero):
+        /// UserChoice http -> ProgId -> DefaultIcon / ApplicationIcon /
+        /// comando di apertura. Trova sempre un'icona finche' esiste un
+        /// handler registrato; cache statica, tutto in try/catch.
+        /// </summary>
+        public static ImageSource? FromDefaultBrowser(int size)
+        {
+            if (_browserIcon != null)
+            {
+                return _browserIcon;
+            }
+            try
+            {
+                string? progId = null;
+                using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\http\UserChoice"))
+                {
+                    progId = key?.GetValue("ProgId") as string;
+                }
+                ImageSource? icon = null;
+                if (!string.IsNullOrEmpty(progId))
+                {
+                    icon = BrowserIconFromProgId(progId!, size);
+                }
+                if (icon == null)
+                {
+                    icon = BrowserIconFromHttpVerb(size);
+                }
+                _browserIcon = icon ?? FromDll("imageres.dll", 220, size);
+                return _browserIcon;
+            }
+            catch (Exception)
+            {
+                _browserIcon = FromDll("imageres.dll", 220, size);
+                return _browserIcon;
+            }
+        }
+
+        private static ImageSource? _browserIcon;
+
+        /* v3.18: icona della riga "Cerca su Internet" disegnata con una
+         * pipeline GDI+ (System.Drawing) DEDICATA ad alta qualita':
+         * - risolve l'eseguibile del browser predefinito (UserChoice http)
+         * - preleva la cella JUMBO (256 px) della image-list di shell
+         * - ridisegna il canvas 32bppPArgb con interpolazione
+         *   HighQualityBicubic + PixelOffsetMode/CompositingQuality HQ.
+         * La voce resta identica ma morbida anche a 150/200% di DPI.
+         * Se uno qualunque dei passaggi non ha immagini si ripiega sulla
+         * pipeline classica FromDefaultBrowser. */
+        public static ImageSource? FromDefaultBrowserGdiPlus(int size)
+        {
+            if (_browserIconGdiPlus != null)
+            {
+                return _browserIconGdiPlus;
+            }
+            try
+            {
+                string? exe = ResolveDefaultBrowserExe();
+                if (!string.IsNullOrEmpty(exe))
+                {
+                    ImageSource? img = GdiPlusIconFromExe(exe!, size);
+                    if (img != null)
+                    {
+                        _browserIconGdiPlus = img;
+                        return _browserIconGdiPlus;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _browserIconGdiPlus = FromDefaultBrowser(size);
+            return _browserIconGdiPlus;
+        }
+
+        private static ImageSource? _browserIconGdiPlus;
+
+        private static string? ResolveDefaultBrowserExe()
+        {
+            try
+            {
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\http\UserChoice");
+                string? progId = key?.GetValue("ProgId") as string;
+                if (!string.IsNullOrEmpty(progId))
+                {
+                    using RegistryKey? defIcon = Registry.ClassesRoot.OpenSubKey(
+                        progId + @"\DefaultIcon");
+                    string? exe = ExeFromIconLocation(
+                        defIcon?.GetValue(null) as string);
+                    if (exe != null && File.Exists(exe))
+                    {
+                        return exe;
+                    }
+                    using RegistryKey? app = Registry.ClassesRoot.OpenSubKey(
+                        progId + @"\Application");
+                    exe = ExeFromIconLocation(
+                        app?.GetValue("ApplicationIcon") as string);
+                    if (exe != null && File.Exists(exe))
+                    {
+                        return exe;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            /* Una lettura sola in piu': shell\open\command dell'http. */
+            try
+            {
+                using RegistryKey? cmd = Registry.ClassesRoot.OpenSubKey(
+                    @"http\shell\open\command");
+                string? line = cmd?.GetValue(null) as string;
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    return null;
+                }
+                line = Environment.ExpandEnvironmentVariables(line!.Trim());
+                string exe;
+                if (line.StartsWith("\"", StringComparison.Ordinal))
+                {
+                    int end = line.IndexOf('"', 1);
+                    exe = end > 1 ? line.Substring(1, end - 1) : line;
+                }
+                else
+                {
+                    int space = line.IndexOf(' ');
+                    exe = space > 0 ? line.Substring(0, space) : line;
+                }
+                return File.Exists(exe) ? exe : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /* "C:\\%ProgramFiles%\\msedge.exe,0" -> percorso espanso senza
+         * indice. Ritorna null quando non e' una icon-locazione classica. */
+        private static string? ExeFromIconLocation(string? location)
+        {
+            if (string.IsNullOrWhiteSpace(location))
+            {
+                return null;
+            }
+            try
+            {
+                string expanded = Environment.ExpandEnvironmentVariables(
+                    location.Trim().Trim('"'));
+                int comma = expanded.LastIndexOf(',');
+                if (comma > 0)
+                {
+                    expanded = expanded.Substring(0, comma);
+                }
+                return expanded.Length > 0 ? expanded : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /* Disegno GDI+ puro: jumbo HICON -> Bitmap PArgb -> ridisegno
+         * bicubico HQ sul canvas di destinazione -> WPF BitmapSource. */
+        private static ImageSource? GdiPlusIconFromExe(string exe, int size)
+        {
+            IntPtr list = IntPtr.Zero;
+            try
+            {
+                var info = new NativeMethods.SHFILEINFOW();
+                if (NativeMethods.SHGetFileInfoW(exe, 0, ref info,
+                        (uint)Marshal.SizeOf<NativeMethods.SHFILEINFOW>(),
+                        ShgfiSysIconIndex) == IntPtr.Zero)
+                {
+                    return null;
+                }
+                int index = info.iIcon;
+                Guid iid = IidIImageList;
+                ImageSource? img = GdiPlusFromImageListCell(
+                    ShilJumbo, index, size, iid, ref list)
+                    ?? GdiPlusFromImageListCell(
+                        ShilExtraLarge, index, size, iid, ref list);
+                return img;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static ImageSource? GdiPlusFromImageListCell(
+            int which, int index, int size, Guid iid, ref IntPtr list)
+        {
+            try
+            {
+                if (SHGetImageList(which, ref iid, out list) != 0 ||
+                    list == IntPtr.Zero)
+                {
+                    return null;
+                }
+                IntPtr hicon = ImageList_GetIcon(list, index, IldTransparent);
+                if (hicon == IntPtr.Zero)
+                {
+                    return null;
+                }
+                ImageSource? img = GdiPlusRedraw(hicon, size);
+                NativeMethods.DestroyIcon(hicon);
+                return img;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                if (list != IntPtr.Zero)
+                {
+                    Marshal.Release(list);
+                    list = IntPtr.Zero;
+                }
+            }
+        }
+
+        private static ImageSource? GdiPlusRedraw(IntPtr hicon, int size)
+        {
+            using Icon icon = Icon.FromHandle(hicon);
+            using Bitmap src = icon.ToBitmap();
+            using Bitmap dest = new(size, size, GdiPixelFormat.Format32bppPArgb);
+            using (Graphics g = Graphics.FromImage(dest))
+            {
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.SmoothingMode = SmoothingMode.HighQuality;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.CompositingQuality = CompositingQuality.HighQuality;
+                g.Clear(System.Drawing.Color.Transparent);
+                g.DrawImage(src, 0, 0, size, size);
+            }
+            IntPtr hbitmap = dest.GetHbitmap(
+                System.Drawing.Color.FromArgb(0, 0, 0, 0));
+            try
+            {
+                BitmapSource bmp = Imaging.CreateBitmapSourceFromHBitmap(
+                    hbitmap, IntPtr.Zero, Int32Rect.Empty,
+                    BitmapSizeOptions.FromEmptyOptions());
+                if (bmp.CanFreeze)
+                {
+                    bmp.Freeze();
+                }
+                return bmp;
+            }
+            finally
+            {
+                NativeMethods.DeleteObject(hbitmap);
+            }
+        }
+
+
+
+        private static ImageSource? BrowserIconFromProgId(string progId, int size)
+        {
+            try
+            {
+                /* DefaultIcon e' il posto documentato dove i browser
+                 * registrano la propria icona ("C:\...\msedge.exe,0"). */
+                using RegistryKey? defIcon = Registry.ClassesRoot.OpenSubKey(
+                    progId + @"\DefaultIcon");
+                ImageSource? icon = IconFromIconLocation(
+                    defIcon?.GetValue(null) as string, size);
+                if (icon != null)
+                {
+                    return icon;
+                }
+                using RegistryKey? app = Registry.ClassesRoot.OpenSubKey(
+                    progId + @"\Application");
+                icon = IconFromIconLocation(
+                    app?.GetValue("ApplicationIcon") as string, size);
+                if (icon != null)
+                {
+                    return icon;
+                }
+                using RegistryKey? cmd = Registry.ClassesRoot.OpenSubKey(
+                    progId + @"\shell\open\command");
+                return IconFromCommandLine(cmd?.GetValue(null) as string, size);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static ImageSource? BrowserIconFromHttpVerb(int size)
+        {
+            try
+            {
+                using RegistryKey? cmd = Registry.ClassesRoot.OpenSubKey(
+                    @"http\shell\open\command");
+                return IconFromCommandLine(cmd?.GetValue(null) as string, size);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static ImageSource? IconFromIconLocation(string? location, int size)
+        {
+            if (string.IsNullOrWhiteSpace(location))
+            {
+                return null;
+            }
+            try
+            {
+                string expanded = Environment.ExpandEnvironmentVariables(
+                    location.Trim().Trim('"'));
+                int comma = expanded.LastIndexOf(',');
+                if (comma > 0)
+                {
+                    expanded = expanded.Substring(0, comma);
+                }
+                if (expanded.Length == 0)
+                {
+                    return null;
+                }
+                return FromPath(expanded, expanded, size);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static ImageSource? IconFromCommandLine(string? command, int size)
+        {
+            if (string.IsNullOrWhiteSpace(command))
+            {
+                return null;
+            }
+            try
+            {
+                string line = Environment.ExpandEnvironmentVariables(command.Trim());
+                string exe;
+                if (line.StartsWith("\"", StringComparison.Ordinal))
+                {
+                    int end = line.IndexOf('"', 1);
+                    exe = end > 1 ? line.Substring(1, end - 1) : line;
+                }
+                else
+                {
+                    int space = line.IndexOf(' ');
+                    exe = space > 0 ? line.Substring(0, space) : line;
+                }
+                if (exe.Length == 0 || !File.Exists(exe))
+                {
+                    return null;
+                }
+                return FromPath(exe, exe, size);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         private static ImageSource? FromShGetFileInfo(string probe, bool exists, int size)
         {
             try
@@ -458,5 +904,76 @@ namespace Win7Taskbar.StartMenu
 
         [DllImport("comctl32.dll")]
         private static extern IntPtr ImageList_GetIcon(IntPtr himl, int i, uint flags);
+
+        // --------- v3.17: padded-icon calibration of the search rows ---------
+
+        /// <summary>Fraction of opaque pixels of a decoration icon
+        /// (alpha > 10). Modern icons with a big transparent canvas
+        /// (snipping tool family) sit well below 0.34; classic Win7
+        /// icons fill almost the whole frame. Everything is guarded:
+        /// any failure reports full coverage (no adjustment).</summary>
+        public static double OpaqueCoverage(ImageSource? icon)
+        {
+            const double full = 1.0;
+            try
+            {
+                if (icon is not BitmapSource bmp ||
+                    bmp.PixelWidth <= 0 || bmp.PixelHeight <= 0)
+                {
+                    return full;
+                }
+                int w = bmp.PixelWidth;
+                int h = bmp.PixelHeight;
+                int stride = w * 4;
+                byte[] pixels = new byte[stride * h];
+                BitmapSource source = bmp;
+                if (bmp.Format != PixelFormats.Bgra32 &&
+                    bmp.Format != PixelFormats.Pbgra32)
+                {
+                    source = new FormatConvertedBitmap(bmp,
+                        PixelFormats.Bgra32, null, 0);
+                }
+                source.CopyPixels(pixels, stride, 0);
+                int opaque = 0;
+                for (int i = 3; i < pixels.Length; i += 4)
+                {
+                    if (pixels[i] > 10)
+                    {
+                        opaque++;
+                    }
+                }
+                return (double)opaque / (w * h);
+            }
+            catch (Exception)
+            {
+                return full;   // no adjustment on unknown content
+            }
+        }
+
+        /// <summary>Search-row icon metrics (v3.17): every row already
+        /// inherits the -4% size (19.2) and the left-shifted margin
+        /// (15.2). Icons whose opaque coverage is small (padded modern
+        /// glyphs) render slightly smaller and further left - the
+        /// user's calibration for Strumento di cattura & co. Everything
+        /// wrapped: a failure leaves the defaults untouched.</summary>
+        public static void ApplySearchRowMetrics(StartMenuItem item)
+        {
+            try
+            {
+                if (item?.Icon == null)
+                {
+                    return;
+                }
+                if (OpaqueCoverage(item.Icon) < 0.34)
+                {
+                    item.SearchIconSize = 18.4;
+                    item.SearchIconLeft = 10.6;
+                }
+            }
+            catch (Exception)
+            {
+                /* defaults stand */
+            }
+        }
     }
 }
