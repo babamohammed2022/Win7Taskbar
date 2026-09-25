@@ -7397,6 +7397,22 @@ namespace Win7Taskbar
             }
         }
 
+        /* La shell apre i menu della barra dal lato libero: sopra una barra
+         * in basso e sotto una barra in alto. La lettura e' difensiva perche'
+         * il menu non deve sparire se la configurazione e' momentaneamente
+         * illeggibile. */
+        private bool IsTaskbarAtBottom()
+        {
+            try
+            {
+                return RetroBar.Utilities.Settings.Instance.TaskbarPosition == 0;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
         private void Clock_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             e.Handled = true;
@@ -7416,7 +7432,7 @@ namespace Win7Taskbar
             int choice = _bridge.ShowContextMenuEx(
                 (int)Math.Round(origin.X),
                 (int)Math.Round(origin.Y),
-                bottomEdge: true,
+                bottomEdge: IsTaskbarAtBottom(),
                 // v2.7: il menu dell'orologio e' quello della barra PARI PARI
                 // (screenshot Windows 7) con le due voci dell'orologio
                 // inserite dopo "Barre degli strumenti". I separatori non
@@ -8373,7 +8389,7 @@ namespace Win7Taskbar
                 // esattamente come quello dell'orologio. I menu delle APP
                 // (finestra di sistema, gruppo, pin) NON passano da qui e
                 // restano ancorati sopra il pulsante.
-                bool bottomEdge = RetroBar.Utilities.Settings.Instance.TaskbarPosition == 0;
+                bool bottomEdge = IsTaskbarAtBottom();
                 int choice = _bridge.ShowContextMenuEx(
                     (int)Math.Round(origin.X),
                     (int)Math.Round(origin.Y),

@@ -484,7 +484,8 @@ namespace Win7Taskbar.Interop
             int connectionPrivacyMode, int themeSelection,
             // v1.21.37: current autostart state (RetroBar logic, AutoStart.cs).
             int autoStart,
-            // v1.21.43: taskbar position (0..3) + lock (RetroBar Edge/LockTaskbar).
+            // Posizione attuale: 0=Basso, 1=Alto; 2/3 restano solo valori
+            // legacy normalizzati dal livello gestito + blocco barra.
             int taskbarPosition, int lockTaskbar,
             // v1.3.0: Windows key opens our Start Menu (1) or Windows (0).
             int windowsKeyOpensOurMenu);

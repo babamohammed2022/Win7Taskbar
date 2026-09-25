@@ -210,6 +210,7 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_GRP_TASKBAR, p1);
     vis(IDC_LBL_EX_THEME, p1); vis(IDC_CMB_EX_THEME, p1);
     vis(IDC_LBL_EX_POSITION, p1); vis(IDC_CMB_EX_POSITION, p1);
+    vis(IDC_CHK_EX_LOCK, p1);
     vis(IDC_GRP_SEARCH, p4); vis(IDC_CHK_SEARCH, p4);
     /* Windows 11 starts at build 22000 (21H2). Windows 10 has only the
      * ordinary taskmgr command, so this selector must not exist there. */
@@ -235,7 +236,7 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_TXT_TB_INFO, p3); vis(IDC_LST_TOOLBARS, p3);
 
     /* Pagina 4: impostazioni extra. Colori e privacy restano qui, insieme
-     * al blocco e alla scelta del tasto Windows; tema e posizione sono nella
+     * alla scelta del tasto Windows; tema, posizione e blocco sono nella
      * pagina principale. I controlli dell'ordine icone non vengono mostrati:
      * il riordino con trascinamento resta invariato. */
     vis(IDC_TXT_EXTRA_TITLE, p4);
@@ -246,7 +247,6 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_LBL_EX_PRIVACY, p4); vis(IDC_CMB_EX_PRIVACY, p4);
     vis(IDC_TXT_PRIVACY_HINT, p4);
     vis(IDC_GRP_EX_TASKBAR, p4);
-    vis(IDC_CHK_EX_LOCK, p4);
     vis(IDC_LBL_EX_WINKEY, p4);
     vis(IDC_RADIO_WINKEY_OURS, p4); vis(IDC_RADIO_WINKEY_WINDOWS, p4);
     vis(IDC_LBL_EX_ICON_ORDER, false); vis(IDC_TXT_ORDER_HINT, false);
@@ -654,9 +654,10 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 102, PAGE_TEXT_WIDTH, 10,
                 IDC_CHK_SECONDS, L"Button", L"");
 
-        /* GRUPPO 3 - BARRA: tema e posizione sono visibili subito nella
-         * scheda principale. La combo posizione espone soltanto Basso e Alto;
-         * i valori legacy 2/3 vengono normalizzati prima di arrivare qui. */
+        /* GRUPPO 3 - BARRA: tema, posizione e blocco sono visibili subito
+         * nella scheda principale. La combo posizione espone soltanto Basso
+         * e Alto; i valori legacy 2/3 vengono normalizzati prima di arrivare
+         * qui. */
         addCtrl(BS_GROUPBOX, 0, 12, 126, GROUP_WIDTH, 64, IDC_GRP_TASKBAR, L"Button", L"");
         addCtrl(SS_LEFT, 0, 18, 136, 60, 10, IDC_LBL_EX_THEME, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 84, 134, 218, 80,
@@ -664,6 +665,8 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(SS_LEFT, 0, 18, 152, 90, 10, IDC_LBL_EX_POSITION, L"Static", L"");
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 112, 150, 190, 80,
                 IDC_CMB_EX_POSITION, L"ComboBox", L"");
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 168, PAGE_TEXT_WIDTH, 12,
+                IDC_CHK_EX_LOCK, L"Button", L"");
 
         /* GRUPPO 4 - LINGUA (al posto della sezione Aero Peek della foto).
          * v3.5: due righe - la lingua del programma e lo stile
@@ -744,7 +747,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          *   Flyout  - colour of the recreated flyout (system or custom, with
          *             swatch + colour chooser) and privacy mode of the
          *             connection flyout;
-         *   Taskbar - lock and Windows-key destination. Skin and position are
+         *   Taskbar - Windows-key destination. Skin, position and lock are
          *             shown on the main taskbar page; the icon-order hint is
          *             deliberately hidden, while drag-and-drop keeps working.
          *
@@ -781,16 +784,14 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 88, 207, 202, 80,
                 IDC_CMB_TASKMGR, L"ComboBox", L"");
 
-        /* La scheda extra conserva colori dei flyout, privacy, blocco e tasto
-         * Windows. Tema e posizione sono gia' nella scheda principale. */
-        addCtrl(BS_GROUPBOX, 0, 12, 234, GROUP_WIDTH, 62, IDC_GRP_EX_TASKBAR, L"Button", L"");
-        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 242, PAGE_TEXT_WIDTH, 12,
-                IDC_CHK_EX_LOCK, L"Button", L"");
-        addCtrl(SS_LEFT, 0, 18, 254, PAGE_TEXT_WIDTH, 10,
+        /* La scheda extra conserva colori dei flyout, privacy e tasto Windows.
+         * Tema, posizione e blocco sono gia' nella scheda principale. */
+        addCtrl(BS_GROUPBOX, 0, 12, 234, GROUP_WIDTH, 52, IDC_GRP_EX_TASKBAR, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 242, PAGE_TEXT_WIDTH, 10,
                 IDC_LBL_EX_WINKEY, L"Static", L"");
-        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP | WS_GROUP, 0, 18, 264,
+        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP | WS_GROUP, 0, 18, 252,
                 PAGE_TEXT_WIDTH, 10, IDC_RADIO_WINKEY_OURS, L"Button", L"");
-        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP, 0, 18, 274,
+        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP, 0, 18, 262,
                 PAGE_TEXT_WIDTH, 10, IDC_RADIO_WINKEY_WINDOWS, L"Button", L"");
 
         /* L'ordine delle icone continua a essere gestito dal trascinamento
@@ -1079,9 +1080,10 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SetDlgItemTextW(hwnd, IDC_LBL_EX_PRIVACY, X.lblPrivacy);
         SetDlgItemTextW(hwnd, IDC_TXT_PRIVACY_HINT, X.txtPrivacyHint);
         SetDlgItemTextW(hwnd, IDC_LBL_EX_THEME, X.lblTheme);
-        /* La posizione e' nella scheda principale e offre solo i due bordi
-         * orizzontali. I valori legacy 2/3 sono gia' stati convertiti in
-         * Basso da Show(), ma il controllo resta difensivo. */
+        /* Posizione e blocco sono nella sezione principale della barra e la
+         * combo offre solo i due bordi orizzontali. I valori legacy 2/3 sono
+         * gia' stati convertiti in Basso da Show(), ma il controllo resta
+         * difensivo. */
         SetDlgItemTextW(hwnd, IDC_LBL_EX_POSITION, X.lblPosition);
         SetDlgItemTextW(hwnd, IDC_CHK_EX_LOCK, X.chkLock);
         {

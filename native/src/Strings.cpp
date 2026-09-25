@@ -985,7 +985,7 @@ constexpr ExtraStrings kExtraIt = {
     L"A destra",
     L"Blocca la barra delle applicazioni",
     L"Tasto Windows apre:",
-    L"Il nostro menu Start",
+    L"Menu Start di Win7Taskbar",
     L"Windows"
 
 };
@@ -1019,7 +1019,7 @@ constexpr ExtraStrings kExtraEn = {
     L"Right",
     L"Lock the taskbar",
     L"Windows key opens:",
-    L"Our Start Menu",
+    L"Win7Taskbar Start menu",
     L"Windows"
 
 };
@@ -1054,7 +1054,7 @@ constexpr ExtraStrings kExtraEs = {
     L"Derecha",
     L"Bloquear la barra de tareas",
     L"La tecla Windows abre:",
-    L"Nuestro menú Inicio",
+    L"Menú Inicio de Win7Taskbar",
     L"Windows"
 
 };
@@ -1089,7 +1089,7 @@ constexpr ExtraStrings kExtraFr = {
     L"À droite",
     L"Verrouiller la barre des tâches",
     L"La touche Windows ouvre :",
-    L"Notre menu Démarrer",
+    L"Menu Démarrer de Win7Taskbar",
     L"Windows"
 
 };
@@ -1124,7 +1124,7 @@ constexpr ExtraStrings kExtraDe = {
     L"Rechts",
     L"Taskleiste sperren",
     L"Windows-Taste öffnet:",
-    L"Unser Startmenü",
+    L"Startmenü von Win7Taskbar",
     L"Windows"
 
 };
@@ -1159,7 +1159,7 @@ constexpr ExtraStrings kExtraPt = {
     L"À direita",
     L"Bloquear a barra de tarefas",
     L"A tecla Windows abre:",
-    L"O nosso menu Iniciar",
+    L"Menu Iniciar do Win7Taskbar",
     L"Windows"
 
 };
@@ -1194,7 +1194,7 @@ constexpr ExtraStrings kExtraPl = {
     L"Na prawo",
     L"Zablokuj pasek zadań",
     L"Klawisz Windows otwiera:",
-    L"Nasze menu Start",
+    L"Menu Start programu Win7Taskbar",
     L"Windows"
 
 };
@@ -1229,7 +1229,7 @@ constexpr ExtraStrings kExtraRu = {
     L"Справа",
     L"Заблокировать панель задач",
     L"Клавиша Windows открывает:",
-    L"Наше меню Пуск",
+    L"Меню «Пуск» Win7Taskbar",
     L"Windows"
 
 };
@@ -1263,7 +1263,7 @@ constexpr ExtraStrings kExtraJa = {
     L"右",
     L"タスク バーをロックする",
     L"Windows キーの動作:",
-    L"このスタート メニュー",
+    L"Win7Taskbar のスタート メニュー",
     L"Windows"
 
 };
@@ -1296,7 +1296,7 @@ constexpr ExtraStrings kExtraZh = {
     L"右",
     L"锁定任务栏",
     L"Windows 键打开:",
-    L"我们的开始菜单",
+    L"Win7Taskbar 开始菜单",
     L"Windows"
 
 };
@@ -1330,7 +1330,7 @@ constexpr ExtraStrings kExtraAr = {
     L"يمين",
     L"قفل شريط المهام",
     L"مفتاح Windows يفتح:",
-    L"قائمة ابدأ الخاصة بنا",
+    L"قائمة ابدأ في Win7Taskbar",
     L"Windows"
 
 };
