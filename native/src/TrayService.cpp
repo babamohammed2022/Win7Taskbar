@@ -815,7 +815,19 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
              * concordi, e SOLO dove l'utente non ha una preferenza nostra:
              * la sua scelta vince, sempre. */
             if (!HasSavedPreference(key)) {
-                if (item.hidden == entry.hiddenDesired) {
+                if (item.promotionKnown) {
+                    /* IsPromoted e' una scelta persistita dell'utente, non
+                     * una fotografia transitoria della toolbar: adottarla
+                     * subito evita che il cassetto resti indietro di una
+                     * passata quando Windows 11 aggiorna il registro. */
+                    const bool pinned = !item.hidden;
+                    if (entry.isPinned != pinned) {
+                        entry.isPinned = pinned;
+                        changed = true;
+                    }
+                    entry.hiddenDesired = item.hidden;
+                    entry.hiddenPending = 0;
+                } else if (item.hidden == entry.hiddenDesired) {
                     if (entry.hiddenPending > 0) {
                         ++entry.hiddenPending;
                         if (entry.hiddenPending >= kConfirmReads) {
@@ -1507,10 +1519,11 @@ void TrayService::OnWatcherMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     (void)lParam;
     switch (msg) {
         case kMsgSettings:
-            /* Qualcosa e' cambiato nella chiave Explorer: la sola cosa che
-             * ci riguarda qui e' EnableAutoTray (regola di visibilita' per
-             * le icone senza preferenza). */
-            AppendCoreLog(L"chiave Explorer cambiata: riapplico la regola di visibilita'");
+            /* Il watcher osserva sia Explorer sia il ramo Control Panel che
+             * contiene NotifyIconSettings. Una modifica a IsPromoted deve
+             * rileggere la toolbar e la configurazione Windows 11, non una
+             * euristica locale. */
+            AppendCoreLog(L"configurazione tray cambiata: riapplico la regola di visibilita'");
             ScheduleReconcile(kReconcileSettings, 0);
             break;
 
@@ -1953,7 +1966,12 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
     }
 
     if (msg == WM_COPYDATA) {
-        return Instance().HandleCopyData(hwnd, reinterpret_cast<const COPYDATASTRUCT*>(lParam));
+        /* wParam e' l'HWND del mittente originale. Il messaggio viene
+         * prima applicato al modello locale e poi inoltrato alla vera
+         * Shell_TrayWnd di Explorer dal wrapper, mai ricorsivamente alla
+         * finestra dello shim. */
+        return Instance().HandleCopyData(
+            hwnd, wParam, reinterpret_cast<const COPYDATASTRUCT*>(lParam));
     }
 
     if (msg == WM_SETTINGCHANGE) {
@@ -2192,15 +2210,131 @@ LRESULT CALLBACK TrayService::TaskSwitchWndProc(HWND hwnd, UINT msg, WPARAM wPar
     return handled ? result : DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-LRESULT TrayService::HandleCopyData(HWND, const COPYDATASTRUCT* cds) {
+bool TrayService::ForwardCopyDataToExplorer(
+    WPARAM sender, const COPYDATASTRUCT* cds) const {
+    if (cds == nullptr || cds->dwData != kCopyDataTrayIcon) {
+        return false;
+    }
+
+    bool delivered = false;
+    W7T_SEH_TRY {
+        try {
+            const DWORD ourPid = GetCurrentProcessId();
+            HWND explorerTray = nullptr;
+            HWND explorerFallback = nullptr;
+            HWND candidate = nullptr;
+            while ((candidate = FindWindowExW(
+                        nullptr, candidate, L"Shell_TrayWnd", nullptr))
+                   != nullptr) {
+                if (candidate == m_trayWnd) {
+                    continue;
+                }
+                DWORD pid = 0;
+                GetWindowThreadProcessId(candidate, &pid);
+                if (pid == 0 || pid == ourPid) {
+                    continue;
+                }
+                const std::wstring image = GetProcessImagePath(pid);
+                const size_t slash = image.find_last_of(L"\\/");
+                const std::wstring name = slash == std::wstring::npos
+                    ? image : image.substr(slash + 1);
+                if (_wcsicmp(name.c_str(), L"explorer.exe") != 0) {
+                    continue;
+                }
+                if (explorerFallback == nullptr) {
+                    explorerFallback = candidate;
+                }
+                /* Una Shell_TrayWnd vera normalmente ha il figlio
+                 * TrayNotifyWnd: preferiamo quella per evitare finestre
+                 * omonime, ma il processo Explorer resta la prova decisiva.
+                 * Su build XAML dove il figlio non esiste, il fallback evita
+                 * di perdere il forwarding obbligatorio. */
+                if (FindWindowExW(candidate, nullptr,
+                                  L"TrayNotifyWnd", nullptr) != nullptr) {
+                    explorerTray = candidate;
+                    break;
+                }
+            }
+            if (explorerTray == nullptr) {
+                explorerTray = explorerFallback;
+            }
+
+            if (explorerTray == nullptr) {
+                AppendCoreLog(L"copydata: Shell_TrayWnd di Explorer non trovata,"
+                              L" nessun inoltro eseguito");
+            } else {
+                DWORD_PTR response = 0;
+                const LRESULT sent = SendMessageTimeoutW(
+                    explorerTray, WM_COPYDATA, sender,
+                    reinterpret_cast<LPARAM>(cds),
+                    SMTO_ABORTIFHUNG | SMTO_BLOCK, 1500, &response);
+                delivered = sent != 0;
+                if (!delivered) {
+                    wchar_t line[160];
+                    wsprintfW(line,
+                              L"copydata: inoltro a Explorer fallito err=%lu",
+                              static_cast<unsigned long>(GetLastError()));
+                    AppendCoreLog(line);
+                }
+            }
+        } catch (...) {
+            AppendCoreLog(L"copydata: eccezione durante l'inoltro a Explorer");
+            delivered = false;
+        }
+    } W7T_SEH_CATCH {
+        AppendCoreLog(L"copydata: fault durante l'inoltro a Explorer");
+        delivered = false;
+    } W7T_SEH_END
+    return delivered;
+}
+
+LRESULT TrayService::HandleCopyData(HWND hwnd, WPARAM sender,
+                                    const COPYDATASTRUCT* cds) {
+    (void)hwnd;
+    bool localHandled = false;
+    bool shouldForward = false;
+
+    /* Il forwarding non e' nel ramo locale: anche un payload corrotto o una
+     * eccezione dell'applicazione deve lasciare arrivare a Explorer il
+     * WM_COPYDATA originale, dopo il tentativo di elaborazione locale. */
+    W7T_SEH_TRY {
+        try {
+            shouldForward = cds != nullptr && cds->dwData == kCopyDataTrayIcon;
+            localHandled = HandleCopyDataLocal(cds) != FALSE;
+        } catch (...) {
+            AppendCoreLog(L"copydata: eccezione nell'elaborazione locale");
+            localHandled = false;
+        }
+    } W7T_SEH_CATCH {
+        AppendCoreLog(L"copydata: fault nell'elaborazione locale");
+        localHandled = false;
+        /* Se la lettura del campo dwData ha causato un fault, non si può
+         * affermare che il pacchetto sia SHELLTRAYDATA: nessun inoltro
+         * inventato a Explorer. */
+        shouldForward = false;
+    } W7T_SEH_END
+
+    bool forwarded = false;
+    if (shouldForward) {
+        forwarded = ForwardCopyDataToExplorer(sender, cds);
+    }
+    /* Un risultato non-zero significa che almeno il nostro percorso locale o
+     * il destinatario Explorer ha ricevuto il pacchetto. Non si dichiara
+     * successo quando entrambi hanno fallito. */
+    return (localHandled || forwarded) ? TRUE : FALSE;
+}
+
+LRESULT TrayService::HandleCopyDataLocal(const COPYDATASTRUCT* cds) {
     if (cds == nullptr || cds->lpData == nullptr) {
         return FALSE;
     }
 
     const auto* bytes = static_cast<const uint8_t*>(cds->lpData);
 
-    /* Protocollo reale di Shell_NotifyIcon (verificato contro il decompilato
-     * di shell32!Shell_NotifyIconA di Windows 98, che fa
+    /* Protocollo non documentato da Microsoft di Shell_NotifyIcon
+     * (verificato contro il decompilato di shell32!Shell_NotifyIconA di
+     * Windows 98 e reimplementazioni open source, quindi soggetto a
+     * variazioni per build): shell32 fa
      * FindWindow("Shell_TrayWnd") + SendMessage(WM_COPYDATA, owner,
      * COPYDATASTRUCT{ dwData=1, ... })):
      *   dwData = 0  messaggio AppBar;

@@ -170,7 +170,43 @@ third-party icons register with Explorer's own `Shell_TrayWnd`
   the shell-restart discipline. This is why the balloon limitation
   (section 1) is architectural for anything outside explorer.
 
-## 6. Architectural impossibility, stated once and for all
+## 6. Percorso legacy effettivamente usato dal servizio
+
+Il progetto crea sul proprio thread UI una finestra reale di classe
+`Shell_TrayWnd`, con figlia `TrayNotifyWnd`, prima di avviare l'importazione
+della toolbar. Per ogni `WM_COPYDATA` con `dwData == 1` il servizio tenta prima
+l'elaborazione locale e poi usa `SendMessageTimeout(WM_COPYDATA)` sulla vera
+`Shell_TrayWnd` di `explorer.exe`, escludendo il proprio PID e preferendo la
+finestra con figlia `TrayNotifyWnd` (con fallback alla finestra dello stesso
+processo sulle build XAML che non espongono quella figlia). Un payload non
+valido non viene trasformato in un successo fittizio; l'inoltro viene comunque
+tentato solo per il protocollo `dwData == 1`.
+
+Il tracciato `SHELLTRAYDATA` e il layout della voce puntata da `TBBUTTON::dwData`
+sono **API non documentate da Microsoft**. Sono stati ricostruiti da
+reverse engineering e confrontati con reimplementazioni open source
+(ManagedShell/RetroBar e ReactOS); possono cambiare tra build e sono sempre
+protetti da try/catch e guardie SEH/RAII.
+
+### 6.1 Stato visibile/overflow di Windows 11
+
+Quando legge la toolbar di Explorer, `ExplorerTrayReader` enumera anche
+`HKCU\Control Panel\NotifyIconSettings`. Il nome della sottochiave osservato
+è un identificatore decimale opaco: il codice ne verifica soltanto la forma,
+non tenta di ricalcolare un hash. L'associazione è adottata solo quando
+`UID` (`REG_DWORD`), `ExecutablePath` e il proprietario della finestra
+corrispondono e `IsPromoted` è un `REG_DWORD` 0/1. `1` significa zona visibile,
+`0` overflow; se la corrispondenza non è verificabile, il fallback è lo stato
+reale `TBSTATE_HIDDEN`/toolbar. La chiave non viene mai scritta.
+
+`ITrayNotify`/`ITrayNotifyImpl` non è un contratto COM documentato e il suo
+layout non è nel Windows SDK; non viene chiamato dal prodotto. Le icone già
+presenti all'avvio vengono enumerate dalla toolbar remota con il layout
+reverse-engineered e, dopo un riavvio di Explorer, il messaggio pubblico
+`TaskbarCreated` programma una nuova lettura. Questo evita di inviare un
+broadcast artificiale all'avvio, che causerebbe doppie registrazioni.
+
+## 7. Architectural impossibility, stated once and for all
 
 Balloon interception from out-of-process is impossible: Windows routes
 `NIF_INFO` notifications into UI owned by `Shell_TrayWnd` inside
@@ -181,7 +217,7 @@ stay the project's balloons (the recreated ones), exactly like RetroBar.
 Any future "EP-less parity" will never include EP's balloon fidelity;
 the README limitation remains.
 
-## 7. Next-phase checklist (engineering, post-gate)
+## 8. Next-phase checklist (engineering, post-gate)
 
 1. Fill the probe matrix on real/borrowed hardware for the five builds.
 2. If the legacy channel is verified on at least 24H2/25H2: implement the
@@ -205,7 +241,7 @@ the README limitation remains.
 5. Only after the acceptance criteria are exercised on hardware:
    demote the ExplorerPatcher recommendation in README (proposal PR).
 
-## 8. Acceptance criteria echo (for the record)
+## 9. Acceptance criteria echo (for the record)
 
 Icons complete & correct per build (filtering ok but honest);
 V4+legacy+system icon behavior; overflow parity where source offers
@@ -217,5 +253,6 @@ Windhawk mod only as fallback (clean-room, zero-residue).
 
 ---
 
-*Last edited: 2026-09-25 — Phase 0 probe + document added; no shipped
-behavior changes. Commit for the probe, document, and notices only.*
+*Last edited: 2026-09-25 — legacy tray shim hardening, IsPromoted
+read-only reconciliation, WM_COPYDATA forwarding, and startup ordering
+recorded here.*

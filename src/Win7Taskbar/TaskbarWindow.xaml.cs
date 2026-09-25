@@ -507,6 +507,19 @@ namespace Win7Taskbar
             // previews already open update without restarting the application.
             UpdateDwmPreviewAccentColor();
 
+            /* Il server tray deve possedere davvero Shell_TrayWnd prima che
+             * Explorer o una nuova applicazione possa inviare WM_COPYDATA.
+             * StartTray non e' una notifica ottimistica: una creazione fallita
+             * viene registrata come errore dalla fase di avvio. */
+            RunStage("server-tray", () =>
+            {
+                if (!_bridge.StartTray())
+                {
+                    throw new InvalidOperationException(
+                        "il server Shell_TrayWnd non e' stato creato");
+                }
+            });
+
             // v2.7: pannello overflow nativo con vetro Aero vero
             // (SetWindowCompositionAttribute + blur-behind, come le mod
             // Win7-style). Se la finestra nativa non si crea (ambienti
@@ -553,8 +566,6 @@ namespace Win7Taskbar
             }
 
             AppDomain.CurrentDomain.ProcessExit += OnProcessExitRestoreTaskbar;
-
-            RunStage("server-tray", () => _bridge.StartTray());
 
             RunStage("superbar", () => _viewModel.Start());
 
