@@ -448,7 +448,22 @@
          task-switch, WinEvent dell'host tray, callback AppBar nativo) ->
          nessun fault puo' piu' bloccare una SendMessage/pendente della
          shell. -->
-    <!-- v3.16: (a) Jump list: le posizioni testuali pin/unpin/Chiudi
+    <!-- v3.17: (a) Jump list: con il trascinamento verso l'alto la lista
+         ENTRA con uno scivolo rapido dal basso verso l'alto (~150 ms,
+         AnimateWindow AW_SLIDE|AW_VER_POSITIVE) e RESTA SEMPRE APERTA al
+         rilascio (regola Windows 7: rilascio su riga = attiva, altrove =
+         lista normale). (b) Ricerca: icone -4% (19.2 DIP) e 1.2% del
+         pannello piu' a sinistra; le icone moderne imbottite (Strumento
+         di cattura) hanno metrica propria dalla copertura opaca; footer
+         -2.5% (19.5px/17.6/10.5). (c) Ricerca impostazioni: le cartelle
+         madri (Pannello di controllo, Tutti gli elementi, Tutte le
+         attivita') entrano in catalogo come voci lanciabili; indice
+         BILINGUE (nomi canonici inglesi dai parsing names), niente piu'
+         righe non lanciabili (percorsi canonici padre+relativo sempre).
+         (d) Barra verticale: Start orb centrato E contenuto nei bordi
+         (48 DIP, ricetta RetroBar Vista Aero + guardie; crediti nei
+         THIRD-PARTY-NOTICES). -->
+    <Version>1.3.35-alpha</Version>
          erano SBAGLIATE in quasi tutte le lingue (in italiano dicevano
          Ripristina/Sposta/Dimensiona sopra le icone giuste - la voce
          "Dimensiona" con l'icona di chiusura): corrette in tutte le 11
@@ -460,7 +475,7 @@
          non appaiono piu' dopo la v3.13 - quando nemmeno la
          ricostruzione padre+relativo (v3.15) produce un parsing name,
          la voce resta pubblicata col nome mostrato come prima di v3.13. -->
-    <Version>1.3.34-alpha</Version>
+
     <AssemblyVersion>1.3.26.0</AssemblyVersion>
     <FileVersion>1.3.26.0</FileVersion>
   
