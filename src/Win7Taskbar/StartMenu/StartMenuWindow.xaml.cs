@@ -369,11 +369,13 @@ namespace Win7Taskbar.StartMenu
             try
             {
                 InternetFooterIcon.Source =
-                    StartMenuIcons.FromDefaultBrowser(18)
+                    StartMenuIcons.FromDefaultBrowserGdiPlus(18)
+                        ?? StartMenuIcons.FromDefaultBrowser(18)
                         ?? StartMenuIcons.FromDll("imageres.dll", 220, 18)
                         ?? StartMenuIcons.FromDll("shell32.dll", 14, 18);
-                /* v3.17: il box e' 17.6 DIP; la bitmap resta a 18 per
-                   non rinunciare ai pixel (HighQuality ridisegna). */
+                /* v3.18: pipeline GDI+ (jumbo 256 -> bicubica HQ) per
+                   l'icona del footer; box sempre 17.6 DIP, bitmap a 18
+                   per non rinunciare ai pixel (HighQuality ridisegna). */
             }
             catch (Exception)
             {

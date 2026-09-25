@@ -767,9 +767,20 @@ void JumpListWindow::ClearContent() {
 void JumpListWindow::BuildRows() {
     m_rows.clear();
 
+    /* v3.18: tetto TOTALE di 10 righe documento (Recent + Frequent
+     * insieme). Il cap per-sezione esisteva gia' (10+10): le liste
+     * risultavano di un chilometro. Ora il budget e' complessivo:
+     * i Recent entrano per primi, i Frequent solo fino al saldo.
+     * Per la sezione applicazione (App/Pin/Close) il budget non
+     * serve: sono righe standard, sempre presenti. */
+    int32_t shownDocs = 0;
+    constexpr int32_t kShownDocsCap = 10;
+
     auto addDocs = [&](int32_t section, Row::Kind kind) {
         for (const JumpListDoc& doc : m_docs) {
             if (doc.section != section) continue;
+            if (shownDocs >= kShownDocsCap) break;
+            shownDocs++;
             Row r;
             r.kind = kind;
             r.label = doc.displayName;
@@ -1038,27 +1049,13 @@ void JumpListWindow::Place(HWND hwnd, const RECT& button, int32_t edge,
              * button. WM_WINDOWPOSCHANGING is sent synchronously inside
              * SetWindowPos, so the property is set and removed around it. */
             SetPropW(hwnd, L"W7T_AllowOneResize", reinterpret_cast<HANDLE>(1));
-            /* v3.17: con l'apertura da trascinamento (SetAnimateFromBelow
-             * consumato da Open) il popup ENTRA con uno scivolo rapido
-             * dal basso verso l'alto (AnimateWindow, stessa meccanica
-             * documentata AW_SLIDE | AW_VER_POSITIVE): la posizione
-             * finale non cambia, il resto del gesto non lo distingue.
-             * E' racchiuso qui, dentro lo stesso blocco guardato, e la
-             * finestra resta nascosta finche' l'animazione non parte. */
-            if (animateFromBelow) {
-                const bool wasHidden = !IsWindowVisible(hwnd);
-                if (!wasHidden) {
-                    ::ShowWindow(hwnd, SW_HIDE);
-                }
-                SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
-                             SWP_NOACTIVATE);
-                AnimateWindow(hwnd, 150, AW_SLIDE | AW_VER_POSITIVE);
-                SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
-                             SWP_NOACTIVATE | SWP_SHOWWINDOW);
-            } else {
-                SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
-                             SWP_NOACTIVATE | SWP_SHOWWINDOW);
-            }
+            /* v3.18: animazione RIMOSSA su richiesta (v3.17 -> v3.18):
+             * il popup apre istantaneo alla posizione finale. Il flag
+             * animateFromBelow resta accettato e consumato come no-op per
+             * compatibilita' con le build managed intermedie. */
+            (void)animateFromBelow;
+            SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h,
+                         SWP_NOACTIVATE | SWP_SHOWWINDOW);
             RemovePropW(hwnd, L"W7T_AllowOneResize");
             m_popupRect = RECT{ x, y, x + w, y + h };
         } catch (...) {

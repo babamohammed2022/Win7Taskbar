@@ -421,6 +421,224 @@ namespace Win7Taskbar.StartMenu
 
         private static ImageSource? _browserIcon;
 
+        /* v3.18: icona della riga "Cerca su Internet" disegnata con una
+         * pipeline GDI+ (System.Drawing) DEDICATA ad alta qualita':
+         * - risolve l'eseguibile del browser predefinito (UserChoice http)
+         * - preleva la cella JUMBO (256 px) della image-list di shell
+         * - ridisegna il canvas 32bppPArgb con interpolazione
+         *   HighQualityBicubic + PixelOffsetMode/CompositingQuality HQ.
+         * La voce resta identica ma morbida anche a 150/200% di DPI.
+         * Se uno qualunque dei passaggi non ha immagini si ripiega sulla
+         * pipeline classica FromDefaultBrowser. */
+        public static ImageSource? FromDefaultBrowserGdiPlus(int size)
+        {
+            if (_browserIconGdiPlus != null)
+            {
+                return _browserIconGdiPlus;
+            }
+            try
+            {
+                string? exe = ResolveDefaultBrowserExe();
+                if (!string.IsNullOrEmpty(exe))
+                {
+                    ImageSource? img = GdiPlusIconFromExe(exe!, size);
+                    if (img != null)
+                    {
+                        _browserIconGdiPlus = img;
+                        return _browserIconGdiPlus;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _browserIconGdiPlus = FromDefaultBrowser(size);
+            return _browserIconGdiPlus;
+        }
+
+        private static ImageSource? _browserIconGdiPlus;
+
+        private static string? ResolveDefaultBrowserExe()
+        {
+            try
+            {
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\http\UserChoice");
+                string? progId = key?.GetValue("ProgId") as string;
+                if (!string.IsNullOrEmpty(progId))
+                {
+                    using RegistryKey? defIcon = Registry.ClassesRoot.OpenSubKey(
+                        progId + @"\DefaultIcon");
+                    string? exe = ExeFromIconLocation(
+                        defIcon?.GetValue(null) as string);
+                    if (exe != null && File.Exists(exe))
+                    {
+                        return exe;
+                    }
+                    using RegistryKey? app = Registry.ClassesRoot.OpenSubKey(
+                        progId + @"\Application");
+                    exe = ExeFromIconLocation(
+                        app?.GetValue("ApplicationIcon") as string);
+                    if (exe != null && File.Exists(exe))
+                    {
+                        return exe;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            /* Una lettura sola in piu': shell\open\command dell'http. */
+            try
+            {
+                using RegistryKey? cmd = Registry.ClassesRoot.OpenSubKey(
+                    @"http\shell\open\command");
+                string? line = cmd?.GetValue(null) as string;
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    return null;
+                }
+                line = Environment.ExpandEnvironmentVariables(line!.Trim());
+                string exe;
+                if (line.StartsWith("\"", StringComparison.Ordinal))
+                {
+                    int end = line.IndexOf('"', 1);
+                    exe = end > 1 ? line.Substring(1, end - 1) : line;
+                }
+                else
+                {
+                    int space = line.IndexOf(' ');
+                    exe = space > 0 ? line.Substring(0, space) : line;
+                }
+                return File.Exists(exe) ? exe : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /* "C:\\%ProgramFiles%\\msedge.exe,0" -> percorso espanso senza
+         * indice. Ritorna null quando non e' una icon-locazione classica. */
+        private static string? ExeFromIconLocation(string? location)
+        {
+            if (string.IsNullOrWhiteSpace(location))
+            {
+                return null;
+            }
+            try
+            {
+                string expanded = Environment.ExpandEnvironmentVariables(
+                    location.Trim().Trim('"'));
+                int comma = expanded.LastIndexOf(',');
+                if (comma > 0)
+                {
+                    expanded = expanded.Substring(0, comma);
+                }
+                return expanded.Length > 0 ? expanded : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /* Disegno GDI+ puro: jumbo HICON -> Bitmap PArgb -> ridisegno
+         * bicubico HQ sul canvas di destinazione -> WPF BitmapSource. */
+        private static ImageSource? GdiPlusIconFromExe(string exe, int size)
+        {
+            IntPtr list = IntPtr.Zero;
+            try
+            {
+                var info = new NativeMethods.SHFILEINFOW();
+                if (NativeMethods.SHGetFileInfoW(exe, 0, ref info,
+                        (uint)Marshal.SizeOf<NativeMethods.SHFILEINFOW>(),
+                        ShgfiSysIconIndex) == IntPtr.Zero)
+                {
+                    return null;
+                }
+                int index = info.iIcon;
+                Guid iid = IidIImageList;
+                ImageSource? img = GdiPlusFromImageListCell(
+                    ShilJumbo, index, size, iid, ref list)
+                    ?? GdiPlusFromImageListCell(
+                        ShilExtraLarge, index, size, iid, ref list);
+                return img;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static ImageSource? GdiPlusFromImageListCell(
+            int which, int index, int size, Guid iid, ref IntPtr list)
+        {
+            try
+            {
+                if (SHGetImageList(which, ref iid, out list) != 0 ||
+                    list == IntPtr.Zero)
+                {
+                    return null;
+                }
+                IntPtr hicon = ImageList_GetIcon(list, index, IldTransparent);
+                if (hicon == IntPtr.Zero)
+                {
+                    return null;
+                }
+                ImageSource? img = GdiPlusRedraw(hicon, size);
+                NativeMethods.DestroyIcon(hicon);
+                return img;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                if (list != IntPtr.Zero)
+                {
+                    Marshal.Release(list);
+                    list = IntPtr.Zero;
+                }
+            }
+        }
+
+        private static ImageSource? GdiPlusRedraw(IntPtr hicon, int size)
+        {
+            using Icon icon = Icon.FromHandle(hicon);
+            using Bitmap src = icon.ToBitmap();
+            using Bitmap dest = new(size, size, GdiPixelFormat.Format32bppPArgb);
+            using (Graphics g = Graphics.FromImage(dest))
+            {
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.SmoothingMode = SmoothingMode.HighQuality;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.CompositingQuality = CompositingQuality.HighQuality;
+                g.Clear(System.Drawing.Color.Transparent);
+                g.DrawImage(src, 0, 0, size, size);
+            }
+            IntPtr hbitmap = dest.GetHbitmap(
+                System.Drawing.Color.FromArgb(0, 0, 0, 0));
+            try
+            {
+                BitmapSource bmp = Imaging.CreateBitmapSourceFromHBitmap(
+                    hbitmap, IntPtr.Zero, Int32Rect.Empty,
+                    BitmapSizeOptions.FromEmptyOptions());
+                if (bmp.CanFreeze)
+                {
+                    bmp.Freeze();
+                }
+                return bmp;
+            }
+            finally
+            {
+                NativeMethods.DeleteObject(hbitmap);
+            }
+        }
+
+
+
         private static ImageSource? BrowserIconFromProgId(string progId, int size)
         {
             try

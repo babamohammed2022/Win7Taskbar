@@ -783,12 +783,23 @@
                                 </Style>
                             </Border.Style>
                             <Grid HorizontalAlignment="Stretch">
+                                <!-- v3.18: icona 1.5% piu' a sinistra e
+                                     1.5% piu' in basso: -6 DIP in x
+                                     (1.5% della larghezza tipica del pane
+                                     ~400) e +2 DIP in y sopra il centro
+                                     della riga da 19.5 (TranslateTransform
+                                     perche' il margin verticale cozza con
+                                     VerticalAlignment=Center). -->
                                 <Image x:Name="InternetFooterIcon"
                                        Width="17.6" Height="17.6"
                                        HorizontalAlignment="Left"
                                        VerticalAlignment="Center"
-                                       Margin="14,0,0,0"
-                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                                       Margin="8,0,0,0"
+                                       RenderOptions.BitmapScalingMode="HighQuality">
+                                    <Image.RenderTransform>
+                                        <TranslateTransform Y="2"/>
+                                    </Image.RenderTransform>
+                                </Image>
                                 <TextBlock Text="{DynamicResource lang_sm_search_internet}"
                                            FontFamily="Segoe UI"
                                            FontSize="10.5"

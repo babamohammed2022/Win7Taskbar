@@ -597,11 +597,9 @@ namespace Win7Taskbar
                 return;
             }
 
-            // v3.17: the Windows 7 drag-up entrance - the list slides in
-            // from the bar with a fast bottom-to-top animation (the flag
-            // is consumed by this one open; an old core without the
-            // export opens immediately as before).
-            _bridge.JumpListSetAnimateFromBelow(true);
+            /* v3.18: entrance animation REMOVED on request (the native
+             * export / managed flags survive as documented no-ops for
+             * compatibility with intermediate builds). */
 
             if (!OpenJumpListPopup(button))
             {
