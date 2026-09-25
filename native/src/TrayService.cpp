@@ -33,6 +33,7 @@
 #include "ExplorerTrayReader.h"
 #include "Win11TrayReader.h"
 #include "TrayToolbar.h"
+#include "NotificationPageSync.h"
 #include "LegacyToolbarShim.h"
 #include "SehGuard.h"   /* v3.15: reti SEH sui confini verso la shell */
 #include "TrayFallbackIcons.h"
@@ -495,6 +496,11 @@ int32_t TrayService::Start() {
     m_running.store(true);
     m_startOk.store(false);
     m_threadDone.store(false);        /* v2.37 punto 15 */
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        m_notificationPageSynced = false;
+        m_notificationPageSyncRequested = false;
+    }
     m_startTick = GetTickCount64();   /* v2.1: inizio della finestra di garanzia */
 
     m_thread = std::thread(&TrayService::ThreadMain, this);
@@ -518,6 +524,89 @@ int32_t TrayService::Start() {
         return W7T_ERR_TRAY_TAKEN;
     }
     return W7T_OK;
+}
+
+int32_t TrayService::NotificationPageBackfill() {
+    if (!m_running.load()) {
+        AppendCoreLog(L"[notification-page] servizio tray non attivo");
+        return W7T_ERR_NOT_INIT;
+    }
+    if (!IsWindows11OrBetter()) {
+        AppendCoreLog(L"[notification-page] Windows 11 non rilevato, nessun reset");
+        return W7T_ERR_NOT_FOUND;
+    }
+
+    std::vector<NotificationPageIcon> icons;
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        icons.reserve(m_order.size());
+        for (const TrayIconKey& key : m_order) {
+            auto it = m_icons.find(key);
+            if (it == m_icons.end()) {
+                continue;
+            }
+
+            TrayIconEntry& entry = it->second;
+            bool barVisible = false;
+            bool presentSomewhere = false;
+            ResolveVisibilityLocked(entry, barVisible, presentSomewhere);
+
+            const HWND owner = reinterpret_cast<HWND>(
+                static_cast<uintptr_t>(key.ownerHwnd));
+            DWORD pid = 0;
+            if (owner != nullptr) {
+                GetWindowThreadProcessId(owner, &pid);
+            }
+
+            NotificationPageIcon icon;
+            icon.exePath = entry.ownerPath;
+            if (icon.exePath.empty() && pid != 0) {
+                icon.exePath = GetProcessImagePath(pid);
+            }
+            icon.displayName = entry.tooltip;
+            icon.promoted = presentSomewhere && barVisible &&
+                (entry.state & entry.stateMask & NIS_HIDDEN) == 0;
+            icon.pid = pid;
+            icon.ownerHwnd = key.ownerHwnd;
+            icon.uid = key.uid;
+            icon.order = static_cast<uint32_t>(icons.size());
+            icons.push_back(std::move(icon));
+        }
+        /* Una chiamata esplicita costituisce la passata della sessione. In
+         * questo modo il TaskbarCreated inviato dal reset non riaccoda un
+         * secondo reset automatico. */
+        m_notificationPageSynced = true;
+        m_notificationPageSyncRequested = false;
+    }
+
+    AppendCoreLog(L"[notification-page] modello tray fotografato: " +
+                  std::to_wstring(icons.size()) + L" voci");
+    return NotificationPageSync::BackfillLegacyPage(icons);
+}
+
+void TrayService::SyncNotificationPageLegacy() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_notificationPageSynced) {
+        m_notificationPageSyncRequested = true;
+        AppendCoreLog(L"[notification-page] richiesta pendente dopo TaskbarCreated");
+    }
+}
+
+void TrayService::MaybeSyncNotificationPageLegacy() {
+    bool pending = false;
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        if (m_notificationPageSyncRequested && !m_notificationPageSynced &&
+            !m_icons.empty() && IsWindows11OrBetter()) {
+            m_notificationPageSyncRequested = false;
+            pending = true;
+        }
+    }
+    if (pending) {
+        /* L'helper rifotografa il modello fuori dal lock e garantisce il
+         * backup prima di ogni modifica al registro. */
+        NotificationPageBackfill();
+    }
 }
 
 int32_t TrayService::ImportExplorerIcons() {
@@ -1175,6 +1264,10 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
             }
         }
     }
+
+    /* La pagina legacy viene aggiornata solo dopo la fotografia completa del
+     * modello, non dal window procedure che riceve TaskbarCreated. */
+    MaybeSyncNotificationPageLegacy();
 
     /* v3.8 - ripiego "icone sparite" (ispirazione dalla mod "Disappearing
      * Tray Icons Fix" della collezione Windhawk, MIT; solo l'idea: niente
@@ -2308,6 +2401,7 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
          * Explorer. La cache "Classic" del rilevatore Win11 deve quindi
          * essere invalidata prima della prossima riconciliazione. */
         Win11TrayReader::Instance().NoteExplorerRestart();
+        self.SyncNotificationPageLegacy();
         self.ScheduleReconcile(kReconcileExplorer, 2500);
         return 0;
     }
@@ -3497,6 +3591,13 @@ void TrayService::ApplyWin11TraySnapshot() {
     if (!m_win11Tray) {
         return;
     }
+    bool notificationPageReadComplete = false;
+    const auto notificationPageCleanup = raii::on_scope_exit(
+        [this, &notificationPageReadComplete]() noexcept {
+            if (notificationPageReadComplete) {
+                MaybeSyncNotificationPageLegacy();
+            }
+        });
 
     const bool readValid = Win11TrayReader::Instance().IsLastReadValid();
     const std::vector<Win11TrayItem> raw = readValid
@@ -3506,6 +3607,7 @@ void TrayService::ApplyWin11TraySnapshot() {
         Win11TrayReader::Instance().IsLastReadMainValid();
     const bool overflowRead = readValid &&
         Win11TrayReader::Instance().IsLastReadOverflowValid();
+    notificationPageReadComplete = readValid && mainRead && overflowRead;
 
     /* v2.62 - LE ICONE DI SISTEMA CHE RICREIAMO NON SI IMPORTANO.
      *

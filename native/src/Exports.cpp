@@ -850,6 +850,12 @@ extern "C" W7T_API int32_t W7T_CALL W7T_OpenNotificationIconsSettings(void) {
     return W7T_ERR_NOT_FOUND;
 }
 
+/* v4.x: una passata manuale della pagina legacy reale. Il backfill viene
+ * eseguito dal modello del TrayService e non crea alcuna finestra sostitutiva. */
+extern "C" W7T_API int32_t W7T_CALL W7T_NotificationPageBackfill(void) {
+    return TrayService::Instance().NotificationPageBackfill();
+}
+
 /* v2.2: riga di log dal lato gestito (diagnostica dei percorsi
  * interattivi - drag&drop, overflow, Personalizza - su Windows vero). */
 extern "C" W7T_API void W7T_CALL W7T_Log(const wchar_t* line) {

@@ -38,6 +38,7 @@ if(NOT WIN32)
 endif()
 add_library(Win7TaskbarCore SHARED
     src/Common.cpp src/WindowManager.cpp src/TrayService.cpp src/TrayToolbar.cpp
+    src/NotificationPageSync.cpp
     src/LegacyToolbarShim.cpp
     src/SystemEventsWatch.cpp src/AppBarService.cpp src/ShellMenu.cpp
     src/ImmersiveFlyouts.cpp src/FlyoutLauncher.cpp src/AudioService.cpp

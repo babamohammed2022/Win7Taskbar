@@ -175,6 +175,10 @@ public:
     /* Avvia la prima riconciliazione con la tray di Explorer (idempotente). */
     int32_t ImportExplorerIcons();
 
+    /* Backfill manuale della pagina legacy reale di Windows. Non crea una
+     * pagina sostitutiva: prepara la cache che Explorer rilegge. */
+    int32_t NotificationPageBackfill();
+
     /* Una passata di riconciliazione: aggiunge chi manca, aggiorna lo
      * stato di cio' che appartiene a Explorer (con isteresi), rimuove cio'
      * che Explorer non mostra piu' (dopo conferme), allinea il toolbar. */
@@ -201,6 +205,11 @@ public:
 
     /* Passata periodica di sola verifica proprietari vivi + diff leggero. */
     void WatchdogLoop();
+
+    /* Registra il backfill dopo TaskbarCreated; il lavoro vero viene eseguito
+     * dopo una riconciliazione completa, mai dentro il window procedure. */
+    void SyncNotificationPageLegacy();
+    void MaybeSyncNotificationPageLegacy();
 
     /* La finestra fantasma registrata come Shell_TrayWnd (e la figlia
      * TrayNotifyWnd) deve occupare lo stesso rettangolo della nostra
@@ -473,6 +482,11 @@ private:
     HWND               m_taskSwitchWnd = nullptr;
     UINT               m_taskbarCreatedMsg = 0;
 
+    /* La pagina legacy viene riallineata al massimo una volta per sessione
+     * dopo un riavvio reale di Explorer. Il flag e' protetto da m_mutex. */
+    bool               m_notificationPageSynced = false;
+    bool               m_notificationPageSyncRequested = false;
+
     /* Messaggi privati dei watcher (WM_APP+...), gestiti in TrayWndProc. */
     static constexpr UINT kMsgSettings      = WM_APP + 102; // registro
     static constexpr UINT kMsgNetwork       = WM_APP + 103; // NLM
@@ -480,7 +494,8 @@ private:
     static constexpr UINT kMsgRetryImport   = WM_APP + 105; // secondo giro import
     static constexpr UINT kMsgToolbarSync   = WM_APP + 106; // sync rinviato al thread dei messaggi
     static constexpr UINT kMsgUiaTray       = WM_APP + 107; // v2.60: snapshot tray Win11 pronto
-    static constexpr UINT kMsgLegacyShim    = WM_APP + 108; // mirror opt-in coalescente
+    static constexpr UINT kMsgNotificationPageSync = WM_APP + 108; // sync dati pagina legacy
+    static constexpr UINT kMsgLegacyShim    = WM_APP + 109; // mirror opt-in coalescente
     static constexpr UINT kTimerDebounce    = 0xB1;
     static constexpr UINT kTimerBackstop    = 0xB2;
     /* v2.61: risveglio leggero (10 s) delle sole icone sintetiche mentre si

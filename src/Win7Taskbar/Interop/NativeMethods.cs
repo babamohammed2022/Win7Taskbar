@@ -741,6 +741,10 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int W7T_OpenNotificationIconsSettings();
 
+        /// <summary>Backfill manuale della cache della pagina legacy reale.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int W7T_NotificationPageBackfill();
+
         /// <summary>
         /// v2.2: scrive una riga in log-core.txt dal lato gestito.
         /// </summary>

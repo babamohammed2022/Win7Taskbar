@@ -7794,6 +7794,21 @@ namespace Win7Taskbar
         {
             /* Open Windows' native Notification Area settings page directly,
              * as this command did before the removed imitation existed. */
+            // La pagina resta quella Win32 di Windows: prima della sua
+            // apertura chiediamo una sola passata manuale di reset-reseed.
+            // Non e' un timer e non crea una UI sostitutiva.
+            try
+            {
+                if (!_bridge.NotificationPageBackfill())
+                {
+                    Debug.WriteLine("Backfill della pagina legacy non riuscito o non necessario");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Backfill della pagina legacy non riuscito: {ex.Message}");
+            }
+
             // Native shell namespace first.
             try
             {
