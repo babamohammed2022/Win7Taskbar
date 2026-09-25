@@ -418,28 +418,36 @@ struct JumpStr {
     const wchar_t* closeWindow;
 };
 const JumpStr& Str(int lang) {
+    /* v3.15.1 - le posizioni 3/4/5 erano SBAGLIATE in quasi tutte le
+     * lingue (in italiano dicevano "Ripristina/Sposta/Dimensiona" mentre
+     * le azioni e le icone erano Pin-to-taskbar/Sgancia-pin/Chiudi: la
+     * jump list mostrava "Dimensiona" affiancata all'icona X della
+     * chiusura). Qui tornano i testi documentati di Windows 7; le
+     * posizioni 3/4/5 sono sempre: pin, unpin, Chiudi finestra - nessuna
+     * voce "Dimensiona" esiste di progetto (sta solo nel menu di sistema
+     * della finestra). */
     static const JumpStr kIt = {
-        L"Voci usate di recente", L"Voci usate di frequente", L"Ripristina",
-        L"Sposta", L"Dimensiona" };
+        L"Voci usate di recente", L"Voci usate di frequente", L"Aggiungi questo programma alla barra delle applicazioni",
+        L"Rimuovi questo programma dalla barra delle applicazioni", L"Chiudi finestra" };
     static const JumpStr kEn = {
-        L"Recent items", L"Frequent items", L"Restore",
-        L"Move", L"Size" };
+        L"Recent items", L"Frequent items", L"Pin this program to the taskbar",
+        L"Unpin this program from the taskbar", L"Close window" };
     static const JumpStr kEs = {
-        L"Elementos recientes", L"Elementos frecuentes", L"Restaurar",
-        L"Mover", L"Redimensionar" };
+        L"Elementos recientes", L"Elementos frecuentes", L"Anclar este programa a la barra de tareas",
+        L"Desanclar este programa de la barra de tareas", L"Cerrar ventana" };
     static const JumpStr kFr = {
-        L"\u00c9l\u00e9ments r\u00e9cents", L"\u00c9l\u00e9ments fr\u00e9quents", L"Restaurer",
-        L"D\u00e9placer", L"Redimensionner" };
+        L"\u00c9l\u00e9ments r\u00e9cents", L"\u00c9l\u00e9ments fr\u00e9quents", L"\u00c9pingler ce programme \u00e0 la barre des t\u00e2ches",
+        L"D\u00e9tacher ce programme de la barre des t\u00e2ches", L"Fermer la fen\u00eatre" };
     static const JumpStr kDe = {
         L"Zuletzt verwendete Elemente", L"H\u00e4ufig verwendete Elemente",
-        L"Wiederherstellen",
-        L"Verschieben", L"Gr\u00f6\u00dfe \u00e4ndern" };
+        L"Dieses Programm an die Taskleiste anheften",
+        L"Dieses Programm von der Taskleiste l\u00f6sen", L"Fenster schlie\u00dfen" };
     static const JumpStr kPt = {
-        L"Itens recentes", L"Itens frequentes", L"Restaurar",
-        L"Mover", L"Redimensionar" };
+        L"Itens recentes", L"Itens frequentes", L"Fixar este programa na barra de tarefas",
+        L"Desafixar este programa da barra de tarefas", L"Fechar janela" };
     static const JumpStr kPl = {
-        L"Ostatnie elementy", L"Cz\u0119ste elementy", L"Przywr\u00f3\u0107",
-        L"Przesu\u0144", L"Zmie\u0144 rozmiar" };
+        L"Ostatnie elementy", L"Cz\u0119ste elementy", L"Przypnij ten program do paska zada\u0144",
+        L"Odepnij ten program od paska zada\u0144", L"Zamknij okno" };
     static const JumpStr kRu = {
         L"\u041d\u0435\u0434\u0430\u0432\u043d\u0438\u0435 \u044d\u043b\u0435"
         L"\u043c\u0435\u043d\u0442\u044b",
@@ -453,7 +461,7 @@ const JumpStr& Str(int lang) {
         L"\u0442\u0443 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c"
         L"\u0443 \u043e\u0442 \u043f\u0430\u043d\u0435\u043b\u0438 \u0437"
         L"\u0430\u0434\u0430\u0447",
-        L"\u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0440\u0430\u0437\u043c\u0435\u0440" };
+        L"\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u043e\u043a\u043d\u043e" };
     static const JumpStr kJa = {
         L"\u6700\u8fd1\u4f7f\u3063\u305f\u9805\u76ee",
         L"\u3088\u304f\u4f7f\u3046\u9805\u76ee",
@@ -461,13 +469,13 @@ const JumpStr& Str(int lang) {
         L"\u30af\u30d0\u30fc\u306b\u8868\u793a\u3059\u308b",
         L"\u3053\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u3092\u30bf\u30b9"
         L"\u30af\u30d0\u30fc\u306b\u8868\u793a\u3057\u306a\u3044",
-        L"\u30b5\u30a4\u30ba\u5909\u66f4" };
+        L"\u30a6\u30a3\u30f3\u30c9\u30a6\u3092\u9589\u3058\u308b" };
     static const JumpStr kZh = {
-        L"\u6700\u8fd1\u4f7f\u7528\u3057\u305f\u9879\u76ee",
-        L"\u6700\u5927\u5316",
-        L"\u8fd8\u539f",
-        L"\u79fb\u52a8",
-        L"\u5927\u5c0f" };
+        L"\u6700\u8fd1\u4f7f\u7528\u7684\u9879\u76ee",
+        L"\u5e38\u7528\u9879\u76ee",
+        L"\u5c06\u6b64\u7a0b\u5e8f\u9501\u5b9a\u5230\u4efb\u52a1\u680f",
+        L"\u5c06\u6b64\u7a0b\u5e8f\u4ece\u4efb\u52a1\u680f\u4e2d\u53d6\u6d88\u56fa\u5b9a",
+        L"\u5173\u95ed\u7a97\u53e3" };
     static const JumpStr kAr = {
         L"\u0627\u0644\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0623"
         L"\u062e\u064a\u0631\u0629",
@@ -480,7 +488,7 @@ const JumpStr& Str(int lang) {
         L" \u0647\u0630\u0627 \u0627\u0644\u0628\u0631\u0646\u0627\u0645"
         L"\u062c \u0645\u0646 \u0634\u0631\u064a\u0637 \u0627\u0644\u0645"
         L"\u0647\u0627\u0645",
-        L"\u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u062d\u062c\u0645" };
+        L"\u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0646\u0627\u0641\u0630\u0629" };
     switch (lang) {
         case 1: return kEn; case 2: return kEs; case 3: return kFr;
         case 4: return kDe; case 5: return kPt; case 6: return kPl;

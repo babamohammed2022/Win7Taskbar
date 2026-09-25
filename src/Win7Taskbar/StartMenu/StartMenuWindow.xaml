@@ -756,9 +756,13 @@
                              scorre e non dipende dai risultati trovati.
                              v3.13.1: rimpicciolito del 5% su altezza, icona
                              e font (22 -> 21, 20 -> 19, 12 -> 11.4). -->
+                        <!-- v3.15.1: footer ancora -5% (21 -> 20 px,
+                             icona 19 -> 18, font 11.4 -> 10.8) e spostato
+                             un po' a sinistra rispetto alla colonna item
+                             (icona da margine 20 a 14, testo da 39 a 32). -->
                         <Border x:Name="InternetSearchFooter"
                                 Grid.Row="1"
-                                Height="21"
+                                Height="20"
                                 Background="Transparent"
                                 Cursor="Hand"
                                 BorderBrush="#FFA5B9DD"
@@ -775,17 +779,17 @@
                             </Border.Style>
                             <Grid HorizontalAlignment="Stretch">
                                 <Image x:Name="InternetFooterIcon"
-                                       Width="19" Height="19"
+                                       Width="18" Height="18"
                                        HorizontalAlignment="Left"
                                        VerticalAlignment="Center"
-                                       Margin="20,0,0,0"
+                                       Margin="14,0,0,0"
                                        RenderOptions.BitmapScalingMode="HighQuality" />
                                 <TextBlock Text="{DynamicResource lang_sm_search_internet}"
                                            FontFamily="Segoe UI"
-                                           FontSize="11.4"
+                                           FontSize="10.8"
                                            Foreground="#FF000000"
                                            VerticalAlignment="Center"
-                                           Margin="39,0,8,0"
+                                           Margin="32,0,8,0"
                                            TextTrimming="CharacterEllipsis" />
                             </Grid>
                         </Border>

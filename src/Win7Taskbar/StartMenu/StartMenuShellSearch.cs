@@ -360,16 +360,19 @@ namespace Win7Taskbar.StartMenu
                     }
                 }
             }
-            /* v3.13: SOLO voci reali, secondo la documentazione Microsoft:
-             * SIGDN_DESKTOPABSOLUTEPARSING restituisce il nome di parsing
-             * assoluto (C:\..., shell:..., ::{CLSID}) che ShellExecute /
-             * ParseDisplayName sanno sempre lanciare. Se manca, la voce e'
-             * un "link morto" (il vecchio fallback "shell:<nome mostrato>"
-             * produceva URI non risolvibili, cliccabili ma inutili) e va
-             * SCARTATA, non pubblicata a meta'. */
+            /* v3.15.1 - RIPRISTINO RICHIESTO: se anche la ricostruzione
+             * padre+relativo non basta, la voce NON viene piu' scartata ma
+             * torna il comportamento storico (pre-v3.13) che rendeva le
+             * voci del Pannello di controllo VISIBILI con la loro icona:
+             * si usa il nome mostrato come nome di parsing, con il solito
+             * prefisso "shell:". Avviso onesto, ripetuto qui come in
+             * release note: su queste voci di *riserva* il click puo' non
+             * risolvere nulla sulla macchina (e' il compromesso accettato
+             * tra v3.13 e v3.15 - voci visibili vs. tutti lanciabili), ma
+             * la riga resta completa di icona e nome, come era. */
             if (string.IsNullOrWhiteSpace(parse))
             {
-                return;
+                parse = name;
             }
             if (!parse.StartsWith("shell:", StringComparison.OrdinalIgnoreCase) &&
                 !parse.StartsWith("::", StringComparison.Ordinal) &&
