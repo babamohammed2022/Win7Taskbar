@@ -307,7 +307,7 @@ namespace Win7Taskbar.Shell
             // Raw GetMessage/TranslateMessage/DispatchMessage pump: no
             // Application.Run, so the thread is fully ours and WM_COPYDATA
             // lands synchronously in the two NativeWindow WndProcs.
-            NativeMethods.NativeMsg msg;
+            NativeMethods.NativeMsg msg = new NativeMethods.NativeMsg();
             while (NativeMethods.GetMessage(ref msg, IntPtr.Zero, 0, 0) > 0)
             {
                 NativeMethods.TranslateMessage(ref msg);
