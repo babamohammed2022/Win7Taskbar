@@ -189,7 +189,7 @@ namespace Win7Taskbar
         /// <summary>
         /// v3.13: righe esistenti SOLO in verticale. In orizzontale la
         /// collezione resta VUOTA (riga implicita a stella, layout
-        * identico a prima della v3.12).
+        /// identico a prima della v3.12).
         /// </summary>
         private static void EnsureOrientationRows(Grid grid, bool vertical,
                                                   int rowCount, int starRow)
