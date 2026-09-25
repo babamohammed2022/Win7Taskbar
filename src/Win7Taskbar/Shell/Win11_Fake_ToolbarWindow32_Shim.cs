@@ -122,7 +122,7 @@ namespace Win7Taskbar.Shell
     /// fedele (128-char tip come nel protocollo).
     /// </summary>
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    internal struct ShimNotifyData
+    public struct ShimNotifyData
     {
         public int cbSize;
         public IntPtr hWnd;
