@@ -266,11 +266,10 @@ namespace Win7Taskbar.StartMenu
             }
             if (string.Equals(item.Folder, "seemore", StringComparison.Ordinal))
             {
-                /* "See more results": pass the complete query to the
-                 * registered search-ms handler. Do not report success until
-                 * ShellExecute/Explorer has really accepted the URI. */
-                return !string.IsNullOrWhiteSpace(item.Path) &&
-                       OpenShellUri(item.Path);
+                /* "See more results": il primo tentativo usa Explorer come
+                 * canale documentato per aprire la query completa; i fallback
+                 * mantengono il risultato locale e riferiscono l'esito reale. */
+                return OpenSearchResults(item.Path);
             }
             if (item.IsFolder)
             {
@@ -478,6 +477,59 @@ namespace Win7Taskbar.StartMenu
                 Debug.WriteLine($"[Win7Taskbar] apertura URI shell non riuscita: {uri}");
             }
             return opened;
+        }
+
+        /* v3.19: "Visualizza altri risultati" prima NON apriva nulla su
+         * molti sistemi: invocare direttamente l'URI "search-ms:..."
+         * dipende dalla registrazione del protocollo (quando l'handler
+         * e' il motore di ricerca moderno senza UI esporre finestra il
+         * ProcessStartInfo viene osservato come "non fa nulla"). Il 7
+         * e Open-Shell passano invece l'URI a EXPLORER.exe: si apre la
+         * cartella dei risultati di ricerca. Doppi fallback documentati:
+         * la cartella shell dei risultati (CLSID documentato da COM) e,
+         * in estremis, la shell window di Esplora file. */
+        private bool OpenSearchResults(string? searchUri)
+        {
+            if (string.IsNullOrEmpty(searchUri))
+            {
+                return false;
+            }
+            if (TryStartProcess("explorer.exe", searchUri))
+            {
+                return true;
+            }
+            if (TryStartProcess("explorer.exe",
+                "shell:::{9343812e-1c37-4a49-a12e-4b2d810d956b}"))
+            {
+                return true;
+            }
+            return OpenShellUri(searchUri);
+        }
+
+        private static bool TryStartProcess(string fileName,
+            string? arguments)
+        {
+            try
+            {
+                var info = new ProcessStartInfo
+                {
+                    FileName = fileName,
+                    UseShellExecute = true
+                };
+                if (!string.IsNullOrEmpty(arguments))
+                {
+                    info.Arguments = arguments;
+                }
+                using (Process? started = Process.Start(info))
+                {
+                    return started != null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Win7Taskbar] avvio processo non riuscito: {fileName}: {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>
