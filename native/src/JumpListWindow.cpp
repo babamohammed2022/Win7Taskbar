@@ -1085,7 +1085,7 @@ int JumpListWindow::MeasureWidestRow() const {
     W7T_SEH_TRY {
         try {
             const int iconLeft = Sc(14);
-            auto textLeft = [iconLeft](Row::Kind kind) {
+            auto textLeft = [this, iconLeft](Row::Kind kind) {
                 if (kind == Row::DocRecent || kind == Row::DocFrequent) {
                     return iconLeft + Sc(kDocIcon96) + Sc(6);
                 }
