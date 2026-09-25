@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cwchar>
 #include <cwctype>
 #include <map>
 #include <memory>
@@ -520,21 +521,25 @@ bool LoadImageIcon(const std::wstring& exePath, ArgbBitmap& out) {
      * ArgbBitmap: la conversione, che possiede oggetti C++, avviene dopo il
      * blocco protetto e resta quindi sotto RAII normale. */
     if (!exePath.empty()) {
-        HICON rawIcon = nullptr;
-        UINT extracted = 0;
+        volatile HICON rawIcon = nullptr;
+        volatile UINT extracted = 0;
         W7T_SEH_TRY {
             extracted = ExtractIconExW(
-                exePath.c_str(), 0, nullptr, &rawIcon, 1);
+                exePath.c_str(), 0, nullptr,
+                const_cast<HICON*>(&rawIcon), 1);
         } W7T_SEH_CATCH {
-            if (rawIcon != nullptr) {
-                DestroyIcon(rawIcon);
-                rawIcon = nullptr;
+            const HICON failedIcon = rawIcon;
+            if (failedIcon != nullptr) {
+                DestroyIcon(failedIcon);
             }
+            rawIcon = nullptr;
             extracted = 0;
         } W7T_SEH_END
 
-        if (extracted > 0 && rawIcon != nullptr) {
-            raii::IconHandle iconSmall(rawIcon);
+        const HICON extractedIcon = rawIcon;
+        if (extracted > 0 && extractedIcon != nullptr) {
+            rawIcon = nullptr;
+            raii::IconHandle iconSmall(extractedIcon);
             ArgbBitmap bmp;
             if (IconToArgb(iconSmall.get(), bmp) && BitmapSane(bmp) &&
                 BitmapHasContent(bmp)) {
@@ -548,18 +553,19 @@ bool LoadImageIcon(const std::wstring& exePath, ArgbBitmap& out) {
 
     /* Last resort: the generic application icon. Never leave a tray slot
      * empty: an icon with a tooltip is always better than a hole. */
-    HICON generic = nullptr;
+    volatile HICON generic = nullptr;
     W7T_SEH_TRY {
         generic = LoadIconW(nullptr, IDI_APPLICATION);
     } W7T_SEH_CATCH {
         generic = nullptr;
     } W7T_SEH_END
-    if (generic == nullptr) {
+    const HICON genericIcon = generic;
+    if (genericIcon == nullptr) {
         return false;
     }
 
     ArgbBitmap bmp;
-    if (!IconToArgb(generic, bmp) || !BitmapSane(bmp)) {
+    if (!IconToArgb(genericIcon, bmp) || !BitmapSane(bmp)) {
         return false;
     }
     out = std::move(bmp);
