@@ -108,7 +108,7 @@ namespace Win7Taskbar.Shell
     /// la preferenza di visibilità decisa EREDITATA dal sistema (registro),
     /// non inventata: voce assente = overflow.
     /// </summary>
-    internal struct ShimTrayIconEntry
+    public struct ShimTrayIconEntry
     {
         public ShimNotifyData Nid;
         public int CommandId;
