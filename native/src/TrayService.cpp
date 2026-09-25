@@ -579,8 +579,10 @@ int32_t TrayService::NotificationPageBackfill() {
         m_notificationPageSyncRequested = false;
     }
 
-    AppendCoreLog(L"[notification-page] modello tray fotografato: " +
-                  std::to_wstring(icons.size()) + L" voci");
+    const std::wstring pageLog =
+        L"[notification-page] modello tray fotografato: " +
+        std::to_wstring(icons.size()) + L" voci";
+    AppendCoreLog(pageLog.c_str());
     return NotificationPageSync::BackfillLegacyPage(icons);
 }
 

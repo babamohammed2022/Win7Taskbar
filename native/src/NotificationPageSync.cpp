@@ -34,7 +34,8 @@ constexpr wchar_t kBackupFileName[] = L"traynotify-backup.reg";
 constexpr wchar_t kNotificationTag[] = L"[notification-page] ";
 
 void LogStep(const std::wstring& message) {
-    AppendCoreLog(std::wstring(kNotificationTag) + message);
+    const std::wstring line = std::wstring(kNotificationTag) + message;
+    AppendCoreLog(line.c_str());
 }
 
 std::wstring BaseName(const std::wstring& path) {
