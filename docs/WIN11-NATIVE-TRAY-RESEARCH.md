@@ -229,14 +229,15 @@ corrispondono e `IsPromoted` è un `REG_DWORD` 0/1. `1` significa zona visibile,
 reale `TBSTATE_HIDDEN`/toolbar. La chiave non viene mai scritta.
 
 `ITrayNotify`/`ITrayNotifyImpl` non è un contratto COM documentato e il suo
-layout non è nel Windows SDK; non viene chiamato dal prodotto. Su XAML il
-lettore UIA registra inoltre eventi di proprietà e di struttura e riapre la
-fotografia quando Explorer ricrea il bridge; una finestra di overflow non
-presente non viene interpretata come rimozione. Il messaggio pubblico
-`TaskbarCreated` viene ascoltato per il riavvio della shell. Il broadcast
-artificiale all'avvio resta disabilitato nel percorso generico: senza una
-riconciliazione verificabile fra UIA e registrazioni avrebbe prodotto voci
-duplicate.
+layout non è nel Windows SDK; non viene chiamato dal prodotto. Le icone già
+presenti all'avvio vengono enumerate dalla toolbar remota con il layout
+reverse-engineered quando quel percorso è disponibile. Su XAML il lettore UIA
+registra inoltre eventi di proprietà e di struttura e riapre la fotografia
+quando Explorer ricrea il bridge; una finestra di overflow non presente non
+viene interpretata come rimozione. Il messaggio pubblico `TaskbarCreated` viene
+ascoltato per il riavvio della shell. Il broadcast artificiale all'avvio resta
+disabilitato nel percorso generico: senza una riconciliazione verificabile fra
+UIA e registrazioni avrebbe prodotto voci duplicate.
 
 ## 7. Architectural impossibility, stated once and for all
 
@@ -285,6 +286,7 @@ Windhawk injection, private vtable, offset, or Explorer hook in the product.
 
 ---
 
-*Last edited: 2026-09-25 — XAML UIA class filtering, public bridge/overflow
-lifecycle, structure-change refresh, conservative overflow retention, and
-legacy-protocol limits recorded here.*
+*Last edited: 2026-09-25 — legacy tray shim hardening, IsPromoted
+read-only reconciliation, WM_COPYDATA forwarding, startup ordering, XAML UIA
+class filtering, public bridge/overflow lifecycle, structure-change refresh,
+and conservative overflow retention recorded here.
