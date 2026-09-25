@@ -191,6 +191,9 @@ private:
     void OnPaint(HWND hwnd);
     void BuildRows();
     void Layout();
+    /* v3.19: larghezza adattiva del popup (misura etichette, clamp
+     * kWidth96..480); l'implementazione dettaglia in JumpListWindow.cpp. */
+    int  MeasureWidestRow() const;
     void Place(HWND hwnd, const RECT& button, int32_t edge,
                  bool animateFromBelow);
     /* Client layout size → window size including the Aero WS_THICKFRAME

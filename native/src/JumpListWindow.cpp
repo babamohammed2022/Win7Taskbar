@@ -162,12 +162,156 @@ bool DrawHbmpGp(Gdiplus::Graphics& g, HBITMAP hb, int x, int y, int dw, int dh)
     }
 }
 
+/* v3.19: conversione MANUALE HICON->ARGB32. Gdiplus::Bitmap::FromHICON
+ * dipinge di NERO le zone trasparenti quando il color-DIB dell'icona e'
+ * un 32 bpp con canale alpha TUTTO a zero (accade con le cartelle della
+ * shell prese da SHGetFileInfo nella jump list: lo sfondo della cartella
+ * risultava nero proprio per questo). Regola robusta, la stessa della
+ * gestione icone XP-era:
+ *   - si legge il color-DIB a 32 bit
+ *   - se l'alpha e' uniformemente zero e l'icona ha la AND-mask (1 bpp),
+ *     l'alpha si ricostruisce dalla maschera (1 = trasparente)
+ *   - i pixel gia' opachi restano premoltiplicati (PARGB)
+ * RAII: ai due HBITMAP dell'ICONINFO pensano due UniqueGdiObject, al DC
+ * il WindowDcGuard; SEH barrier contro i bitmap marci; doppio stage di
+ * try/catch: un solo guasto non deve mai far sparire la riga. */
+bool IconToArgb(HICON icon, std::vector<uint32_t>& outPx,
+                int& outW, int& outH)
+{
+    outPx.clear();
+    outW = 0;
+    outH = 0;
+    W7T_SEH_TRY {
+        try {
+            ICONINFO ii{};
+            if (!GetIconInfo(icon, &ii)) {
+                return false;
+            }
+            if (ii.hbmColor == nullptr) {
+                /* icona monocolore pura: il color bitmap dei due resta
+                 * il fallback FromHICON di DrawIconGp. */
+                if (ii.hbmMask != nullptr) DeleteObject(ii.hbmMask);
+                if (ii.hbmIcon != nullptr) DeleteObject(ii.hbmIcon);
+                return false;
+            }
+            const UniqueGdiObject color(ii.hbmColor);
+            const UniqueGdiObject mask(ii.hbmMask);
+            if (ii.hbmIcon != nullptr) {
+                DeleteObject(ii.hbmIcon);
+            }
+            BITMAP bm{};
+            if (GetObjectW(ii.hbmColor, sizeof(bm), &bm) != sizeof(bm) ||
+                bm.bmWidth <= 0 || bm.bmHeight <= 0) {
+                return false;
+            }
+            WindowDcGuard dcGuard(nullptr, GetDC(nullptr));
+            HDC hdc = dcGuard.get();
+            if (hdc == nullptr) {
+                return false;
+            }
+            BITMAPINFO bmi{};
+            bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+            bmi.bmiHeader.biWidth = bm.bmWidth;
+            bmi.bmiHeader.biHeight = -bm.bmHeight;  /* top-down */
+            bmi.bmiHeader.biPlanes = 1;
+            bmi.bmiHeader.biBitCount = 32;
+            bmi.bmiHeader.biCompression = BI_RGB;
+            outPx.resize(static_cast<size_t>(bm.bmWidth) *
+                         static_cast<size_t>(bm.bmHeight));
+            if (GetDIBits(hdc, ii.hbmColor, 0,
+                          static_cast<UINT>(bm.bmHeight), outPx.data(),
+                          &bmi, DIB_RGB_COLORS) != bm.bmHeight) {
+                outPx.clear();
+                return false;
+            }
+            bool anyAlpha = false;
+            for (uint32_t p : outPx) {
+                if ((p >> 24) != 0) { anyAlpha = true; break; }
+            }
+            if (!anyAlpha && ii.hbmMask != nullptr) {
+                /* AND-mask 1 bpp: palette obbligatoria (GDI la vuole
+                 * layout-ata nei primi 8 byte del BITMAPINFO). */
+                struct {
+                    BITMAPINFOHEADER hdr;
+                    RGBQUAD pal[2];
+                } mi{};
+                mi.hdr.biSize = sizeof(BITMAPINFOHEADER);
+                mi.hdr.biWidth = bm.bmWidth;
+                mi.hdr.biHeight = -bm.bmHeight;
+                mi.hdr.biPlanes = 1;
+                mi.hdr.biBitCount = 1;
+                mi.hdr.biCompression = BI_RGB;
+                const int stride = ((bm.bmWidth + 31) / 32) * 4;
+                std::vector<uint8_t> maskBits(
+                    static_cast<size_t>(stride) *
+                    static_cast<size_t>(bm.bmHeight), 0);
+                if (GetDIBits(hdc, ii.hbmMask, 0,
+                              static_cast<UINT>(bm.bmHeight),
+                              maskBits.data(),
+                              reinterpret_cast<BITMAPINFO*>(&mi),
+                              DIB_RGB_COLORS) == bm.bmHeight) {
+                    for (int ry = 0; ry < bm.bmHeight; ++ry) {
+                        for (int rx = 0; rx < bm.bmWidth; ++rx) {
+                            const uint8_t byte =
+                                maskBits[static_cast<size_t>(ry) *
+                                         static_cast<size_t>(stride) +
+                                         (static_cast<size_t>(rx) >> 3)];
+                            const bool blanked =
+                                (byte >> (7 - (rx & 7))) & 0x01;
+                            uint32_t& px =
+                                outPx[static_cast<size_t>(ry) *
+                                      static_cast<size_t>(bm.bmWidth) +
+                                      static_cast<size_t>(rx)];
+                            if (blanked) {
+                                px = 0;      /* trasparente puro */
+                            } else {
+                                px = (px & 0x00FFFFFFu) | 0xFF000000u;
+                            }
+                        }
+                    }
+                    anyAlpha = true;
+                }
+            }
+            if (!anyAlpha) {
+                /* nessuna fonte di trasparenza: tutto opaco */
+                for (uint32_t& p : outPx) {
+                    p = (p & 0x00FFFFFFu) | 0xFF000000u;
+                }
+            }
+            outW = bm.bmWidth;
+            outH = bm.bmHeight;
+            return true;
+        } catch (...) {
+            outPx.clear();
+            return false;
+        }
+    } W7T_SEH_CATCH {
+        outPx.clear();
+        return false;
+    } W7T_SEH_END
+}
+
 void DrawIconGp(Gdiplus::Graphics& g, HICON icon, int x, int y, int box)
 {
     if (icon == nullptr || box <= 0) {
         return;
     }
     try {
+        std::vector<uint32_t> px;
+        int iw = 0, ih = 0;
+        if (IconToArgb(icon, px, iw, ih) && iw > 0 && ih > 0) {
+            Gdiplus::Bitmap bmp(iw, ih, iw * 4,
+                                PixelFormat32bppPARGB,
+                                reinterpret_cast<BYTE*>(px.data()));
+            if (bmp.GetLastStatus() == Gdiplus::Ok) {
+                g.SetInterpolationMode(
+                    Gdiplus::InterpolationModeHighQualityBicubic);
+                g.DrawImage(&bmp, x, y, box, box);
+                return;
+            }
+        }
+        /* fallback: la conversione nativa di GDI+ (il vecchio
+         * comportamento, utile per le poche icone monocromatiche). */
         std::unique_ptr<Gdiplus::Bitmap> bmp(Gdiplus::Bitmap::FromHICON(icon));
         if (!bmp || bmp->GetLastStatus() != Gdiplus::Ok) {
             return;
@@ -858,8 +1002,66 @@ void JumpListWindow::BuildRows() {
      * see docs/JUMPLIST-RE-VERIFICATION.md. */
 }
 
+/* v3.19 (measure): la larghezza della jump list ci cresce fino a
+ * contenere l'etichetta piu' lunga - il 7 ripiegava i puntini solo
+ * oltre; a 288 fissi l'italiano "Aggiungi questo programma alla barra
+ * delle applicazioni" veniva tagliato. Si misura col font reale delle
+ * righe (stesso calcolo di OnPaint), con tetto a Sc(480) device px. */
+int JumpListWindow::MeasureWidestRow() const {
+    int best = Sc(kWidth96);
+    W7T_SEH_TRY {
+        try {
+            WindowDcGuard dcGuard(nullptr, GetDC(nullptr));
+            HDC hdc = dcGuard.get();
+            if (hdc == nullptr) {
+                return best;
+            }
+            const int fontH = -::MulDiv(11, static_cast<int>(m_dpi), 96);
+            /* SEMIBOLD deliberato: si misura il caso peggiore (alcune
+             * righe usano la faccia piu' pesante) cosi' la stima non
+             * puo' MAI tagliare. RAII su font/selezione/DC. */
+            const UniqueGdiObject font(CreateFontW(fontH, 0, 0, 0,
+                FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI"));
+            if (!font.valid()) {
+                return best;
+            }
+            const SelectGuard select(hdc, font.get());
+            for (const Row& r : m_rows) {
+                const bool isDoc =
+                    r.kind == Row::DocRecent ||
+                    r.kind == Row::DocFrequent;
+                const int iconLeft = Sc(14);
+                const int textLeft = isDoc
+                    ? iconLeft + Sc(kDocIcon96) + Sc(6)
+                    : (r.kind == Row::App
+                        ? iconLeft + Sc(kAppIcon96) + Sc(9)
+                        : (r.kind == Row::Close
+                            ? iconLeft + Sc(kClose96) + Sc(7)
+                            : (r.kind == Row::Pin
+                                ? iconLeft + Sc(kPinIcon96) + Sc(7)
+                                : iconLeft)));
+                RECT bounds{ 0, 0, 0, 0 };
+                DrawTextW(hdc, r.label.c_str(), -1, &bounds,
+                          DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+                const int need =
+                    textLeft + (bounds.right - bounds.left) + Sc(12);
+                if (need > best) {
+                    best = need;
+                }
+            }
+        } catch (...) {
+            /* measuring failed: the base width survives */
+        }
+    } W7T_SEH_CATCH {
+    } W7T_SEH_END
+    const int cap = Sc(480);
+    return best > cap ? cap : best;
+}
+
 void JumpListWindow::Layout() {
-    m_width = Sc(kWidth96);
+    m_width = MeasureWidestRow();
     int y = Sc(kPad96);
 
     int lastKind = -1;   /* -1: no previous row (outside the Kind range) */
