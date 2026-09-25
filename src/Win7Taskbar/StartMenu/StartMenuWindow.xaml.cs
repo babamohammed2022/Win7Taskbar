@@ -369,9 +369,9 @@ namespace Win7Taskbar.StartMenu
             try
             {
                 InternetFooterIcon.Source =
-                    StartMenuIcons.FromDefaultBrowser(20)
-                        ?? StartMenuIcons.FromDll("imageres.dll", 220, 20)
-                        ?? StartMenuIcons.FromDll("shell32.dll", 14, 20);
+                    StartMenuIcons.FromDefaultBrowser(19)
+                        ?? StartMenuIcons.FromDll("imageres.dll", 220, 19)
+                        ?? StartMenuIcons.FromDll("shell32.dll", 14, 19);
             }
             catch (Exception)
             {

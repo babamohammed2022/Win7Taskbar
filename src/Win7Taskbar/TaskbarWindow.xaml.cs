@@ -148,10 +148,21 @@ namespace Win7Taskbar
         /* v3.12: quando la barra si aggancia a un bordo laterale
          * (Orientation=Vertical) il Grid della finestra va riorganizzato:
          * DataTrigger e temi cambiano solo cromato, non la disposizione
-         * dei figli. Senza questo aggancio, in una finestra stretta e
-         * alta le colonne Auto/* collassavano fuori dallo spazio visibile
-         * e restava SOLO il pulsante Start, centrato a meta' altezza invece
-         * che ancorato in cima come nella barra verticale vera. */
+         * dei figli.
+         * v3.13: lo schema e' quello di RetroBar applicato alla nostra
+         * griglia esistente. RetroBar dispone gli elementi della barra su
+         * un DockPanel: "leading" (Start, pannelli ausiliari) a
+         * sinistra/in alto, "trailing" (tray, orologio, Mostra desktop)
+         * a destra/in basso, e la lista dei pulsanti e' l'ultimo figlio
+         * che RIEMPIE. Qui la stessa mappa si materializza in ORIZZONTALE
+         * con le colonne storiche (invariata rispetto alle release
+         * precedenti la v3.12: UNA riga implicita a stella, tutto disteso
+         * sull'intera altezza) e in VERTICALE con righe create a runtime:
+         * Auto per leading/trailing, riga stella per il fill della
+         * Superbar. Ritornando in orizzontale le RowDefinitions vengono
+         * RIMOSSE del tutto, riportando il layout identico a prima.
+         * Schema derivato da RetroBar, https://github.com/dremin/RetroBar,
+         * Copyright (c) dremin, licenza Apache 2.0: vedi CREDITS.txt. */
         private static void OnOrientationChanged(DependencyObject d,
             DependencyPropertyChangedEventArgs e)
         {
@@ -176,11 +187,43 @@ namespace Win7Taskbar
         }
 
         /// <summary>
-        /// v3.12: sposta i figli diretti di una griglia fra Grid.Column e
-        /// Grid.Row a specchio dell'orientamento (stesso indice: la colonna
-        /// N diventa la riga N). Anche gli span si scambiano, cosi' l'ombra
-        /// della tray che copre tray+orologio in orizzontale copre le
-        /// stesse due celle una volta impilate. Invertibile per costruzione.
+        /// v3.13: righe esistenti SOLO in verticale. In orizzontale la
+        /// collezione resta VUOTA (riga implicita a stella, layout
+        * identico a prima della v3.12).
+        /// </summary>
+        private static void EnsureOrientationRows(Grid grid, bool vertical,
+                                                  int rowCount, int starRow)
+        {
+            if (!vertical)
+            {
+                if (grid.RowDefinitions.Count > 0)
+                {
+                    grid.RowDefinitions.Clear();
+                }
+                return;
+            }
+            if (grid.RowDefinitions.Count == rowCount)
+            {
+                return;
+            }
+            grid.RowDefinitions.Clear();
+            for (int i = 0; i < rowCount; ++i)
+            {
+                /* il fill (TaskList / scroller) prende la riga stella,
+                 * leading e trailing restano Auto, come in RetroBar. */
+                var height = i == starRow
+                    ? new GridLength(1, GridUnitType.Star)
+                    : GridLength.Auto;
+                grid.RowDefinitions.Add(new RowDefinition { Height = height });
+            }
+        }
+
+        /// <summary>
+        /// v3.12/v3.13: sposta i figli diretti di una griglia fra
+        /// Grid.Column e Grid.Row a specchio dell'orientamento (stesso
+        /// indice). Anche gli span si scambiano, cosi' l'ombra della tray
+        /// che copre tray+orologio in orizzontale copre le stesse due celle
+        /// una volta impilate. Invertibile per costruzione.
         /// </summary>
         private void SwapGridAxes(Grid? grid, Orientation orientation)
         {
@@ -230,24 +273,50 @@ namespace Win7Taskbar
         }
 
         /// <summary>
-        /// v3.12: riorganizza root + banda Superbar e ancora Start al
+        /// v3.12/v3.13: riorganizza root + banda Superbar e ancora Start al
         /// bordo di aggancio (in alto in verticale, mai centrato a meta'
         /// altezza). Chiamato ad ogni cambio di Orientation.
         /// </summary>
         private void ApplyOrientationLayout(Orientation orientation)
         {
-            SwapGridAxes(RootLayoutGrid, orientation);
-            SwapGridAxes(TaskListBandGrid, orientation);
-
             bool vertical = orientation == Orientation.Vertical;
+
             if (RootLayoutGrid != null)
             {
+                /* Le righe esistono SOLO in verticale: in orizzontale i
+                 * figli tornano sulla riga 0 prima di svuotare la
+                 * collezione, cosi' nessun attached property resta a puntare
+                 * a righe inesistenti. */
+                if (vertical)
+                {
+                    EnsureOrientationRows(RootLayoutGrid, true, 7, 2);
+                    SwapGridAxes(RootLayoutGrid, orientation);
+                }
+                else
+                {
+                    SwapGridAxes(RootLayoutGrid, orientation);
+                    EnsureOrientationRows(RootLayoutGrid, false, 0, 0);
+                }
                 /* La finestra verticale e' molto piu' stretta del contenuto
                  * che il tema misura (l'orologio, ad esempio): senza clip il
                  * contenuto eccedente si disegnerebbe fuori dall'AppBar,
                  * sopra il desktop. */
                 RootLayoutGrid.ClipToBounds = vertical;
             }
+            if (TaskListBandGrid != null)
+            {
+                if (vertical)
+                {
+                    EnsureOrientationRows(TaskListBandGrid, true, 3, 1);
+                    SwapGridAxes(TaskListBandGrid, orientation);
+                }
+                else
+                {
+                    SwapGridAxes(TaskListBandGrid, orientation);
+                    EnsureOrientationRows(TaskListBandGrid, false, 0, 0);
+                }
+            }
+
             if (StartButton != null)
             {
                 if (vertical)

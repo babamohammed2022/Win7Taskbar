@@ -416,11 +416,20 @@
          voci con un vero percorso lanciabile secondo documentazione
          Microsoft (SIGDN_DESKTOPABSOLUTEPARSING); eliminato il vecchio
          fallback "shell:<nome mostrato>" che produceva link non
-         funzionali. (c) "Cerca in Internet" e' ora un piccolo FOOTER
-         FISSO del pannello, presente con QUALUNQUE ricerca (non piu' un
-         item che si poteva perdere nello scorrimento), icona del browser
-         predefinito, sempre cliccabile. -->
-    <Version>1.3.31-alpha</Version>
+         funzionali. (c) "Cerca in Internet" e' un piccolo FOOTER FISSO
+         del pannello, presente con QUALUNQUE ricerca (icona del browser
+         predefinito), rimpicciolito del 5% in v3.13.2.
+         v3.13.2 - REGRESSIONE ORIZZONTALE RIATA: le RowDefinition fisse
+         introdotte dalla v3.12 nel Grid della finestra impedivano ai
+         contenuti di distendersi per tutta l'altezza (bottoni/icone della
+         barra piu' piccoli di quel che erano sempre stati). Ora in
+         orizzontale le RowDefinitions non esistono proprio (riga implicita
+         a stella, layout IDENTICO a prima della v3.12) e in verticale le
+         crea il code-behind secondo lo schema leading/trailing/fill che
+         RetroBar (Apache 2.0, dremin - vedi CREDITS.txt) applica al suo
+         DockPanel: Start in testa, Superbar a riempire, tray/orologio/
+         Mostra desktop in coda. -->
+    <Version>1.3.32-alpha</Version>
     <AssemblyVersion>1.3.26.0</AssemblyVersion>
     <FileVersion>1.3.26.0</FileVersion>
   

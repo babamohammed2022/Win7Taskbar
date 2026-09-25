@@ -181,20 +181,18 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <!-- v3.12: righe GEMELLE alle colonne, usate SOLO quando
-                 Orientation = Vertical: il code-behind sposta ogni figlio
-                 sulla riga con lo stesso indice della sua colonna (Start
-                 in cima, Superbar che riempie, orologio e Mostra desktop
-                 in fondo), e ritorna alle colonne in orizzontale. -->
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+            <!-- v3.13: le RowDefinitions NON esistono piu' nel markup. In
+                 orizzontale il Grid resta a riga singola IMPLICITA (stella),
+                 identico alle release precedenti la v3.12 - i contenuti si
+                 distendono per tutta l'altezza come sempre. Le righe le
+                 CREA il code-behind (ApplyOrientationLayout) SOLO entrando
+                 in verticale, con lo stesso schema leading/trailing/fill
+                 che RetroBar applica al suo DockPanel: Start e pannelli in
+                 testa (leading -> righe Auto), Superbar che riempie (fill
+                 -> riga stella), tray/orologio/Mostra desktop in coda
+                 (trailing -> righe Auto). Schema di RetroBar,
+                 https://github.com/dremin/RetroBar, Copyright (c) dremin,
+                 licenza Apache 2.0: vedi CREDITS.txt. -->
 
             <!-- v3.3: pulsante ricerca (lente) A SINISTRA dello Start:
                  esiste solo durante l'esecuzione della nostra taskbar e
@@ -354,11 +352,6 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
 
                 <!-- v2.60: le frecce di scorrimento della Superbar. Sono gli
                      stili del tema (TaskListScrollLeftButton/RightButton:

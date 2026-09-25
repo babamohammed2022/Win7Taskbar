@@ -751,12 +751,14 @@
                         </ListBox>
                         <!-- v3.13: footer FISSO "Cerca in Internet" (stessa
                              metrica righe da 22, icona del BROWSER predefinito
-                             a 20 px nello stesso box delle icone item, testo
-                             nero sulla stessa colonna x=39): e' sempre qui,
-                             non scorre e non dipende dai risultati trovati. -->
+                             nello stesso box delle icone item, testo nero
+                             sulla stessa colonna x=39): e' sempre qui, non
+                             scorre e non dipende dai risultati trovati.
+                             v3.13.1: rimpicciolito del 5% su altezza, icona
+                             e font (22 -> 21, 20 -> 19, 12 -> 11.4). -->
                         <Border x:Name="InternetSearchFooter"
                                 Grid.Row="1"
-                                Height="22"
+                                Height="21"
                                 Background="Transparent"
                                 Cursor="Hand"
                                 BorderBrush="#FFA5B9DD"
@@ -773,14 +775,14 @@
                             </Border.Style>
                             <Grid HorizontalAlignment="Stretch">
                                 <Image x:Name="InternetFooterIcon"
-                                       Width="20" Height="20"
+                                       Width="19" Height="19"
                                        HorizontalAlignment="Left"
                                        VerticalAlignment="Center"
                                        Margin="20,0,0,0"
                                        RenderOptions.BitmapScalingMode="HighQuality" />
                                 <TextBlock Text="{DynamicResource lang_sm_search_internet}"
                                            FontFamily="Segoe UI"
-                                           FontSize="12"
+                                           FontSize="11.4"
                                            Foreground="#FF000000"
                                            VerticalAlignment="Center"
                                            Margin="39,0,8,0"
