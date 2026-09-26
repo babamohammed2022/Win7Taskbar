@@ -15,6 +15,7 @@
 
 
 #include <atomic>
+#include <cwchar>
 #include <cwctype>
 #include <set>
 #include <utility>
@@ -30,6 +31,19 @@ constexpr UINT kTbGetItemRect = WM_USER + 29;   /* TB_GETITEMRECT */
 
 /* fsState: il pulsante e' nascosto (icona nell'overflow di Explorer). */
 constexpr BYTE kTbStateHidden = 8;
+
+/* Il nome di classe Shell_TrayWnd puo' appartenere anche al nostro shim:
+ * accettiamo solo la finestra il cui proprietario e' davvero Explorer. */
+bool IsExplorerProcess(DWORD pid) {
+    const std::wstring path = GetProcessImagePath(pid);
+    if (path.empty()) {
+        return false;
+    }
+    const size_t slash = path.find_last_of(L"\\\\/");
+    const std::wstring name = slash == std::wstring::npos
+        ? path : path.substr(slash + 1);
+    return _wcsicmp(name.c_str(), L"explorer.exe") == 0;
+}
 
 /* Attesa massima per un messaggio alla toolbar di Explorer. Abbastanza lunga
  * da tollerare un Explorer sotto carico all'avvio, abbastanza corta da non

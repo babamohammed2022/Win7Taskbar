@@ -1298,21 +1298,6 @@ void Win11TrayReader::WorkerMain() {
         return id == L"SystemTrayIcon" || text == L"SystemTrayIcon" ||
                (!id.empty() && id.find(L"SystemTrayIcon") != std::wstring::npos);
     };
-    auto isNotifyIconView = [](const std::wstring& cls) {
-        return cls.find(L"SystemTray.NotifyIconView") != std::wstring::npos;
-    };
-    auto isSystemIconView = [](const std::wstring& cls,
-                               const std::wstring& id,
-                               const std::wstring& text) {
-        if (cls.find(L"SystemTray.IconView") == std::wstring::npos) {
-            return false;
-        }
-        /* Nelle build osservate l'AutomationId e' SystemTrayIcon; il nome
-         * puo' essere vuoto per un provider XAML, quindi si accetta anche il
-         * testo solo come seconda forma, mai il solo prefisso SystemTray. */
-        return id == L"SystemTrayIcon" || text == L"SystemTrayIcon" ||
-               (!id.empty() && id.find(L"SystemTrayIcon") != std::wstring::npos);
-    };
 
     auto collectIsland = [&](HWND island, bool hidden, int& order,
                              std::set<uint32_t>& usedUids,
@@ -1537,13 +1522,22 @@ void Win11TrayReader::WorkerMain() {
             return;
         }
 
-        IUIAutomationCondition* rawConditions[5] = {};
-        for (int i = 0; i < conditionCount; ++i) {
-            rawConditions[i] = conditions[i].Get();
-        }
+        /* IUIAutomation offre solo l'overload binario: si costruisce
+         * l'OR in modo incrementale, trasferendo ogni condizione con RAII. */
         raii::ComPtr<IUIAutomationCondition> any;
-        if (FAILED(uia->CreateOrCondition(conditionCount, rawConditions,
-                                          any.Put())) || !any) {
+        for (int i = 0; i < conditionCount; ++i) {
+            if (!any) {
+                any = std::move(conditions[i]);
+                continue;
+            }
+            raii::ComPtr<IUIAutomationCondition> combined;
+            if (FAILED(uia->CreateOrCondition(any.Get(), conditions[i].Get(),
+                                              combined.Put())) || !combined) {
+                return;
+            }
+            any = std::move(combined);
+        }
+        if (!any) {
             return;
         }
         raii::ComPtr<IUIAutomationElement> candidate;
