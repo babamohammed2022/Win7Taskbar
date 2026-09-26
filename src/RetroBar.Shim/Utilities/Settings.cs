@@ -135,9 +135,10 @@ namespace RetroBar.Utilities
             set => SetField(ref _taskbarHeight, value);
         }
 
-        // v1.21.43 - posizione della barra + blocco (copia semantica da
-        // RetroBar: Settings.Edge + Settings.LockTaskbar). TaskbarPosition:
-        // 0 = Basso, 1 = Alto. I valori legacy 2 = Sinistra e 3 = Destra
+        // v1.21.43 / v1.3.40 - posizione della barra + blocco (RetroBar:
+        // Settings.Edge + Settings.LockTaskbar). TaskbarPosition:
+        // 0 = Basso, 1 = Alto. Con la barra sbloccata il drag (come RetroBar)
+        // sposta solo tra questi due bordi. I valori legacy 2/3 (lati)
         // vengono convertiti a Basso quando la configurazione viene letta.
 
         private int _taskbarPosition = 0;

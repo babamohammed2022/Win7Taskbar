@@ -133,20 +133,26 @@ void AppBarService::EnsureWorkAreaReserved(HWND hwnd, int32_t edge,
         HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         MONITORINFO mi = {};
         mi.cbSize = sizeof(mi);
-        RECT work = {};
+        RECT current = {};
         if (mon != nullptr && GetMonitorInfoW(mon, &mi)) {
-            work = mi.rcWork;
-        } else if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0)) {
+            current = mi.rcWork;
+        } else if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &current, 0)) {
             AppendCoreLog(L"appbar: SPI_GETWORKAREA fallita, overlay fallback");
             return;
         }
 
-        if (!BarOverlapsWorkArea(work, barRect)) {
-            LogAppBarDiagnostics(L"workarea gia' riservata", hwnd, &barRect);
-            return;
+        /* Always shrink the ORIGINAL work area, not the already-reserved
+         * one. Otherwise dragging Bottom -> Top would keep the bottom gap
+         * and never free the title-bar strip (or skip SETWORKAREA entirely
+         * because the new bar no longer overlaps the old rcWork). */
+        RECT baseline = current;
+        if (m_workAreaCaptured &&
+            m_savedWorkArea.right > m_savedWorkArea.left &&
+            m_savedWorkArea.bottom > m_savedWorkArea.top) {
+            baseline = m_savedWorkArea;
         }
 
-        RECT desired = work;
+        RECT desired = baseline;
         switch (edge) {
             case W7T_EDGE_TOP:
                 if (desired.top < barRect.bottom) {
@@ -173,6 +179,12 @@ void AppBarService::EnsureWorkAreaReserved(HWND hwnd, int32_t edge,
 
         if (desired.right <= desired.left || desired.bottom <= desired.top) {
             AppendCoreLog(L"appbar: SPI_SETWORKAREA saltata, rect degenerata");
+            return;
+        }
+
+        if (desired.left == current.left && desired.top == current.top &&
+            desired.right == current.right && desired.bottom == current.bottom) {
+            LogAppBarDiagnostics(L"workarea gia' riservata", hwnd, &barRect);
             return;
         }
 

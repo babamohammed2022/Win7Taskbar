@@ -2181,6 +2181,9 @@ namespace Win7Taskbar
                 _viewModel.NotificationArea.ClearBalloonPromotions();
             }
             _globalMouseHook?.Dispose();
+            StopTaskbarEdgeDrag();
+            _taskbarDragHook?.Dispose();
+            _taskbarDragHook = null;
             try
             {
                 Win7Taskbar.StartMenu.StartMenuHost.MenuVisibilityChanged -= OnOurStartMenuVisibility;
@@ -3595,6 +3598,8 @@ namespace Win7Taskbar
         private bool _allowOpenStart = true;
         private BatteryMonitor? _batteryMonitor;
         private GlobalMouseHook? _globalMouseHook;
+        private TaskbarDragHook? _taskbarDragHook;
+        private System.Windows.Point? _taskbarDragStartPx;
 
         // ===============================================================
         //  Orb START: stato iniziale IDLE garantito
@@ -7477,6 +7482,146 @@ namespace Win7Taskbar
             catch { }
         }
 
+        private void TryBeginTaskbarEdgeDrag(MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left || _shuttingDown)
+            {
+                return;
+            }
+            if (IsTaskbarLockedSafely())
+            {
+                return;
+            }
+            if (!IsEmptyTaskbarChrome(e.OriginalSource as DependencyObject))
+            {
+                return;
+            }
+            if (!NativeMethods.GetCursorPos(out NativeMethods.POINT pt))
+            {
+                return;
+            }
+
+            StopTaskbarEdgeDrag();
+            _taskbarDragStartPx = new System.Windows.Point(pt.x, pt.y);
+            _taskbarDragHook ??= new TaskbarDragHook();
+            _taskbarDragHook.Moved -= OnTaskbarEdgeDragMoved;
+            _taskbarDragHook.Released -= OnTaskbarEdgeDragReleased;
+            _taskbarDragHook.Moved += OnTaskbarEdgeDragMoved;
+            _taskbarDragHook.Released += OnTaskbarEdgeDragReleased;
+            _taskbarDragHook.Start();
+        }
+
+        private static bool IsEmptyTaskbarChrome(DependencyObject? source)
+        {
+            DependencyObject? cur = source;
+            while (cur != null)
+            {
+                if (cur is ButtonBase || cur is ListBoxItem || cur is Thumb)
+                {
+                    return false;
+                }
+                if (cur is FrameworkElement fe)
+                {
+                    switch (fe.Name)
+                    {
+                        case "StartButton":
+                        case "SearchButton":
+                        case "OverflowToggle":
+                        case "ClockHost":
+                        case "ShowDesktopButton":
+                        case "ShowDesktop":
+                            return false;
+                    }
+                }
+                cur = VisualTreeHelper.GetParent(cur);
+            }
+            return true;
+        }
+
+        private void OnTaskbarEdgeDragMoved(int x, int y)
+        {
+            if (_taskbarDragStartPx == null)
+            {
+                return;
+            }
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_taskbarDragStartPx == null || _shuttingDown)
+                {
+                    return;
+                }
+                double scale = 1.0;
+                try
+                {
+                    scale = _hwndSource?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                    if (scale <= 0) scale = 1.0;
+                }
+                catch (Exception)
+                {
+                    scale = 1.0;
+                }
+                double minX = Math.Max(4.0, SystemParameters.MinimumHorizontalDragDistance * scale);
+                double minY = Math.Max(4.0, SystemParameters.MinimumVerticalDragDistance * scale);
+                if (Math.Abs(x - _taskbarDragStartPx.Value.X) < minX &&
+                    Math.Abs(y - _taskbarDragStartPx.Value.Y) < minY)
+                {
+                    return;
+                }
+
+                int newPos = DragCoordsToTaskbarPosition(x, y);
+                var st = RetroBar.Utilities.Settings.Instance;
+                if (newPos == st.TaskbarPosition)
+                {
+                    return;
+                }
+                st.TaskbarPosition = newPos;
+                ApplyTaskbarGeometry();
+            }));
+        }
+
+        private void OnTaskbarEdgeDragReleased()
+        {
+            Dispatcher.BeginInvoke(new Action(StopTaskbarEdgeDrag));
+        }
+
+        private void StopTaskbarEdgeDrag()
+        {
+            if (_taskbarDragHook != null)
+            {
+                _taskbarDragHook.Moved -= OnTaskbarEdgeDragMoved;
+                _taskbarDragHook.Released -= OnTaskbarEdgeDragReleased;
+                _taskbarDragHook.Stop();
+            }
+            _taskbarDragStartPx = null;
+        }
+
+        /// <summary>
+        /// RetroBar splits the screen with an X for four edges. This bar
+        /// only docks top/bottom: the upper half of the monitor is Top,
+        /// the lower half is Bottom.
+        /// </summary>
+        private int DragCoordsToTaskbarPosition(int x, int y)
+        {
+            NativeMethods.POINT pt = new NativeMethods.POINT { x = x, y = y };
+            IntPtr monitor = NativeMethods.MonitorFromPoint(
+                pt, NativeMethods.MONITOR_DEFAULTTONEAREST);
+            var info = new NativeMethods.MONITORINFO
+            {
+                cbSize = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.MONITORINFO>()
+            };
+            if (monitor == IntPtr.Zero || !NativeMethods.GetMonitorInfoW(monitor, ref info))
+            {
+                return y < SystemParameters.PrimaryScreenHeight / 2 ? 1 : 0;
+            }
+            int height = info.rcMonitor.Bottom - info.rcMonitor.Top;
+            if (height <= 0)
+            {
+                return 0;
+            }
+            double relativeY = (y - info.rcMonitor.Top) / (double)height;
+            return relativeY < 0.5 ? 1 : 0;
+        }
+
         private void TaskbarBackground_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (e.Handled) return;
@@ -7554,6 +7699,11 @@ namespace Win7Taskbar
                     StartButton.IsChecked = false;
                 }
             }
+
+            /* RetroBar: unlocked bar, empty chrome, hold and drag to the
+             * top or bottom half of the screen. Buttons keep their own
+             * press (reorder / jump list / Start). */
+            TryBeginTaskbarEdgeDrag(e);
         }
 
         private void TaskbarBackground_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
