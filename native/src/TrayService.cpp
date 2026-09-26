@@ -2145,6 +2145,7 @@ bool TrayService::CreateWindows() {
     wc.style         = CS_DBLCLKS;
 
     if (!RegisterPrivateWindowClass(wc, m_trayClassOwned)) {
+        AppendCoreLog(L"tray: RegisterClass Shell_TrayWnd fallita");
         return false;
     }
 
@@ -2154,17 +2155,25 @@ bool TrayService::CreateWindows() {
     notifyWc.hInstance     = instance;
     notifyWc.lpszClassName = L"TrayNotifyWnd";
     if (!RegisterPrivateWindowClass(notifyWc, m_notifyClassOwned)) {
+        AppendCoreLog(L"tray: RegisterClass TrayNotifyWnd fallita");
         return false;
     }
 
+    /* Same geometry ManagedShell uses: a real topmost popup the width of
+     * the primary display and ~23 DIP tall. A 0x0 window is a valid
+     * FindWindow hit but some Shell_NotifyIcon callers skip empty rects. */
+    const int screenW = GetSystemMetrics(SM_CXSCREEN);
+    const int trayH = DefaultTrayHeightPx();
+
     m_trayWnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-        L"Shell_TrayWnd", nullptr,
-        WS_POPUP,
-        0, 0, 0, 0,
+        L"Shell_TrayWnd", L"",
+        WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+        0, 0, screenW, trayH,
         nullptr, nullptr, instance, nullptr);
 
     if (m_trayWnd == nullptr) {
+        AppendCoreLog(L"tray: CreateWindowEx Shell_TrayWnd fallita");
         return false;
     }
 
@@ -2172,10 +2181,11 @@ bool TrayService::CreateWindows() {
      * TrayNotifyWnd per posizionare i propri popup. */
     m_notifyWnd = CreateWindowExW(
         0, L"TrayNotifyWnd", nullptr,
-        WS_CHILD,
-        0, 0, 0, 0,
+        WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+        0, 0, screenW, trayH,
         m_trayWnd, nullptr, instance, nullptr);
     if (m_notifyWnd == nullptr) {
+        AppendCoreLog(L"tray: CreateWindowEx TrayNotifyWnd fallita");
         return false;
     }
 
@@ -2287,18 +2297,103 @@ bool TrayService::CreateWindows() {
         AppendCoreLog(L"tray: timer z-order non disponibile");
     }
 
-    /* Il messaggio TaskbarCreated si ASCOLTA e basta. Non si manda piu'
-     * all'avvio: il broadcast di andata innescava la doppia registrazione
-     * (l'icona resta in Explorer E arriva a noi come voce nuova), cioe'
-     * l'esatto "piu' icone della tray reale" che l'utente denuncia. Le
-     * icone gia' presenti le prende la prima passata di riconciliazione
-     * dalla toolbar di Explorer; quelle nuove nascono da NIM_ADD e basta.
-     * All'uscita il broadcast torna: serve a restituire le registrazioni
-     * alla shell vera. */
     m_taskbarCreatedMsg = RegisterWindowMessageW(L"TaskbarCreated");
+
+    /* Become the FindWindow("Shell_TrayWnd") target BEFORE asking apps
+     * to re-register. ManagedShell TrayService.Run() does Resume() then
+     * SendTaskbarCreated(); the one-shot timer waits for the message
+     * loop so z-order is actually applied. */
+    ResumeTrayReceiver();
+    if (SetTimer(m_trayWnd, kTimerTaskbarCreated, 300, nullptr) == 0) {
+        SendTaskbarCreated();
+    }
+
+    {
+        wchar_t line[192] = {};
+        swprintf(line, ARRAYSIZE(line),
+                 L"tray: Shell_TrayWnd hwnd=%p TrayNotifyWnd hwnd=%p size=%dx%d",
+                 m_trayWnd, m_notifyWnd, screenW, trayH);
+        AppendCoreLog(line);
+    }
 
     rollback.Dismiss();
     return true;
+}
+
+int TrayService::DefaultTrayHeightPx() const {
+    UINT dpi = 96;
+    try {
+        dpi = GetDpiForWindowSafe(m_trayWnd != nullptr ? m_trayWnd
+                                                       : GetDesktopWindow());
+    } catch (...) {
+        dpi = 96;
+    }
+    if (dpi < 96) {
+        dpi = 96;
+    }
+    return MulDiv(23, static_cast<int>(dpi), 96);
+}
+
+HWND TrayService::FindWindowsTray() const {
+    HWND candidate = nullptr;
+    HWND fallback = nullptr;
+    const DWORD ourPid = GetCurrentProcessId();
+    while ((candidate = FindWindowExW(nullptr, candidate,
+                                      L"Shell_TrayWnd", nullptr)) != nullptr) {
+        if (candidate == m_trayWnd) {
+            continue;
+        }
+        DWORD pid = 0;
+        GetWindowThreadProcessId(candidate, &pid);
+        if (pid == 0 || pid == ourPid) {
+            continue;
+        }
+        if (fallback == nullptr) {
+            fallback = candidate;
+        }
+        if (IsExplorerPid(pid)) {
+            return candidate;
+        }
+    }
+    return fallback;
+}
+
+void TrayService::SetWindowsTrayBottommost() {
+    const HWND explorerTray = FindWindowsTray();
+    if (explorerTray == nullptr || !IsWindow(explorerTray)) {
+        return;
+    }
+    m_hwndFwd = explorerTray;
+    SetWindowPos(explorerTray, HWND_BOTTOM, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+void TrayService::MakeTrayTopmost() {
+    if (m_trayWnd == nullptr || !IsWindow(m_trayWnd)) {
+        return;
+    }
+    SetWindowPos(m_trayWnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+void TrayService::ResumeTrayReceiver() {
+    SetWindowsTrayBottommost();
+    MakeTrayTopmost();
+}
+
+void TrayService::SendTaskbarCreated() {
+    if (m_taskbarCreatedSent) {
+        return;
+    }
+    if (m_taskbarCreatedMsg == 0) {
+        m_taskbarCreatedMsg = RegisterWindowMessageW(L"TaskbarCreated");
+    }
+    if (m_taskbarCreatedMsg == 0) {
+        return;
+    }
+    m_taskbarCreatedSent = true;
+    AppendCoreLog(L"tray: broadcast TaskbarCreated (apps re-register here)");
+    SendNotifyMessageW(HWND_BROADCAST, m_taskbarCreatedMsg, 0, 0);
 }
 
 void TrayService::MaintainTrayTopmost() {
@@ -2306,15 +2401,33 @@ void TrayService::MaintainTrayTopmost() {
         return;
     }
 
-    const HWND firstTray = FindWindowW(L"Shell_TrayWnd", nullptr);
+    HWND firstTray = FindWindowW(L"Shell_TrayWnd", L"");
+    if (firstTray == nullptr) {
+        firstTray = FindWindowW(L"Shell_TrayWnd", nullptr);
+    }
     if (firstTray == m_trayWnd) {
         return;
     }
 
-    /* Non si modifica la finestra di Explorer: si riafferma soltanto lo
-     * z-order della nostra finestra gia' registrata con WS_EX_TOPMOST. */
-    SetWindowPos(m_trayWnd, HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    ResumeTrayReceiver();
+}
+
+LRESULT TrayService::ForwardMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    try {
+        if (m_hwndFwd == nullptr || !IsWindow(m_hwndFwd)) {
+            m_hwndFwd = FindWindowsTray();
+        }
+        if (m_hwndFwd != nullptr && m_hwndFwd != hwnd && IsWindow(m_hwndFwd)) {
+            if (msg == kForwardPostMessage) {
+                PostMessageW(m_hwndFwd, msg, wParam, lParam);
+                return DefWindowProcW(hwnd, msg, wParam, lParam);
+            }
+            return SendMessageW(m_hwndFwd, msg, wParam, lParam);
+        }
+    } catch (...) {
+        AppendCoreLog(L"tray: ForwardMsg exception, falling back to DefWindowProc");
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 void TrayService::DestroyWindows() {
@@ -2366,10 +2479,13 @@ void TrayService::DestroyWindows() {
     if (m_trayWnd != nullptr) {
         KillTimer(m_trayWnd, kTimerBackstop);
         KillTimer(m_trayWnd, kTimerTrayMonitor);
+        KillTimer(m_trayWnd, kTimerTaskbarCreated);
         KillTimer(m_trayWnd, kTimerDebounce);
         KillTimer(m_trayWnd, kTimerSynthetic);
         KillTimer(m_trayWnd, kTimerBatteryFallback);
     }
+    m_hwndFwd = nullptr;
+    m_taskbarCreatedSent = false;
 
     // Unregister power notifications (RAII handles will auto-unregister)
     m_powerNotifyAc.reset();
@@ -2529,6 +2645,12 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
 
     /* Timer di coalescenza delle riconciliazioni e timer di sicurezza. */
     if (msg == WM_TIMER) {
+        if (static_cast<UINT_PTR>(wParam) == kTimerTaskbarCreated) {
+            KillTimer(hwnd, kTimerTaskbarCreated);
+            self.ResumeTrayReceiver();
+            self.SendTaskbarCreated();
+            return 0;
+        }
         if (static_cast<UINT_PTR>(wParam) == kTimerTrayMonitor) {
             self.MaintainTrayTopmost();
             return 0;
@@ -2682,6 +2804,21 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
      * con wParam=TRUE conferma che la sessione sta effettivamente
      * finendo (ENDSESSION_CLOSEAPP e' il caso che ci interessa per
      * l'app in esecuzione). */
+    if (msg == WM_WINDOWPOSCHANGED && lParam != 0) {
+        /* ManagedShell strips WS_VISIBLE if the spy window is shown so
+         * it never paints as a second taskbar. */
+        try {
+            const auto* wp = reinterpret_cast<const WINDOWPOS*>(lParam);
+            if (wp != nullptr && (wp->flags & SWP_SHOWWINDOW) != 0) {
+                const LONG style = GetWindowLongW(hwnd, GWL_STYLE);
+                if ((style & WS_VISIBLE) != 0) {
+                    SetWindowLongW(hwnd, GWL_STYLE, style & ~WS_VISIBLE);
+                }
+            }
+        } catch (...) {
+        }
+    }
+
     if (msg == WM_QUERYENDSESSION
         || (msg == WM_ENDSESSION && wParam != 0)) {
         /* wParam==TRUE a WM_ENDSESSION = la sessione sta realmente
@@ -2698,13 +2835,22 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
          * bandierina e si fa tutto tra poco su questo thread: il wndproc
          * non deve bloccarsi qui dentro. */
         self.m_explorerRestarted.store(true);
-        self.MaintainTrayTopmost();
+        self.ResumeTrayReceiver();
         /* WORKAROUND: la forma della tray puo' cambiare dopo il riavvio di
          * Explorer. La cache "Classic" del rilevatore Win11 deve quindi
          * essere invalidata prima della prossima riconciliazione. */
         Win11TrayReader::Instance().NoteExplorerRestart();
         self.ScheduleReconcile(kReconcileExplorer, 2500);
         return 0;
+    }
+
+    /* Unhandled shell protocol traffic (ManagedShell ForwardMsg): keep
+     * Explorer's real tray working under us. Do not forward messages we
+     * already consumed, or the task-switch query that must stay local. */
+    if (msg == WM_ACTIVATEAPP || msg == WM_COMMAND || msg >= WM_USER) {
+        if (msg != kTWMGetTaskSwitch) {
+            return self.ForwardMsg(hwnd, msg, wParam, lParam);
+        }
     }
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -2887,7 +3033,17 @@ LRESULT TrayService::HandleCopyData(HWND hwnd, WPARAM sender,
 
     bool forwarded = false;
     if (shouldForward) {
-        forwarded = ForwardCopyDataToExplorer(sender, cds);
+        /* dwData==1/3 that we applied locally stay here (we are the
+         * Shell_NotifyIcon destination). AppBar packets and parse
+         * failures still go to Explorer's real Shell_TrayWnd. */
+        const bool intercepted =
+            localHandled &&
+            cds != nullptr &&
+            (cds->dwData == kCopyDataTrayIcon ||
+             cds->dwData == kCopyDataIconRect);
+        if (!intercepted) {
+            forwarded = ForwardCopyDataToExplorer(sender, cds);
+        }
     }
     /* Un risultato non-zero significa che almeno il nostro percorso locale o
      * il destinatario Explorer ha ricevuto il pacchetto. Non si dichiara
@@ -2896,6 +3052,7 @@ LRESULT TrayService::HandleCopyData(HWND hwnd, WPARAM sender,
 }
 
 LRESULT TrayService::HandleCopyDataLocal(const COPYDATASTRUCT* cds) {
+    try {
     constexpr DWORD kMaxCopyDataBytes = 16u * 1024u * 1024u;
     if (cds == nullptr || cds->lpData == nullptr || cds->cbData == 0 ||
         cds->cbData > kMaxCopyDataBytes) {
@@ -3061,6 +3218,10 @@ LRESULT TrayService::HandleCopyDataLocal(const COPYDATASTRUCT* cds) {
     }
 
     return FALSE;
+    } catch (...) {
+        AppendCoreLog(L"copydata: eccezione nel parsing NOTIFYICONDATA, pacchetto ignorato");
+        return FALSE;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -3992,7 +4153,8 @@ void TrayService::ApplyWin11TraySnapshot() {
         for (auto& pair : m_icons) {
             TrayIconEntry& entry = pair.second;
             if (entry.uiaUid == item.uid ||
-                (entry.fromTrayNotify && entry.uiaUid == 0 &&
+                ((entry.fromTrayNotify || entry.fromCopyData) &&
+                 entry.uiaUid == 0 &&
                  !entry.tooltip.empty() && entry.tooltip == item.name)) {
                 entry.uiaUid = item.uid;
                 return pair.first;
@@ -4151,7 +4313,7 @@ void TrayService::ApplyWin11TraySnapshot() {
             /* Una voce gia' confermata da TrayNotify ha un canale live
              * WM_COPYDATA e non può essere cancellata perché UIA ha omesso
              * un elemento: la rimozione certa è NIM_DELETE o owner morto. */
-            if (entry.fromTrayNotify ||
+            if (entry.fromTrayNotify || entry.fromCopyData ||
                 (!entry.fromWin11Uia && entry.uiaUid == 0)) {
                 continue;
             }

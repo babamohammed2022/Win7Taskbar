@@ -330,6 +330,13 @@ private:
     bool CreateWindows();
     void DestroyWindows();
     void MaintainTrayTopmost();
+    void MakeTrayTopmost();
+    void SetWindowsTrayBottommost();
+    void ResumeTrayReceiver();
+    void SendTaskbarCreated();
+    HWND FindWindowsTray() const;
+    LRESULT ForwardMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    int DefaultTrayHeightPx() const;
 
     static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -503,6 +510,10 @@ private:
     std::atomic<DWORD> m_threadId{ 0 };
     HWND               m_trayWnd   = nullptr;
     HWND               m_notifyWnd = nullptr;
+    /* Explorer's Shell_TrayWnd, excluding this process. Cached for
+     * forwarding unhandled messages (ManagedShell HwndFwd). */
+    HWND               m_hwndFwd   = nullptr;
+    bool               m_taskbarCreatedSent = false;
     /* Proprietà esplicita delle classi locali: si annullano solo quelle
      * registrate da questa istanza, mai una classe riutilizzata. */
     HINSTANCE          m_windowInstance = nullptr;
@@ -543,6 +554,11 @@ private:
      * Serve solo a restare davanti alla tray reale per ricevere WM_COPYDATA;
      * si arresta insieme alle finestre del servizio. */
     static constexpr UINT kTimerTrayMonitor = 0xB6;
+    /* One-shot: after the receiver is topmost, ask applications to
+     * re-register via Shell_NotifyIcon (ManagedShell TrayService.Run). */
+    static constexpr UINT kTimerTaskbarCreated = 0xB7;
+    /* WM_USER+372 is posted, not sent, in ManagedShell. */
+    static constexpr UINT kForwardPostMessage = WM_USER + 372;
 
     std::atomic<uint32_t> m_pendingSources{ 0 };
     std::atomic<bool>     m_importDone{ false };

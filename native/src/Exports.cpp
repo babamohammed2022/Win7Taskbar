@@ -366,16 +366,20 @@ extern "C" W7T_API int32_t W7T_CALL W7T_AppBarRegister(uint64_t hwnd, int32_t ed
 extern "C" W7T_API int32_t W7T_CALL W7T_AppBarSetPos(uint64_t hwnd, int32_t edge, int32_t sizePx,
                                                      int32_t* outLeft, int32_t* outTop,
                                                      int32_t* outRight, int32_t* outBottom) {
-    RECT rect = {};
-    const int32_t result = AppBarService::Instance().SetPos(ToHwnd(hwnd), edge, sizePx, &rect);
-    if (result != W7T_OK) {
-        return result;
+    try {
+        RECT rect = {};
+        const int32_t result = AppBarService::Instance().SetPos(ToHwnd(hwnd), edge, sizePx, &rect);
+        if (result != W7T_OK) {
+            return result;
+        }
+        if (outLeft)   *outLeft   = rect.left;
+        if (outTop)    *outTop    = rect.top;
+        if (outRight)  *outRight  = rect.right;
+        if (outBottom) *outBottom = rect.bottom;
+        return W7T_OK;
+    } catch (...) {
+        return W7T_ERR_APPBAR;
     }
-    if (outLeft)   *outLeft   = rect.left;
-    if (outTop)    *outTop    = rect.top;
-    if (outRight)  *outRight  = rect.right;
-    if (outBottom) *outBottom = rect.bottom;
-    return W7T_OK;
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_AppBarUnregister(uint64_t hwnd) {
@@ -422,7 +426,11 @@ extern "C" W7T_API int32_t W7T_CALL W7T_AppBarActivate(uint64_t hwnd) {
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_SetNativeTaskbarHidden(int32_t hidden) {
-    return AppBarService::Instance().SetNativeTaskbarHidden(hidden != 0);
+    try {
+        return AppBarService::Instance().SetNativeTaskbarHidden(hidden != 0);
+    } catch (...) {
+        return W7T_ERR_APPBAR;
+    }
 }
 
 extern "C" W7T_API int32_t W7T_CALL W7T_IsNativeTaskbarHidden(void) {

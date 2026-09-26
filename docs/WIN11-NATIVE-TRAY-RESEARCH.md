@@ -201,9 +201,11 @@ and the product does not claim parity with Explorer's XAML tray.
 
 ## 6. Percorso legacy effettivamente usato dal servizio
 
-Il progetto crea sul proprio thread UI una finestra reale di classe
-`Shell_TrayWnd`, con figlia `TrayNotifyWnd`, prima di avviare l'importazione
-della toolbar. Per ogni `WM_COPYDATA` con `dwData == 1` il servizio tenta prima
+Il progetto registra prima l'AppBar (work area), poi crea sul proprio thread
+una finestra reale di classe `Shell_TrayWnd`, con figlia `TrayNotifyWnd`,
+la tiene topmost sopra quella di Explorer e invia `TaskbarCreated` una volta
+così le applicazioni già avviate ripetono `Shell_NotifyIcon` verso di noi.
+L'importazione della toolbar resta un fallback. Per ogni `WM_COPYDATA` con `dwData == 1` il servizio tenta prima
 l'elaborazione locale e poi usa `SendMessageTimeout(WM_COPYDATA)` sulla vera
 `Shell_TrayWnd` di `explorer.exe`, escludendo il proprio PID e preferendo la
 finestra con figlia `TrayNotifyWnd` (con fallback alla finestra dello stesso

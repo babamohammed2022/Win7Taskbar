@@ -28,6 +28,12 @@ TaskbarCreated
   -> riapertura reale del chevron solo per la raccolta overflow
 ```
 
+All'avvio l'AppBar/work area viene registrata **prima** di `Shell_TrayWnd`. Il
+ricevitore tray si mette topmost, spinge la `Shell_TrayWnd` di Explorer in
+fondo, poi invia `TaskbarCreated` una volta così le applicazioni già avviate
+rieseguono `Shell_NotifyIcon` verso di noi. Alla chiusura il broadcast viene
+ripetuto per restituire le registrazioni a Explorer.
+
 `WM_COPYDATA` è la fonte live per le applicazioni. `ITrayNotify`/`ITrayNotifyWin8`
 è una tecnica privata di compatibilità e serve alla fotografia/callback di
 Explorer; non è presentata come API Microsoft pubblica. La toolbar e UIA sono

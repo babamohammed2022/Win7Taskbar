@@ -139,9 +139,18 @@ private:
      * filtrato sulle classi della barra, sveglia un thread addormentato
      * che rinasconde. Nessun polling, e il lampo dura quanto un evento. */
     static UINT GetNativeTaskbarState();
-    static void SetNativeTaskbarState(UINT state);
+    static UINT SetNativeTaskbarState(UINT state);
     void SetNativeTaskbarVisibility(bool hide);
     void DoHideNativeTaskbar();
+
+    /* Work-area reservation. ABM_SETPOS is the documented path; on
+     * Windows 11 the XAML taskbar can ignore ABS_AUTOHIDE and restore
+     * SPI_GETWORKAREA, so a reversible SPI_SETWORKAREA fallback is used
+     * only when the negotiated bar still overlaps the work area. */
+    void CaptureOriginalWorkArea(HWND hwnd);
+    void EnsureWorkAreaReserved(HWND hwnd, int32_t edge, const RECT& barRect);
+    void RestoreWorkArea();
+    static bool BarOverlapsWorkArea(const RECT& work, const RECT& bar);
 
     static void CALLBACK HideWatcherProc(HWINEVENTHOOK hook, DWORD event,
                                          HWND hwnd, LONG idObject, LONG idChild,
@@ -183,6 +192,12 @@ private:
     HWINEVENTHOOK     m_fgHook     = nullptr;
     int32_t m_edge          = W7T_EDGE_BOTTOM;
     int32_t m_size          = 40;
+
+    bool      m_workAreaCaptured = false;
+    bool      m_workAreaOwned    = false;
+    RECT      m_savedWorkArea    = {};
+    RECT      m_savedMonitorRect = {};
+    HMONITOR  m_savedMonitor     = nullptr;
 
     /* v3.15 - anti ping-pong AppBar (barra che si congela a CPU alta,
      * soprattutto sui bordi verticali):

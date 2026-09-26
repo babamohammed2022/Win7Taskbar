@@ -33,20 +33,32 @@ namespace {
  * e non compare mai a schermo: non serve sorvegliarla. */
 constexpr wchar_t kFlip3dOverlayClass[] = L"Flip3DOverlayWndClass";
 
-/* Diagnostica soltanto: l'area di lavoro viene letta con l'API pubblica
- * SPI_GETWORKAREA, mai scritta implicitamente. SPI_SETWORKAREA altererebbe
- * anche le riserve di altre AppBar e per questo non fa parte del percorso
- * normale di Win7Taskbar. */
+/* Work-area diagnostics. SPI_GETWORKAREA is always logged; SPI_SETWORKAREA
+ * is a reversible fallback used only when ABM_SETPOS did not shrink rcWork. */
 void LogAppBarDiagnostics(const wchar_t* phase, HWND appbar,
                          const RECT* negotiated) {
     RECT windowRect = {};
     RECT workArea = {};
+    RECT monWork = {};
+    RECT monFull = {};
     const bool haveWindow = appbar != nullptr && GetWindowRect(appbar, &windowRect);
     const bool haveWork = SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0) != FALSE;
-    wchar_t line[320] = {};
+    bool haveMon = false;
+    if (appbar != nullptr) {
+        HMONITOR mon = MonitorFromWindow(appbar, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = {};
+        mi.cbSize = sizeof(mi);
+        if (mon != nullptr && GetMonitorInfoW(mon, &mi)) {
+            monWork = mi.rcWork;
+            monFull = mi.rcMonitor;
+            haveMon = true;
+        }
+    }
+    wchar_t line[448] = {};
     swprintf(line, ARRAYSIZE(line),
              L"appbar: %ls hwnd=%p negotiated=(%ld,%ld)-(%ld,%ld) "
-             L"window=%ls(%ld,%ld)-(%ld,%ld) workarea=%ls(%ld,%ld)-(%ld,%ld)",
+             L"window=%ls(%ld,%ld)-(%ld,%ld) spi_work=%ls(%ld,%ld)-(%ld,%ld) "
+             L"mon_work=%ls(%ld,%ld)-(%ld,%ld) mon=(%ld,%ld)-(%ld,%ld)",
              phase != nullptr ? phase : L"state",
              appbar,
              negotiated != nullptr ? negotiated->left : 0L,
@@ -62,10 +74,146 @@ void LogAppBarDiagnostics(const wchar_t* phase, HWND appbar,
              haveWork ? workArea.left : 0L,
              haveWork ? workArea.top : 0L,
              haveWork ? workArea.right : 0L,
-             haveWork ? workArea.bottom : 0L);
+             haveWork ? workArea.bottom : 0L,
+             haveMon ? L"yes" : L"no",
+             haveMon ? monWork.left : 0L,
+             haveMon ? monWork.top : 0L,
+             haveMon ? monWork.right : 0L,
+             haveMon ? monWork.bottom : 0L,
+             haveMon ? monFull.left : 0L,
+             haveMon ? monFull.top : 0L,
+             haveMon ? monFull.right : 0L,
+             haveMon ? monFull.bottom : 0L);
     AppendCoreLog(line);
 }
 } /* namespace */
+
+bool AppBarService::BarOverlapsWorkArea(const RECT& work, const RECT& bar) {
+    RECT isect = {};
+    if (IntersectRect(&isect, &work, &bar) == FALSE) {
+        return false;
+    }
+    return (isect.right - isect.left) > 2 && (isect.bottom - isect.top) > 2;
+}
+
+void AppBarService::CaptureOriginalWorkArea(HWND hwnd) {
+    if (m_workAreaCaptured) {
+        return;
+    }
+    try {
+        HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = {};
+        mi.cbSize = sizeof(mi);
+        if (mon != nullptr && GetMonitorInfoW(mon, &mi)) {
+            m_savedMonitor = mon;
+            m_savedMonitorRect = mi.rcMonitor;
+            m_savedWorkArea = mi.rcWork;
+            m_workAreaCaptured = true;
+        } else if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &m_savedWorkArea, 0)) {
+            m_workAreaCaptured = true;
+        }
+        LogAppBarDiagnostics(L"workarea originale", hwnd, &m_savedWorkArea);
+    } catch (...) {
+        AppendCoreLog(L"appbar: eccezione catturando work area originale");
+    }
+}
+
+void AppBarService::EnsureWorkAreaReserved(HWND hwnd, int32_t edge,
+                                           const RECT& barRect) {
+    if (hwnd == nullptr || !IsWindow(hwnd)) {
+        return;
+    }
+    if (barRect.right <= barRect.left || barRect.bottom <= barRect.top) {
+        return;
+    }
+
+    try {
+        LogAppBarDiagnostics(L"prima EnsureWorkArea", hwnd, &barRect);
+
+        HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = {};
+        mi.cbSize = sizeof(mi);
+        RECT work = {};
+        if (mon != nullptr && GetMonitorInfoW(mon, &mi)) {
+            work = mi.rcWork;
+        } else if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0)) {
+            AppendCoreLog(L"appbar: SPI_GETWORKAREA fallita, overlay fallback");
+            return;
+        }
+
+        if (!BarOverlapsWorkArea(work, barRect)) {
+            LogAppBarDiagnostics(L"workarea gia' riservata", hwnd, &barRect);
+            return;
+        }
+
+        RECT desired = work;
+        switch (edge) {
+            case W7T_EDGE_TOP:
+                if (desired.top < barRect.bottom) {
+                    desired.top = barRect.bottom;
+                }
+                break;
+            case W7T_EDGE_LEFT:
+                if (desired.left < barRect.right) {
+                    desired.left = barRect.right;
+                }
+                break;
+            case W7T_EDGE_RIGHT:
+                if (desired.right > barRect.left) {
+                    desired.right = barRect.left;
+                }
+                break;
+            case W7T_EDGE_BOTTOM:
+            default:
+                if (desired.bottom > barRect.top) {
+                    desired.bottom = barRect.top;
+                }
+                break;
+        }
+
+        if (desired.right <= desired.left || desired.bottom <= desired.top) {
+            AppendCoreLog(L"appbar: SPI_SETWORKAREA saltata, rect degenerata");
+            return;
+        }
+
+        /* SPIF_SENDCHANGE only: never write the user profile / registry. */
+        const BOOL ok = SystemParametersInfoW(SPI_SETWORKAREA, 0, &desired,
+                                              SPIF_SENDCHANGE);
+        if (ok) {
+            m_workAreaOwned = true;
+            AppendCoreLog(L"appbar: SPI_SETWORKAREA applicata (ABM_SETPOS non ha ridotto il work area)");
+        } else {
+            wchar_t line[160] = {};
+            swprintf(line, ARRAYSIZE(line),
+                     L"appbar: SPI_SETWORKAREA fallita err=%lu, resto overlay",
+                     static_cast<unsigned long>(GetLastError()));
+            AppendCoreLog(line);
+        }
+        LogAppBarDiagnostics(L"dopo EnsureWorkArea", hwnd, &desired);
+    } catch (...) {
+        AppendCoreLog(L"appbar: eccezione in EnsureWorkAreaReserved, overlay fallback");
+    }
+}
+
+void AppBarService::RestoreWorkArea() {
+    if (!m_workAreaOwned && !m_workAreaCaptured) {
+        return;
+    }
+    try {
+        if (m_workAreaOwned &&
+            m_savedWorkArea.right > m_savedWorkArea.left &&
+            m_savedWorkArea.bottom > m_savedWorkArea.top) {
+            SystemParametersInfoW(SPI_SETWORKAREA, 0, &m_savedWorkArea,
+                                  SPIF_SENDCHANGE);
+            AppendCoreLog(L"appbar: SPI_SETWORKAREA ripristinata");
+            LogAppBarDiagnostics(L"workarea ripristinata", m_hwnd, &m_savedWorkArea);
+        }
+    } catch (...) {
+        AppendCoreLog(L"appbar: eccezione ripristinando il work area");
+    }
+    m_workAreaOwned = false;
+    m_workAreaCaptured = false;
+}
 
 AppBarService& AppBarService::Instance() {
     static AppBarService instance;
@@ -148,16 +296,28 @@ int32_t AppBarService::Register(HWND hwnd, int32_t edge, int32_t sizePx) {
     m_registered = true;
     m_edge       = edge;
     m_size       = sizePx;
+    CaptureOriginalWorkArea(hwnd);
+    LogAppBarDiagnostics(L"dopo ABM_NEW", hwnd, nullptr);
 
     RECT reserved = {};
-    const int32_t positioned = SetPos(hwnd, edge, sizePx, &reserved);
+    int32_t positioned = W7T_ERR_APPBAR;
+    try {
+        positioned = SetPos(hwnd, edge, sizePx, &reserved);
+    } catch (...) {
+        AppendCoreLog(L"appbar: SetPos ha sollevato, overlay fallback");
+        positioned = W7T_ERR_APPBAR;
+    }
 
     /* v1.21.51: con la barra registrata parte anche la sorveglianza
      * dell'overlay della mod Flip 3D (vedere il blocco commentato in
      * AppBarService.h). Si installa solo a registrazione riuscita: senza
      * una nostra finestra la guardia non ha nulla da proteggere. */
     if (positioned == W7T_OK) {
-        StartFlipWatch();
+        try {
+            StartFlipWatch();
+        } catch (...) {
+            AppendCoreLog(L"appbar: StartFlipWatch ha sollevato");
+        }
     }
 
     return positioned;
@@ -190,6 +350,7 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
         if (out != nullptr) {
             *out = m_lastRect;
         }
+        EnsureWorkAreaReserved(hwnd, edge, m_lastRect);
         return W7T_OK;
     }
     /* RAII: ogni ritorno anticipato, compreso un fault SEH nella chiamata
@@ -374,6 +535,7 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
     m_lastRect      = abd.rc;
     m_haveLastRect  = true;
     m_lastSetPosTick = GetTickCount64();
+    EnsureWorkAreaReserved(hwnd, edge, abd.rc);
     if (rectChanged) {
         /* La shell deve sapere che il nostro rettangolo e' cambiato: le
          * altre AppBar ricalcolano la loro posizione rispetto alla nostra
@@ -568,6 +730,8 @@ int32_t AppBarService::Unregister(HWND hwnd) {
     } W7T_SEH_CATCH {
     } W7T_SEH_END
 
+    RestoreWorkArea();
+
     m_registered    = false;
     m_hwnd          = nullptr;
     m_haveLastRect  = false;  /* rettangolo stantio: non riusarlo */
@@ -594,15 +758,37 @@ UINT AppBarService::GetNativeTaskbarState() {
     return SHAppBarMessage(ABM_GETSTATE, &abd);
 }
 
-void AppBarService::SetNativeTaskbarState(UINT state) {
+UINT AppBarService::SetNativeTaskbarState(UINT state) {
     APPBARDATA abd = {};
     abd.cbSize = sizeof(abd);
     abd.hWnd   = FindNativeTaskbar();
     if (abd.hWnd == nullptr) {
-        return;
+        AppendCoreLog(L"appbar: ABM_SETSTATE saltata, Shell_TrayWnd nativa assente");
+        return 0;
     }
     abd.lParam = static_cast<LPARAM>(state);
-    SHAppBarMessage(ABM_SETSTATE, &abd);
+    UINT_PTR result = 0;
+    W7T_SEH_TRY {
+        try {
+            result = SHAppBarMessage(ABM_SETSTATE, &abd);
+        } catch (...) {
+            result = 0;
+        }
+    } W7T_SEH_CATCH {
+        result = 0;
+    } W7T_SEH_END
+    const UINT after = GetNativeTaskbarState();
+    wchar_t line[192] = {};
+    swprintf(line, ARRAYSIZE(line),
+             L"appbar: ABM_SETSTATE richiesto=0x%x ritorno=%lu getstate=0x%x",
+             static_cast<unsigned>(state),
+             static_cast<unsigned long>(result),
+             static_cast<unsigned>(after));
+    AppendCoreLog(line);
+    if ((state & ABS_AUTOHIDE) != 0 && (after & ABS_AUTOHIDE) == 0) {
+        AppendCoreLog(L"appbar: ABS_AUTOHIDE non applicato dalla shell (tipico Win11 XAML)");
+    }
+    return after;
 }
 
 void AppBarService::SetNativeTaskbarVisibility(bool hide) {
@@ -639,6 +825,9 @@ void AppBarService::DoHideNativeTaskbar() {
     SetNativeTaskbarState(ABS_AUTOHIDE);
     SetNativeTaskbarVisibility(true);
     LogAppBarDiagnostics(L"dopo DoHideNativeTaskbar", FindNativeTaskbar(), nullptr);
+    if (m_registered && m_hwnd != nullptr && m_haveLastRect) {
+        EnsureWorkAreaReserved(m_hwnd, m_edge, m_lastRect);
+    }
 }
 
 namespace {

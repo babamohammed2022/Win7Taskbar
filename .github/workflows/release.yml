@@ -101,7 +101,7 @@ jobs:
         if: >-
           github.event_name == 'workflow_dispatch' ||
           (github.event_name == 'pull_request' &&
-           github.head_ref == 'arena/01a0d8f1-win7taskbar')
+           github.head_ref == 'arena/01a0dc99-win7taskbar')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ci-trial-${{ github.run_number }}
@@ -110,12 +110,30 @@ jobs:
           draft: false
           prerelease: true
           body: |
-            **Release di prova** generata da una run manuale della CI
-            (commit `${{ github.sha }}`). Non e' una release ufficiale.
+            **Trial build** from CI (commit `${{ github.sha }}`). Not an official release.
 
-            Pacchetto **self-contained** per Windows 10/11 **x64**: scarica lo
-            zip, scompatta tutta la cartella e avvia `Win7Taskbar.exe`.
-            Non serve installare .NET.
+            ## Installation and Setup
+            Self-contained package for Windows 10/11 **x64**. Extract the whole
+            folder (`Themes\`, `Resources\` and `Languages\` must stay next to
+            `Win7Taskbar.exe`) and run `Win7Taskbar.exe`. No .NET install is required.
+
+            ## Application Management
+            Right-click the clock → Properties → "Close Win7Taskbar".
+
+            ## Feature Status
+            This build registers an owned `Shell_TrayWnd` so applications send
+            `Shell_NotifyIcon` here (Windows 11 without ExplorerPatcher), and
+            reserves the work area as an AppBar so maximized windows do not
+            cover the bar. Thumbnails and other features follow FEATURE-STATUS.md.
+
+            ## Core DLL Auto-Repair
+            If `Win7TaskbarCore.dll` next to the exe is missing or from another
+            build, the copy embedded in `Win7Taskbar.dll` is restored (next to
+            the exe, or `%LOCALAPPDATA%\Win7Taskbar\core`).
+
+            ## Diagnostics and Bug Reporting
+            Startup failures are logged by StartupGuard. Attach `%LOCALAPPDATA%\Win7Taskbar`
+            logs when reporting an issue.
 
       - name: Attach the package to the release
         if: startsWith(github.ref, 'refs/tags/v')

@@ -591,6 +591,27 @@ namespace Win7Taskbar
             // previews already open update without restarting the application.
             UpdateDwmPreviewAccentColor();
 
+            /* AppBar / work area FIRST, then Shell_TrayWnd. SHAppBarMessage
+             * talks to FindWindow("Shell_TrayWnd"): if we own that class
+             * before ABM_NEW, Explorer never sees the reservation and
+             * maximized windows cover the bar. */
+            RunStage("stili-finestra", () => ApplyTaskbarWindowStyles(helper.Handle));
+            RunStage("dpi", UpdateDpiScaling);
+            RunStage("posizione", PositionOnScreen);
+
+            if (StartupGuard.SafeMode)
+            {
+                StartupGuard.Note("modalita' provvisoria: saltati AppBar e nascondimento della barra nativa");
+                RunStage("ripristina-barra-nativa",
+                         () => _bridge.SetNativeTaskbarHidden(false));
+            }
+            else
+            {
+                RunStage("appbar", RegisterAppBar);
+                RunStage("nascondi-barra-nativa", () => _bridge.SetNativeTaskbarHidden(true));
+                RunStage("appbar-dopo-autohide", UpdateAppBarPosition);
+            }
+
             /* Il server tray deve possedere davvero Shell_TrayWnd prima che
              * Explorer o una nuova applicazione possa inviare WM_COPYDATA.
              * StartTray non e' una notifica ottimistica: una creazione fallita
@@ -631,23 +652,7 @@ namespace Win7Taskbar
                 }
             });
 
-            RunStage("stili-finestra", () => ApplyTaskbarWindowStyles(helper.Handle));
-            RunStage("dpi", UpdateDpiScaling);
-            RunStage("posizione", PositionOnScreen);
-
             RunStage("importa-icone-explorer", ImportExplorerIconsWithRetry);
-
-            if (StartupGuard.SafeMode)
-            {
-                StartupGuard.Note("modalita' provvisoria: saltati AppBar e nascondimento della barra nativa");
-                RunStage("ripristina-barra-nativa",
-                         () => _bridge.SetNativeTaskbarHidden(false));
-            }
-            else
-            {
-                RunStage("nascondi-barra-nativa", () => _bridge.SetNativeTaskbarHidden(true));
-                RunStage("appbar", RegisterAppBar);
-            }
 
             AppDomain.CurrentDomain.ProcessExit += OnProcessExitRestoreTaskbar;
 

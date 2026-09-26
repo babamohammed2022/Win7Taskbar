@@ -475,7 +475,12 @@
          non appaiono piu' dopo la v3.13 - quando nemmeno la
          ricostruzione padre+relativo (v3.15) produce un parsing name,
          la voce resta pubblicata col nome mostrato come prima di v3.13. -->
-    <Version>1.3.37-alpha</Version>
+    <!-- 1.3.38-alpha: Windows 11 tray icons via a real owned Shell_TrayWnd
+         (ManagedShell-style topmost + TaskbarCreated re-registration) and
+         AppBar work-area reservation (ABM_SETPOS first, then native
+         autohide, SPI_SETWORKAREA fallback when the XAML bar ignores
+         ABS_AUTOHIDE) so maximized windows no longer cover the bar. -->
+    <Version>1.3.38-alpha</Version>
     <AssemblyVersion>1.3.26.0</AssemblyVersion>
     <FileVersion>1.3.26.0</FileVersion>
   
