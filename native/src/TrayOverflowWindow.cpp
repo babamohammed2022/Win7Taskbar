@@ -12,8 +12,6 @@
 #include <wingdi.h>
 #include <cstring>
 #include "SehGuard.h"
-#include "AppBarService.h"
-#include "Common.h"
 namespace w7t {
 
 namespace {
@@ -234,63 +232,46 @@ void ComputeOverflowNear(const RECT& btn, int w, int h, int& x, int& y) {
     const int gapY = (6 + (h * 3) / 100) + (h * 45) / 1000;
     const int gapX = 6;
 
-    /* Clamp al MONITOR che ospita la freccetta, non al work area:
-     * se SPI e' in ritardo rcWork e' ancora quello del bordo vecchio
-     * e il pannello finiva sopra lo schermo con la barra in alto. */
-    RECT monRc{ 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
+    RECT wa{ 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
     try {
         HMONITOR mon = MonitorFromRect(&btn, MONITOR_DEFAULTTONEAREST);
         MONITORINFO mi{};
         mi.cbSize = sizeof(mi);
         if (mon != nullptr && GetMonitorInfoW(mon, &mi)) {
-            monRc = mi.rcMonitor;
+            wa = mi.rcWork;
         }
     } catch (...) {
+        /* fallback: l'area resta lo schermo intero primario */
     }
 
     const int cx = (btn.left + btn.right) / 2;
     const int cy = (btn.top + btn.bottom) / 2;
-    /* Bordo vero della AppBar, non indovinato da rcWork. Left/Right
-     * restano fuori scopo: si tratta come Bottom (sopra la freccia). */
-    int32_t edge = W7T_EDGE_BOTTOM;
-    try {
-        edge = AppBarService::Instance().DockEdge();
-    } catch (...) {
-        edge = W7T_EDGE_BOTTOM;
-    }
-
-    switch (edge) {
-        case W7T_EDGE_TOP:
-            x = cx - w / 2;
-            y = btn.bottom + gapY;
-            break;
-        case W7T_EDGE_LEFT:
-            x = btn.right + gapX;
-            y = cy - h / 2;
-            break;
-        case W7T_EDGE_RIGHT:
-            x = btn.left - w - gapX;
-            y = cy - h / 2;
-            break;
-        case W7T_EDGE_BOTTOM:
-        default:
-            x = cx - w / 2;
-            y = btn.top - h - gapY;
-            break;
-    }
-
-    if (x < monRc.left + 2) x = monRc.left + 2;
-    if (x + w > monRc.right - 2) x = monRc.right - w - 2;
-    if (edge == W7T_EDGE_TOP) {
-        if (y < btn.bottom) y = btn.bottom + 2;
-        if (y + h > monRc.bottom - 2) y = monRc.bottom - h - 2;
-    } else if (edge == W7T_EDGE_BOTTOM) {
-        if (y + h > btn.top) y = btn.top - h - 2;
-        if (y < monRc.top + 2) y = monRc.top + 2;
+    if (btn.top <= wa.top + 4) {
+        /* barra in alto: SOTTO la freccetta */
+        x = cx - w / 2;
+        y = btn.bottom + gapY;
+    } else if (btn.bottom >= wa.bottom - 4) {
+        /* barra in basso: sopra la freccetta (comportamento storico) */
+        x = cx - w / 2;
+        y = btn.top - h - gapY;
+    } else if (btn.left <= wa.left + 4) {
+        /* barra a sinistra: a destra della freccetta */
+        x = btn.right + gapX;
+        y = cy - h / 2;
+    } else if (btn.right >= wa.right - 4) {
+        /* barra a destra: a sinistra della freccetta */
+        x = btn.left - w - gapX;
+        y = cy - h / 2;
     } else {
-        if (y < monRc.top + 2) y = monRc.top + 2;
-        if (y + h > monRc.bottom - 2) y = monRc.bottom - h - 2;
+        /* freccetta lontana dai bordi (layout libero): sopra */
+        x = cx - w / 2;
+        y = btn.top - h - gapY;
     }
+
+    if (x < wa.left + 2) x = wa.left + 2;
+    if (y < wa.top + 2) y = wa.top + 2;
+    if (x + w > wa.right - 2) x = wa.right - w - 2;
+    if (y + h > wa.bottom - 2) y = wa.bottom - h - 2;
 }
 } /* namespace */
 

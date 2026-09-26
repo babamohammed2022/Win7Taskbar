@@ -215,22 +215,9 @@ BOOL CALLBACK SnapMaximizedEnumProc(HWND hwnd, LPARAM lp) {
     if (!GetWindowRect(hwnd, &vis) ||
         vis.left != data->work.left || vis.top != data->work.top ||
         vis.right != data->work.right || vis.bottom != data->work.bottom) {
-        /* SetWindowPos on a WS_MAXIMIZE hwnd is a documented no-op.
-         * Drop the bit, pose on the same work RECT used by SPI, then
-         * restore WS_MAXIMIZE. Same path for Top and Bottom. */
-        const UINT flags = SWP_NOZORDER | SWP_NOACTIVATE |
-                           SWP_NOOWNERZORDER | SWP_FRAMECHANGED;
-        LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-        if ((style & WS_MAXIMIZE) != 0) {
-            SetWindowLongPtrW(hwnd, GWL_STYLE, style & ~WS_MAXIMIZE);
-        }
         SetWindowPos(hwnd, nullptr,
-                     data->work.left, data->work.top, width, height, flags);
-        if ((style & WS_MAXIMIZE) != 0) {
-            SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_MAXIMIZE);
-            SetWindowPos(hwnd, nullptr,
-                         data->work.left, data->work.top, width, height, flags);
-        }
+                     data->work.left, data->work.top, width, height,
+                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     }
     ++data->moved;
     return TRUE;
@@ -330,8 +317,9 @@ void AppBarService::EnsureWorkAreaReserved(HWND hwnd, int32_t edge,
         LogAppBarDiagnostics(L"dopo EnsureWorkArea", hwnd, &desired);
         (void)current;
 
-        /* After SPI, remmaximize: SetWindowPos on WS_MAXIMIZE is a no-op.
-         * Same enumerator for Top and Bottom (work RECT already matches edge). */
+        /* Win11 maximized windows often keep using the full monitor while
+         * Explorer's taskbar is ABS_AUTOHIDE. Move any that still sit under
+         * our bar so the caption/min/max/close row is in the work area. */
         SnapMaximizedAwayFromBar(mon, hwnd, barRect, desired);
         TrayOverlayKill_PushWorkArea(edge, barRect, desired);
     } catch (...) {

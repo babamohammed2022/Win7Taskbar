@@ -74,9 +74,6 @@ namespace Win7Taskbar.StartMenu
             new("000214E4-0000-0000-C000-000000000046");
         private static readonly Guid IidQueryInfo =
             new("00021500-0000-0000-C000-000000000046");
-        /* IExtractIconW: GetUIObjectOf takes a relative child PIDL. */
-        private static readonly Guid IidExtractIconW =
-            new("000214FA-0000-0000-C000-000000000046");
         private static readonly Guid ClsidAllItems =
             new("21EC2020-3AEA-1069-A2DD-08002B30309D");
         private static readonly Guid ClsidCategoryView =
@@ -138,21 +135,15 @@ namespace Win7Taskbar.StartMenu
             }
             try
             {
-                /* Absolute PIDL + SEE_MASK_INVOKEIDLIST (includes IDLIST).
-                 * ShellExecuteEx TRUE is success; hInstApp>32 is only
-                 * meaningful with SEE_MASK_NOCLOSEPROCESS and was eating
-                 * every click. Default verb is NULL, never "open". */
-                int seeErr = 0;
-                int hInst = 0;
-                if (item.Pidl != IntPtr.Zero &&
-                    ShellExecutePidl(item.Pidl, out seeErr, out hInst))
-                {
-                    LogLaunch(item, "ShellExecuteEx pidl", true, seeErr, hInst);
-                    return true;
-                }
                 if (InvokeDefaultVerb(item))
                 {
                     LogLaunch(item, "IContextMenu", true, 0, 0);
+                    return true;
+                }
+                if (item.Pidl != IntPtr.Zero &&
+                    ShellExecutePidl(item.Pidl, out int seeErr, out int hInst))
+                {
+                    LogLaunch(item, "ShellExecuteEx pidl", true, seeErr, hInst);
                     return true;
                 }
                 string raw = item.ParsingName ?? string.Empty;
@@ -276,7 +267,7 @@ namespace Win7Taskbar.StartMenu
                 bool ok = NativeMethods.ShellExecuteExW(ref info);
                 win32 = Marshal.GetLastWin32Error();
                 hInst = unchecked((int)info.hInstApp.ToInt64());
-                return ok;
+                return ok && (long)info.hInstApp > 32;
             }
             catch (Exception)
             {
@@ -301,7 +292,7 @@ namespace Win7Taskbar.StartMenu
                 bool ok = NativeMethods.ShellExecuteExW(ref info);
                 win32 = Marshal.GetLastWin32Error();
                 hInst = unchecked((int)info.hInstApp.ToInt64());
-                return ok;
+                return ok && (long)info.hInstApp > 32;
             }
             catch (Exception)
             {
@@ -974,8 +965,7 @@ namespace Win7Taskbar.StartMenu
             {
                 parse = kAllItems + "\\" + name;
             }
-            ImageSource? icon = IconFromExtractIcon(folder, child)
-                ?? IconFromPidl(full != IntPtr.Zero ? full : child);
+            ImageSource? icon = IconFromPidl(full != IntPtr.Zero ? full : child);
             return new ControlPanelItem
             {
                 Name = name.Trim(),
@@ -1285,72 +1275,6 @@ namespace Win7Taskbar.StartMenu
             return string.Empty;
         }
 
-        private static ImageSource? IconFromExtractIcon(IShellFolder folder, IntPtr relative)
-        {
-            if (folder == null || relative == IntPtr.Zero)
-            {
-                return null;
-            }
-            IntPtr array = IntPtr.Zero;
-            IntPtr extractPtr = IntPtr.Zero;
-            IntPtr large = IntPtr.Zero;
-            IntPtr small = IntPtr.Zero;
-            try
-            {
-                array = Marshal.AllocHGlobal(IntPtr.Size);
-                Marshal.WriteIntPtr(array, relative);
-                Guid iid = IidExtractIconW;
-                if (folder.GetUIObjectOf(IntPtr.Zero, 1, array, ref iid,
-                        IntPtr.Zero, out extractPtr) != 0 ||
-                    extractPtr == IntPtr.Zero)
-                {
-                    return null;
-                }
-                var extract = (IExtractIconW)Marshal.GetObjectForIUnknown(extractPtr);
-                var file = new StringBuilder(260);
-                if (extract.GetIconLocation(0, file, (uint)file.Capacity,
-                        out int index, out uint flags) != 0)
-                {
-                    return null;
-                }
-                uint size = 16u | (32u << 16);
-                int hr = extract.Extract(file.ToString(), (uint)index,
-                    out large, out small, size);
-                IntPtr use = small != IntPtr.Zero ? small : large;
-                if (hr != 0 || use == IntPtr.Zero)
-                {
-                    return null;
-                }
-                ImageSource src = Imaging.CreateBitmapSourceFromHIcon(
-                    use, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                src.Freeze();
-                return src;
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-            finally
-            {
-                if (small != IntPtr.Zero)
-                {
-                    DestroyIcon(small);
-                }
-                if (large != IntPtr.Zero)
-                {
-                    DestroyIcon(large);
-                }
-                if (extractPtr != IntPtr.Zero)
-                {
-                    try { Marshal.Release(extractPtr); } catch (Exception) { }
-                }
-                if (array != IntPtr.Zero)
-                {
-                    Marshal.FreeHGlobal(array);
-                }
-            }
-        }
-
         private static ImageSource? IconFromPidl(IntPtr pidl)
         {
             if (pidl == IntPtr.Zero)
@@ -1360,7 +1284,7 @@ namespace Win7Taskbar.StartMenu
             var info = new NativeMethods.SHFILEINFOW();
             IntPtr result = NativeMethods.SHGetFileInfoPidl(pidl, 0, ref info,
                 (uint)Marshal.SizeOf<NativeMethods.SHFILEINFOW>(),
-                ShgfiPidl | ShgfiIcon | ShgfiSmallIcon);
+                ShgfiPidl | ShgfiIcon | ShgfiSmallIcon | ShgfiDisplayName);
             if (result == IntPtr.Zero || info.hIcon == IntPtr.Zero)
             {
                 return StartMenuIcons.FromDll("imageres.dll", 22, 16);
@@ -1507,21 +1431,6 @@ namespace Win7Taskbar.StartMenu
         {
             [PreserveSig] int GetInfoTip(uint dwFlags, out IntPtr ppwszTip);
             [PreserveSig] int GetInfoFlags(out uint pdwFlags);
-        }
-
-        [ComImport]
-        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        [Guid("000214FA-0000-0000-C000-000000000046")]
-        private interface IExtractIconW
-        {
-            [PreserveSig]
-            int GetIconLocation(uint uFlags,
-                [MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszIconFile,
-                uint cchMax, out int piIndex, out uint pwFlags);
-            [PreserveSig]
-            int Extract([MarshalAs(UnmanagedType.LPWStr)] string pszFile,
-                uint nIconIndex, out IntPtr phiconLarge, out IntPtr phiconSmall,
-                uint nIconSize);
         }
 
         [StructLayout(LayoutKind.Sequential)]
