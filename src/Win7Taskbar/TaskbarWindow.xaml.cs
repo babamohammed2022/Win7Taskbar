@@ -2171,6 +2171,7 @@ namespace Win7Taskbar
                 _viewModel.NotificationArea.ClearBalloonPromotions();
             }
             _globalMouseHook?.Dispose();
+            EndEdgeDrag();
             try
             {
                 Win7Taskbar.StartMenu.StartMenuHost.MenuVisibilityChanged -= OnOurStartMenuVisibility;
@@ -7459,6 +7460,10 @@ namespace Win7Taskbar
             if (e.Handled) return;
 
             CloseAllFlyoutsSimple();
+
+            /* Unlocked bar: a press on the empty area starts the top/bottom
+             * edge drag (TaskbarWindow.EdgeDrag.cs). Locked bar: nothing. */
+            BeginEdgeDragIfUnlocked();
 
             if (OverflowPopup != null && OverflowPopup.IsOpen)
             {

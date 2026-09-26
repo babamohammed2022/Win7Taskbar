@@ -17,9 +17,15 @@ namespace Win7Taskbar.Utilities
     public class GlobalMouseHook : IDisposable
     {
         private const int WH_MOUSE_LL = 14;
+        private const int WM_MOUSEMOVE = 0x0200;
         private const int WM_LBUTTONDOWN = 0x0201;
+        private const int WM_LBUTTONUP = 0x0202;
         private const int WM_RBUTTONDOWN = 0x0204;
+        private const int WM_RBUTTONUP = 0x0205;
         private const int WM_MBUTTONDOWN = 0x0207;
+        private const int WM_MBUTTONUP = 0x0208;
+        private const int WM_XBUTTONDOWN = 0x020B;
+        private const int WM_XBUTTONUP = 0x020C;
 
         [DllImport("user32.dll")]
         private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
@@ -57,6 +63,18 @@ namespace Win7Taskbar.Utilities
 
         public event EventHandler<Point>? MouseDownOutside;
 
+        /// <summary>
+        /// Pointer movement anywhere on screen (screen pixels). Only
+        /// marshalled to the UI thread while somebody listens, so the
+        /// existing click-outside users pay nothing for it. Used by the
+        /// unlocked-taskbar edge drag (RetroBar's drag hook pattern).
+        /// </summary>
+        public event EventHandler<Point>? MouseMove;
+
+        /// <summary>Any mouse button released or pressed (screen pixels);
+        /// the edge drag ends on the first of these.</summary>
+        public event EventHandler<Point>? MouseButtonChanged;
+
         // Rect to exclude (flyout bounds)
         public Rect ExcludeRect { get; set; }
         public Rect ExcludeRect2 { get; set; } // e.g., clock host
@@ -90,6 +108,35 @@ namespace Win7Taskbar.Utilities
             if (nCode >= 0)
             {
                 int msg = wParam.ToInt32();
+                try
+                {
+                    if (msg == WM_MOUSEMOVE && MouseMove != null)
+                    {
+                        MSLLHOOKSTRUCT move = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+                        Point movePt = new Point(move.pt.x, move.pt.y);
+                        Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            MouseMove?.Invoke(this, movePt);
+                        }));
+                    }
+                    else if (MouseButtonChanged != null &&
+                             (msg == WM_LBUTTONUP || msg == WM_RBUTTONUP || msg == WM_MBUTTONUP ||
+                              msg == WM_XBUTTONUP || msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN ||
+                              msg == WM_MBUTTONDOWN || msg == WM_XBUTTONDOWN))
+                    {
+                        MSLLHOOKSTRUCT btn = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+                        Point btnPt = new Point(btn.pt.x, btn.pt.y);
+                        Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            MouseButtonChanged?.Invoke(this, btnPt);
+                        }));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    /* A hook callback must never throw back into user32. */
+                    Debug.WriteLine($"[Win7Taskbar] mouse hook: {ex.Message}");
+                }
                 if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_MBUTTONDOWN)
                 {
                     MSLLHOOKSTRUCT hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
