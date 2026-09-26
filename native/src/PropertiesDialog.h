@@ -18,7 +18,7 @@ namespace w7t {
 /* Pacchetto applicato rimandato al taskbar (WM_COPYDATA). */
 struct PropsApplyMsg {
     int32_t seconds;        // 0/1 mostra secondi
-    int32_t nativeFlyout;   // 0/1 flyout orologio nativo
+    int32_t nativeFlyout;   // 0/1 compatibilita': il dialogo invia sempre Windows 7
     int32_t enableSearch;   // 0/1 ricerca applicazioni
     int32_t lang;           // 0=it, 1=en
     int32_t openSearch;     // 1 = apri il pannello ricerca dopo l'apply
@@ -51,10 +51,10 @@ struct PropsApplyMsg {
      * (scrivere/togliere il valore Run nel registro) lo applica il gestito,
      * con la stessa logica di RetroBar (vedi AutoStart.cs e CREDITS.txt). */
     int32_t autoStart;             // 0/1 avvia il programma all'avvio di Windows
-    /* v1.21.43 - rotazione della barra + blocco (stesso schema RetroBar:
-     * Edge 4 lati + LockTaskbar). Campi in CODA: il ricevente li legge solo
-     * con cbData >= 88/84, un core piu' vecchio non li azzera. */
-    int32_t taskbarPosition;       // 0=Basso, 1=Alto, 2=Sinistra, 3=Destra
+    /* v1.21.43 - posizione orizzontale + blocco. I campi restano in CODA
+     * per compatibilita': i valori legacy 2/3 (Sinistra/Destra) vengono
+     * normalizzati a Basso dal nativo e dal gestito. */
+    int32_t taskbarPosition;       // 0=Basso, 1=Alto; 2/3 legacy non validi
     int32_t lockTaskbar;           // 0/1 barra bloccata (niente resize/drag)
     /* v1.3.0: Windows key opens our Start Menu (1) or Windows (0).
      * Offset 88, packet 92 bytes. Older cores keep lock. */
@@ -109,7 +109,6 @@ private:
     int32_t m_taskbarPosition = 0;
     int32_t m_lockTaskbar = 1;
     int32_t m_windowsKeyOpensOurMenu = 1;
-    int32_t m_nativeFlyout = 0;
     int32_t m_enableSearch = 0;
     int32_t m_netFlyout = 0;
     int32_t m_classicVolume = 0;

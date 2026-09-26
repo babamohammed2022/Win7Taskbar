@@ -17,7 +17,10 @@
  *
  * Reimplementazione completa dell'area di notifica: registriamo noi le
  * window class "Shell_TrayWnd" / "TrayNotifyWnd" e riceviamo direttamente
- * i WM_COPYDATA che shell32!Shell_NotifyIconW invia alla shell.
+ * i WM_COPYDATA che shell32!Shell_NotifyIconW invia alla shell. Ogni
+ * SHELLTRAYDATA (dwData == 1) viene prima applicato al modello locale e poi
+ * inoltrato alla Shell_TrayWnd reale di Explorer, esclusa questa finestra,
+ * così la tray nativa non perde le registrazioni.
  *
  * Il modello dei pulsanti vive in un ToolbarWindow32 reale (TrayToolbar.*):
  * ordine, TBSTATE_HIDDEN per l'overflow e rettangoli a schermo nascono dai
@@ -47,6 +50,7 @@
 
 #include "Common.h"
 #include "TrayFallbackIcons.h"
+#include "TrayNotifyReader.h"
 #include "../include/RaiiWrappers.h"
 #include <thread>
 #include <atomic>
@@ -79,14 +83,21 @@ struct TrayIconEntry {
     bool         isPinned        = true;
     std::wstring tooltip;
     std::wstring guidKey;
-    /* v2.31: percorso exe del proprietario al momento della registrazione:
-     * identita' forte per il dedupe (le uid cambiano a ogni ri-registro,
-     * il processo no). */
+    /* Stato osservato dall'interfaccia TrayNotify privata. E' metadato e
+     * fallback iniziale, non sostituisce la fotografia visuale della toolbar
+     * o dell'overflow reale. */
+    int32_t      shellPreference = -1;
+    bool         fromTrayNotify  = false;
+    std::wstring lastUpdateSource;
+    /* Percorso exe del proprietario al momento della registrazione:
+     * metadato diagnostico e supporto all'associazione della shell; non è
+     * una chiave di identità né una regola di deduplicazione. */
     std::wstring ownerPath;
     ArgbBitmap   bitmap;
 
     /* --- sincronizzazione 1:1 con la shell (modello a riconciliazione) --- */
     bool     fromExplorer    = false;  /* nata dalla lettura della toolbar  */
+    bool     fromCopyData    = false;  /* registrazione live dell'app        */
     bool     fromWin11Uia    = false;  /* v2.60: nata dalla lettura UI
                                         * Automation della tray di Windows 11
                                         * (nessun HWND proprietario: la chiave
@@ -137,6 +148,11 @@ struct TrayIconEntry {
      * elemento UI Automation da invocare: apre direttamente il riquadro
      * nativo del tipo. */
     SystemIconKind syntheticKind = SystemIconKind::None;
+
+    /* Quando UIA vede la stessa voce gia' acquisita da TrayNotify, il suo
+     * runtime id resta un alias per il clic e non crea una seconda cache.
+     * Zero significa che non esiste un alias UIA. */
+    uint32_t     uiaUid         = 0;
 };
 
 /* v2.7: istantanea delle icone non fissate per il pannello overflow nativo. */
@@ -172,10 +188,21 @@ public:
     /* Avvia la prima riconciliazione con la tray di Explorer (idempotente). */
     int32_t ImportExplorerIcons();
 
+    /* Backfill manuale della pagina legacy reale di Windows. Non crea una
+     * pagina sostitutiva: prepara la cache che Explorer rilegge. */
+    int32_t NotificationPageBackfill();
+
     /* Una passata di riconciliazione: aggiunge chi manca, aggiorna lo
      * stato di cio' che appartiene a Explorer (con isteresi), rimuove cio'
      * che Explorer non mostra piu' (dopo conferme), allinea il toolbar. */
     void ReconcileWithExplorer(uint32_t sources);
+
+    /* Snapshot opzionale del callback ITrayNotify/ITrayNotifyWin8. Il
+     * risultato si fonde nella stessa cache, senza diventare una fonte
+     * esclusiva e senza scrivere preferenze di Explorer. */
+    void ImportTrayNotifySnapshot(bool force);
+    void MergeTrayNotifySnapshot(
+        const std::vector<TrayNotifySnapshotItem>& items);
 
     /* Applica la regola di visibilita' della shell (EnableAutoTray) alle
      * icone che non hanno una preferenza salvata dall'utente. */
@@ -191,6 +218,10 @@ public:
     /* Il toolbar del modello: creazione (dopo le finestre) e dimensionamento. */
     void EnsureToolbarModel();
     void SyncToolbarModel();
+
+    /* Mirror comctl32 opt-in: viene richiamato dal medesimo punto che
+     * notifica il pannello overflow, ma non è mai una fonte UI o Shell. */
+    void SyncLegacyToolbarShim();
 
     /* Passata periodica di sola verifica proprietari vivi + diff leggero. */
     void WatchdogLoop();
@@ -278,7 +309,7 @@ public:
     SystemIconKind KindOf(uint64_t ownerHwnd, uint32_t uid) const;
 
     /* true quando questa sessione usa la tray XAML di Windows 11. */
-    bool IsWin11Tray() const { return m_win11Tray; }
+    bool IsWin11Tray() const { return m_win11Tray.load(); }
 
     /* true dopo la prima richiesta di importazione. */
     bool m_importStarted = false;
@@ -321,7 +352,17 @@ private:
                                              HWND hwnd, LONG idObject,
                                              LONG idChild, DWORD thread,
                                              DWORD time);
-    LRESULT HandleCopyData(HWND hwnd, const COPYDATASTRUCT* cds);
+    LRESULT HandleCopyData(HWND hwnd, WPARAM sender,
+                           const COPYDATASTRUCT* cds);
+    LRESULT HandleCopyDataLocal(const COPYDATASTRUCT* cds);
+    bool ForwardCopyDataToExplorer(WPARAM sender,
+                                   const COPYDATASTRUCT* cds) const;
+
+    /* SetShellRects può essere chiamata dal thread WPF, mentre le finestre
+     * della tray e i controlli comctl32 appartengono al thread del servizio.
+     * Il lavoro reale viene quindi sempre eseguito qui, sul thread proprietario
+     * delle finestre, per evitare SendMessage/MoveWindow concorrenti. */
+    void ApplyShellRectsOnThread(const RECT& bar, const RECT& notify);
 
     /* Vista normalizzata di NOTIFYICONDATAW, indipendente dal bitness
      * del processo mittente. */
@@ -374,9 +415,6 @@ private:
     void ResolveVisibilityLocked(const TrayIconEntry& entry,
                                   bool& barVisible,
                                   bool& presentSomewhere) const;
-    void PurgeDuplicateIdentityLocked(const TrayIconKey& key,
-                                      const std::wstring& tooltip,
-                                      const std::wstring& ownerPath);
     void RebindByGuid(const TrayIconKey& oldKey, const TrayIconKey& newKey);
     bool HasSavedPreference(const TrayIconKey& key) const;
 
@@ -454,13 +492,15 @@ private:
      * Stop() puo' fare un join CON LIMITE invece di aspettare all'infinito
      * un thread rimasto appeso su un Explorer che non risponde. */
     std::atomic<bool>  m_threadDone{ false };
-    DWORD              m_threadId  = 0;
+    std::atomic<DWORD> m_threadId{ 0 };
     HWND               m_trayWnd   = nullptr;
     HWND               m_notifyWnd = nullptr;
     /* v1.21.32: hidden window (owned by m_trayWnd) that answers the
      * taskbar-list protocol; see kTWMGetTaskSwitch. */
     HWND               m_taskSwitchWnd = nullptr;
     UINT               m_taskbarCreatedMsg = 0;
+
+    bool               m_trayNotifySnapshotImported = false;
 
     /* Messaggi privati dei watcher (WM_APP+...), gestiti in TrayWndProc. */
     static constexpr UINT kMsgSettings      = WM_APP + 102; // registro
@@ -469,6 +509,8 @@ private:
     static constexpr UINT kMsgRetryImport   = WM_APP + 105; // secondo giro import
     static constexpr UINT kMsgToolbarSync   = WM_APP + 106; // sync rinviato al thread dei messaggi
     static constexpr UINT kMsgUiaTray       = WM_APP + 107; // v2.60: snapshot tray Win11 pronto
+    static constexpr UINT kMsgLegacyShim    = WM_APP + 109; // mirror opt-in coalescente
+    static constexpr UINT kMsgShellRects    = WM_APP + 110; // layout cross-thread
     static constexpr UINT kTimerDebounce    = 0xB1;
     static constexpr UINT kTimerBackstop    = 0xB2;
     /* v2.61: risveglio leggero (10 s) delle sole icone sintetiche mentre si
@@ -486,6 +528,14 @@ private:
 
     std::atomic<uint32_t> m_pendingSources{ 0 };
     std::atomic<bool>     m_importDone{ false };
+    std::atomic<bool>     m_legacyShimPosted{ false };
+
+    /* Ultimo layout richiesto dal thread gestito. Un solo messaggio pendente
+     * accorpa i molti passaggi di layout WPF senza toccare comctl32 fuori dal
+     * suo thread proprietario. */
+    RECT                  m_pendingBarRect{};
+    RECT                  m_pendingNotifyRect{};
+    bool                  m_shellRectsPosted = false;
 
     /* Proprietari in uscita rilevati dal WinEventHook: rimossi con un
      * piccolo ritardo per dare tempo a eventuali NIM_DELETE di arrivare. */
@@ -493,7 +543,7 @@ private:
 
     HWINEVENTHOOK m_ownerHook = nullptr;
     HWINEVENTHOOK m_trayHostHook = nullptr;   /* v2.60: isole della tray Win11 */
-    bool          m_win11Tray = false;
+    std::atomic<bool> m_win11Tray{ false };
 
     /* v3.8: ripiego "icone sparite" (idea dalla mod Disappearing Tray
      * Icons Fix): il broadcast TaskbarCreated a meta' sessione viene
@@ -561,6 +611,12 @@ private:
     void SchedulePixelRetryIfNeeded(bool anyEmptyBitmap, bool wasCapturePass);
 
     static constexpr ULONGLONG m_pixelRetryMinMs = 3000;
+
+    /* Raccolta silenziosa della tray moderna: una richiesta all'avvio e poi
+     * non più spesso di circa venti secondi. Il tick è letto solo sul thread
+     * del servizio, quindi non servono lock aggiuntivi né timer duplicati. */
+    std::atomic<ULONGLONG> m_lastWin11OverflowHarvestTick{ 0 };
+    static constexpr ULONGLONG kWin11OverflowHarvestDebounceMs = 20000;
 };
 
 } /* namespace w7t */

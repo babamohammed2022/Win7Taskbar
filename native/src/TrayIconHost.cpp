@@ -20,7 +20,7 @@ constexpr DWORD kQunsQuietTime        = 1;
 constexpr DWORD kQunsApp              = 2;
 constexpr DWORD kQunsPresentationMode = 3;
 
-/* Portable bounded copy (wcsncpy_s is MSVC-only). */
+/* Copia delimitata portabile, senza dipendere dalle primitive CRT MSVC. */
 void CopyTip(wchar_t* dst, size_t cap, const std::wstring& src) noexcept {
     if (cap == 0) return;
     const size_t n = src.size() < cap - 1 ? src.size() : cap - 1;

@@ -467,19 +467,22 @@ void BatteryFlyout::OnPaint(HWND hwnd) {
     const BattStrings& S = BattStringsFor(LangFromIndex(m_lang));
     wchar_t line[160] = {};
     if (noBatt) {
-        wcscpy_s(line, S.noBattery);
+        lstrcpynW(line, S.noBattery, ARRAYSIZE(line));
     } else if (charging) {
-        if (percent >= 100) wcscpy_s(line, S.full);
-        else swprintf_s(line, S.charging, percent);
+        if (percent >= 100) {
+            lstrcpynW(line, S.full, ARRAYSIZE(line));
+        } else {
+            swprintf(line, ARRAYSIZE(line), S.charging, percent);
+        }
     } else if (percent < 0) {
-        wcscpy_s(line, S.noBattery);
+        lstrcpynW(line, S.noBattery, ARRAYSIZE(line));
     } else if (sps.BatteryLifeTime != 0xFFFFFFFF && sps.BatteryLifeTime > 0) {
-        swprintf_s(line, S.timeLeft,
-                   static_cast<int>(sps.BatteryLifeTime / 3600),
-                   static_cast<int>((sps.BatteryLifeTime % 3600) / 60),
-                   percent);
+        swprintf(line, ARRAYSIZE(line), S.timeLeft,
+                 static_cast<int>(sps.BatteryLifeTime / 3600),
+                 static_cast<int>((sps.BatteryLifeTime % 3600) / 60),
+                 percent);
     } else {
-        swprintf_s(line, S.remaining, percent);
+        swprintf(line, ARRAYSIZE(line), S.remaining, percent);
     }
     RECT textRect{ 56, 8, kWidth - 12, kLinkTop - 8 };
     SetTextColor(hdc, RGB(0x20, 0x20, 0x20));

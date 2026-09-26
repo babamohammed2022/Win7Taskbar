@@ -183,10 +183,16 @@ extern "C" W7T_API int32_t W7T_CALL W7T_ShellOpen(const wchar_t* path) {
         if (reinterpret_cast<intptr_t>(r) > 32) {
             return 1;
         }
-        wchar_t line[400];
-        _snwprintf_s(line, _TRUNCATE,
-                     L"shell-open: tentativo %d fallito (%p) su %.300s",
-                     attempt + 1, (void*)r, path);
+        wchar_t shortPath[301] = {};
+        CopyToFixed(shortPath, ARRAYSIZE(shortPath), path);
+        wchar_t line[400] = {};
+        /* La variante di formattazione CRT con controllo incorporato non è
+         * disponibile con MinGW. shortPath è limitato prima della
+         * formattazione, quindi wsprintfW
+         * non può superare il buffer locale. */
+        wsprintfW(line,
+                  L"shell-open: tentativo %d fallito (%p) su %s",
+                  attempt + 1, static_cast<void*>(r), shortPath);
         AppendCoreLog(line);
         if (attempt < 2) Sleep(200);
     }
@@ -848,6 +854,12 @@ extern "C" W7T_API int32_t W7T_CALL W7T_OpenNotificationIconsSettings(void) {
     }
 
     return W7T_ERR_NOT_FOUND;
+}
+
+/* v4.x: una passata manuale della pagina legacy reale. Il backfill viene
+ * eseguito dal modello del TrayService e non crea alcuna finestra sostitutiva. */
+extern "C" W7T_API int32_t W7T_CALL W7T_NotificationPageBackfill(void) {
+    return TrayService::Instance().NotificationPageBackfill();
 }
 
 /* v2.2: riga di log dal lato gestito (diagnostica dei percorsi

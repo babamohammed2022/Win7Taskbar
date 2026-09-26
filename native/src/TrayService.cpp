@@ -33,6 +33,8 @@
 #include "ExplorerTrayReader.h"
 #include "Win11TrayReader.h"
 #include "TrayToolbar.h"
+#include "NotificationPageSync.h"
+#include "LegacyToolbarShim.h"
 #include "SehGuard.h"   /* v3.15: reti SEH sui confini verso la shell */
 #include "TrayFallbackIcons.h"
 #include "TrayPrefsStore.h"
@@ -51,6 +53,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cwctype>
+#include <iterator>
 #include <thread>
 #include <initguid.h>  /* definisce GUID_NULL e gli altri GUID di sistema */
 
@@ -75,9 +78,10 @@ const ULONG_PTR kCopyDataTrayIcon = 1;
  * letto dalla toolbar di Explorer (isteresi anti-sfarfallio), e quante
  * assenze confermate prima di rimuovere un'icona importata. */
 namespace {
-/* v2.31: come gestiscono la tray i progetti tipo RetroBar/ManagedShell:
- * l'identita' di un'icona e' legata al PROCESSO proprietario, non alla
- * singola registrazione (uid/hwnd cambiano a ogni ri-registro). */
+/* Il percorso del processo serve solo per diagnostica e per associare dati
+ * della shell. L'identita' della cache resta GUID quando dichiarato, altrimenti
+ * la coppia hWnd+uID; due registrazioni dello stesso processo non si fondono
+ * per nome o tooltip. */
 std::wstring OwnerPathOf(uint64_t ownerHwnd) {
     DWORD pid = 0;
     GetWindowThreadProcessId(
@@ -86,6 +90,29 @@ std::wstring OwnerPathOf(uint64_t ownerHwnd) {
     std::transform(p.begin(), p.end(), p.begin(),
                    [](wchar_t c) { return static_cast<wchar_t>(towlower(c)); });
     return p;
+}
+
+/* QueryFullProcessImageName può essere negata da integrità/UAC. Il nome del
+ * processo resta però la prova minima necessaria per non inviare
+ * WM_COPYDATA a una finestra omonima di un altro shell replacement. */
+bool IsExplorerPid(DWORD pid) {
+    if (pid == 0) {
+        return false;
+    }
+    raii::GenericHandle process(OpenProcess(
+        PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+    if (!process) {
+        return false;
+    }
+    wchar_t path[MAX_PATH * 2] = {};
+    DWORD length = static_cast<DWORD>(std::size(path));
+    if (QueryFullProcessImageNameW(process.get(), 0, path, &length) == FALSE ||
+        length == 0) {
+        return false;
+    }
+    const wchar_t* slash = wcsrchr(path, L'\\');
+    const wchar_t* name = slash == nullptr ? path : slash + 1;
+    return _wcsicmp(name, L"explorer.exe") == 0;
 }
 } /* namespace */
 
@@ -106,6 +133,30 @@ constexpr ULONGLONG kRemovalGraceAfterRestartMs = 30000;
 /* Ritardo di coalescenza delle passate di riconciliazione: piu' eventi
  * ravvicinati (rete + batteria + registro) producono UNA passata sola. */
 constexpr DWORD kDebounceMs = 350;
+
+/* Lo shim ToolbarWindow32 è deliberatamente spento nella build distribuita.
+ * Per una verifica locale si può abilitarlo senza modificare il percorso
+ * della tray con WIN7TASKBAR_ENABLE_LEGACY_TOOLBAR_SHIM=1, oppure compilando
+ * con W7T_ENABLE_LEGACY_TOOLBAR_SHIM=1. Non esiste un'attivazione implicita. */
+#ifndef W7T_ENABLE_LEGACY_TOOLBAR_SHIM
+#define W7T_ENABLE_LEGACY_TOOLBAR_SHIM 0
+#endif
+
+bool LegacyToolbarShimEnabled() noexcept {
+#if W7T_ENABLE_LEGACY_TOOLBAR_SHIM
+    return true;
+#else
+    wchar_t value[16] = {};
+    const DWORD length = GetEnvironmentVariableW(
+        L"WIN7TASKBAR_ENABLE_LEGACY_TOOLBAR_SHIM", value,
+        static_cast<DWORD>(std::size(value)));
+    if (length == 0 || length >= std::size(value)) {
+        return false;
+    }
+    return _wcsicmp(value, L"1") == 0 || _wcsicmp(value, L"true") == 0 ||
+           _wcsicmp(value, L"yes") == 0;
+#endif
+}
 
 /* ------------------------------------------------------------------ */
 /*  Per-icon visibility preferences                                    */
@@ -164,7 +215,10 @@ std::wstring MakePreferenceName(uint64_t ownerHwnd, uint32_t uid) {
     }
 
     wchar_t suffix[32] = {0};
-    _snwprintf_s(suffix, _TRUNCATE, L"#%u", uid);
+    /* La formattazione CRT con suffisso di sicurezza non è disponibile in
+     * tutti i toolchain MinGW usati dal progetto. Il formato contiene al
+     * massimo dieci cifre per uint32_t e il buffer è sovradimensionato. */
+    wsprintfW(suffix, L"#%u", static_cast<unsigned>(uid));
     return identity + suffix;
 }
 
@@ -470,6 +524,10 @@ int32_t TrayService::Start() {
     m_running.store(true);
     m_startOk.store(false);
     m_threadDone.store(false);        /* v2.37 punto 15 */
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        m_trayNotifySnapshotImported = false;
+    }
     m_startTick = GetTickCount64();   /* v2.1: inizio della finestra di garanzia */
 
     m_thread = std::thread(&TrayService::ThreadMain, this);
@@ -493,6 +551,61 @@ int32_t TrayService::Start() {
         return W7T_ERR_TRAY_TAKEN;
     }
     return W7T_OK;
+}
+
+int32_t TrayService::NotificationPageBackfill() {
+    if (!m_running.load()) {
+        AppendCoreLog(L"[notification-page] servizio tray non attivo");
+        return W7T_ERR_NOT_INIT;
+    }
+    if (!IsWindows11OrBetter()) {
+        AppendCoreLog(L"[notification-page] Windows 11 non rilevato, nessun reset");
+        return W7T_ERR_NOT_FOUND;
+    }
+
+    std::vector<NotificationPageIcon> icons;
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        icons.reserve(m_order.size());
+        for (const TrayIconKey& key : m_order) {
+            auto it = m_icons.find(key);
+            if (it == m_icons.end()) {
+                continue;
+            }
+
+            TrayIconEntry& entry = it->second;
+            bool barVisible = false;
+            bool presentSomewhere = false;
+            ResolveVisibilityLocked(entry, barVisible, presentSomewhere);
+
+            const HWND owner = reinterpret_cast<HWND>(
+                static_cast<uintptr_t>(key.ownerHwnd));
+            DWORD pid = 0;
+            if (owner != nullptr) {
+                GetWindowThreadProcessId(owner, &pid);
+            }
+
+            NotificationPageIcon icon;
+            icon.exePath = entry.ownerPath;
+            if (icon.exePath.empty() && pid != 0) {
+                icon.exePath = GetProcessImagePath(pid);
+            }
+            icon.displayName = entry.tooltip;
+            icon.promoted = presentSomewhere && barVisible &&
+                (entry.state & entry.stateMask & NIS_HIDDEN) == 0;
+            icon.pid = pid;
+            icon.ownerHwnd = key.ownerHwnd;
+            icon.uid = key.uid;
+            icon.order = static_cast<uint32_t>(icons.size());
+            icons.push_back(std::move(icon));
+        }
+    }
+
+    const std::wstring pageLog =
+        L"[notification-page] modello tray fotografato: " +
+        std::to_wstring(icons.size()) + L" voci";
+    AppendCoreLog(pageLog.c_str());
+    return NotificationPageSync::BackfillLegacyPage(icons);
 }
 
 int32_t TrayService::ImportExplorerIcons() {
@@ -609,6 +722,13 @@ void TrayService::RunDeferredReconciles() {
         AppBarService::Instance().ReassertNativeTaskbarHidden();
         m_explorerRestartedTick = GetTickCount64();
         m_explorerRestarted.store(false);
+        {
+            std::lock_guard<std::recursive_mutex> lock(m_mutex);
+            /* Una nuova istanza di Explorer ha una nuova fotografia COM:
+             * il callback iniziale va acquisito di nuovo, senza cancellare
+             * la cache esistente se il nuovo backend fallisce. */
+            m_trayNotifySnapshotImported = false;
+        }
     }
     ReconcileWithExplorer(sources);
     if (sources & kReconcileSettings) {
@@ -637,18 +757,19 @@ bool IsOwnerExplorerCached(HWND owner, std::map<DWORD, bool>& cache) {
     }
 
     bool isExplorer = false;
-    HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (proc != nullptr) {
+    raii::GenericHandle proc(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
+                                          FALSE, pid));
+    if (proc) {
         wchar_t path[MAX_PATH] = {};
         DWORD len = static_cast<DWORD>(std::size(path));
-        if (QueryFullProcessImageNameW(proc, 0, path, &len) != FALSE && len > 0) {
+        if (QueryFullProcessImageNameW(proc.get(), 0, path, &len) != FALSE &&
+            len > 0) {
             const std::wstring image(path);
             const size_t slash = image.find_last_of(L"\\/");
             const std::wstring name = (slash == std::wstring::npos)
                                     ? image : image.substr(slash + 1);
             isExplorer = _wcsicmp(name.c_str(), L"explorer.exe") == 0;
         }
-        CloseHandle(proc);
     }
     cache[pid] = isExplorer;
     return isExplorer;
@@ -656,11 +777,174 @@ bool IsOwnerExplorerCached(HWND owner, std::map<DWORD, bool>& cache) {
 
 } /* namespace */
 
+void TrayService::ImportTrayNotifySnapshot(bool force) {
+    if (!force || !m_running.load()) {
+        return;
+    }
+
+    bool shouldRead = false;
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        if (!m_trayNotifySnapshotImported) {
+            /* Si marca prima della chiamata per evitare due callback COM
+             * contemporanei. In caso di errore il flag torna falso e il
+             * prossimo giro puo' riprovare. */
+            m_trayNotifySnapshotImported = true;
+            shouldRead = true;
+        }
+    }
+    if (!shouldRead) {
+        return;
+    }
+
+    std::vector<TrayNotifySnapshotItem> snapshot;
+    if (!TrayNotifyReader::ReadSnapshot(snapshot)) {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        m_trayNotifySnapshotImported = false;
+        return;
+    }
+
+    MergeTrayNotifySnapshot(snapshot);
+}
+
+void TrayService::MergeTrayNotifySnapshot(
+        const std::vector<TrayNotifySnapshotItem>& items) {
+    int added = 0;
+    int updated = 0;
+
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        for (const TrayNotifySnapshotItem& item : items) {
+            if (item.ownerHwnd == 0 || !IsWindow(
+                    reinterpret_cast<HWND>(static_cast<uintptr_t>(item.ownerHwnd)))) {
+                continue;
+            }
+
+            TrayIconKey key{ item.ownerHwnd, item.uid };
+            std::wstring guidKey;
+            if (!IsNullGuid(item.guidItem)) {
+                guidKey = GuidToString(item.guidItem);
+                auto known = m_byGuid.find(guidKey);
+                if (known != m_byGuid.end() &&
+                    m_icons.find(known->second) != m_icons.end() &&
+                    m_icons.find(key) == m_icons.end()) {
+                    RebindByGuid(known->second, key);
+                }
+            }
+            LogTagged(L"TRAY",
+                      L"event=%u source=TrayNotify callback identity=%s hwnd=%016I64X uid=%u pref=%d",
+                      static_cast<unsigned>(item.event),
+                      guidKey.empty() ? L"hWnd+uID" : guidKey.c_str(),
+                      static_cast<unsigned long long>(item.ownerHwnd),
+                      static_cast<unsigned>(item.uid),
+                      static_cast<int>(item.preference));
+
+            auto found = m_icons.find(key);
+            if (found == m_icons.end()) {
+                TrayIconEntry entry;
+                entry.key = key;
+                entry.fromTrayNotify = true;
+                entry.shellPreference = item.preference;
+                entry.tooltip = item.tooltip;
+                entry.ownerPath = OwnerPathOf(key.ownerHwnd);
+                if (entry.ownerPath.empty()) {
+                    /* exeName è solo metadato, ma è utile quando il processo
+                     * non consente QueryFullProcessImageName. */
+                    entry.ownerPath = item.exeName;
+                }
+                entry.bitmap = item.bitmap;
+                entry.pixelHash = ArgbHash(entry.bitmap);
+                entry.iconRevision = entry.bitmap.empty() ? 0 : 1;
+
+                /* La preferenza COM è un default iniziale; non viene trattata
+                 * come prova assoluta della posizione visuale. Toolbar reale,
+                 * overflow aperto e UIA possono correggerla; una preferenza
+                 * locale esplicita ha sempre precedenza. */
+                const bool defaultPinned =
+                    item.preference == 2 ||
+                    (item.preference == 0 && !AutoTrayEnabledCached());
+                ApplySavedBehavior(key.ownerHwnd, key.uid, defaultPinned, entry);
+                entry.hiddenDesired = !defaultPinned;
+                entry.lastUpdateSource = L"TrayNotify callback";
+                if (!guidKey.empty()) {
+                    entry.guidKey = guidKey;
+                    m_byGuid[guidKey] = key;
+                }
+                entry.toolbarId = EnsureToolbarId(key);
+                m_icons[key] = std::move(entry);
+                m_order.push_back(key);
+                ++added;
+                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_ADD,
+                                                 key.ownerHwnd, key.uid);
+                continue;
+            }
+
+            TrayIconEntry& entry = found->second;
+            entry.fromTrayNotify = true;
+            entry.shellPreference = item.preference;
+            if (!guidKey.empty() && entry.guidKey.empty()) {
+                entry.guidKey = guidKey;
+                m_byGuid[guidKey] = key;
+            }
+            /* WM_COPYDATA è la fonte live per tooltip e HICON; il callback
+             * iniziale non deve sovrascriverla con una fotografia piu'
+             * vecchia. Si completa solo ciò che manca. */
+            bool changed = false;
+            if (entry.tooltip.empty() && !item.tooltip.empty()) {
+                entry.tooltip = item.tooltip;
+                changed = true;
+            }
+            if (entry.ownerPath.empty()) {
+                entry.ownerPath = OwnerPathOf(key.ownerHwnd);
+                if (entry.ownerPath.empty()) {
+                    entry.ownerPath = item.exeName;
+                }
+            }
+            if (entry.bitmap.empty() && !item.bitmap.empty()) {
+                entry.bitmap = item.bitmap;
+                entry.pixelHash = ArgbHash(entry.bitmap);
+                entry.iconRevision = 1;
+                changed = true;
+            }
+            entry.lastUpdateSource = L"TrayNotify callback";
+            if (changed) {
+                ++updated;
+                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY,
+                                                 key.ownerHwnd, key.uid);
+            }
+        }
+    }
+
+    if (added != 0 || updated != 0) {
+        wchar_t line[160] = {};
+        swprintf(line, 160,
+                 L"tray notify: cache +%d ~%d (unica cache, voci=%u)",
+                 added, updated,
+                 static_cast<unsigned>(items.size()));
+        AppendCoreLog(line);
+        SyncToolbarModel();
+        TrayOverflowWindow::NotifyTrayChanged();
+    }
+}
+
 void TrayService::ReconcileWithExplorer(uint32_t sources) {
+    /* Il callback COM fornisce una fotografia iniziale di identita', tooltip
+     * e preferenze anche quando la toolbar legacy è vuota. Viene acquisito
+     * solo all'avvio o dopo TaskbarCreated: non è polling e non sostituisce
+     * gli eventi WM_COPYDATA/UIA. */
+    const bool requestTrayNotify =
+        (sources & (kReconcileInitial | kReconcileExplorer)) != 0;
+    ImportTrayNotifySnapshot(requestTrayNotify);
+
     /* Windows 11 non ha nessuna toolbar della tray da leggere: la passata
      * classica finirebbe in "lettura non valida" a ogni giro. Il modello lo
      * riempie il lettore UI Automation, che risponde in modo asincrono su
-     * kMsgUiaTray (vedi ApplyWin11TraySnapshot). */
+     * kMsgUiaTray (vedi ApplyWin11TraySnapshot). La detection viene ripetuta
+     * anche quando la toolbar legacy risponde validamente: all'avvio il
+     * bridge XAML puo' essere creato dopo la prima fotografia. */
+    if (!m_win11Tray) {
+        EnableWin11Tray();
+    }
     if (m_win11Tray) {
         /* v2.61: alimentazione e rete cambiano il DISEGNO delle nostre tre
          * icone. Si aggiornano subito, senza aspettare la lettura della
@@ -677,6 +961,31 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
             }
         }
         Win11TrayReader::Instance().RequestRead();
+
+        /* Il flyout Windows 11 è la sola fonte pubblica osservabile delle
+         * icone già confinate nell'overflow. Si apre tramite il controllo UIA
+         * reale, ma in modalità silenziosa: il lettore sposta la finestra XAML
+         * fuori schermo, raccoglie l'isola e la chiude con ESC. Una richiesta
+         * riuscita avvia il debounce di circa 20 s; le riconciliazioni ravvicinate
+         * (incluso il secondo giro d'avvio) non aprono altri flyout. */
+        const ULONGLONG now = GetTickCount64();
+        const ULONGLONG last = m_lastWin11OverflowHarvestTick.load();
+        if (last == 0 || now - last >= kWin11OverflowHarvestDebounceMs) {
+            RECT anchor = {};
+            {
+                std::lock_guard<std::recursive_mutex> lock(m_mutex);
+                anchor = m_chevronRect;
+            }
+            if (anchor.right <= anchor.left || anchor.bottom <= anchor.top) {
+                if (m_notifyWnd != nullptr) {
+                    GetWindowRect(m_notifyWnd, &anchor);
+                }
+            }
+            if (Win11TrayReader::Instance().RequestOverflowFlyout(anchor, true)) {
+                m_lastWin11OverflowHarvestTick.store(now);
+                AppendCoreLog(L"tray Win11: raccolta overflow silenziosa richiesta");
+            }
+        }
         return;
     }
 
@@ -736,7 +1045,16 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
          *    chiave esiste gia' perche' l'applicazione ci ha parlato coi
          *    copia-dati, QUELLA voce e' piu' aggiornata: non si tocca. */
         for (const ExplorerTrayItem& item : read.items) {
-            const TrayIconKey key{ item.ownerHwnd, item.uid };
+            TrayIconKey key{ item.ownerHwnd, item.uid };
+            if (!IsNullGuid(item.guidItem)) {
+                const std::wstring guidKey = GuidToString(item.guidItem);
+                auto known = m_byGuid.find(guidKey);
+                if (known != m_byGuid.end() &&
+                    m_icons.find(known->second) != m_icons.end() &&
+                    m_icons.find(key) == m_icons.end()) {
+                    RebindByGuid(known->second, key);
+                }
+            }
             if (m_icons.find(key) != m_icons.end()) {
                 continue;
             }
@@ -770,8 +1088,6 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
 
             entry.ownerPath = OwnerPathOf(key.ownerHwnd);
             entry.toolbarId = EnsureToolbarId(key);
-            PurgeDuplicateIdentityLocked(key, entry.tooltip,
-                                         entry.ownerPath);
             m_icons[key] = std::move(entry);
             m_order.push_back(key);
             ++added;
@@ -785,14 +1101,34 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
          * messaggio dell'applicazione. Le icone di Explorer invece vanno
          * rinfrescate perche' lui aggiorna solo la PROPRIA toolbar. */
         for (const ExplorerTrayItem& item : read.items) {
-            const TrayIconKey key{ item.ownerHwnd, item.uid };
+            TrayIconKey key{ item.ownerHwnd, item.uid };
+            if (!IsNullGuid(item.guidItem)) {
+                const std::wstring guidKey = GuidToString(item.guidItem);
+                auto known = m_byGuid.find(guidKey);
+                if (known != m_byGuid.end() &&
+                    m_icons.find(known->second) != m_icons.end() &&
+                    m_icons.find(key) == m_icons.end()) {
+                    RebindByGuid(known->second, key);
+                }
+            }
             auto it = m_icons.find(key);
             if (it == m_icons.end()) {
                 continue;
             }
             TrayIconEntry& entry = it->second;
+            /* WM_COPYDATA è la fonte live per le applicazioni. La toolbar
+             * Explorer può confermare l'esistenza, ma non deve riscrivere
+             * tooltip, bitmap, stato o versione di una voce già acquisita
+             * dal percorso applicativo. Le voci della shell (owner Explorer)
+             * restano invece aggiornabili dalla toolbar. */
+            if (entry.fromCopyData && !entry.ownerIsExplorer) {
+                entry.missCount = 0;
+                entry.lastReadFailed = false;
+                continue;
+            }
             entry.missCount = 0;
             entry.lastReadFailed = false;
+            entry.lastUpdateSource = L"Explorer toolbar";
 
             if (IsOwnerExplorerCached(
                     reinterpret_cast<HWND>(static_cast<uintptr_t>(key.ownerHwnd)),
@@ -816,6 +1152,10 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
              * la sua scelta vince, sempre. */
             if (!HasSavedPreference(key)) {
                 if (item.hidden == entry.hiddenDesired) {
+                    /* Anche quando il registro contiene IsPromoted, la
+                     * decisione visuale viene dalla toolbar/overflow. Il
+                     * valore privato resta solo metadato e non salta
+                     * l'isteresi. */
                     if (entry.hiddenPending > 0) {
                         ++entry.hiddenPending;
                         if (entry.hiddenPending >= kConfirmReads) {
@@ -845,13 +1185,11 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
                 entry.tooltip = item.tooltip;   /* es. batteria sotto carica */
                 changed = true;
             }
-            /* v2.31: appena l'identita' (tooltip) e' nota, collassa le
-             * ri-registrazioni duplicate dello stesso processo. */
+            /* Il percorso resta metadato: la cache non fonde registrazioni
+             * sulla base della tooltip o del processo. */
             if (entry.ownerPath.empty()) {
                 entry.ownerPath = OwnerPathOf(key.ownerHwnd);
             }
-            PurgeDuplicateIdentityLocked(key, entry.tooltip,
-                                         entry.ownerPath);
 
             /* Pixel v2.4: DUE fonti reali e complementari.
              *  - iconBitmap: l'hIcon VIVO della NOTIFYICONDATA (CopyIcon
@@ -1295,7 +1633,29 @@ void TrayService::RebindByGuid(const TrayIconKey& oldKey, const TrayIconKey& new
 /* ------------------------------------------------------------------ */
 
 void TrayService::EnsureToolbarModel() {
-    TrayToolbar::Instance().Create(m_notifyWnd, GetModuleHandleW(nullptr));
+    TrayToolbar& model = TrayToolbar::Instance();
+    const bool modelReady = model.Create(m_notifyWnd, GetModuleHandleW(nullptr));
+    if (!modelReady) {
+        LegacyToolbarShim::Instance().Destroy();
+        AppendCoreLog(L"tray: ToolbarWindow32 principale non creata");
+        return;
+    }
+
+    /* La compatibilità è opt-in e il controllo è una vera finestra figlia
+     * del SysPager già creato dal modello. Se la creazione fallisce, il
+     * percorso principale resta intatto e ogni handle parziale viene pulito
+     * dal distruttore/RAII dello shim. */
+    if (LegacyToolbarShimEnabled()) {
+        if (!LegacyToolbarShim::Instance().Create(
+                model.PagerHandle(), GetModuleHandleW(nullptr))) {
+            LegacyToolbarShim::Instance().Destroy();
+            AppendCoreLog(L"tray: shim ToolbarWindow32 opt-in non creato");
+        } else {
+            AppendCoreLog(L"tray: shim ToolbarWindow32 opt-in attivo");
+        }
+    } else {
+        LegacyToolbarShim::Instance().Destroy();
+    }
 }
 
 void TrayService::SyncToolbarModel() {
@@ -1304,7 +1664,7 @@ void TrayService::SyncToolbarModel() {
      * fare SendMessage mentre il mutex e' preso: il thread dei messaggi
      * potrebbe aspettarlo proprio in ApplyMessage e si incepperebbe. Si
      * rimanda il lavoro a se' stesso con un PostMessage coalescente. */
-    if (m_threadId != 0 && GetCurrentThreadId() != m_threadId) {
+    if (m_threadId.load() != 0 && GetCurrentThreadId() != m_threadId.load()) {
         if (m_trayWnd != nullptr && IsWindow(m_trayWnd)) {
             PostMessageW(m_trayWnd, kMsgToolbarSync, 0, 0);
         }
@@ -1316,6 +1676,7 @@ void TrayService::SyncToolbarModel() {
     std::vector<uint32_t> ids;
     std::vector<uint32_t> hiddenIds;
     std::vector<std::pair<uint32_t, bool>> flags;
+    std::vector<std::pair<uint32_t, std::wstring>> texts;
     std::map<uint32_t, ArgbBitmap> images;
 
     {
@@ -1352,6 +1713,7 @@ void TrayService::SyncToolbarModel() {
                 hiddenIds.push_back(entry.toolbarId);
             }
             flags.emplace_back(entry.toolbarId, hidden);
+            texts.emplace_back(entry.toolbarId, entry.tooltip);
             if (!entry.bitmap.empty()) {
                 images[entry.toolbarId] = entry.bitmap;
             }
@@ -1368,6 +1730,88 @@ void TrayService::SyncToolbarModel() {
     for (const auto& img : images) {
         tb.SetButtonImage(img.first, img.second);
     }
+    for (const auto& text : texts) {
+        tb.SetButtonText(text.first, text.second);
+    }
+}
+
+void TrayService::SyncLegacyToolbarShim() {
+    if (!LegacyToolbarShimEnabled()) {
+        return;
+    }
+
+    /* Tutte le SendMessage TB_* devono restare sul thread proprietario delle
+     * finestre. Il punto che notifica il pannello overflow può invece essere
+     * raggiunto da un worker: si accoda una sola sincronizzazione e non si
+     * crea un trigger parallelo per ogni icona. */
+    if (m_threadId.load() != 0 && GetCurrentThreadId() != m_threadId.load()) {
+        if (m_trayWnd != nullptr && IsWindow(m_trayWnd) &&
+            !m_legacyShimPosted.exchange(true)) {
+            if (!PostMessageW(m_trayWnd, kMsgLegacyShim, 0, 0)) {
+                m_legacyShimPosted.store(false);
+            }
+        }
+        return;
+    }
+    m_legacyShimPosted.store(false);
+    /* Se un worker aveva già accodato la richiesta e nel frattempo il punto
+     * overflow è arrivato sul thread proprietario, elimina il messaggio
+     * residuo: una sola fotografia deve produrre una sola sync. */
+    if (m_trayWnd != nullptr && GetCurrentThreadId() == m_threadId.load()) {
+        MSG pending = {};
+        while (PeekMessageW(&pending, m_trayWnd, kMsgLegacyShim,
+                            kMsgLegacyShim, PM_REMOVE) != FALSE) {
+        }
+    }
+
+    std::vector<LegacyToolbarShimItem> items;
+    std::set<uint32_t> usedCommands;
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        items.reserve(m_order.size());
+        for (const TrayIconKey& key : m_order) {
+            auto it = m_icons.find(key);
+            if (it == m_icons.end()) {
+                continue;
+            }
+            const TrayIconEntry& entry = it->second;
+            uint32_t command = key.uid;
+            if (command == 0 || usedCommands.count(command) != 0) {
+                /* uID è il command primario. Se due proprietari usano lo
+                 * stesso uID, il valore di ripiego è un hash deterministico
+                 * della coppia TrayIconKey: il controllo conserva comunque
+                 * un idCommand stabile e non confonde i due pulsanti. */
+                uint64_t value = key.ownerHwnd ^
+                    (static_cast<uint64_t>(key.uid) * 0x9E3779B97F4A7C15ull);
+                value ^= value >> 33;
+                value *= 0xFF51AFD7ED558CCDull;
+                value ^= value >> 33;
+                command = static_cast<uint32_t>(value) | 0x40000000u;
+                if (command == 0) {
+                    command = 0x40000001u;
+                }
+                while (usedCommands.count(command) != 0) {
+                    ++command;
+                    if (command == 0) {
+                        command = 0x40000001u;
+                    }
+                }
+            }
+            usedCommands.insert(command);
+            LegacyToolbarShimItem item;
+            item.ownerHwnd = key.ownerHwnd;
+            item.uid = key.uid;
+            item.command = command;
+            bool barVisible = false;
+            bool present = false;
+            ResolveVisibilityLocked(entry, barVisible, present);
+            item.hidden = !present || !barVisible ||
+                (entry.state & entry.stateMask & NIS_HIDDEN) != 0;
+            item.bitmap = entry.bitmap;
+            items.push_back(std::move(item));
+        }
+    }
+    LegacyToolbarShim::Instance().Sync(items);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1507,10 +1951,11 @@ void TrayService::OnWatcherMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     (void)lParam;
     switch (msg) {
         case kMsgSettings:
-            /* Qualcosa e' cambiato nella chiave Explorer: la sola cosa che
-             * ci riguarda qui e' EnableAutoTray (regola di visibilita' per
-             * le icone senza preferenza). */
-            AppendCoreLog(L"chiave Explorer cambiata: riapplico la regola di visibilita'");
+            /* Il watcher osserva sia Explorer sia il ramo Control Panel che
+             * contiene NotifyIconSettings. Una modifica a IsPromoted deve
+             * rileggere la toolbar e la configurazione Windows 11, non una
+             * euristica locale. */
+            AppendCoreLog(L"configurazione tray cambiata: riapplico la regola di visibilita'");
             ScheduleReconcile(kReconcileSettings, 0);
             break;
 
@@ -1593,8 +2038,8 @@ void TrayService::Stop() {
      * WM_QUIT al thread della tray. */
     RequestAbortReads();
     m_running.store(false);
-    if (m_threadId != 0) {
-        PostThreadMessageW(m_threadId, WM_QUIT, 0, 0);
+    if (m_threadId.load() != 0) {
+        PostThreadMessageW(m_threadId.load(), WM_QUIT, 0, 0);
     }
 
     bool joined = false;
@@ -1620,7 +2065,7 @@ void TrayService::Stop() {
     } else {
         joined = true;
     }
-    m_threadId = 0;
+    m_threadId.store(0);
 
     /* Svuotiamo il modello solo se il thread e' davvero finito: se e'
      * ancora vivo potrebbe star leggendo queste mappe, e tanto il processo
@@ -1826,6 +2271,17 @@ void TrayService::DestroyWindows() {
     SystemEventsWatch::StopNetworkWatch();
     SystemEventsWatch::StopSessionWatch();
 
+    /* Prima del SysPager: il figlio ToolbarWindow32 opt-in viene sempre
+     * distrutto nello stesso lifecycle e non può restare orfano dopo un
+     * riavvio di Explorer o un errore di ricreazione. */
+    m_legacyShimPosted.store(false);
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        m_shellRectsPosted = false;
+        m_pendingBarRect = RECT{};
+        m_pendingNotifyRect = RECT{};
+    }
+    LegacyToolbarShim::Instance().Destroy();
     TrayToolbar::Instance().Destroy();
 
     if (m_trayWnd != nullptr) {
@@ -1854,7 +2310,7 @@ void TrayService::DestroyWindows() {
 }
 
 void TrayService::ThreadMain() {
-    m_threadId = GetCurrentThreadId();
+    m_threadId.store(GetCurrentThreadId());
 
     /* v3.10.1 hardening: se il run precedente e' terminato in modo
      * anomalo mentre un clic-batteria era pendente, il file di backup
@@ -1953,7 +2409,12 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
     }
 
     if (msg == WM_COPYDATA) {
-        return Instance().HandleCopyData(hwnd, reinterpret_cast<const COPYDATASTRUCT*>(lParam));
+        /* wParam e' l'HWND del mittente originale. Il messaggio viene
+         * prima applicato al modello locale e poi inoltrato alla vera
+         * Shell_TrayWnd di Explorer dal wrapper, mai ricorsivamente alla
+         * finestra dello shim. */
+        return Instance().HandleCopyData(
+            hwnd, wParam, reinterpret_cast<const COPYDATASTRUCT*>(lParam));
     }
 
     if (msg == WM_SETTINGCHANGE) {
@@ -2051,6 +2512,22 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
             self.SyncToolbarModel();   /* ora siamo sul thread giusto */
             return 0;
         }
+        if (msg == kMsgLegacyShim) {
+            self.SyncLegacyToolbarShim();
+            return 0;
+        }
+        if (msg == kMsgShellRects) {
+            RECT bar = {};
+            RECT notify = {};
+            {
+                std::lock_guard<std::recursive_mutex> lock(self.m_mutex);
+                bar = self.m_pendingBarRect;
+                notify = self.m_pendingNotifyRect;
+                self.m_shellRectsPosted = false;
+            }
+            self.ApplyShellRectsOnThread(bar, notify);
+            return 0;
+        }
         if (msg == kMsgUiaTray) {
             /* v2.60: il lettore UIA ha finito una lettura: lo snapshot si
              * fonde nel modello qui, sul thread che lo possiede. */
@@ -2120,6 +2597,10 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
          * bandierina e si fa tutto tra poco su questo thread: il wndproc
          * non deve bloccarsi qui dentro. */
         self.m_explorerRestarted.store(true);
+        /* WORKAROUND: la forma della tray puo' cambiare dopo il riavvio di
+         * Explorer. La cache "Classic" del rilevatore Win11 deve quindi
+         * essere invalidata prima della prossima riconciliazione. */
+        Win11TrayReader::Instance().NoteExplorerRestart();
         self.ScheduleReconcile(kReconcileExplorer, 2500);
         return 0;
     }
@@ -2192,15 +2673,127 @@ LRESULT CALLBACK TrayService::TaskSwitchWndProc(HWND hwnd, UINT msg, WPARAM wPar
     return handled ? result : DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-LRESULT TrayService::HandleCopyData(HWND, const COPYDATASTRUCT* cds) {
+bool TrayService::ForwardCopyDataToExplorer(
+    WPARAM sender, const COPYDATASTRUCT* cds) const {
+    if (cds == nullptr || cds->dwData != kCopyDataTrayIcon) {
+        return false;
+    }
+
+    bool delivered = false;
+    W7T_SEH_TRY {
+        try {
+            const DWORD ourPid = GetCurrentProcessId();
+            HWND explorerTray = nullptr;
+            HWND explorerFallback = nullptr;
+            HWND candidate = nullptr;
+            while ((candidate = FindWindowExW(
+                        nullptr, candidate, L"Shell_TrayWnd", nullptr))
+                   != nullptr) {
+                if (candidate == m_trayWnd) {
+                    continue;
+                }
+                DWORD pid = 0;
+                GetWindowThreadProcessId(candidate, &pid);
+                if (pid == 0 || pid == ourPid) {
+                    continue;
+                }
+                if (!IsExplorerPid(pid)) {
+                    continue;
+                }
+                if (explorerFallback == nullptr) {
+                    explorerFallback = candidate;
+                }
+                /* Una Shell_TrayWnd vera normalmente ha il figlio
+                 * TrayNotifyWnd: preferiamo quella per evitare finestre
+                 * omonime, ma il processo Explorer resta la prova decisiva.
+                 * Su build XAML dove il figlio non esiste, il fallback evita
+                 * di perdere il forwarding obbligatorio. */
+                if (FindWindowExW(candidate, nullptr,
+                                  L"TrayNotifyWnd", nullptr) != nullptr) {
+                    explorerTray = candidate;
+                    break;
+                }
+            }
+            if (explorerTray == nullptr) {
+                explorerTray = explorerFallback;
+            }
+
+            if (explorerTray == nullptr) {
+                AppendCoreLog(L"copydata: Shell_TrayWnd di Explorer non trovata,"
+                              L" nessun inoltro eseguito");
+            } else {
+                DWORD_PTR response = 0;
+                const LRESULT sent = SendMessageTimeoutW(
+                    explorerTray, WM_COPYDATA, sender,
+                    reinterpret_cast<LPARAM>(cds),
+                    SMTO_ABORTIFHUNG | SMTO_BLOCK, 1500, &response);
+                delivered = sent != 0;
+                if (!delivered) {
+                    wchar_t line[160];
+                    wsprintfW(line,
+                              L"copydata: inoltro a Explorer fallito err=%lu",
+                              static_cast<unsigned long>(GetLastError()));
+                    AppendCoreLog(line);
+                }
+            }
+        } catch (...) {
+            AppendCoreLog(L"copydata: eccezione durante l'inoltro a Explorer");
+            delivered = false;
+        }
+    } W7T_SEH_CATCH {
+        AppendCoreLog(L"copydata: fault durante l'inoltro a Explorer");
+        delivered = false;
+    } W7T_SEH_END
+    return delivered;
+}
+
+LRESULT TrayService::HandleCopyData(HWND hwnd, WPARAM sender,
+                                    const COPYDATASTRUCT* cds) {
+    (void)hwnd;
+    bool localHandled = false;
+    bool shouldForward = false;
+
+    /* Il forwarding non e' nel ramo locale: anche un payload corrotto o una
+     * eccezione dell'applicazione deve lasciare arrivare a Explorer il
+     * WM_COPYDATA originale, dopo il tentativo di elaborazione locale. */
+    W7T_SEH_TRY {
+        try {
+            shouldForward = cds != nullptr && cds->dwData == kCopyDataTrayIcon;
+            localHandled = HandleCopyDataLocal(cds) != FALSE;
+        } catch (...) {
+            AppendCoreLog(L"copydata: eccezione nell'elaborazione locale");
+            localHandled = false;
+        }
+    } W7T_SEH_CATCH {
+        AppendCoreLog(L"copydata: fault nell'elaborazione locale");
+        localHandled = false;
+        /* Se la lettura del campo dwData ha causato un fault, non si può
+         * affermare che il pacchetto sia SHELLTRAYDATA: nessun inoltro
+         * inventato a Explorer. */
+        shouldForward = false;
+    } W7T_SEH_END
+
+    bool forwarded = false;
+    if (shouldForward) {
+        forwarded = ForwardCopyDataToExplorer(sender, cds);
+    }
+    /* Un risultato non-zero significa che almeno il nostro percorso locale o
+     * il destinatario Explorer ha ricevuto il pacchetto. Non si dichiara
+     * successo quando entrambi hanno fallito. */
+    return (localHandled || forwarded) ? TRUE : FALSE;
+}
+
+LRESULT TrayService::HandleCopyDataLocal(const COPYDATASTRUCT* cds) {
     if (cds == nullptr || cds->lpData == nullptr) {
         return FALSE;
     }
 
     const auto* bytes = static_cast<const uint8_t*>(cds->lpData);
 
-    /* Protocollo reale di Shell_NotifyIcon (verificato contro il decompilato
-     * di shell32!Shell_NotifyIconA di Windows 98, che fa
+    /* Protocollo non documentato da Microsoft di Shell_NotifyIcon
+     * (verificato contro il decompilato di shell32!Shell_NotifyIconA di
+     * Windows 98 e reimplementazioni open source, quindi soggetto a
+     * variazioni per build): shell32 fa
      * FindWindow("Shell_TrayWnd") + SendMessage(WM_COPYDATA, owner,
      * COPYDATASTRUCT{ dwData=1, ... })):
      *   dwData = 0  messaggio AppBar;
@@ -2507,6 +3100,12 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
     if (hasGuid) {
         nidGuidString = GuidToString(nid.guidItem);
     }
+    LogTagged(L"TRAY",
+              L"event=%u source=WM_COPYDATA identity=%s hwnd=%016I64X uid=%u",
+              static_cast<unsigned>(message),
+              hasGuid ? nidGuidString.c_str() : L"hWnd+uID",
+              static_cast<unsigned long long>(nid.hWnd),
+              static_cast<unsigned>(nid.uID));
     if (hasGuid && (message == NIM_ADD || message == NIM_MODIFY)
         && m_icons.find(key) == m_icons.end()) {
         auto gi = m_byGuid.find(nidGuidString);
@@ -2515,6 +3114,16 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
             if (m_icons.find(oldKey) != m_icons.end() && m_icons.find(key) == m_icons.end()) {
                 RebindByGuid(oldKey, key);
             }
+        }
+    }
+    if (hasGuid && message == NIM_SETVERSION &&
+        m_icons.find(key) == m_icons.end()) {
+        /* NIM_SETVERSION non cambia l'identità: quando un'app ha
+         * ri-registrato HWND/UID ma conserva il GUID, aggiorniamo la voce
+         * già presente invece di perdere la versione callback. */
+        auto gi = m_byGuid.find(nidGuidString);
+        if (gi != m_byGuid.end()) {
+            key = gi->second;
         }
     }
 
@@ -2539,8 +3148,6 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
                 entry.hiddenDesired = !entry.isPinned;
 
                 entry.ownerPath = OwnerPathOf(key.ownerHwnd);
-                PurgeDuplicateIdentityLocked(key, entry.tooltip,
-                                             entry.ownerPath);
                 entry.toolbarId = EnsureToolbarId(key);
                 m_icons[key]   = entry;
                 m_order.push_back(key);
@@ -2553,19 +3160,19 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
              * proprietario e' Explorer (batteria/rete/volume: quelli
              * cambiano solo dentro la toolbar della shell). */
             entry.fromExplorer = false;
+            entry.fromCopyData = true;
+            entry.lastUpdateSource = L"WM_COPYDATA";
 
             if (nid.uFlags & NIF_MESSAGE) {
                 entry.callbackMessage = nid.uCallbackMessage;
             }
             if (nid.uFlags & NIF_TIP) {
                 entry.tooltip = nid.szTip;
-                /* v2.31: collassa le ri-registrazioni duplicate dello
-                 * stesso processo non appena la tooltip e' nota. */
+                /* Tooltip e percorso completano il metadato, ma non
+                 * sostituiscono la coppia hWnd+uID o il GUID. */
                 if (entry.ownerPath.empty()) {
                     entry.ownerPath = OwnerPathOf(key.ownerHwnd);
                 }
-                PurgeDuplicateIdentityLocked(key, entry.tooltip,
-                                             entry.ownerPath);
             }
             if (nid.uFlags & NIF_STATE) {
                 const bool wasHidden = (entry.state & NIS_HIDDEN) != 0;
@@ -2601,10 +3208,10 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
                 } else if (source != nullptr) {
                     /* L'handle appartiene al processo mittente, che potrebbe
                      * distruggerlo: ne prendiamo una copia nostra. */
-                    HICON owned = CopyIcon(source);
-                    if (owned != nullptr) {
+                    raii::IconHandle owned(CopyIcon(source));
+                    if (owned) {
                         ArgbBitmap bmp;
-                        if (IconToArgb(owned, bmp) && BitmapSane(bmp)) {
+                        if (IconToArgb(owned.get(), bmp) && BitmapSane(bmp)) {
                             const uint64_t hash = ArgbHash(bmp);
                             if (hash != entry.pixelHash) {
                                 entry.bitmap = std::move(bmp);
@@ -2612,7 +3219,6 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
                                 entry.iconRevision++;
                             }
                         }
-                        DestroyIcon(owned);
                     }
                 }
                 /* hIcon == NULL senza bitmap Wine: l'applicazione ha mandato
@@ -2798,65 +3404,6 @@ bool TrayService::GetIconRect(uint32_t hWnd32, uint32_t uid, const GUID& guid,
     return true;
 }
 
-/* v2.30: durante l'avvio (o un riavvio di Explorer) la stessa icona puo'
- * essere ri-registrata con uid diversi: senza cleanup si accumulano N
- * copie (es. 15 taskmgr.exe nell'overflow). Identita' vera di una
- * registrazione tray = proprietario + tooltip dichiarata dall'app: se
- * arriva una nuova uid con la stessa identita', la vecchia e' un
- * residuo e va tolta subito (la shell fa lo stesso). */
-
-
-void TrayService::PurgeDuplicateIdentityLocked(const TrayIconKey& key,
-                                               const std::wstring& tooltip,
-                                               const std::wstring& ownerPath) {
-    if (tooltip.empty() || ownerPath.empty()) return;
-    for (auto it = m_icons.begin(); it != m_icons.end(); ++it) {
-        if (it->first.uid != key.uid &&
-            it->second.tooltip == tooltip &&
-            !it->second.ownerPath.empty() &&
-            it->second.ownerPath == ownerPath) {
-            const TrayIconKey old = it->first;
-            m_icons.erase(it);
-            m_order.erase(std::remove_if(m_order.begin(), m_order.end(),
-                                         [&old](const TrayIconKey& k) {
-                                             return k.ownerHwnd == old.ownerHwnd &&
-                                                    k.uid == old.uid;
-                                         }),
-                          m_order.end());
-            wchar_t line[180];
-            wsprintfW(line,
-                      L"tray: uid rinnovato per '%.100s': residuo rimosso",
-                      tooltip.c_str());
-            /* v1.7.2: le app che rinnovano di continuo la loro icona
-             * (Gestione attivita') producevano 12 righe identiche a ogni
-             * giro. Stessa riga entro 5 secondi = una sola, con conteggio
-             * delle ripetizioni soppresse. */
-            {
-                static wchar_t last[180] = L"";
-                static ULONGLONG lastTick = 0;
-                static unsigned suppressed = 0;
-                const ULONGLONG now = GetTickCount64();
-                if (lstrcmpW(last, line) == 0 && now - lastTick < 5000) {
-                    ++suppressed;
-                } else {
-                    if (suppressed != 0) {
-                        wchar_t note[160];
-                        wsprintfW(note,
-                                  L"tray: (%u righe identiche soppresse in 5 s)",
-                                  suppressed);
-                        AppendCoreLog(note);
-                        suppressed = 0;
-                    }
-                    lstrcpynW(last, line, 180);
-                    lastTick = now;
-                    AppendCoreLog(line);
-                }
-            }
-            break;
-        }
-    }
-}
-
 std::vector<OverflowSnapshot> TrayService::GetUnpinnedSnapshot() {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     std::vector<OverflowSnapshot> out;
@@ -2870,21 +3417,6 @@ std::vector<OverflowSnapshot> TrayService::GetUnpinnedSnapshot() {
          * right home for anyone who wants no icon in the bar) but NEVER
          * a fully hidden icon nor one whose system switch is off: for
          * those the page said "nothing, anywhere". */
-        /* taskmgr.exe is intentionally not an overflow candidate. Task
-         * Manager repeatedly renews its notification icon with new IDs and,
-         * on affected builds, leaves many stale registrations behind. Even
-         * with generic de-duplication this produced a very tall overflow
-         * menu full of Task Manager copies, so filtering this known offender
-         * here keeps both the live tray model and all other applications
-         * untouched. */
-        const std::wstring& ownerPath = it->second.ownerPath;
-        const size_t ownerSlash = ownerPath.find_last_of(L"\\/");
-        const wchar_t* ownerName = ownerPath.c_str() +
-            (ownerSlash == std::wstring::npos ? 0 : ownerSlash + 1);
-        if (_wcsicmp(ownerName, L"taskmgr.exe") == 0) {
-            continue;
-        }
-
         bool barVisibleSnap = false, presentSnap = false;
         ResolveVisibilityLocked(it->second, barVisibleSnap, presentSnap);
         if (!presentSnap || barVisibleSnap) {
@@ -2971,6 +3503,10 @@ void TrayService::EnableWin11Tray() {
     int added = 0, updated = 0;
     bool pixel = false;
     EnsureSyntheticSystemIcons(nullptr, nullptr, &added, &updated, &pixel);
+    if (added != 0 || updated != 0 || pixel) {
+        SyncToolbarModel();
+        TrayOverflowWindow::NotifyTrayChanged();
+    }
 
     /* Risveglio leggero dello stato (il volume non manda eventi alla tray):
      * non tocca Explorer, non apre nulla, non muove finestre. */
@@ -2981,7 +3517,7 @@ void TrayService::EnableWin11Tray() {
      * con quella classe compare/scompare, si rilegge. Filtro per classe:
      * l'hook e' globale ma costa una GetClassNameW per evento. */
     if (m_trayHostHook == nullptr) {
-        m_trayHostHook = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW,
+        m_trayHostHook = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_HIDE,
                                          nullptr, TrayHostChangedProc,
                                          0, 0,
                                          WINEVENT_OUTOFCONTEXT |
@@ -3137,6 +3673,7 @@ void TrayService::EnsureSyntheticSystemIcons(
                     entry.state         = 0;
                     entry.sysChecked    = true;
                     entry.systemKind    = kind;
+                    entry.lastUpdateSource = L"fallback icon";
                     entry.guidKey       = syntheticGuidKey(kind);
                     entry.toolbarId     = EnsureToolbarId(key);
                     m_icons[key] = std::move(entry);
@@ -3190,10 +3727,14 @@ void TrayService::ApplyWin11TraySnapshot() {
     if (!m_win11Tray) {
         return;
     }
-
-    const std::vector<Win11TrayItem> raw =
-        Win11TrayReader::Instance().TakeSnapshot();
-
+    const bool readValid = Win11TrayReader::Instance().IsLastReadValid();
+    const std::vector<Win11TrayItem> raw = readValid
+        ? Win11TrayReader::Instance().TakeSnapshot()
+        : std::vector<Win11TrayItem>();
+    const bool mainRead = readValid &&
+        Win11TrayReader::Instance().IsLastReadMainValid();
+    const bool overflowRead = readValid &&
+        Win11TrayReader::Instance().IsLastReadOverflowValid();
     /* v2.62 - LE ICONE DI SISTEMA CHE RICREIAMO NON SI IMPORTANO.
      *
      * Volume, rete e batteria sono le tre icone che questa barra ridisegna
@@ -3285,6 +3826,7 @@ void TrayService::ApplyWin11TraySnapshot() {
             m_uiaRetryDelayMs = (std::min)(15000ul, m_uiaRetryDelayMs * 2);
         } else {
             m_uiaRetryDelayMs = 1000;
+            m_uiaFastRetries = 0;
         }
         return;
     }
@@ -3293,10 +3835,35 @@ void TrayService::ApplyWin11TraySnapshot() {
     m_uiaRetryDelayMs = 1000;
     m_uiaFastRetries = 0;
 
+    /* UIA non espone normalmente HWND/GUID dell'app. Se il callback
+     * TrayNotify ha già fornito la stessa voce, il tooltip è solo un
+     * collegamento conservativo: l'identita' resta quella COM GUID/HWND+UID
+     * e l'uid UIA diventa un alias di clic, non una seconda icona. */
     std::set<uint32_t> present;
+    std::set<TrayIconKey> presentKeys;
     std::set<SystemIconKind> presentKinds;
+    auto modelKeyForUia = [this](const Win11TrayItem& item) {
+        const TrayIconKey direct{ 0, item.uid };
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        auto directIt = m_icons.find(direct);
+        if (directIt != m_icons.end()) {
+            directIt->second.uiaUid = item.uid;
+            return direct;
+        }
+        for (auto& pair : m_icons) {
+            TrayIconEntry& entry = pair.second;
+            if (entry.uiaUid == item.uid ||
+                (entry.fromTrayNotify && entry.uiaUid == 0 &&
+                 !entry.tooltip.empty() && entry.tooltip == item.name)) {
+                entry.uiaUid = item.uid;
+                return pair.first;
+            }
+        }
+        return direct;
+    };
     for (const Win11TrayItem& item : items) {
         present.insert(item.uid);
+        presentKeys.insert(modelKeyForUia(item));
         if (item.kind != SystemIconKind::None) {
             presentKinds.insert(item.kind);
         }
@@ -3311,13 +3878,15 @@ void TrayService::ApplyWin11TraySnapshot() {
         std::lock_guard<std::recursive_mutex> lock(m_mutex);
 
         for (const Win11TrayItem& item : items) {
-            const TrayIconKey key{ 0, item.uid };
+            const TrayIconKey key = modelKeyForUia(item);
             auto it = m_icons.find(key);
             if (it == m_icons.end()) {
                 TrayIconEntry entry;
                 entry.key          = key;
                 entry.fromWin11Uia = true;
                 entry.fromExplorer = false;
+                entry.uiaUid       = item.uid;
+                entry.lastUpdateSource = L"UIA tray";
                 entry.tooltip      = item.name;
                 entry.ownerPath    = item.exePath;
                 entry.bitmap       = item.bitmap;
@@ -3363,14 +3932,17 @@ void TrayService::ApplyWin11TraySnapshot() {
                 m_icons[key] = std::move(entry);
                 m_order.push_back(key);
                 ++added;
-                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_ADD, 0, key.uid);
+                CoreState::Instance().QueueEvent(W7T_EVT_TRAY_ADD,
+                                                 key.ownerHwnd, key.uid);
             } else {
                 TrayIconEntry& entry = it->second;
                 entry.missCount = 0;
                 entry.lastReadFailed = false;
 
+                entry.uiaUid = item.uid;
+                entry.lastUpdateSource = L"UIA tray";
                 bool changed = false;
-                if (entry.tooltip != item.name) {
+                if (entry.tooltip.empty() && !item.name.empty()) {
                     entry.tooltip = item.name;
                     changed = true;
                 }
@@ -3392,7 +3964,7 @@ void TrayService::ApplyWin11TraySnapshot() {
                 /* v2.62: lo stato "nascosto" non si eredita dalla shell (vedi
                  * sopra): se una voce creata da una build precedente se lo
                  * portava dietro, si azzera qui alla prima lettura utile. */
-                if (entry.state != 0) {
+                if (!entry.fromTrayNotify && entry.state != 0) {
                     entry.state = 0;
                     changed = true;
                 }
@@ -3405,7 +3977,8 @@ void TrayService::ApplyWin11TraySnapshot() {
                  * restava quella del primo avvio. Ora si aggiorna quando il
                  * disegno e' davvero diverso (il confronto e' un hash, non
                  * un'uguaglianza pixel per pixel). */
-                if (!item.bitmap.empty()) {
+                if (!item.bitmap.empty() &&
+                    (!entry.fromTrayNotify || entry.bitmap.empty())) {
                     const uint64_t hash = ArgbHash(item.bitmap);
                     if (hash != entry.pixelHash) {
                         entry.bitmap = item.bitmap;
@@ -3417,8 +3990,8 @@ void TrayService::ApplyWin11TraySnapshot() {
                 }
                 if (changed) {
                     ++updated;
-                    CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY, 0,
-                                                     key.uid);
+                    CoreState::Instance().QueueEvent(W7T_EVT_TRAY_MODIFY,
+                                                     key.ownerHwnd, key.uid);
                 }
             }
         }
@@ -3436,10 +4009,24 @@ void TrayService::ApplyWin11TraySnapshot() {
         std::vector<TrayIconKey> toRemove;
         for (auto& pair : m_icons) {
             TrayIconEntry& entry = pair.second;
-            if (!entry.fromWin11Uia) {
+            /* Una voce gia' confermata da TrayNotify ha un canale live
+             * WM_COPYDATA e non può essere cancellata perché UIA ha omesso
+             * un elemento: la rimozione certa è NIM_DELETE o owner morto. */
+            if (entry.fromTrayNotify ||
+                (!entry.fromWin11Uia && entry.uiaUid == 0)) {
                 continue;
             }
-            if (present.count(pair.first.uid) != 0) {
+            if ((entry.uiaUid != 0 && presentKeys.count(pair.first) != 0) ||
+                (entry.uiaUid == 0 && present.count(pair.first.uid) != 0)) {
+                continue;
+            }
+            /* L'isola dell'overflow e' spesso creata solo quando il flyout
+             * viene aperto. Una lettura valida della barra principale non e'
+             * una prova che una voce gia' vista nel cassetto sia stata
+             * rimossa: la conserviamo finche' UIA non attraversa davvero
+             * l'overflow. */
+            if ((!mainRead && !entry.hiddenDesired) ||
+                (!overflowRead && entry.hiddenDesired)) {
                 continue;
             }
             if (++entry.missCount >= 2) {
@@ -3496,6 +4083,7 @@ void CALLBACK TrayService::TrayHostChangedProc(HWINEVENTHOOK, DWORD,
     const bool isTrayHost =
         wcsstr(cls, L"TopLevelWindowForOverflowXamlIsland") != nullptr ||
         wcsstr(cls, L"DesktopWindowContentBridge") != nullptr ||
+        _wcsicmp(cls, L"Windows.UI.Input.InputSite.WindowClass") == 0 ||
         _wcsicmp(cls, L"Shell_TrayWnd") == 0 ||
         _wcsicmp(cls, L"Shell_SecondaryTrayWnd") == 0;
     if (!isTrayHost) {
@@ -3874,14 +4462,14 @@ bool IsFlyoutProcess(HWND hwnd) {
     if (pid == 0) {
         return false;
     }
-    HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (proc == nullptr) {
+    raii::GenericHandle proc(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
+                                          FALSE, pid));
+    if (!proc) {
         return false;
     }
     wchar_t path[MAX_PATH] = {};
     DWORD len = static_cast<DWORD>(std::size(path));
-    const bool ok = QueryFullProcessImageNameW(proc, 0, path, &len) != FALSE;
-    CloseHandle(proc);
+    const bool ok = QueryFullProcessImageNameW(proc.get(), 0, path, &len) != FALSE;
     if (!ok || len == 0) {
         return false;
     }
@@ -3941,16 +4529,60 @@ int FlyoutGapDpi() {
 } /* namespace */
 
 void TrayService::SetShellRects(const RECT& bar, const RECT& notify) {
-    if (m_trayWnd == nullptr) {
+    HWND trayWnd = nullptr;
+    DWORD ownerThread = 0;
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        trayWnd = m_trayWnd;
+        ownerThread = m_threadId.load();
+    }
+    if (trayWnd == nullptr) {
         return;
     }
+
+    /* ReportShellRects arriva normalmente dal dispatcher WPF. Le finestre
+     * Shell_TrayWnd/TrayNotifyWnd e soprattutto ToolbarWindow32, invece,
+     * sono create dal thread del servizio. Muovere il toolbar da due thread
+     * mentre comctl32 sta elaborando TB_* è una race nativa: su Windows 11
+     * può terminare dentro COMCTL32/msvcrt con 0xC0000005. Si accoda sempre
+     * l'ultimo rettangolo al thread proprietario. */
+    if (ownerThread != 0 && GetCurrentThreadId() != ownerThread) {
+        bool post = false;
+        {
+            std::lock_guard<std::recursive_mutex> lock(m_mutex);
+            m_pendingBarRect = bar;
+            m_pendingNotifyRect = notify;
+            if (!m_shellRectsPosted) {
+                m_shellRectsPosted = true;
+                post = true;
+            }
+        }
+        if (post && !PostMessageW(trayWnd, kMsgShellRects, 0, 0)) {
+            std::lock_guard<std::recursive_mutex> lock(m_mutex);
+            m_shellRectsPosted = false;
+        }
+        return;
+    }
+
+    ApplyShellRectsOnThread(bar, notify);
+}
+
+void TrayService::ApplyShellRectsOnThread(const RECT& bar,
+                                          const RECT& notify) {
+    /* Questo metodo è chiamato solo dal thread che possiede le finestre.
+     * Nessuna SendMessage di comctl32 attraversa il confine del dispatcher
+     * gestito. */
+    if (m_trayWnd == nullptr || !IsWindow(m_trayWnd)) {
+        return;
+    }
+
     SetWindowPos(m_trayWnd, nullptr,
                  static_cast<int>(bar.left), static_cast<int>(bar.top),
                  static_cast<int>(bar.right - bar.left),
                  static_cast<int>(bar.bottom - bar.top),
                  SWP_NOZORDER | SWP_NOACTIVATE);
 
-    if (m_notifyWnd != nullptr) {
+    if (m_notifyWnd != nullptr && IsWindow(m_notifyWnd)) {
         /* La figlia e' in coordinate rispetto alla padre. */
         SetWindowPos(m_notifyWnd, nullptr,
                      static_cast<int>(notify.left - bar.left),
@@ -4440,22 +5072,23 @@ static BOOL BestEffortRestoreBatteryKeyNoAlloc() {
     if (!g_batteryKeyTouched) {
         return TRUE;
     }
-    HKEY key = nullptr;
+    HKEY rawKey = nullptr;
     if (RegOpenKeyExW(HKEY_CURRENT_USER,
                       L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
-                      0, KEY_SET_VALUE, &key) != ERROR_SUCCESS || key == nullptr) {
+                      0, KEY_SET_VALUE, &rawKey) != ERROR_SUCCESS ||
+        rawKey == nullptr) {
         return FALSE;
     }
+    raii::RegKeyHandle key(rawKey);
     LSTATUS s = ERROR_SUCCESS;
     if (g_batteryKeyPrevExists) {
-        s = RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
+        s = RegSetValueExW(key.get(), L"UseWin32BatteryFlyout", 0, REG_DWORD,
                            reinterpret_cast<const BYTE*>(&g_batteryKeyPrevValue),
                            sizeof(g_batteryKeyPrevValue));
     } else {
-        s = RegDeleteValueW(key, L"UseWin32BatteryFlyout");
+        s = RegDeleteValueW(key.get(), L"UseWin32BatteryFlyout");
         if (s == ERROR_FILE_NOT_FOUND) s = ERROR_SUCCESS;
     }
-    RegCloseKey(key);
     return (s == ERROR_SUCCESS) ? TRUE : FALSE;
 }
 
@@ -4509,9 +5142,10 @@ static void WriteBatteryFlyoutBackup(bool prevExists, DWORD prevValue) {
             CreateDirectoryW(path.substr(0, slash).c_str(), nullptr);
         }
     }
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
-                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
+    raii::GenericHandle h(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                                       CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                       nullptr));
+    if (!h) {
         return;
     }
     uint8_t buf[1 + 4];
@@ -4521,8 +5155,7 @@ static void WriteBatteryFlyoutBackup(bool prevExists, DWORD prevValue) {
     buf[3] = static_cast<uint8_t>((prevValue >> 16) & 0xFFu);
     buf[4] = static_cast<uint8_t>((prevValue >> 24) & 0xFFu);
     DWORD written = 0;
-    BOOL okWrite = WriteFile(h, buf, sizeof(buf), &written, nullptr);
-    CloseHandle(h);
+    BOOL okWrite = WriteFile(h.get(), buf, sizeof(buf), &written, nullptr);
     if (!okWrite || written != sizeof(buf)) {
         /* Scrittura fallita o incompleta: meglio NESSUN backup che un
          * file corrotto che mentirebbe sul valore precedente. */
@@ -4543,16 +5176,15 @@ static void RecoverBatteryFlyoutKeyFromBackup() {
     if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
         return;
     }
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                           nullptr, OPEN_EXISTING, 0, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
+    raii::GenericHandle h(CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                                       nullptr, OPEN_EXISTING, 0, nullptr));
+    if (!h) {
         return;
     }
     uint8_t buf[1 + 4] = {};
     DWORD readN = 0;
-    const bool ok = ReadFile(h, buf, sizeof(buf), &readN, nullptr) == TRUE
+    const bool ok = ReadFile(h.get(), buf, sizeof(buf), &readN, nullptr) == TRUE
                  && readN == sizeof(buf);
-    CloseHandle(h);
     if (!ok) {
         DeleteFileW(path.c_str());
         return;
@@ -4562,24 +5194,26 @@ static void RecoverBatteryFlyoutKeyFromBackup() {
                          | (static_cast<DWORD>(buf[2]) << 8)
                          | (static_cast<DWORD>(buf[3]) << 16)
                          | (static_cast<DWORD>(buf[4]) << 24);
-    HKEY key = nullptr;
+    HKEY rawKey = nullptr;
+    raii::RegKeyHandle key;
     if (RegCreateKeyExW(
             HKEY_CURRENT_USER,
             L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
             0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE,
-            nullptr, &key, nullptr) == ERROR_SUCCESS && key != nullptr) {
-        if (prevExists) {
-            RegSetValueExW(key, L"UseWin32BatteryFlyout", 0, REG_DWORD,
-                           reinterpret_cast<const BYTE*>(&prevValue),
-                           sizeof(prevValue));
-        } else {
-            RegDeleteValueW(key, L"UseWin32BatteryFlyout");
+            nullptr, &rawKey, nullptr) == ERROR_SUCCESS && rawKey != nullptr) {
+        key.reset(rawKey);
+        const LSTATUS restoreResult = prevExists
+            ? RegSetValueExW(key.get(), L"UseWin32BatteryFlyout", 0, REG_DWORD,
+                             reinterpret_cast<const BYTE*>(&prevValue),
+                             sizeof(prevValue))
+            : RegDeleteValueW(key.get(), L"UseWin32BatteryFlyout");
+        if (restoreResult == ERROR_SUCCESS ||
+            (!prevExists && restoreResult == ERROR_FILE_NOT_FOUND)) {
+            /* Cancelliamo il backup solo DOPO un Reg* di successo. */
+            DeleteFileW(path.c_str());
+            LogTagged(L"GATE",
+                      L"batteria: recuperata chiave legacy da backup (terminazione anomala precedente)");
         }
-        RegCloseKey(key);
-        /* Cancelliamo il backup solo DOPO un Reg* di successo. */
-        DeleteFileW(path.c_str());
-        LogTagged(L"GATE",
-                  L"batteria: recuperata chiave legacy da backup (terminazione anomala precedente)");
     }
     /* Se il restore e' fallito (key non apribile, ecc.), lasciamo il
      * file sul disco: il prossimo avvio riprovera'. */
@@ -4589,19 +5223,21 @@ static void EnsureWin32BatteryFlyoutValue() {
     if (g_batteryKeyTouched) {
         return;   /* un tentativo e' gia' in corso: non toccare due volte */
     }
-    HKEY key = nullptr;
+    HKEY rawKey = nullptr;
+    raii::RegKeyHandle key;
     const LSTATUS opened = RegCreateKeyExW(
         HKEY_CURRENT_USER,
         L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ImmersiveShell",
         0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE | KEY_QUERY_VALUE,
-        nullptr, &key, nullptr);
-    if (opened != ERROR_SUCCESS) {
+        nullptr, &rawKey, nullptr);
+    if (opened != ERROR_SUCCESS || rawKey == nullptr) {
         return;
     }
+    key.reset(rawKey);
     DWORD value = 0;
     DWORD size = sizeof(value);
     DWORD type = 0;
-    const LSTATUS read = RegQueryValueExW(key, L"UseWin32BatteryFlyout",
+    const LSTATUS read = RegQueryValueExW(key.get(), L"UseWin32BatteryFlyout",
                                           nullptr, &type,
                                           reinterpret_cast<LPBYTE>(&value),
                                           &size);
@@ -4628,7 +5264,6 @@ static void EnsureWin32BatteryFlyoutValue() {
         w7t::RegistryPolicy::WriteWithBackup(batteryFlyout);
         g_batteryKeyTouched = true;
     }
-    RegCloseKey(key);
 }
 
 /* Ripristina il valore precedente (o cancella la voce che non c'era). */
@@ -4788,6 +5423,7 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
                                int32_t x, int32_t y) {
     uint32_t callbackMessage = 0;
     uint32_t version = 0;
+    uint32_t uiaUid = 0;
     bool uiaEntry = false;
     SystemIconKind syntheticKind = SystemIconKind::None;
     {
@@ -4798,7 +5434,8 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
         }
         callbackMessage = it->second.callbackMessage;
         version = it->second.version;
-        uiaEntry = it->second.fromWin11Uia;
+        uiaUid = it->second.uiaUid;
+        uiaEntry = it->second.fromWin11Uia || uiaUid != 0;
         syntheticKind = it->second.syntheticKind;
     }
 
@@ -5115,7 +5752,8 @@ int32_t TrayService::SendClick(uint64_t ownerHwnd, uint32_t uid, int32_t clickTy
              * stare, meglio di un'azione sbagliata. */
             return W7T_ERR_INVALID_ARG;
         }
-        return Win11TrayReader::Instance().RequestClick(uid, right)
+        return Win11TrayReader::Instance().RequestClick(
+                   uiaUid != 0 ? uiaUid : uid, right)
              ? W7T_OK : W7T_ERR_NOT_FOUND;
     }
 

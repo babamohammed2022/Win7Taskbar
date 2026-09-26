@@ -68,8 +68,9 @@ inline void Wh_Log(const wchar_t* fmt, ...) {
     wchar_t buf[1024];
     va_list args;
     va_start(args, fmt);
-    _vsnwprintf_s(buf, _TRUNCATE, fmt, args);
+    vswprintf(buf, ARRAYSIZE(buf), fmt, args);
     va_end(args);
+    buf[ARRAYSIZE(buf) - 1] = L'\0';
     wchar_t line[1100];
     StringCchPrintfW(line, ARRAYSIZE(line), L"[W7TNetFlyout] %s\n", buf);
     OutputDebugStringW(line);

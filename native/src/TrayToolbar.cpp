@@ -47,6 +47,11 @@ TrayToolbar::~TrayToolbar() {
     Destroy();
 }
 
+HWND TrayToolbar::PagerHandle() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_pager;
+}
+
 bool TrayToolbar::Create(HWND notifyParent, HINSTANCE instance) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_toolbar != nullptr) {
@@ -56,6 +61,7 @@ bool TrayToolbar::Create(HWND notifyParent, HINSTANCE instance) {
         return false;
     }
     EnsureCommonControls();
+    m_ownerThreadId = GetCurrentThreadId();
 
     m_iconSize = GetSystemMetrics(SM_CXSMICON);
     if (m_iconSize < 16) {
@@ -75,6 +81,9 @@ bool TrayToolbar::Create(HWND notifyParent, HINSTANCE instance) {
         /* Il pager non e' essenziale: si ripiega sul padre diretto, come
          * fanno alcune build dove la toolbar e' figlia di TrayNotifyWnd. */
         m_pager = notifyParent;
+        m_ownsPager = false;
+    } else {
+        m_ownsPager = true;
     }
 
     m_toolbar = CreateWindowExW(
@@ -84,8 +93,13 @@ bool TrayToolbar::Create(HWND notifyParent, HINSTANCE instance) {
         0, 0, 0, m_iconSize + 4,
         m_pager, nullptr, instance, nullptr);
     if (m_toolbar == nullptr) {
-        m_pager   = nullptr;
+        if (m_ownsPager && m_pager != nullptr) {
+            DestroyWindow(m_pager);
+        }
+        m_pager = nullptr;
+        m_ownsPager = false;
         m_toolbar = nullptr;
+        m_ownerThreadId = 0;
         return false;
     }
 
@@ -117,20 +131,21 @@ bool TrayToolbar::Create(HWND notifyParent, HINSTANCE instance) {
                      reinterpret_cast<LPARAM>(m_images));
     }
 
-    /* --- finestra di overflow: la gerarchia vera di Vista+ --------- */
-    /* NotifyIconOverflowWindow e' una finestra TOP-LEVEL invisibile che
-     * vive finche' la shell c'e'; il suo ToolbarWindow32 elenca le icone
-     * nascoste. Ricostruiamo identica struttura: chi cerca la classe la
-     * trova, e il riquadro e' un controllo vero pilotato dai TB_*, non un
-     * disegno. Condivide la nostra ImageList: nessuna duplicazione. */
+    /* --- finestra di overflow del modello legacy --------------------- */
+    /* Questo secondo toolbar è una finestra mirror privata. Il nome
+     * NotifyIconOverflowWindow è riservato al pannello overflow nativo
+     * realmente mostrato da TrayOverflowWindow: usare qui quel nome faceva
+     * sì che FindWindowW notificasse il mirror nascosto invece del pannello. */
+    constexpr wchar_t kLegacyMirrorClass[] =
+        L"Win7Taskbar_LegacyOverflowMirror";
     WNDCLASSEXW oc = {};
     oc.cbSize        = sizeof(oc);
     oc.lpfnWndProc   = DefWindowProcW;
     oc.hInstance     = instance;
-    oc.lpszClassName = L"NotifyIconOverflowWindow";
+    oc.lpszClassName = kLegacyMirrorClass;
     if (RegisterClassExW(&oc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS) {
         m_overflowWnd = CreateWindowExW(
-            0, L"NotifyIconOverflowWindow", L"User Promoted Notification Area",
+            0, kLegacyMirrorClass, L"Win7Taskbar overflow mirror",
             WS_POPUP, 0, 0, 0, 0,
             nullptr, nullptr, instance, nullptr);
         if (m_overflowWnd != nullptr) {
@@ -161,13 +176,13 @@ void TrayToolbar::Destroy() {
         DestroyWindow(m_toolbar);
         m_toolbar = nullptr;
     }
-    /* m_pager puo' essere il padre stesso (fallback): lo si distrugge solo
-     * se l'abbiamo creato noi. */
-    if (m_pager != nullptr && m_pager != m_toolbar) {
-        /* Il SysPager e' figlio della TrayNotifyWnd: la distruzione del
-         * padre lo rimuove. Non lo distruggiamo qui per non toccare finestre
-         * che forse non abbiamo creato. */
+    /* m_pager può essere il padre stesso (fallback): si distrugge solo il
+     * SysPager creato da questo oggetto, mai TrayNotifyWnd. */
+    if (m_ownsPager && m_pager != nullptr) {
+        DestroyWindow(m_pager);
     }
+    m_pager = nullptr;
+    m_ownsPager = false;
     if (m_overflowBar != nullptr) {
         DestroyWindow(m_overflowBar);
         m_overflowBar = nullptr;
@@ -187,10 +202,19 @@ void TrayToolbar::Destroy() {
     m_idToIndex.clear();
     m_idToImage.clear();
     m_idToString.clear();
+    m_buttonText.clear();
+    m_ownerThreadId = 0;
 }
 
 void TrayToolbar::SetArea(const RECT& clientRect) {
     std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_ownerThreadId != 0 && GetCurrentThreadId() != m_ownerThreadId) {
+        /* Un controllo comctl32 deve essere mosso dal thread che lo ha
+         * creato. Il chiamante pubblico viene normalmente riallineato da
+         * TrayService::SetShellRects; questa guardia impedisce comunque un
+         * accesso diretto per errore futuro. */
+        return;
+    }
     if (m_pager == nullptr || m_toolbar == nullptr) {
         return;
     }
@@ -399,16 +423,18 @@ void TrayToolbar::SetButtonHidden(uint32_t id, bool hidden) {
     if (it == m_idToIndex.end()) {
         return;
     }
+    /* TB_GETSTATE/TB_SETSTATE usano idCommand, non l'indice del pulsante.
+     * L'indice resta nella mappa solo per TB_GETBUTTON/TB_GETITEMRECT. */
     const int state = static_cast<int>(
-        SendMessageW(m_toolbar, TB_GETSTATE, static_cast<WPARAM>(it->second), 0));
+        SendMessageW(m_toolbar, TB_GETSTATE, static_cast<WPARAM>(id), 0));
     const BYTE desired = TBSTATE_ENABLED
                        | (hidden ? static_cast<BYTE>(TBSTATE_HIDDEN) : 0);
     if (static_cast<BYTE>(state) != desired) {
         /* TBSTATE_HIDDEN: il meccanismo con cui la shell (9x/2003 col pager,
          * Vista+ nella toolbar "User Promoted") toglie il pulsante dalla
          * vista senza rimuoverlo dal modello. */
-        SendMessageW(m_toolbar, TB_SETSTATE, static_cast<WPARAM>(it->second),
-                     MAKELPARAM(desired, static_cast<WORD>(-1)));
+        SendMessageW(m_toolbar, TB_SETSTATE, static_cast<WPARAM>(id),
+                     static_cast<LPARAM>(desired));
         SendMessageW(m_toolbar, TB_AUTOSIZE, 0, 0);
     }
 }
@@ -423,15 +449,34 @@ bool TrayToolbar::IsButtonHidden(uint32_t id) const {
         return false;
     }
     const int state = static_cast<int>(
-        SendMessageW(m_toolbar, TB_GETSTATE, static_cast<WPARAM>(it->second), 0));
+        SendMessageW(m_toolbar, TB_GETSTATE, static_cast<WPARAM>(id), 0));
     return (state & TBSTATE_HIDDEN) != 0;
 }
 
-void TrayToolbar::SetButtonText(uint32_t id, const std::wstring&) {
-    /* Il testo vive nel modello del servizio (m_icons.tooltip) perche' la
-     * toolbar e' creata senza TBSTYLE_LIST: il pulsante referenzia il solo
-     * stato. Tenere qui una copia sarebbe una secondo verita'. */
-    (void)id;
+void TrayToolbar::SetButtonText(uint32_t id, const std::wstring& text) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_toolbar == nullptr) {
+        return;
+    }
+    if (m_idToIndex.find(id) == m_idToIndex.end()) {
+        return;
+    }
+
+    /* TB_SETBUTTONINFO legge il puntatore solo durante la chiamata; la copia
+     * nel map mantiene comunque una memoria stabile per le versioni di
+     * comctl32 che la consultano mentre aggiornano il tooltip. */
+    m_buttonText[id] = text;
+    std::wstring& stored = m_buttonText[id];
+    TBBUTTONINFOW info = {};
+    info.cbSize = sizeof(info);
+    info.dwMask = TBIF_TEXT;
+    info.pszText = stored.empty()
+        ? const_cast<LPWSTR>(L"")
+        : const_cast<LPWSTR>(stored.c_str());
+    info.cchText = static_cast<int>(stored.size());
+    SendMessageW(m_toolbar, TB_SETBUTTONINFOW,
+                 static_cast<WPARAM>(id),
+                 reinterpret_cast<LPARAM>(&info));
 }
 
 void TrayToolbar::RemoveButton(uint32_t id) {
