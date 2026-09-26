@@ -244,13 +244,11 @@ namespace Win7Taskbar
                         }
                     }
 
-                    // v2.22: la modalita' provvisoria automatica scatta SOLO
-                    // se a morire e' stata la STESSA versione: un crash di una
-                    // build vecchia (gia' corretta) non deve mutilare quella
-                    // nuova, altrimenti l'utente resta con la barra di
-                    // sistema visibile e l'AppBar saltata pur avendo una
-                    // build sana (regressione segnalata in v2.21).
-                    bool sameVersion = markerVersion == null ||
+                    // v2.22 / 1.3.45: SafeMode only when the SAME version
+                    // crashed. A marker from an older install (or one with
+                    // no versione= line, typical after uninstall) must not
+                    // skip AppBar / native-taskbar hide on a new build.
+                    bool sameVersion = !string.IsNullOrEmpty(markerVersion) &&
                         string.Equals(markerVersion, VersionText,
                                       StringComparison.Ordinal);
 

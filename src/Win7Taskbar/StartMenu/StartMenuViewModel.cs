@@ -324,6 +324,11 @@ namespace Win7Taskbar.StartMenu
                 return false;
             }
             path = Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
+            if (path.StartsWith("::{", StringComparison.Ordinal) ||
+                (path.StartsWith("{", StringComparison.Ordinal) && path.Contains('}')))
+            {
+                path = ControlPanelItems.ToShellUri(path);
+            }
             try
             {
                 if (_bridge.StartMenuLaunch(path))
@@ -1538,7 +1543,8 @@ namespace Win7Taskbar.StartMenu
                     case "computer":
                         return OpenShellUri("shell:MyComputerFolder");
                     case "control":
-                        return StartProcess("control.exe", null);
+                        return StartProcess("control.exe", null) ||
+                               OpenShellUri("shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}");
                     case "devices":
                         return OpenShellUri("shell:::{A8A91A66-3A7D-4424-8D24-04E180695C7A}");
                     case "defaults":

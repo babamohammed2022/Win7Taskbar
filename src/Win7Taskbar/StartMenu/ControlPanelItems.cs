@@ -57,6 +57,8 @@ namespace Win7Taskbar.StartMenu
         private const uint ShgfiDisplayName = 0x000000200;
         private const uint SeeMaskIdList = 0x00000004;
         private const uint SeeMaskInvokeIdList = 0x0000000C;
+        private const uint SeeMaskFlagDdeWait = 0x00000100;
+        private const uint SeeMaskNoAsync = 0x00100000;
         private const uint SigdnNormalDisplay = 0;
 
         private static readonly Guid IidShellFolder =
@@ -88,6 +90,20 @@ namespace Win7Taskbar.StartMenu
                 {
                 }
             }
+            try
+            {
+                AppendRegistryNamespaces(list, seen);
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                AppendRestoredApplets(list, seen);
+            }
+            catch (Exception)
+            {
+            }
             list.Sort((a, b) => StrCmpLogicalW(a.Name, b.Name));
             return list;
         }
@@ -100,28 +116,23 @@ namespace Win7Taskbar.StartMenu
             }
             try
             {
-                if (item.Pidl != IntPtr.Zero)
+                if (item.Pidl != IntPtr.Zero &&
+                    ShellExecutePidl(item.Pidl))
                 {
-                    var info = new NativeMethods.SHELLEXECUTEINFO
-                    {
-                        cbSize = Marshal.SizeOf<NativeMethods.SHELLEXECUTEINFO>(),
-                        fMask = SeeMaskIdList | SeeMaskInvokeIdList,
-                        lpIDList = item.Pidl,
-                        nShow = NativeMethods.SW_SHOWNORMAL
-                    };
-                    if (NativeMethods.ShellExecuteExW(ref info))
+                    return true;
+                }
+                string raw = item.ParsingName ?? string.Empty;
+                string uri = ToShellUri(raw);
+                if (uri.StartsWith("shell:", StringComparison.OrdinalIgnoreCase) ||
+                    uri.StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (StartExplorer(uri) || ShellExecuteFile(uri))
                     {
                         return true;
                     }
                 }
-                if (!string.IsNullOrWhiteSpace(item.ParsingName))
+                else if (!string.IsNullOrWhiteSpace(raw) && LaunchCommand(raw))
                 {
-                    var psi = new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = item.ParsingName,
-                        UseShellExecute = true
-                    };
-                    System.Diagnostics.Process.Start(psi);
                     return true;
                 }
             }
@@ -129,6 +140,335 @@ namespace Win7Taskbar.StartMenu
             {
             }
             return false;
+        }
+
+        private static bool LaunchCommand(string command)
+        {
+            try
+            {
+                string file = command.Trim();
+                string? args = null;
+                if (file.StartsWith("\"", StringComparison.Ordinal))
+                {
+                    int end = file.IndexOf('"', 1);
+                    if (end > 0)
+                    {
+                        args = file.Substring(end + 1).Trim();
+                        file = file.Substring(1, end - 1);
+                    }
+                }
+                else
+                {
+                    int sp = file.IndexOf(' ');
+                    if (sp > 0 && file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) == false)
+                    {
+                        /* rundll32.exe cscui.dll,... */
+                        string first = file.Substring(0, sp);
+                        if (first.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        {
+                            args = file.Substring(sp + 1).Trim();
+                            file = first;
+                        }
+                    }
+                }
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = file,
+                    UseShellExecute = true
+                };
+                if (!string.IsNullOrEmpty(args))
+                {
+                    psi.Arguments = args;
+                }
+                using System.Diagnostics.Process? p = System.Diagnostics.Process.Start(psi);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static bool ShellExecutePidl(IntPtr pidl)
+        {
+            try
+            {
+                var info = new NativeMethods.SHELLEXECUTEINFO
+                {
+                    cbSize = Marshal.SizeOf<NativeMethods.SHELLEXECUTEINFO>(),
+                    fMask = SeeMaskInvokeIdList | SeeMaskIdList |
+                            SeeMaskFlagDdeWait | SeeMaskNoAsync,
+                    lpVerb = "open",
+                    lpIDList = pidl,
+                    nShow = NativeMethods.SW_SHOWNORMAL
+                };
+                return NativeMethods.ShellExecuteExW(ref info);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static bool ShellExecuteFile(string file)
+        {
+            try
+            {
+                var info = new NativeMethods.SHELLEXECUTEINFO
+                {
+                    cbSize = Marshal.SizeOf<NativeMethods.SHELLEXECUTEINFO>(),
+                    fMask = SeeMaskInvokeIdList | SeeMaskFlagDdeWait,
+                    lpVerb = "open",
+                    lpFile = file,
+                    nShow = NativeMethods.SW_SHOWNORMAL
+                };
+                return NativeMethods.ShellExecuteExW(ref info);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        internal static string ToShellUri(string? parsing)
+        {
+            if (string.IsNullOrWhiteSpace(parsing))
+            {
+                return string.Empty;
+            }
+            string t = parsing.Trim();
+            if (t.StartsWith("shell:", StringComparison.OrdinalIgnoreCase) ||
+                t.StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase) ||
+                t.StartsWith("control.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return t;
+            }
+            if (t.StartsWith("::{", StringComparison.Ordinal) ||
+                t.StartsWith("{", StringComparison.Ordinal))
+            {
+                if (t[0] == '{')
+                {
+                    t = "::" + t;
+                }
+                return "shell:" + t;
+            }
+            return t;
+        }
+
+        private static bool StartExplorer(string uri)
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = uri,
+                    UseShellExecute = true
+                };
+                using System.Diagnostics.Process? p = System.Diagnostics.Process.Start(psi);
+                return p != null || true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static void AppendRegistryNamespaces(List<ControlPanelItem> list,
+            HashSet<string> seen)
+        {
+            const string ns =
+                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ControlPanel\NameSpace";
+            AppendNameSpaceHive(Registry.LocalMachine, ns, list, seen);
+            AppendNameSpaceHive(Registry.CurrentUser, ns, list, seen);
+        }
+
+        private static void AppendNameSpaceHive(RegistryKey hive, string path,
+            List<ControlPanelItem> list, HashSet<string> seen)
+        {
+            try
+            {
+                using RegistryKey? key = hive.OpenSubKey(path);
+                if (key == null)
+                {
+                    return;
+                }
+                foreach (string name in key.GetSubKeyNames())
+                {
+                    if (!Guid.TryParse(name.Trim('{', '}'), out Guid guid))
+                    {
+                        continue;
+                    }
+                    TryAddParsing("shell:::{" + guid.ToString("D") + "}", list, seen);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /* CLSIDs restored in-process by Windhawk mods that hook explorer.exe
+         * / control.exe only — our IShellFolder enum never sees them. Add
+         * the same parsing names Explorer uses (and file-based applets). */
+        private static readonly string[] RestoredClsid =
+        {
+            "{ED834ED6-4B5A-4bfe-8F11-A626DCB6A921}", /* Personalization */
+            "{05d7b0f4-2121-4eff-bf6b-ed3f69b894d9}", /* Notification Area Icons */
+            "{7007ACC7-3202-11D1-AAD2-00805FC1270E}", /* Network Connections */
+            "{992CFFA0-F557-101A-88EC-00DD010CCC48}", /* Network Connections (alt) */
+            "{2227A280-3AEA-1069-A2DE-08002B30309D}", /* Printers */
+            "{67CA7650-96E6-4FDD-BB43-A8E774F73A57}", /* HomeGroup */
+            "{B4FB3F98-C1EA-428d-A78A-D1F5659CBA93}", /* HomeGroup (page) */
+            "{D9EF8727-CAC2-4e60-809E-86F80A666C91}", /* BitLocker */
+            "{80F3F1D5-FECA-45F3-BC32-752C152E456E}", /* Tablet PC Settings */
+            "{D17D1D6D-CC3F-4815-8FE3-607E7D5D10B3}", /* Text to Speech */
+            "{78F3955E-3B90-4184-BD14-5397C15F1EFC}", /* Performance Information */
+            "{60632754-c523-4b62-b45c-4172da012619}", /* User Accounts */
+            "{7A4D8BD7-9B32-48d0-8A2D-3C208B1A1E22}", /* User Accounts (alt) */
+            "{BB06C0E4-D293-4f75-8A90-CB05B6477EEE}"  /* System */
+        };
+
+        private static void AppendRestoredApplets(List<ControlPanelItem> list,
+            HashSet<string> seen)
+        {
+            foreach (string clsid in RestoredClsid)
+            {
+                TryAddParsing("shell:::" + clsid, list, seen);
+            }
+            TryAddFileApplet("iscsicpl.exe", "iSCSI Initiator", list, seen);
+            TryAddFileApplet("joy.cpl", "Game Controllers", list, seen);
+            string sys = Environment.GetFolderPath(Environment.SpecialFolder.System);
+            string cscui = System.IO.Path.Combine(sys, "cscui.dll");
+            if (System.IO.File.Exists(cscui))
+            {
+                TryAddCommand("rundll32.exe", "cscui.dll,OfflineFilesCpl",
+                    "Offline Files", list, seen);
+            }
+        }
+
+        private static void TryAddParsing(string parsing,
+            List<ControlPanelItem> list, HashSet<string> seen)
+        {
+            IntPtr pidl = IntPtr.Zero;
+            try
+            {
+                if (NativeMethods.SHParseDisplayName(parsing, IntPtr.Zero,
+                        out pidl, 0, IntPtr.Zero) != 0 ||
+                    pidl == IntPtr.Zero)
+                {
+                    string fallback = RegistryClsidName(parsing);
+                    if (!IsUsableName(fallback) && WindhawkPresent())
+                    {
+                        fallback = HardcodedRestoredName(parsing);
+                    }
+                    if (!IsUsableName(fallback) || !seen.Add(fallback))
+                    {
+                        return;
+                    }
+                    list.Add(new ControlPanelItem
+                    {
+                        Name = fallback.Trim(),
+                        ParsingName = parsing,
+                        Icon = null,
+                        Pidl = IntPtr.Zero
+                    });
+                    return;
+                }
+                string name = FileInfoDisplayName(pidl);
+                if (!IsUsableName(name))
+                {
+                    name = RegistryClsidName(parsing);
+                }
+                if (!IsUsableName(name) || !seen.Add(name))
+                {
+                    NativeMethods.ILFree(pidl);
+                    return;
+                }
+                list.Add(new ControlPanelItem
+                {
+                    Name = name.Trim(),
+                    ParsingName = parsing,
+                    Icon = IconFromPidl(pidl),
+                    Pidl = pidl
+                });
+                pidl = IntPtr.Zero;
+            }
+            catch (Exception)
+            {
+                if (pidl != IntPtr.Zero)
+                {
+                    NativeMethods.ILFree(pidl);
+                }
+            }
+        }
+
+        private static string HardcodedRestoredName(string parsing)
+        {
+            Match m = GuidInText.Match(parsing ?? string.Empty);
+            if (!m.Success)
+            {
+                return string.Empty;
+            }
+            string g = m.Value;
+            if (g.Equals("{78F3955E-3B90-4184-BD14-5397C15F1EFC}", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Performance Information and Tools";
+            }
+            if (g.Equals("{ED834ED6-4B5A-4bfe-8F11-A626DCB6A921}", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Personalization";
+            }
+            if (g.Equals("{05d7b0f4-2121-4eff-bf6b-ed3f69b894d9}", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Notification Area Icons";
+            }
+            if (g.Equals("{60632754-c523-4b62-b45c-4172da012619}", StringComparison.OrdinalIgnoreCase) ||
+                g.Equals("{7A4D8BD7-9B32-48d0-8A2D-3C208B1A1E22}", StringComparison.OrdinalIgnoreCase))
+            {
+                return "User Accounts";
+            }
+            return string.Empty;
+        }
+
+        private static bool WindhawkPresent()
+        {
+            try
+            {
+                return System.Diagnostics.Process.GetProcessesByName("Windhawk").Length > 0;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static void TryAddFileApplet(string file, string fallbackName,
+            List<ControlPanelItem> list, HashSet<string> seen)
+        {
+            string sys = Environment.GetFolderPath(Environment.SpecialFolder.System);
+            string full = System.IO.Path.Combine(sys, file);
+            if (!System.IO.File.Exists(full))
+            {
+                return;
+            }
+            TryAddCommand(full, null, fallbackName, list, seen);
+        }
+
+        private static void TryAddCommand(string file, string? args, string name,
+            List<ControlPanelItem> list, HashSet<string> seen)
+        {
+            if (!seen.Add(name))
+            {
+                return;
+            }
+            string parsing = string.IsNullOrEmpty(args) ? file : file + " " + args;
+            list.Add(new ControlPanelItem
+            {
+                Name = name,
+                ParsingName = parsing,
+                Icon = IconFromPidl(IntPtr.Zero),
+                Pidl = IntPtr.Zero
+            });
         }
 
         public static void Free(IEnumerable<ControlPanelItem> items)

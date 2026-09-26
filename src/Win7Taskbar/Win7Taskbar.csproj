@@ -475,9 +475,10 @@
          non appaiono piu' dopo la v3.13 - quando nemmeno la
          ricostruzione padre+relativo (v3.15) produce un parsing name,
          la voce resta pubblicata col nome mostrato come prima di v3.13. -->
-    <!-- 1.3.44-alpha: Control Panel cascade names (no raw GUIDs) and
-         SFGAO_FOLDER applets included. DPI placement unchanged. -->
-    <Version>1.3.44-alpha</Version>
+    <!-- 1.3.45-alpha: RetroBar ExplorerHelper hide/show of the native
+         taskbar (and full restore on close); Control Panel cascade
+         launch + Windhawk-restored applets. DPI placement unchanged. -->
+    <Version>1.3.45-alpha</Version>
     <AssemblyVersion>1.3.26.0</AssemblyVersion>
     <FileVersion>1.3.26.0</FileVersion>
   

@@ -2412,6 +2412,11 @@ namespace Win7Taskbar
 
             try
             {
+                try { _nativeHideRetryTimer?.Stop(); } catch { }
+                /* RetroBar ShowTaskbar first: SetWindowPos(SWP_SHOWWINDOW)
+                 * works even while we still own a Shell_TrayWnd. */
+                try { _bridge.SetNativeTaskbarHidden(false); } catch { }
+
                 try { _bridge.NetFlyoutUninit(); } catch { }
                 try { _bridge.SetWin7NetworkFlyout(false); } catch { }
                 try { _bridge.Net8FlyoutUninit(); } catch { }
@@ -2436,7 +2441,10 @@ namespace Win7Taskbar
                  * contabile della batteria. Idempotente, non lancia mai. */
                 _bridge.Log("REGBACKUP shutdown restore: " +
                     Win7Taskbar.Utilities.ImmersiveShellBackup.RestoreAll());
-                _bridge.SetNativeTaskbarHidden(false);
+                /* After StopTray, ABM_SETSTATE reaches Explorer's tray
+                 * (RetroBar ExplorerHelper.ShowTaskbar). Always run, even
+                 * if we already showed the HWND above. */
+                try { _bridge.SetNativeTaskbarHidden(false); } catch { }
 
                 _hwndSource?.RemoveHook(WndProc);
                 _viewModel.Dispose();

@@ -189,6 +189,7 @@ namespace Win7Taskbar.StartMenu
                 Grid.SetColumn(text, 1);
                 rowGrid.Children.Add(img);
                 rowGrid.Children.Add(text);
+                rowGrid.Background = Brushes.Transparent;
                 rowGrid.MouseEnter += (_, _) =>
                 {
                     rowGrid.Background = new SolidColorBrush(Color.FromRgb(0xCE, 0xE4, 0xF7));
@@ -198,14 +199,13 @@ namespace Win7Taskbar.StartMenu
                     rowGrid.Background = Brushes.Transparent;
                 };
                 ControlPanelItem captured = item;
-                rowGrid.MouseLeftButtonUp += (_, e) =>
+                void LaunchRow(MouseButtonEventArgs e)
                 {
-                    if (ControlPanelItems.Launch(captured))
-                    {
-                        _onLaunch();
-                    }
+                    ControlPanelItems.Launch(captured);
+                    _onLaunch();
                     e.Handled = true;
-                };
+                }
+                rowGrid.PreviewMouseLeftButtonDown += (_, e) => LaunchRow(e);
                 Grid.SetColumn(rowGrid, col);
                 Grid.SetRow(rowGrid, row);
                 grid.Children.Add(rowGrid);

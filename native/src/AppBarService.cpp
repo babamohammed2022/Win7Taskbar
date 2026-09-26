@@ -381,13 +381,17 @@ AppBarService& AppBarService::Instance() {
 
 HWND AppBarService::FindNativeTaskbar() {
     /* Cerchiamo la Shell_TrayWnd che NON e' la nostra: il nostro server tray
-     * registra una classe con lo stesso nome, quindi filtriamo per processo. */
+     * registra una classe con lo stesso nome, quindi filtriamo per processo.
+     * After an uninstall a leftover replacement bar can sit in front of
+     * Explorer's tray: callers that hide/show must walk every foreign
+     * Shell_TrayWnd (SetNativeTaskbarVisibility). This helper still
+     * returns the first match for ABM_SETSTATE. */
     const DWORD ourPid = GetCurrentProcessId();
     HWND candidate = nullptr;
     while ((candidate = FindWindowExW(nullptr, candidate, L"Shell_TrayWnd", nullptr)) != nullptr) {
         DWORD pid = 0;
         GetWindowThreadProcessId(candidate, &pid);
-        if (pid != ourPid) {
+        if (pid != 0 && pid != ourPid) {
             return candidate;
         }
     }
@@ -947,22 +951,57 @@ UINT AppBarService::SetNativeTaskbarState(UINT state) {
 }
 
 namespace {
+/* RetroBar / ManagedShell ExplorerHelper.SetTaskbarVisibility:
+ * SetWindowPos(HWND_BOTTOM, SWP_HIDEWINDOW|NOMOVE|NOSIZE|NOACTIVATE).
+ * Walk every foreign Shell_TrayWnd so a leftover bar from a previous
+ * install cannot steal the hide from Explorer. */
 void ApplyNativeBarVisibility(HWND hwnd, bool hide) {
     if (hwnd == nullptr || !IsWindow(hwnd)) {
         return;
     }
     const UINT swp = hide ? SWP_HIDEWINDOW : SWP_SHOWWINDOW;
-    const int showCmd = hide ? SW_HIDE : SW_SHOWNOACTIVATE;
-    /* Always send hide/show: Win11 XAML often reports IsWindowVisible
-     * FALSE while the bar is still painted after a close+restart. */
-    SetWindowPos(hwnd, hide ? HWND_BOTTOM : HWND_TOPMOST, 0, 0, 0, 0,
+    SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0,
                  swp | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    ShowWindow(hwnd, showCmd);
+}
+
+void ForEachForeignTray(void (*fn)(HWND, bool), bool hide) {
+    const DWORD ourPid = GetCurrentProcessId();
+    HWND candidate = nullptr;
+    while ((candidate = FindWindowExW(nullptr, candidate, L"Shell_TrayWnd",
+                                      nullptr)) != nullptr) {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(candidate, &pid);
+        if (pid != 0 && pid != ourPid) {
+            fn(candidate, hide);
+        }
+    }
+}
+
+bool AnyForeignTrayVisible() {
+    const DWORD ourPid = GetCurrentProcessId();
+    HWND candidate = nullptr;
+    while ((candidate = FindWindowExW(nullptr, candidate, L"Shell_TrayWnd",
+                                      nullptr)) != nullptr) {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(candidate, &pid);
+        if (pid != 0 && pid != ourPid && IsWindowVisible(candidate)) {
+            return true;
+        }
+    }
+    HWND secondary = nullptr;
+    while ((secondary = FindWindowExW(nullptr, secondary,
+                                      L"Shell_SecondaryTrayWnd",
+                                      nullptr)) != nullptr) {
+        if (IsWindowVisible(secondary)) {
+            return true;
+        }
+    }
+    return false;
 }
 } /* namespace */
 
 void AppBarService::SetNativeTaskbarVisibility(bool hide) {
-    ApplyNativeBarVisibility(FindNativeTaskbar(), hide);
+    ForEachForeignTray(ApplyNativeBarVisibility, hide);
 
     HWND start = FindWindowExW(nullptr, nullptr, kStartButtonAtom, nullptr);
     if (start == nullptr) {
@@ -979,6 +1018,7 @@ void AppBarService::SetNativeTaskbarVisibility(bool hide) {
 void AppBarService::DoHideNativeTaskbar() {
     const HWND taskbar = FindNativeTaskbar();
     LogAppBarDiagnostics(L"prima DoHideNativeTaskbar", taskbar, nullptr);
+    /* ManagedShell ExplorerHelper.DoHideTaskbar: AutoHide then HIDEWINDOW. */
     SetNativeTaskbarState(ABS_AUTOHIDE);
     SetNativeTaskbarVisibility(true);
     LogAppBarDiagnostics(L"dopo DoHideNativeTaskbar", FindNativeTaskbar(), nullptr);
@@ -1047,9 +1087,11 @@ LONG CALLBACK AppBarService::CrashRestorerHandler(PEXCEPTION_POINTERS info) {
 }
 
 void AppBarService::RestoreNativeTaskbarNow() {
-    if (!m_nativeHidden.exchange(false)) {
-        return;  /* gia' visibile: niente da fare */
-    }
+    /* Always show Explorer's bar on the way out: a previous install may
+     * have left ABS_AUTOHIDE / a hidden HWND even if this process never
+     * hid it (uninstall then start, then close). RetroBar ShowTaskbar
+     * restores the saved ABM state and SWP_SHOWWINDOW. */
+    m_nativeHidden.store(false);
     SetNativeTaskbarState(m_stateSaved ? m_startupState : ABS_ALWAYSONTOP);
     SetNativeTaskbarVisibility(false);
 }
@@ -1130,7 +1172,9 @@ void AppBarService::HideWatcherLoop() {
          * ripiego che RetroBar ottiene col suo monitor continuo. Il
          * controllo resta leggero (FindWindow + IsWindowVisible) e non fa
          * nulla quando la barra e' gia' nascosta. */
-        const DWORD wait = WaitForSingleObject(m_watchEvent, 500);
+        /* RetroBar ExplorerHelper monitor: 100 ms, hide only when a
+         * foreign Shell_TrayWnd / Shell_SecondaryTrayWnd is visible. */
+        const DWORD wait = WaitForSingleObject(m_watchEvent, 100);
         if (!m_watchRun.load()) {
             break;
         }
@@ -1139,14 +1183,11 @@ void AppBarService::HideWatcherLoop() {
             continue;
         }
         ReassertWorkAreaFromWatcher();
-        /* Always re-send SW_HIDE: after close+restart Win11 can paint the
-         * XAML bar while IsWindowVisible(Shell_TrayWnd) is already FALSE.
-         * ABM_SETSTATE only when the HWND is actually shown, so we do not
-         * hammer the shell every 500 ms. */
-        SetNativeTaskbarVisibility(true);
-        HWND taskbar = FindNativeTaskbar();
-        if (taskbar != nullptr && IsWindowVisible(taskbar)) {
-            SetNativeTaskbarState(ABS_AUTOHIDE);
+        if (AnyForeignTrayVisible()) {
+            /* RetroBar TaskbarMonitor_Tick: hide the HWND. ABM_SETSTATE is
+             * done at hide-start; after we own Shell_TrayWnd it cannot
+             * reach Explorer, so the 100 ms loop only SetWindowPos. */
+            SetNativeTaskbarVisibility(true);
         }
     }
 }
@@ -1213,7 +1254,28 @@ int32_t AppBarService::SetNativeTaskbarHidden(bool hidden) {
     if (hidden) {
         if (!m_stateSaved) {
             m_startupState = GetNativeTaskbarState();
-            m_stateSaved   = true;
+            /* Leftover ABS_AUTOHIDE from a previous replacement bar with
+             * the HWND still on-screen is not the user's autohide: restore
+             * AlwaysOnTop on close so Explorer's bar comes back fully. */
+            HWND native = FindNativeTaskbar();
+            if ((m_startupState & ABS_AUTOHIDE) != 0 &&
+                native != nullptr && IsWindowVisible(native)) {
+                RECT rc = {};
+                GetWindowRect(native, &rc);
+                MONITORINFO mi = {};
+                mi.cbSize = sizeof(mi);
+                if (GetMonitorInfoW(MonitorFromWindow(native,
+                        MONITOR_DEFAULTTONEAREST), &mi)) {
+                    RECT vis = {};
+                    if (IntersectRect(&vis, &rc, &mi.rcMonitor) &&
+                        (vis.bottom - vis.top) > 4 &&
+                        (vis.right - vis.left) > 4) {
+                        m_startupState = ABS_ALWAYSONTOP;
+                        AppendCoreLog(L"appbar: stato nativo residuo AUTOHIDE con barra visibile, ripristino ALWAYSONTOP");
+                    }
+                }
+            }
+            m_stateSaved = true;
         }
 
         InstallCrashRestorer();
