@@ -74,6 +74,7 @@
 #include <commctrl.h>
 #include <map>
 #include <mutex>
+#include <string>
 #include <vector>
 
 namespace w7t {
@@ -93,6 +94,10 @@ public:
     bool Create(HWND notifyParent, HINSTANCE instance);
     void Destroy();
 
+    /* Parent SysPager interno: usato esclusivamente dallo shim opt-in.
+     * Non espone il modello né consente di ricevere messaggi della shell. */
+    HWND PagerHandle() const;
+
     /* Ritaglia il pager e il toolbar nell'area della TrayNotifyWnd.
      * `clientRect` e' in coordinate del padre. */
     void SetArea(const RECT& clientRect);
@@ -103,10 +108,9 @@ public:
      * la geometria e' cambiata. */
     bool ApplyOrder(const std::vector<uint32_t>& order);
 
-    /* La finestra "NotifyIconOverflowWindow" con il SUO ToolbarWindow32 che
-     * specchia le icone TBSTATE_HIDDEN: la gerarchia reale di Explorer,
-     * ricostruita qui perche' il riquadro nascosto sia un controllo vero e
-     * non un disegno (e perche' chi cerca quella classe la trovi). */
+    /* Il mirror legacy privato con il SUO ToolbarWindow32 che specchia le
+     * icone TBSTATE_HIDDEN. Il nome compatibile NotifyIconOverflowWindow è
+     * riservato al pannello nativo reale di TrayOverflowWindow. */
     bool ApplyOverflowOrder(const std::vector<uint32_t>& order);
 
     /* Immagine di un pulsante: 32bpp dall'ARGB, sostituita in-place. */
@@ -147,8 +151,9 @@ private:
                                TrayToolbar& self);
 
     HWND                 m_pager   = nullptr;   /* SysPager             */
+    bool                 m_ownsPager = false;
     HWND               m_toolbar = nullptr;   /* ToolbarWindow32      */
-    HWND               m_overflowWnd = nullptr;  /* NotifyIconOverflowWindow */
+    HWND               m_overflowWnd = nullptr;  /* mirror legacy privato */
     HWND               m_overflowBar = nullptr;  /* toolbar del riquadro   */
     bool               m_areaValid = false;    /* SetArea chiamato con rect valido */
     HIMAGELIST           m_images  = nullptr;
@@ -156,8 +161,10 @@ private:
     std::map<uint32_t, int>   m_ovfToIndex;   /* id -> indice overflow  */
     std::map<uint32_t, int>   m_idToImage;   /* ItemID -> indice ImageList */
     std::map<uint32_t, int>   m_idToString;  /* ItemID -> offset TB_ADDSTRING */
+    std::map<uint32_t, std::wstring> m_buttonText;
     mutable std::mutex   m_mutex;
     int                  m_iconSize = 16;
+    DWORD                m_ownerThreadId = 0;
 };
 
 } /* namespace w7t */

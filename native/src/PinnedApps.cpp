@@ -217,8 +217,9 @@ void Log(const wchar_t* fmt, ...) {
     wchar_t line[700];
     va_list ap;
     va_start(ap, fmt);
-    _vsnwprintf_s(line, _TRUNCATE, fmt, ap);
+    vswprintf(line, ARRAYSIZE(line), fmt, ap);
     va_end(ap);
+    line[ARRAYSIZE(line) - 1] = L'\0';
     AppendCoreLog(line);
 }
 
@@ -499,10 +500,10 @@ int32_t PinnedApps::CopyTo(W7T_PinnedInfo* buffer, int32_t capacity) {
     for (int32_t i = 0; i < n; ++i) {
         const PinnedApp& a = m_apps[i];
         W7T_PinnedInfo& o = buffer[i];
-        wcsncpy_s(o.identity, a.identity.c_str(), _TRUNCATE);
-        wcsncpy_s(o.lnkPath, a.lnkPath.c_str(), _TRUNCATE);
-        wcsncpy_s(o.target, a.target.c_str(), _TRUNCATE);
-        wcsncpy_s(o.displayName, a.displayName.c_str(), _TRUNCATE);
+        CopyToFixed(o.identity, ARRAYSIZE(o.identity), a.identity);
+        CopyToFixed(o.lnkPath, ARRAYSIZE(o.lnkPath), a.lnkPath);
+        CopyToFixed(o.target, ARRAYSIZE(o.target), a.target);
+        CopyToFixed(o.displayName, ARRAYSIZE(o.displayName), a.displayName);
         o.order = i;
         o.reserved = 0;
     }

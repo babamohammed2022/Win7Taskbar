@@ -1223,6 +1223,10 @@ namespace Win7Taskbar.Interop
         public bool OpenNotificationIconsSettings()
             => NativeMethods.W7T_OpenNotificationIconsSettings() == W7TResult.Ok;
 
+        /// <summary>Avvia una passata manuale di ripopolamento della pagina legacy.</summary>
+        public bool NotificationPageBackfill()
+            => NativeMethods.W7T_NotificationPageBackfill() == W7TResult.Ok;
+
         /// <summary>
         /// v2.2: scrive una riga in log-core.txt (diagnostica dei percorsi
         /// interattivi che non si possono verificare in compilazione).

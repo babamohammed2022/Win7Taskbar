@@ -290,17 +290,17 @@ static void GetLocalizedFooterStrings(std::wstring& outPreferences,
                                       std::wstring* outShowBar) {
     wchar_t tag[8] = {};
     switch (CurrentLanguage()) {
-        case Lang::It: wcscpy_s(tag, L"it"); break;
-        case Lang::Es: wcscpy_s(tag, L"es"); break;
-        case Lang::Fr: wcscpy_s(tag, L"fr"); break;
-        case Lang::De: wcscpy_s(tag, L"de"); break;
-        case Lang::Pt: wcscpy_s(tag, L"pt"); break;
-        case Lang::Pl: wcscpy_s(tag, L"pl"); break;
-        case Lang::Ru: wcscpy_s(tag, L"ru"); break;
-        case Lang::Ja: wcscpy_s(tag, L"ja"); break;
-        case Lang::Zh: wcscpy_s(tag, L"zh"); break;
-        case Lang::Ar: wcscpy_s(tag, L"ar"); break;
-        default:       wcscpy_s(tag, L"en"); break;
+        case Lang::It: lstrcpynW(tag, L"it", ARRAYSIZE(tag)); break;
+        case Lang::Es: lstrcpynW(tag, L"es", ARRAYSIZE(tag)); break;
+        case Lang::Fr: lstrcpynW(tag, L"fr", ARRAYSIZE(tag)); break;
+        case Lang::De: lstrcpynW(tag, L"de", ARRAYSIZE(tag)); break;
+        case Lang::Pt: lstrcpynW(tag, L"pt", ARRAYSIZE(tag)); break;
+        case Lang::Pl: lstrcpynW(tag, L"pl", ARRAYSIZE(tag)); break;
+        case Lang::Ru: lstrcpynW(tag, L"ru", ARRAYSIZE(tag)); break;
+        case Lang::Ja: lstrcpynW(tag, L"ja", ARRAYSIZE(tag)); break;
+        case Lang::Zh: lstrcpynW(tag, L"zh", ARRAYSIZE(tag)); break;
+        case Lang::Ar: lstrcpynW(tag, L"ar", ARRAYSIZE(tag)); break;
+        default:       lstrcpynW(tag, L"en", ARRAYSIZE(tag)); break;
     }
 
     for (const LocalizedUiText& item : kLocalizedStrings) {
@@ -1914,8 +1914,8 @@ void GetActiveInfo(uint32_t* langId, wchar_t* three, int threeCap,
     if (langId != nullptr) {
         *langId = langIdWord;
     }
-    /* Bounded copies written by hand: wcsncpy_s/_TRUNCATE is not
-     * available on every MinGW toolchain this project builds with. */
+    /* Bounded copies written by hand: le primitive CRT con suffisso
+     * di sicurezza non sono disponibili in ogni toolchain MinGW. */
     if (three != nullptr && threeCap > 0) {
         const std::wstring abbrev = GetLangAbbrev(langIdWord);
         const size_t n = abbrev.size() < static_cast<size_t>(threeCap) - 1

@@ -127,7 +127,7 @@ namespace Win7Taskbar
             }
         }
 
-        /* Rotation Bottom/Top/Left/Right is live (EdgeFromPosition).
+        /* La posizione configurabile e' orizzontale: Bottom/Top.
          * User-controlled thickness resize was removed. */
 
         internal TaskbarWindow(NativeBridge bridge)
@@ -173,10 +173,16 @@ namespace Win7Taskbar
          * precedenti la v3.12: UNA riga implicita a stella, tutto disteso
          * sull'intera altezza) e in VERTICALE con righe create a runtime:
          * Auto per leading/trailing, riga stella per il fill della
-         * Superbar. Ritornando in orizzontale le RowDefinitions vengono
-         * RIMOSSE del tutto, riportando il layout identico a prima.
+         * Superbar. Anche l'asse trasversale usa una sola colonna stella,
+         * cosi' il contenuto segue lo spessore reale della finestra.
+         * Ritornando in orizzontale le RowDefinitions vengono RIMOSSE e le
+         * ColumnDefinitions originali vengono reinserite, riportando il
+         * layout identico a prima.
          * Schema derivato da RetroBar, https://github.com/dremin/RetroBar,
          * Copyright (c) dremin, licenza Apache 2.0: vedi CREDITS.txt. */
+        private ColumnDefinition[]? _rootHorizontalColumns;
+        private ColumnDefinition[]? _taskListHorizontalColumns;
+
         private static void OnOrientationChanged(DependencyObject d,
             DependencyPropertyChangedEventArgs e)
         {
@@ -197,6 +203,40 @@ namespace Win7Taskbar
                  * successione, col resize dell'AppBar ancora in corso, non
                  * deve poter buttare giu' il processo). */
                 window.ResetLayoutGridsToSafeState();
+            }
+        }
+
+        /// <summary>
+        /// In verticale tutti i contenuti stanno nella stessa colonna, che
+        /// deve essere una stella: le colonne storiche Auto/*/Auto
+        /// descrivono l'asse orizzontale e, se restano attive, restringono la
+        /// banda alla larghezza desiderata dal suo contenuto. Le definizioni
+        /// originali vengono conservate e riutilizzate al ritorno in
+        /// orizzontale, senza introdurre una misura fissa.
+        /// </summary>
+        private static void UseVerticalContentColumn(Grid grid,
+                                                     ref ColumnDefinition[]? horizontalColumns)
+        {
+            horizontalColumns ??= grid.ColumnDefinitions.ToArray();
+            grid.ColumnDefinitions.Clear();
+            grid.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = new GridLength(1, GridUnitType.Star)
+            });
+        }
+
+        private static void RestoreHorizontalContentColumns(Grid grid,
+                                                            ColumnDefinition[]? horizontalColumns)
+        {
+            if (horizontalColumns == null)
+            {
+                return;
+            }
+
+            grid.ColumnDefinitions.Clear();
+            foreach (ColumnDefinition definition in horizontalColumns)
+            {
+                grid.ColumnDefinitions.Add(definition);
             }
         }
 
@@ -303,11 +343,15 @@ namespace Win7Taskbar
                  * a righe inesistenti. */
                 if (vertical)
                 {
+                    UseVerticalContentColumn(RootLayoutGrid,
+                                             ref _rootHorizontalColumns);
                     EnsureOrientationRows(RootLayoutGrid, true, 7, 2);
                     SwapGridAxes(RootLayoutGrid, orientation);
                 }
                 else
                 {
+                    RestoreHorizontalContentColumns(RootLayoutGrid,
+                                                    _rootHorizontalColumns);
                     SwapGridAxes(RootLayoutGrid, orientation);
                     EnsureOrientationRows(RootLayoutGrid, false, 0, 0);
                 }
@@ -321,15 +365,21 @@ namespace Win7Taskbar
             {
                 if (vertical)
                 {
+                    UseVerticalContentColumn(TaskListBandGrid,
+                                             ref _taskListHorizontalColumns);
                     EnsureOrientationRows(TaskListBandGrid, true, 3, 1);
                     SwapGridAxes(TaskListBandGrid, orientation);
                 }
                 else
                 {
+                    RestoreHorizontalContentColumns(TaskListBandGrid,
+                                                    _taskListHorizontalColumns);
                     SwapGridAxes(TaskListBandGrid, orientation);
                     EnsureOrientationRows(TaskListBandGrid, false, 0, 0);
                 }
             }
+
+            ApplyTrayOrientationLayout(vertical);
 
             if (StartButton != null)
             {
@@ -352,7 +402,41 @@ namespace Win7Taskbar
 
             /* Le frecce di scorrimento della Superbar ragionano su un solo
              * asse: rieffettua la sincronizzazione su quello nuovo. */
+            ScheduleTaskButtonLayout();
             SyncTaskListScrollButtons();
+        }
+
+        /// <summary>
+        /// La risorsa del tema usa una StackPanel orizzontale per la tray.
+        /// Quando la barra gira sul bordo laterale la sostituiamo con il
+        /// pannello verticale locale, senza modificare la risorsa del tema e
+        /// senza lasciare un valore locale quando si torna in orizzontale.
+        /// </summary>
+        private void ApplyTrayOrientationLayout(bool vertical)
+        {
+            if (TrayIcons == null)
+            {
+                return;
+            }
+
+            if (vertical)
+            {
+                if (TryFindResource("VerticalTrayItemsPanel") is not ItemsPanelTemplate panel)
+                {
+                    throw new InvalidOperationException(
+                        "La risorsa del pannello tray verticale non e' disponibile.");
+                }
+
+                TrayIcons.ItemsPanel = panel;
+                TrayIcons.HorizontalAlignment = HorizontalAlignment.Stretch;
+                TrayIcons.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            }
+            else
+            {
+                TrayIcons.ClearValue(ItemsControl.ItemsPanelProperty);
+                TrayIcons.ClearValue(FrameworkElement.HorizontalAlignmentProperty);
+                TrayIcons.ClearValue(Control.HorizontalContentAlignmentProperty);
+            }
         }
 
         /// <summary>
@@ -507,6 +591,19 @@ namespace Win7Taskbar
             // previews already open update without restarting the application.
             UpdateDwmPreviewAccentColor();
 
+            /* Il server tray deve possedere davvero Shell_TrayWnd prima che
+             * Explorer o una nuova applicazione possa inviare WM_COPYDATA.
+             * StartTray non e' una notifica ottimistica: una creazione fallita
+             * viene registrata come errore dalla fase di avvio. */
+            RunStage("server-tray", () =>
+            {
+                if (!_bridge.StartTray())
+                {
+                    throw new InvalidOperationException(
+                        "il server Shell_TrayWnd non e' stato creato");
+                }
+            });
+
             // v2.7: pannello overflow nativo con vetro Aero vero
             // (SetWindowCompositionAttribute + blur-behind, come le mod
             // Win7-style). Se la finestra nativa non si crea (ambienti
@@ -553,8 +650,6 @@ namespace Win7Taskbar
             }
 
             AppDomain.CurrentDomain.ProcessExit += OnProcessExitRestoreTaskbar;
-
-            RunStage("server-tray", () => _bridge.StartTray());
 
             RunStage("superbar", () => _viewModel.Start());
 
@@ -616,6 +711,9 @@ namespace Win7Taskbar
                         int pos = 0;
                         try { pos = RetroBar.Utilities.Settings.Instance.TaskbarPosition; }
                         catch (Exception) { pos = 0; }
+                        /* Anche il fallback WPF applica solo Basso/Alto:
+                         * eventuali valori legacy verticali diventano Basso. */
+                        pos = pos == 1 ? 1 : 0;
                         switch (pos)
                         {
                             case 1: /* Top: apri sotto la freccetta */
@@ -896,6 +994,19 @@ namespace Win7Taskbar
             return scale > 0 ? scale : 1.0;
         }
 
+        private double GetTaskButtonHorizontalMargin()
+        {
+            if (TryFindResource("TaskButtonMargin") is Thickness margin)
+            {
+                return Math.Max(0, margin.Left + margin.Right);
+            }
+
+            /* Fallback coerente con il tema base se una skin non dichiara la
+             * chiave: il calcolo resta basato sul layout, non su una larghezza
+             * fissa del pulsante. */
+            return 2;
+        }
+
         private void UpdateTaskButtonLayout()
         {
             if (TaskListScroller == null || TaskList == null || _viewModel == null)
@@ -903,19 +1014,41 @@ namespace Win7Taskbar
                 return;
             }
 
-            /* v3.15: in VERTICALE la compattazione orizzontale non ha
-             * senso (i pulsanti si impilano, la loro larghezza e' quella
-             * della colonna) ed era uno dei ganci del congelamento: ad
-             * ogni passata assegnava larghezze nuove e forzava
-             * UpdateLayout dentro il dispatcher. Qui i pulsanti tornano
-             * a dimensione naturale e basta aggiornare le frecce. */
+            /* In VERTICALE la larghezza non puo' restare quella minima della
+             * Superbar orizzontale: la finestra laterale e' larga quanto lo
+             * spessore della barra e una MinWidth da 52 DIP sposterebbe il
+             * centro dell'icona fuori dal vetro, tagliandone il lato destro.
+             * Si usa quindi la misura reale della colonna, meno il margine
+             * orizzontale del tema; il valore segue DPI, skin e spessore
+             * effettivi, senza una larghezza verticale inventata. */
             if (Orientation == Orientation.Vertical)
             {
+                double verticalAvailable = TaskListScroller.ActualWidth;
+                if (verticalAvailable <= 0)
+                {
+                    SyncTaskListScrollButtons();
+                    return;
+                }
+
+                double verticalScale = DevicePixelScale();
+                double sideMargin = GetTaskButtonHorizontalMargin();
+                double width = Math.Floor(Math.Max(0, verticalAvailable - sideMargin) * verticalScale) / verticalScale;
+                if (width <= 0)
+                {
+                    SyncTaskListScrollButtons();
+                    return;
+                }
+
                 foreach (TaskGroup g in _viewModel.Groups)
                 {
-                    g.ButtonMinWidth = _taskButtonThemeMinWidth;
-                    g.ButtonWidth = double.NaN;
+                    /* Width e MinWidth devono avere lo stesso valore: se il
+                     * minimo del tema restasse attivo WPF riallargerebbe il
+                     * pulsante durante Arrange, vanificando il centraggio. */
+                    g.ButtonMinWidth = width;
+                    g.ButtonWidth = width;
                 }
+                _taskButtonAppliedWidth = double.NaN;
+                _taskButtonCompactLogged = false;
                 SyncTaskListScrollButtons();
                 return;
             }
@@ -2308,15 +2441,10 @@ namespace Win7Taskbar
         }
 
         /// <summary>
-        /// v1.21.43 - CONVERSIONE ESPLICITA posizione persistita -> bordo:
-        ///   // posizione (persistita)   -> TaskbarEdge / AppBarEdgeValue
-        ///   // 0 Basso                  -> TaskbarEdge.Bottom (3)
-        ///   // 1 Alto                   -> TaskbarEdge.Top    (1)
-        ///   // 2 Sinistra               -> TaskbarEdge.Left   (0)
-        ///   // 3 Destra                 -> TaskbarEdge.Right  (2)
-        /// Era il pezzo mancante quando l'opzione "Posizione" fu ritirata
-        /// (v1.21.28): il cast diretto (TaskbarEdge)position spostava ogni
-        /// scelta e le anteprime DWM restavano sul lato sbagliato.
+        /// v1.21.43 - conversione esplicita posizione persistita -> bordo.
+        /// I rami Left/Right restano nel codice per non cancellare il layout
+        /// verticale gia' implementato; la configurazione pubblica, il setter
+        /// e il protocollo WM_COPYDATA normalizzano 2/3 prima di arrivare qui.
         /// </summary>
         private static TaskbarEdge EdgeFromPosition(int position) =>
             position switch
@@ -2327,7 +2455,9 @@ namespace Win7Taskbar
                 _ => TaskbarEdge.Bottom,
             };
 
-        /// <summary>Stesso bordo in valori AppBar (ABE_*) per il core nativo.</summary>
+        /// <summary>Stesso bordo in valori AppBar (ABE_*) per il core nativo.
+        /// I valori 2/3 sono mantenuti solo per il codice verticale dormiente.
+        /// </summary>
         private static int AppBarEdgeFromPosition(int position) =>
             position switch
             {
@@ -2338,21 +2468,39 @@ namespace Win7Taskbar
             };
 
         /// <summary>
-        /// Fixed theme thickness in DIP. Left/Right use this as WIDTH.
-        /// User-controlled resizing was removed: the bar is always the
-        /// Windows 7 Superbar height from the active theme.
+        /// Fixed theme thickness in DIP. Le opzioni pubbliche mantengono la
+        /// barra orizzontale; i rami di layout verticale restano nel codice,
+        /// ma non sono raggiungibili dalla configurazione normalizzata.
+        /// User-controlled resizing was removed.
         /// </summary>
         private double TaskbarThicknessDip => Math.Max(1.0, ThemeTaskbarHeightDip);
 
         /// <summary>
         /// Riga "Blocca la barra": lo stato vive in Settings.LockTaskbar
         /// (persistente) e il menu contestuale lo spunta/toglie come in Windows 7.
-        /// Rotation (Bottom/Top/Left/Right) stays available from Properties.
+        /// La posizione resta limitata a Basso/Alto.
         /// </summary>
         private bool _taskbarLocked
         {
             get => RetroBar.Utilities.Settings.Instance.LockTaskbar;
             set => RetroBar.Utilities.Settings.Instance.LockTaskbar = value;
+        }
+
+        /* La finestra e' gia' senza bordi e ResizeMode=NoResize, ma il sistema
+         * puo' comunque inviare SC_MOVE/SC_SIZE (per esempio da un comando
+         * Win32 o da un accessibilita' che avvia il movimento). In caso di
+         * configurazione non leggibile si sceglie il comportamento sicuro:
+         * la barra resta bloccata. */
+        private bool IsTaskbarLockedSafely()
+        {
+            try
+            {
+                return _taskbarLocked;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
         }
 
         /// <summary>
@@ -2471,35 +2619,107 @@ namespace Win7Taskbar
                 return;
             }
 
-            double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-            int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
-            var st = RetroBar.Utilities.Settings.Instance;
-            int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
-
-            _appBarRegistered = _bridge.RegisterAppBar(
-                _hwndSource.Handle, edge, sizePx);
-            if (_appBarRegistered)
+            try
             {
+                double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
+                var st = RetroBar.Utilities.Settings.Instance;
+                int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
+
+                _appBarRect = Rect.Empty;
+                if (!_bridge.RegisterAppBar(_hwndSource.Handle, edge, sizePx))
+                {
+                    _appBarRegistered = false;
+                    _appBarCallbackMessage = 0;
+                    return;
+                }
+
+                _appBarRegistered = true;
                 // Il core, dentro la Register, esegue gia' QUERYPOS/SETPOS e
                 // sposta la finestra sul rettangolo confermato dalla shell.
                 _appBarCallbackMessage = _bridge.AppBarCallbackMessage();
-                UpdateAppBarPosition();   // registra _appBarRect
+                UpdateAppBarPosition();
+                if (_appBarRect.IsEmpty)
+                {
+                    /* Registrazione senza rettangolo approvato: non lasciare
+                     * una AppBar a meta' che impedisce al menu Start di
+                     * ripristinare correttamente la barra. */
+                    try { _bridge.UnregisterAppBar(_hwndSource.Handle); }
+                    catch (Exception cleanupEx)
+                    {
+                        Debug.WriteLine($"appbar cleanup: {cleanupEx.Message}");
+                    }
+                    _appBarRegistered = false;
+                    _appBarCallbackMessage = 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"appbar register: {ex}");
+                if (_appBarRegistered && _hwndSource != null)
+                {
+                    try { _bridge.UnregisterAppBar(_hwndSource.Handle); }
+                    catch (Exception cleanupEx)
+                    {
+                        Debug.WriteLine($"appbar cleanup: {cleanupEx.Message}");
+                    }
+                }
+                _appBarRegistered = false;
+                _appBarCallbackMessage = 0;
+                _appBarRect = Rect.Empty;
             }
         }
 
         /// <summary>
-        /// Re-apply the AppBar edge after the Start Menu host starts so the
-        /// bar stays on the configured edge (default bottom) instead of
-        /// drifting when a second STA window is created.
+        /// Riapplica l'AppBar dopo la creazione/visualizzazione del menu Start.
+        /// La shell puo' ricalcolare le AppBar quando compare una seconda
+        /// finestra STA; se la registrazione e' sparita, la si ricrea prima di
+        /// chiedere di nuovo il rettangolo approvato.
         /// </summary>
         internal void ReassertAppBar()
         {
             try
             {
-                UpdateAppBarPosition();
+                if (_shuttingDown || _hwndSource == null || StartupGuard.SafeMode)
+                {
+                    return;
+                }
+
+                bool nativeRegistered = false;
+                try
+                {
+                    nativeRegistered = _bridge.IsAppBarRegistered;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"appbar state: {ex.Message}");
+                }
+
+                if (!_appBarRegistered || !nativeRegistered)
+                {
+                    if (_appBarRegistered || nativeRegistered)
+                    {
+                        try { _bridge.UnregisterAppBar(_hwndSource.Handle); }
+                        catch (Exception cleanupEx)
+                        {
+                            Debug.WriteLine($"appbar stale cleanup: {cleanupEx.Message}");
+                        }
+                    }
+                    _appBarRegistered = false;
+                    _appBarCallbackMessage = 0;
+                    _appBarRect = Rect.Empty;
+                    RegisterAppBar();
+                }
+
+                if (_appBarRegistered)
+                {
+                    UpdateDpiScaling();
+                    UpdateAppBarPosition();
+                }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Debug.WriteLine($"appbar reassert: {ex}");
             }
         }
 
@@ -2518,22 +2738,35 @@ namespace Win7Taskbar
                 return;
             }
 
-            double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-            if (scale <= 0)
+            try
             {
-                scale = 1.0;
-            }
-            int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
-            var st = RetroBar.Utilities.Settings.Instance;
-            int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
+                double scale = _hwndSource.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                if (scale <= 0)
+                {
+                    scale = 1.0;
+                }
+                int sizePx = Math.Max(1, (int)Math.Round(TaskbarThicknessDip * scale));
+                var st = RetroBar.Utilities.Settings.Instance;
+                int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
 
-            // Il rettangolo confermato dalla shell e' in PIXEL FISICI: il core
-            // ci sposta lui stesso la finestra (SetWindowPos con SWP_NOZORDER,
-            // lo stato topresta intatto) e notifica ABM_WINDOWPOSCHANGED.
-            if (_bridge.SetAppBarPos(_hwndSource.Handle, edge,
-                                     sizePx, out Rect reserved) && !reserved.IsEmpty)
+                // Il rettangolo confermato dalla shell e' in PIXEL FISICI: il core
+                // ci sposta lui stesso la finestra (SetWindowPos con SWP_NOZORDER,
+                // lo stato topresta intatto) e notifica ABM_WINDOWPOSCHANGED.
+                if (_bridge.SetAppBarPos(_hwndSource.Handle, edge,
+                                         sizePx, out Rect reserved) && !reserved.IsEmpty)
+                {
+                    _appBarRect = reserved;
+                }
+                else
+                {
+                    _appBarRect = Rect.Empty;
+                    _bridge.Log("appbar: la shell non ha restituito un rettangolo valido");
+                }
+            }
+            catch (Exception ex)
             {
-                _appBarRect = reserved;
+                _appBarRect = Rect.Empty;
+                Debug.WriteLine($"appbar set position: {ex}");
             }
         }
 
@@ -2698,7 +2931,8 @@ namespace Win7Taskbar
                 }
 
                 int seconds      = System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 0);
-                int nativeFlyout = System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 4);
+                /* Offset 4 resta nel protocollo per compatibilita', ma il
+                 * flyout dell'orologio e' ormai fisso al comportamento Windows 7. */
                 int enableSearch = System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 8);
                 int lang         = System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 12);
                 int openSearch   = System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 16);
@@ -2731,7 +2965,9 @@ namespace Win7Taskbar
                 int tbLinks = hasToolbars
                     ? System.Runtime.InteropServices.Marshal.ReadInt32(cds.lpData, 48) : -1;
                 st.ShowClockSeconds   = seconds == 1;
-                st.UseNativeClockFlyout = nativeFlyout == 1;
+                /* Il pacchetto conserva il campo storico nativeFlyout, ma la
+                 * scelta non e' piu' esposta: si applica sempre Windows 7. */
+                st.UseNativeClockFlyout = true;
                 st.EnableAppSearch    = enableSearch == 1;
                 /* Indice fuori elenco: inglese, mai italiano per omissione. */
                 string newLang = (lang >= 0 && lang < kLangCodes.Length)
@@ -2875,7 +3111,7 @@ namespace Win7Taskbar
                                 (autoStart == 1 ? "attivato" : "disattivato") +
                                 " (logica RetroBar)");
                 }
-                /* v1.21.43 - rotazione della barra + blocco (schema RetroBar
+                /* v1.21.43 - posizione orizzontale + blocco (schema RetroBar
                  * Edge/LockTaskbar). Campi in CODA: offset 80/84, pacchetto da
                  * 88 byte; si leggono solo se il nativo li contiene davvero. */
                 bool geometryChanged = false;
@@ -2883,7 +3119,10 @@ namespace Win7Taskbar
                 {
                     int taskbarPosition = System.Runtime.InteropServices.Marshal
                         .ReadInt32(cds.lpData, 80);
-                    if (taskbarPosition is < 0 or > 3) taskbarPosition = 0;
+                    /* La configurazione nuova conosce solo Basso (0) e Alto
+                     * (1). 2/3 sono i valori legacy Sinistra/Destra e tornano
+                     * a Basso prima di toccare la geometria. */
+                    if (taskbarPosition != 1) taskbarPosition = 0;
                     if (taskbarPosition != st.TaskbarPosition)
                     {
                         st.TaskbarPosition = taskbarPosition;
@@ -3155,6 +3394,8 @@ namespace Win7Taskbar
             const int WM_WINDOWPOSCHANGED = 0x0047;
             const int WM_SIZE = 0x0005;
             const int WM_SYSCOMMAND = 0x0112;
+            const int SC_SIZE = 0xF000;
+            const int SC_MOVE = 0xF010;
             const int SC_MINIMIZE = 0xF020;
             const int SIZE_MINIMIZED = 1;
             const int SW_SHOWNOACTIVATE = 4;
@@ -3256,11 +3497,24 @@ namespace Win7Taskbar
                     }
                     break;
                 case WM_SYSCOMMAND:
+                    long systemCommand = wParam.ToInt64() & 0xFFF0;
+                    /* LockTaskbar non e' un flag AppBar pubblico: il blocco
+                     * della geometria passa dal rifiuto dei comandi Win32 di
+                     * movimento/ridimensionamento. La geometria AppBar resta
+                     * comunque sempre riaffermata sul rettangolo approvato
+                     * dalla shell. */
+                    if (IsTaskbarLockedSafely() &&
+                        (systemCommand == SC_MOVE || systemCommand == SC_SIZE))
+                    {
+                        handled = true;
+                        return IntPtr.Zero;
+                    }
+
                     // v2.19: il pulsante Aero Peek / Mostra desktop / Win+D
                     // minimizza ogni finestra top-level: la nostra taskbar
                     // deve restare visibile come quella vera -> ingoia
                     // SC_MINIMIZE.
-                    if ((wParam.ToInt64() & 0xFFF0) == SC_MINIMIZE)
+                    if (systemCommand == SC_MINIMIZE)
                     {
                         handled = true;
                         return IntPtr.Zero;
@@ -3624,13 +3878,36 @@ namespace Win7Taskbar
                 return;
             }
 
-            Dispatcher.BeginInvoke(new Action(() =>
+            try
             {
-                if (StartButton != null)
+                Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    StartButton.IsChecked = e.Visible;
-                }
-            }));
+                    try
+                    {
+                        if (StartButton != null)
+                        {
+                            StartButton.IsChecked = e.Visible;
+                        }
+                        if (e.Visible)
+                        {
+                            /* Vale anche per il menu nativo: l'apertura puo'
+                             * cambiare l'ordine/z-order delle AppBar mentre la
+                             * shell aggiorna il proprio Start. */
+                            ReassertAppBar();
+                            ScheduleGeometrySync();
+                            _bridge.ReassertNativeTaskbarHidden();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Native Start/AppBar attach: {ex}");
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Native Start visibility dispatch: {ex}");
+            }
         }
 
         private void OnOurStartMenuVisibility(bool visible)
@@ -3639,14 +3916,33 @@ namespace Win7Taskbar
             {
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    if (StartButton != null)
+                    try
                     {
-                        StartButton.IsChecked = visible;
+                        if (StartButton != null)
+                        {
+                            StartButton.IsChecked = visible;
+                        }
+
+                        if (visible)
+                        {
+                            /* La comparsa della seconda finestra STA puo'
+                             * provocare una nuova negoziazione della shell:
+                             * verificare registrazione, rettangolo e posizione
+                             * dopo che il menu e' realmente visibile. */
+                            ReassertAppBar();
+                            ScheduleGeometrySync();
+                            _bridge.ReassertNativeTaskbarHidden();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Start menu/AppBar attach: {ex}");
                     }
                 }));
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Debug.WriteLine($"Start menu visibility dispatch: {ex}");
             }
         }
 
@@ -4724,6 +5020,43 @@ namespace Win7Taskbar
 
         private void PreviewFrameHost_SizeChanged(object sender, SizeChangedEventArgs e)
             => ApplyNativePreviewFrame(sender as ContentControl);
+
+        private void PreviewDwmGeometryChanged(object? sender, EventArgs e)
+        {
+            try
+            {
+                if (sender is DependencyObject child &&
+                    FindPreviewFrameHostAncestor(child) is ContentControl frameHost)
+                {
+                    /* Il rettangolo DWM puo' cambiare anche senza una nuova
+                     * misura del ContentControl: cambio HWND sorgente, resize
+                     * della finestra sorgente o spostamento del popup. La
+                     * cornice viene riallineata al frame attuale, senza API
+                     * DWM non documentate e senza inventare coordinate. */
+                    ApplyNativePreviewFrame(frameHost);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"preview border geometry: {ex.Message}");
+            }
+        }
+
+        private static ContentControl? FindPreviewFrameHostAncestor(DependencyObject child)
+        {
+            /* TaskThumbnail eredita da UserControl/ContentControl: si parte
+             * dal genitore per non restituire il controllo DWM stesso. */
+            DependencyObject? current = VisualTreeHelper.GetParent(child);
+            for (int depth = 0; current != null && depth < 8; depth++)
+            {
+                if (current is ContentControl host)
+                {
+                    return host;
+                }
+                current = VisualTreeHelper.GetParent(current);
+            }
+            return null;
+        }
 
         /// <summary>
         /// Offers one preview frame the chance to draw its border with the
@@ -7260,6 +7593,22 @@ namespace Win7Taskbar
             }
         }
 
+        /* La shell apre i menu della barra dal lato libero: sopra una barra
+         * in basso e sotto una barra in alto. La lettura e' difensiva perche'
+         * il menu non deve sparire se la configurazione e' momentaneamente
+         * illeggibile. */
+        private bool IsTaskbarAtBottom()
+        {
+            try
+            {
+                return RetroBar.Utilities.Settings.Instance.TaskbarPosition == 0;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
         private void Clock_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             e.Handled = true;
@@ -7279,7 +7628,7 @@ namespace Win7Taskbar
             int choice = _bridge.ShowContextMenuEx(
                 (int)Math.Round(origin.X),
                 (int)Math.Round(origin.Y),
-                bottomEdge: true,
+                bottomEdge: IsTaskbarAtBottom(),
                 // v2.7: il menu dell'orologio e' quello della barra PARI PARI
                 // (screenshot Windows 7) con le due voci dell'orologio
                 // inserite dopo "Barre degli strumenti". I separatori non
@@ -7445,6 +7794,21 @@ namespace Win7Taskbar
         {
             /* Open Windows' native Notification Area settings page directly,
              * as this command did before the removed imitation existed. */
+            // La pagina resta quella Win32 di Windows: prima della sua
+            // apertura chiediamo una sola passata manuale di reset-reseed.
+            // Non e' un timer e non crea una UI sostitutiva.
+            try
+            {
+                if (!_bridge.NotificationPageBackfill())
+                {
+                    Debug.WriteLine("Backfill della pagina legacy non riuscito o non necessario");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Backfill della pagina legacy non riuscito: {ex.Message}");
+            }
+
             // Native shell namespace first.
             try
             {
@@ -8236,7 +8600,7 @@ namespace Win7Taskbar
                 // esattamente come quello dell'orologio. I menu delle APP
                 // (finestra di sistema, gruppo, pin) NON passano da qui e
                 // restano ancorati sopra il pulsante.
-                bool bottomEdge = RetroBar.Utilities.Settings.Instance.TaskbarPosition == 0;
+                bool bottomEdge = IsTaskbarAtBottom();
                 int choice = _bridge.ShowContextMenuEx(
                     (int)Math.Round(origin.X),
                     (int)Math.Round(origin.Y),
@@ -8946,7 +9310,9 @@ namespace Win7Taskbar
                     Math.Max(0, Array.IndexOf(kLangCodes,
                         st.Language ?? RetroBar.Utilities.Settings.DefaultLanguageCode)),
                     st.ShowClockSeconds ? 1 : 0,
-                    st.UseNativeClockFlyout ? 1 : 0,
+                    /* Il selettore del flyout orologio e' stato rimosso:
+                     * il comportamento Windows 7 viene sempre richiesto. */
+                    1,
                     st.EnableAppSearch ? 1 : 0,
                     st.NetworkFlyoutMode,
                     st.UseClassicVolumeMixer ? 1 : 0,
@@ -8967,8 +9333,8 @@ namespace Win7Taskbar
                      * (LoadAutoStart), per la casella della scheda
                      * Informazioni. */
                     Win7Taskbar.Utilities.AutoStart.IsEnabled() ? 1 : 0,
-                    /* v1.21.43: posizione barra (0..3) + blocco (sezione
-                     * "Impostazioni extra", riga "Posizione"). */
+                    /* Posizione barra: solo 0=Basso e 1=Alto; il setter delle
+                     * impostazioni ha gia' convertito i valori legacy 2/3. */
                     st.TaskbarPosition,
                     st.LockTaskbar ? 1 : 0,
                     st.WindowsKeyOpensOurMenu ? 1 : 0);

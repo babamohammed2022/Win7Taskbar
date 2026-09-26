@@ -247,47 +247,46 @@ namespace Win7Taskbar.StartMenu
             RebuildLeft();
         }
 
-        public void Launch(StartMenuItem item)
+        public bool Launch(StartMenuItem item)
         {
             if (item == null || item.IsSeparator)
             {
-                return;
+                return false;
             }
             if (item.IsSectionHeader)
             {
                 /* Open-Shell click on a section: collapse / expand. */
                 ToggleSearchSection(item);
-                return;
+                return true;
             }
             if (item.IsAllPrograms)
             {
                 ToggleAllPrograms();
-                return;
+                return true;
             }
             if (string.Equals(item.Folder, "seemore", StringComparison.Ordinal))
             {
-                /* "See more results": the full query in Explorer, exactly
-                 * like Open-Shell's LaunchExternalSearch on the category. */
-                if (!string.IsNullOrEmpty(item.Path))
-                {
-                    OpenShellUri(item.Path);
-                }
-                return;
+                /* "See more results": il primo tentativo usa Explorer come
+                 * canale documentato per aprire la query completa; i fallback
+                 * mantengono il risultato locale e riferiscono l'esito reale. */
+                return OpenSearchResults(item.Path);
             }
             if (item.IsFolder)
             {
                 ToggleFolder(item);
-                return;
+                return true;
             }
             string path = PickLaunchPath(item);
             if (string.IsNullOrEmpty(path))
             {
-                return;
+                return false;
             }
             if (TryLaunch(path))
             {
                 _store.RecordLaunch(path);
+                return true;
             }
+            return false;
         }
 
         private static string PickLaunchPath(StartMenuItem item)
@@ -354,30 +353,40 @@ namespace Win7Taskbar.StartMenu
             }
             try
             {
-                Process.Start(new ProcessStartInfo
+                using (Process? started = Process.Start(new ProcessStartInfo
                 {
                     FileName = path,
                     UseShellExecute = true
-                });
-                return true;
+                }))
+                {
+                    if (started != null)
+                    {
+                        return true;
+                    }
+                }
             }
             catch (Exception)
             {
             }
             try
             {
-                Process.Start(new ProcessStartInfo
+                using (Process? started = Process.Start(new ProcessStartInfo
                 {
                     FileName = "explorer.exe",
                     Arguments = path,
                     UseShellExecute = true
-                });
-                return true;
+                }))
+                {
+                    if (started != null)
+                    {
+                        return true;
+                    }
+                }
             }
             catch (Exception)
             {
-                return false;
             }
+            return false;
         }
 
         public void Power(int action)
@@ -443,41 +452,62 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        public void OpenShellFolder(Environment.SpecialFolder folder)
+        public bool OpenShellFolder(Environment.SpecialFolder folder)
         {
             try
             {
                 string path = Environment.GetFolderPath(folder);
-                if (!string.IsNullOrEmpty(path))
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = path,
-                        UseShellExecute = true
-                    });
-                }
+                return !string.IsNullOrWhiteSpace(path) && TryLaunch(path);
             }
             catch (Exception)
             {
+                return false;
             }
         }
 
-        public void OpenShellUri(string uri)
+        public bool OpenShellUri(string uri)
         {
-            StartProcess(uri, null);
+            if (string.IsNullOrWhiteSpace(uri))
+            {
+                return false;
+            }
+            bool opened = TryLaunch(uri);
+            if (!opened)
+            {
+                Debug.WriteLine($"[Win7Taskbar] apertura URI shell non riuscita: {uri}");
+            }
+            return opened;
         }
 
-        /// <summary>
-        /// Same explorer.exe shell::: pattern as the overflow date-time page.
-        /// CLSID {60632754-...} is User Accounts.
-        /// </summary>
-        public void OpenUserAccounts()
+        /* v3.19: "Visualizza altri risultati" prima NON apriva nulla su
+         * molti sistemi: invocare direttamente l'URI "search-ms:..."
+         * dipende dalla registrazione del protocollo (quando l'handler
+         * e' il motore di ricerca moderno senza UI esporre finestra il
+         * ProcessStartInfo viene osservato come "non fa nulla"). Il 7
+         * e Open-Shell passano invece l'URI a EXPLORER.exe: si apre la
+         * cartella dei risultati di ricerca. Doppi fallback documentati:
+         * la cartella shell dei risultati (CLSID documentato da COM) e,
+         * in estremis, la shell window di Esplora file. */
+        private bool OpenSearchResults(string? searchUri)
         {
-            StartProcess("explorer.exe",
-                "shell:::{60632754-c523-4b62-b45c-4172da012619}");
+            if (string.IsNullOrEmpty(searchUri))
+            {
+                return false;
+            }
+            if (TryStartProcess("explorer.exe", searchUri))
+            {
+                return true;
+            }
+            if (TryStartProcess("explorer.exe",
+                "shell:::{9343812e-1c37-4a49-a12e-4b2d810d956b}"))
+            {
+                return true;
+            }
+            return OpenShellUri(searchUri);
         }
 
-        private static void StartProcess(string fileName, string? arguments)
+        private static bool TryStartProcess(string fileName,
+            string? arguments)
         {
             try
             {
@@ -490,10 +520,50 @@ namespace Win7Taskbar.StartMenu
                 {
                     info.Arguments = arguments;
                 }
-                Process.Start(info);
+                using (Process? started = Process.Start(info))
+                {
+                    return started != null;
+                }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Debug.WriteLine($"[Win7Taskbar] avvio processo non riuscito: {fileName}: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Same explorer.exe shell::: pattern as the overflow date-time page.
+        /// CLSID {60632754-...} is User Accounts.
+        /// </summary>
+        public void OpenUserAccounts()
+        {
+            StartProcess("explorer.exe",
+                "shell:::{60632754-c523-4b62-b45c-4172da012619}");
+        }
+
+        private static bool StartProcess(string fileName, string? arguments)
+        {
+            try
+            {
+                var info = new ProcessStartInfo
+                {
+                    FileName = fileName,
+                    UseShellExecute = true
+                };
+                if (!string.IsNullOrEmpty(arguments))
+                {
+                    info.Arguments = arguments;
+                }
+                using (Process? started = Process.Start(info))
+                {
+                    return started != null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Win7Taskbar] avvio processo non riuscito: {fileName}: {ex.Message}");
+                return false;
             }
         }
 
@@ -1067,8 +1137,7 @@ namespace Win7Taskbar.StartMenu
                     Name = T("lang_sm_see_more", "See more results"),
                     Path = "search-ms:query=" + Uri.EscapeDataString(_searchText),
                     Folder = "seemore",
-                    Icon = StartMenuIcons.FromDll("shell32.dll", 23, 24)
-                        ?? StartMenuIcons.FromDll("imageres.dll", 11, 24)
+                    Icon = SeeMoreResultsIcon()
                 });
             }
 
@@ -1401,6 +1470,15 @@ namespace Win7Taskbar.StartMenu
 
         private static StartMenuItem HelpLink()
         {
+            /* Si conserva la stessa icona gia' mostrata dal collegamento
+             * Guida: shell32.dll, indice 23. Si migliora soltanto il percorso
+             * di estrazione, chiedendo a SHDefExtractIconW la dimensione
+             * richiesta e passando poi dalla pipeline GDI+. Le altre risorse
+             * restano fallback, non diventano una nuova icona primaria. */
+            ImageSource? helpIcon = SeeMoreResultsIcon()
+                ?? IconFromDllGdiPlus("imageres.dll", 99)
+                ?? IconFromParsingName(@"%SystemRoot%\Help")
+                ?? IconFromDll("imageres.dll", 99);
             return new StartMenuItem
             {
                 Name = T("lang_sm_help", "Help and Support"),
@@ -1408,56 +1486,67 @@ namespace Win7Taskbar.StartMenu
                 Path = "https://support.microsoft.com",
                 IsRightPane = true,
                 Infotip = T("lang_sm_tip_help", "Opens Microsoft support in your browser for help topics, tutorials, and troubleshooting."),
-                Icon = IconFromDll("imageres.dll", 99)
-                    ?? IconFromParsingName(@"%SystemRoot%\Help")
+                Icon = helpIcon
             };
         }
 
-        public void OpenRightLink(StartMenuItem item)
+        private static ImageSource? SeeMoreResultsIcon()
+        {
+            try
+            {
+                /* La sorgente e l'ordine restano quelli gia' usati dal menu:
+                 * cambia solo la qualita' dell'estrazione. */
+                return IconFromDllGdiPlus("shell32.dll", 23)
+                    ?? IconFromDllGdiPlus("imageres.dll", 11)
+                    ?? IconFromDll("shell32.dll", 23)
+                    ?? IconFromDll("imageres.dll", 11);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"icona Guida/risultati: {ex.Message}");
+                return null;
+            }
+        }
+
+        public bool OpenRightLink(StartMenuItem item)
         {
             if (item == null)
             {
-                return;
+                return false;
             }
             try
             {
                 switch (item.Folder)
                 {
                     case "user":
-                        OpenShellFolder(Environment.SpecialFolder.UserProfile);
-                        break;
+                        return OpenShellFolder(Environment.SpecialFolder.UserProfile);
                     case "documents":
-                        OpenShellFolder(Environment.SpecialFolder.MyDocuments);
-                        break;
+                        return OpenShellFolder(Environment.SpecialFolder.MyDocuments);
                     case "pictures":
-                        OpenShellFolder(Environment.SpecialFolder.MyPictures);
-                        break;
+                        return OpenShellFolder(Environment.SpecialFolder.MyPictures);
                     case "music":
-                        OpenShellFolder(Environment.SpecialFolder.MyMusic);
-                        break;
+                        return OpenShellFolder(Environment.SpecialFolder.MyMusic);
                     case "videos":
-                        OpenShellFolder(Environment.SpecialFolder.MyVideos);
-                        break;
+                        return OpenShellFolder(Environment.SpecialFolder.MyVideos);
                     case "computer":
-                        OpenShellUri("shell:MyComputerFolder");
-                        break;
+                        return OpenShellUri("shell:MyComputerFolder");
                     case "control":
-                        StartProcess("control.exe", null);
-                        break;
+                        return StartProcess("control.exe", null);
                     case "devices":
-                        OpenShellUri("shell:::{A8A91A66-3A7D-4424-8D24-04E180695C7A}");
-                        break;
+                        return OpenShellUri("shell:::{A8A91A66-3A7D-4424-8D24-04E180695C7A}");
                     case "defaults":
-                        StartProcess("explorer.exe",
+                        return StartProcess("explorer.exe",
                             @"shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{17CD9488-1228-4B2F-88CE-4298E93E0966}");
-                        break;
                     case "help":
-                        OpenShellUri("https://support.microsoft.com");
-                        break;
+                        return OpenShellUri("https://support.microsoft.com");
+                    default:
+                        return false;
                 }
             }
             catch (Exception)
             {
+                return false;
             }
         }
 
@@ -1678,14 +1767,12 @@ namespace Win7Taskbar.StartMenu
             int choice = PopupAtCursor(screenX, screenY, items);
             if (choice == 1)
             {
-                OpenRightLink(item);
-                return true;
+                return OpenRightLink(item);
             }
             if (computer && choice == 2)
             {
-                StartProcess("explorer.exe",
+                return StartProcess("explorer.exe",
                     "shell:::{BB06C0E4-D293-4f75-8A90-CB05B6477EEE}");
-                return true;
             }
             return false;
         }
@@ -1965,12 +2052,16 @@ namespace Win7Taskbar.StartMenu
             return StartMenuIcons.FromPath(path, target, size);
         }
 
-        /* Photo-frame hover icons: jumbo shell extract + GDI+ bicubic to 50px. */
+        /* Icone del menu: ShellItem/immagini di sistema + conversione GDI+
+         * alla dimensione del controllo, senza usare bitmap inventate. */
         private static ImageSource? IconFromParsingName(string? probe)
             => StartMenuIcons.FromParsingName(probe, 50);
 
         private static ImageSource? IconFromDll(string dll, int index)
             => StartMenuIcons.FromDll(dll, index, 50);
+
+        private static ImageSource? IconFromDllGdiPlus(string dll, int index)
+            => StartMenuIcons.FromDllGdiPlus(dll, index, 50);
 
         private void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

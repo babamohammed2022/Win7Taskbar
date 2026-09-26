@@ -227,14 +227,29 @@ namespace Win7Taskbar
         {
             try
             {
+                /* explorer.exe vive normalmente nella radice di Windows,
+                 * non in System32. Il controllo precedente costruiva sempre
+                 * C:\\Windows\\System32\\explorer.exe e produceva un falso
+                 * warning anche con Explorer perfettamente attivo. Usiamo
+                 * prima la directory Windows e teniamo SystemDirectory solo
+                 * come ripiego per shell personalizzate. */
+                string windowsDirectory = Environment.GetFolderPath(
+                    Environment.SpecialFolder.Windows);
                 string explorerPath = System.IO.Path.Combine(
-                    Environment.SystemDirectory,
+                    windowsDirectory,
                     "explorer.exe");
+                if (!System.IO.File.Exists(explorerPath))
+                {
+                    explorerPath = System.IO.Path.Combine(
+                        Environment.SystemDirectory,
+                        "explorer.exe");
+                }
 
                 if (!System.IO.File.Exists(explorerPath))
                 {
                     StartupGuard.Note(
-                        "warning: explorer.exe non trovato in " + explorerPath);
+                        "warning: explorer.exe non trovato nei percorsi shell noti (" +
+                        explorerPath + ")");
                     return;
                 }
 

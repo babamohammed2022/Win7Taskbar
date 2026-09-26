@@ -136,9 +136,12 @@ EXPLICIT STATEMENT ABOUT THE SOURCE CODE
         followed by a second read at the address in the dwData field to obtain
         the icon data;
       - the TBSTATE_HIDDEN (8) state to tell hidden icons apart;
-      - temporarily disabling automatic grouping through the TrayNotify COM
-        object (25DEAD04-1EAC-4911-9E3A-AD0A4AB560FD, interfaces ITrayNotify on
-        Windows 8+ and ITrayNotifyLegacy on 7), restored when the read is over.
+      - using the TrayNotify COM object (25DEAD04-1EAC-4911-9E3A-AD0A4AB560FD,
+        ITrayNotify/ITrayNotifyWin8) as an optional callback snapshot when the
+        shell exposes it; the callback is always deregistered and no automatic
+        grouping or Explorer preference is written;
+      - treating the private COM contract as a compatibility/reverse-engineering
+        fallback, never as a supported Microsoft API.
     Original C++ code, derived algorithm. Apache 2.0.
 
   * Task button behaviours in src/Win7Taskbar/TaskbarWindow.xaml.cs
@@ -273,11 +276,17 @@ THIRD-PARTY-NOTICES.md.
     Site    : https://github.com/cairoshell/ManagedShell
     License : Apache License 2.0 (full text in the appendix)
 
-ManagedShell is the library RetroBar is built on. The ALGORITHMS of two parts of
+ManagedShell is the library RetroBar is built on. The ALGORITHMS of three parts of
 this project derive from it:
 
   * native/src/ExplorerTrayReader.cpp
     from src/ManagedShell.WindowsTray/ExplorerTrayService.cs and TrayNotify.cs
+
+  * native/src/TrayNotifyReader.cpp
+    from the TrayNotify callback/COM declarations in
+    src/ManagedShell.WindowsTray/TrayNotify.cs; the C++ implementation is
+    rewritten with local RAII, optional failure handling, and no preference
+    writes
 
   * native/src/FlyoutLauncher.cpp  (the modern flyouts part)
     from src/ManagedShell.UWPInterop/ImmersiveShellHelper.cs and the declarations

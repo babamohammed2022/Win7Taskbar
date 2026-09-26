@@ -36,7 +36,8 @@ namespace Win7Taskbar.Controls
         private readonly DispatcherTimer _toolTipTimer;
         private readonly DispatcherTimer _verificationTimer;
         private EventHandler? _renderingHandler;
-        private IntPtr _thumbHandle;
+        private SafeDwmThumbnailHandle? _thumbHandle;
+        private int _sourceRegistrationGeneration;
 
         /* v1.21.8: ultimo rettangolo consegnato a DWM, per non ripetere la
          * stessa chiamata a ogni fotogramma. */
@@ -87,12 +88,28 @@ namespace Win7Taskbar.Controls
         public static readonly DependencyProperty SourceWindowHandleProperty =
             DependencyProperty.Register(nameof(SourceWindowHandle),
                 typeof(IntPtr), typeof(TaskThumbnail),
-                new PropertyMetadata(IntPtr.Zero));
+                new PropertyMetadata(IntPtr.Zero, OnSourceWindowHandleChanged));
 
         public IntPtr SourceWindowHandle
         {
             get => (IntPtr)GetValue(SourceWindowHandleProperty);
             set => SetValue(SourceWindowHandleProperty, value);
+        }
+
+        /// <summary>
+        /// Segnale interno al contenitore: quando la relazione DWM viene
+        /// registrata di nuovo o cambia il rettangolo corrente, il bordo puo'
+        /// essere ridisegnato usando le dimensioni attuali del frame.
+        /// </summary>
+        public event EventHandler? DwmGeometryChanged;
+
+        private static void OnSourceWindowHandleChanged(
+            DependencyObject dependencyObject, DependencyPropertyChangedEventArgs e)
+        {
+            if (dependencyObject is TaskThumbnail thumbnail)
+            {
+                thumbnail.RestartDwmThumbnailForNewSource();
+            }
         }
 
         public static readonly DependencyProperty TitleProperty =
@@ -251,7 +268,8 @@ namespace Win7Taskbar.Controls
         {
             try
             {
-                if (_thumbHandle == IntPtr.Zero)
+                SafeDwmThumbnailHandle? thumbnail = _thumbHandle;
+                if (thumbnail == null || thumbnail.IsInvalid)
                 {
                     return;
                 }
@@ -273,9 +291,9 @@ namespace Win7Taskbar.Controls
                     fSourceClientAreaOnly = true
                 };
                 if (NativeMethods.DwmUpdateThumbnailProperties(
-                        _thumbHandle, ref clientOnly) < 0 ||
+                        thumbnail.DangerousGetHandle(), ref clientOnly) < 0 ||
                     NativeMethods.DwmQueryThumbnailSourceSize(
-                        _thumbHandle, out NativeMethods.SIZE size) < 0 ||
+                        thumbnail.DangerousGetHandle(), out NativeMethods.SIZE size) < 0 ||
                     size.cx <= 0 || size.cy <= 0)
                 {
                     // v3.9: fallimento DWM = finestra sorgente non esiste piu'
@@ -362,7 +380,7 @@ namespace Win7Taskbar.Controls
                     rcSource = sourceRect
                 };
                 if (NativeMethods.DwmUpdateThumbnailProperties(
-                        _thumbHandle, ref props) < 0)
+                        thumbnail.DangerousGetHandle(), ref props) < 0)
                 {
                     // v3.9: se anche l'update finale fallisce, tratta come
                     // finestra chiusa: evita riquadro vuoto persistente
@@ -371,14 +389,155 @@ namespace Win7Taskbar.Controls
                     return;
                 }
 
+                bool geometryChanged = !_hasDwmUpdate ||
+                    destination.Left != _lastDestination.Left ||
+                    destination.Top != _lastDestination.Top ||
+                    destination.Right != _lastDestination.Right ||
+                    destination.Bottom != _lastDestination.Bottom ||
+                    sourceRect.Left != _lastSource.Left ||
+                    sourceRect.Top != _lastSource.Top ||
+                    sourceRect.Right != _lastSource.Right ||
+                    sourceRect.Bottom != _lastSource.Bottom;
                 _hasDwmUpdate = true;
                 _lastDestination = destination;
                 _lastSource = sourceRect;
+
+                if (geometryChanged)
+                {
+                    try
+                    {
+                        /* Il contenitore puo' essere stato riciclato o il
+                         * popup puo' essersi spostato senza produrre un nuovo
+                         * SizeChanged sul frame: il genitore ridisegna ora il
+                         * bordo sulla geometria corrente. */
+                        DwmGeometryChanged?.Invoke(this, EventArgs.Empty);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"TaskThumbnail geometry event: {ex.Message}");
+                    }
+                }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"TaskThumbnail.Refresh: {ex.Message}");
+                StopDwmThumbnail();
+                ShowIdentityFallback();
+            }
+        }
+
+        private void RestartDwmThumbnailForNewSource()
+        {
+            try
+            {
+                int generation = unchecked(++_sourceRegistrationGeneration);
+                if (!IsLoaded)
+                {
+                    return;
+                }
+
+                /* DwmRegisterThumbnail lega l'handle sorgente alla relazione
+                 * corrente: quando il binding passa a un'altra finestra non
+                 * basta aggiornare rcSource, bisogna deregistrare la relazione
+                 * precedente e crearne una nuova con l'HWND top-level nuovo. */
+                StopDwmThumbnail();
+                ShowIdentityFallback();
+                if (SourceWindowHandle == IntPtr.Zero)
+                {
+                    return;
+                }
+
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+                {
+                    try
+                    {
+                        if (!IsLoaded || generation != _sourceRegistrationGeneration ||
+                            SourceWindowHandle == IntPtr.Zero)
+                        {
+                            return;
+                        }
+                        RegisterDwmThumbnail();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"TaskThumbnail source change: {ex.Message}");
+                        StopDwmThumbnail();
+                        ShowIdentityFallback();
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"TaskThumbnail source change: {ex.Message}");
+                StopDwmThumbnail();
+                ShowIdentityFallback();
+            }
+        }
+
+        private void RegisterDwmThumbnail()
+        {
+            try
+            {
+                if (!IsLoaded ||
+                    (_thumbHandle != null && !_thumbHandle.IsInvalid))
+                {
+                    return;
+                }
+
+                if (!NativeMethods.IsCompositionEnabled() ||
+                    SourceWindowHandle == IntPtr.Zero || Handle == IntPtr.Zero)
+                {
+                    ShowValidatedFallbackOrIdentity();
+                    return;
+                }
+
+                int hr = NativeMethods.DwmRegisterThumbnail(
+                    Handle, SourceWindowHandle, out IntPtr rawThumbnail);
+                var registeredThumbnail = new SafeDwmThumbnailHandle(rawThumbnail);
+                if (hr < 0 || registeredThumbnail.IsInvalid)
+                {
+                    registeredThumbnail.Dispose();
+                    StopDwmThumbnail();
+                    ShowValidatedFallbackOrIdentity();
+                    return;
+                }
+                _thumbHandle = registeredThumbnail;
+
+                if (!_layoutRefreshHooked)
+                {
+                    _layoutRefreshHooked = true;
+                    SizeChanged += OnLayoutRefresh;
+                    LayoutUpdated += OnLayoutRefresh;
+                }
+
+                CaptureFallbackImage.Source = null;
+                CaptureFallbackImage.Visibility = Visibility.Collapsed;
+                IdentityFallback.Visibility = Visibility.Collapsed;
+
+                Refresh();
+                if (_thumbHandle == null || _thumbHandle.IsInvalid)
+                {
+                    return;
+                }
+
+                _renderingHandler = (s, a) =>
+                    Dispatcher.BeginInvoke(DispatcherPriority.Render,
+                        new Action(Refresh));
+                CompositionTarget.Rendering += _renderingHandler;
+
+                /* Registration success does not prove composition. Probe once
+                 * after DWM has had several frames to draw. */
+                _verificationTimer.Stop();
+                _verificationTimer.Start();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"TaskThumbnail register: {ex.Message}");
                 StopDwmThumbnail();
                 ShowIdentityFallback();
             }
@@ -391,39 +550,7 @@ namespace Win7Taskbar.Controls
                 /* v1.21.8: il fattore di scala non si memorizza piu': si
                  * legge a ogni aggiornamento con VisualTreeHelper.GetDpi
                  * (segue il monitor su cui si apre il popup). */
-                if (!_layoutRefreshHooked)
-                {
-                    _layoutRefreshHooked = true;
-                    SizeChanged += OnLayoutRefresh;
-                    LayoutUpdated += OnLayoutRefresh;
-                }
-
-                bool registered = NativeMethods.IsCompositionEnabled() &&
-                    SourceWindowHandle != IntPtr.Zero && Handle != IntPtr.Zero &&
-                    NativeMethods.DwmRegisterThumbnail(Handle,
-                        SourceWindowHandle, out _thumbHandle) == 0;
-
-                if (registered)
-                {
-                    Refresh();
-                    _renderingHandler = (s, a) =>
-                        Dispatcher.BeginInvoke(DispatcherPriority.Render,
-                            new Action(Refresh));
-                    CompositionTarget.Rendering += _renderingHandler;
-
-                    // Registration success doesn't prove composition. Probe
-                    // once after DWM has had several frames to draw.
-                    _verificationTimer.Stop();
-                    _verificationTimer.Start();
-                }
-                else if (Settings.Instance.UseThumbnailCaptureFallback)
-                {
-                    ShowValidatedFallbackOrIdentity();
-                }
-                else
-                {
-                    ShowIdentityFallback();
-                }
+                RegisterDwmThumbnail();
             }
             catch (Exception ex)
             {
@@ -441,7 +568,8 @@ namespace Win7Taskbar.Controls
             _verificationTimer.Stop();
             try
             {
-                if (_thumbHandle != IntPtr.Zero && DwmDestinationLooksComposed())
+                if (_thumbHandle != null && !_thumbHandle.IsInvalid &&
+                    DwmDestinationLooksComposed())
                 {
                     return;
                 }
@@ -763,22 +891,51 @@ namespace Win7Taskbar.Controls
 
         private void StopDwmThumbnail()
         {
-            _verificationTimer.Stop();
+            try { _verificationTimer.Stop(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"TaskThumbnail timer cleanup: {ex.Message}");
+            }
+
             if (_layoutRefreshHooked)
             {
                 _layoutRefreshHooked = false;
-                SizeChanged -= OnLayoutRefresh;
-                LayoutUpdated -= OnLayoutRefresh;
+                try { SizeChanged -= OnLayoutRefresh; }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"TaskThumbnail size cleanup: {ex.Message}");
+                }
+                try { LayoutUpdated -= OnLayoutRefresh; }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"TaskThumbnail layout cleanup: {ex.Message}");
+                }
             }
             if (_renderingHandler != null)
             {
-                CompositionTarget.Rendering -= _renderingHandler;
+                EventHandler handler = _renderingHandler;
                 _renderingHandler = null;
+                try { CompositionTarget.Rendering -= handler; }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"TaskThumbnail rendering cleanup: {ex.Message}");
+                }
             }
-            if (_thumbHandle != IntPtr.Zero)
+
+            SafeDwmThumbnailHandle? thumbnail = _thumbHandle;
+            _thumbHandle = null;
+            if (thumbnail != null)
             {
-                _ = NativeMethods.DwmUnregisterThumbnail(_thumbHandle);
-                _thumbHandle = IntPtr.Zero;
+                try { thumbnail.Dispose(); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"TaskThumbnail DWM cleanup: {ex.Message}");
+                }
             }
             _hasDwmUpdate = false;
         }
@@ -804,30 +961,91 @@ namespace Win7Taskbar.Controls
 
         private void ToolTipTimer_Tick(object? sender, EventArgs e)
         {
-            if (ToolTip is ToolTip tip)
+            try
             {
-                tip.PlacementTarget = this;
-                tip.IsOpen = true;
+                if (ToolTip is ToolTip tip)
+                {
+                    tip.PlacementTarget = this;
+                    tip.IsOpen = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"TaskThumbnail tooltip: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// RAII per la relazione DWM tra finestra contenitore e sorgente.
+        /// DwmUnregisterThumbnail viene sempre chiamata su Dispose, inclusa
+        /// la finalizzazione in caso di errore durante la registrazione.
+        /// </summary>
+        private sealed class SafeDwmThumbnailHandle : SafeHandleZeroOrMinusOneIsInvalid
+        {
+            internal SafeDwmThumbnailHandle(IntPtr handle) : base(ownsHandle: true)
+            {
+                SetHandle(handle);
+            }
+
+            protected override bool ReleaseHandle()
+            {
+                try
+                {
+                    return NativeMethods.DwmUnregisterThumbnail(handle) >= 0;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"DwmUnregisterThumbnail: {ex.Message}");
+                    return false;
+                }
             }
         }
 
         private sealed class SafeScreenDc : SafeHandleZeroOrMinusOneIsInvalid
         {
             internal SafeScreenDc(IntPtr handle) : base(true) => SetHandle(handle);
+
             protected override bool ReleaseHandle()
-                => NativeMethods.ReleaseWindowClientDC(IntPtr.Zero, handle) != 0;
+            {
+                try { return NativeMethods.ReleaseWindowClientDC(IntPtr.Zero, handle) != 0; }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Release screen DC: {ex.Message}");
+                    return false;
+                }
+            }
         }
 
         private sealed class SafeMemoryDc : SafeHandleZeroOrMinusOneIsInvalid
         {
             internal SafeMemoryDc(IntPtr handle) : base(true) => SetHandle(handle);
-            protected override bool ReleaseHandle() => NativeMethods.DeleteDC(handle);
+
+            protected override bool ReleaseHandle()
+            {
+                try { return NativeMethods.DeleteDC(handle); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Delete memory DC: {ex.Message}");
+                    return false;
+                }
+            }
         }
 
         private sealed class SafeGdiBitmap : SafeHandleZeroOrMinusOneIsInvalid
         {
             internal SafeGdiBitmap(IntPtr handle) : base(true) => SetHandle(handle);
-            protected override bool ReleaseHandle() => NativeMethods.DeleteObject(handle);
+
+            protected override bool ReleaseHandle()
+            {
+                try { return NativeMethods.DeleteObject(handle); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Delete GDI bitmap: {ex.Message}");
+                    return false;
+                }
+            }
         }
 
         private sealed class SelectedGdiObject : IDisposable
@@ -848,9 +1066,20 @@ namespace Win7Taskbar.Controls
 
             public void Dispose()
             {
-                if (_dc != IntPtr.Zero)
+                if (_dc == IntPtr.Zero)
+                {
+                    return;
+                }
+                try
                 {
                     _ = NativeMethods.SelectObject(_dc, _previous);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"restore GDI object: {ex.Message}");
+                }
+                finally
+                {
                     _dc = IntPtr.Zero;
                 }
             }

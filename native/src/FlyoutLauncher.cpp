@@ -427,7 +427,7 @@ LRESULT CALLBACK FlyoutNoResizeProc(HWND hWnd, UINT msg, WPARAM wParam,
     if (msg == WM_WINDOWPOSCHANGING || msg == WM_NCHITTEST) {
         wchar_t cls[48]{};
         GetClassNameW(hWnd, cls, 47);
-        if (wcscmp(cls, L"Win7Taskbar_TrayOverflow") == 0) {
+        if (wcscmp(cls, L"NotifyIconOverflowWindow") == 0) {
             return DefSubclassProc(hWnd, msg, wParam, lParam);
         }
     }

@@ -191,6 +191,9 @@ private:
     void OnPaint(HWND hwnd);
     void BuildRows();
     void Layout();
+    /* v3.19: larghezza adattiva del popup (misura etichette, clamp
+     * kWidth96..480); l'implementazione dettaglia in JumpListWindow.cpp. */
+    int  MeasureWidestRow() const;
     void Place(HWND hwnd, const RECT& button, int32_t edge,
                  bool animateFromBelow);
     /* Client layout size → window size including the Aero WS_THICKFRAME
@@ -253,7 +256,7 @@ private:
     DWORD m_tipStart = 0;
     bool m_tipShown = false;
 
-    int m_width = 300;      /* device px, already scaled */
+    int m_width = 288;      /* minimo 96-DPI; Layout lo adatta alle label */
     int m_totalH = 0;       /* device px */
     int m_hover = -1;       /* row index under the cursor, -1 none */
     RECT m_popupRect = {};      /* screen px */

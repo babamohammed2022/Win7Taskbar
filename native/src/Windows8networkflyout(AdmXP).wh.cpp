@@ -11685,8 +11685,8 @@ static std::wstring IconAttr(int fallbackIconId) {
         else if (fallbackIconId == 30)
             iconId = kComputerIconId;  // Network Map -> PC icon
     }
-    wchar_t b[96];
-    swprintf_s(b, L" content=\"icon(%d,24rp,24rp)\"", iconId);
+    wchar_t b[96] = {};
+    swprintf(b, ARRAYSIZE(b), L" content=\"icon(%d,24rp,24rp)\"", iconId);
     return b;
 }
 
