@@ -9719,16 +9719,16 @@ static bool TryDrawCharmsToggle(HDC hdc, int x, int y, BOOL on, BOOL hover) {
 
     const COLORREF bg = CharmsPaneBg();
     COLORREF ring = CharmsLighten(bg, 9, 26, 42);
-    COLORREF inner = on ? CharmsLighten(bg, 0, 10, 0)
-                        : CharmsLighten(bg, 26, 27, 29);
+    COLORREF innerColor = on ? CharmsLighten(bg, 0, 10, 0)
+                             : CharmsLighten(bg, 26, 27, 29);
     if (hover) {
         ring = CharmsBlendWhite(ring, 20);
-        inner = CharmsBlendWhite(inner, 20);
+        innerColor = CharmsBlendWhite(innerColor, 20);
     }
     HBRUSH brushes[] = {
         CreateSolidBrush(ring),
         CreateSolidBrush(bg),
-        CreateSolidBrush(inner)
+        CreateSolidBrush(innerColor)
     };
     bool painted = false;
     if (brushes[0] && brushes[1] && brushes[2]) {
@@ -9736,13 +9736,13 @@ static bool TryDrawCharmsToggle(HDC hdc, int x, int y, BOOL on, BOOL hover) {
                        x + w - (on ? thumbW : 0), y + h };
         RECT gap = track;
         InflateRect(&gap, -ringInset, -ringInset);
-        RECT inner = gap;
-        InflateRect(&inner, -gapInset, -gapInset);
-        if (on) inner.right = track.right; else inner.left = track.left;
+        RECT innerRect = gap;
+        InflateRect(&innerRect, -gapInset, -gapInset);
+        if (on) innerRect.right = track.right; else innerRect.left = track.left;
         RECT thumb = { on ? x + w - thumbW : x, y,
                        on ? x + w : x + thumbW, y + h };
         painted = FillRect(hdc, &track, brushes[0]) &&
-            FillRect(hdc, &gap, brushes[1]) && FillRect(hdc, &inner, brushes[2]) &&
+            FillRect(hdc, &gap, brushes[1]) && FillRect(hdc, &innerRect, brushes[2]) &&
             FillRect(hdc, &thumb, (HBRUSH)GetStockObject(WHITE_BRUSH));
     }
     for (HBRUSH brush : brushes) {
