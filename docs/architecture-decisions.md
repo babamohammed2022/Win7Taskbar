@@ -175,6 +175,26 @@ ManagedShell/RetroBar (`AppBarWindow.SetWindowPosition(abd.rc)`) is built on, an
 `ABN_*` notifications are how the shell keeps every AppBar converging on one layout.
 No second work-area mechanism is used, and no other window is ever resized by us.
 
+**Failure and recovery.** A visible replacement is permitted only after the original
+native taskbar state is safely saved and the shell has accepted both registration and a
+non-empty `ABM_SETPOS` rectangle. If saving or either AppBar step fails, we send
+`ABM_REMOVE` even when `ABM_NEW` may have succeeded partially, hide the replacement,
+restore Explorer's taskbar state, and exit. Recovery mode never displays an unregistered
+Topmost window. Before temporarily setting the native taskbar to auto-hide, the original
+`ABM_GETSTATE` flags are saved under `HKCU\Software\Win7Taskbar`; a later process restores
+and clears that value if the previous process was killed before normal cleanup.
+
+The native watcher does not move the replacement to the front of the Topmost band on every
+foreground change. `SetWindowPos(HWND_TOPMOST)` explicitly places a window above all
+non-topmost windows; the shell's AppBar reservation, not a foreground-wide Z-order race,
+keeps maximized applications out of the taskbar's screen area. We do not write a second,
+arbitrary work area with `SPI_SETWORKAREA`.
+
+Microsoft's contract is documented in [Using Application Desktop Toolbars](https://learn.microsoft.com/en-us/windows/win32/shell/application-desktop-toolbars),
+[SHAppBarMessage](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shappbarmessage),
+[SetWindowPos](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos),
+and [ABN_STATECHANGE](https://learn.microsoft.com/en-us/windows/win32/shell/abn-statechange).
+
 **Revisit if.** The bar ever needs per-monitor instances or non-bottom edges: the same
 invariant still holds, the edge and monitor simply come from the window being positioned.
 

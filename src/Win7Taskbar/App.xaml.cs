@@ -178,18 +178,39 @@ namespace Win7Taskbar
                     return;
                 }
 
+                if (StartupGuard.SafeMode)
+                {
+                    StartupGuard.Enter("ripristino-modalita-provvisoria");
+                    bool restored = _bridge.SetNativeTaskbarHidden(false);
+                    StartupGuard.Note(
+                        "modalita' provvisoria: barra nativa " +
+                        (restored ? "ripristinata o gia' visibile" : "non ripristinata; verificare il log del core") +
+                        "; nessuna finestra sostitutiva verra' mostrata");
+                    StartupGuard.Complete();
+
+                    string previousStage = string.IsNullOrWhiteSpace(StartupGuard.PreviousCrashStage)
+                        ? "non disponibile"
+                        : StartupGuard.PreviousCrashStage!;
+                    MessageBox.Show(
+                        "Win7Taskbar ha rilevato un avvio precedente non completato " +
+                        $"(fase: {previousStage}).\n\n" +
+                        "Per evitare che una finestra non registrata si sovrapponga a Chrome " +
+                        "o ad altre finestre, la sessione di recupero lascia visibile la barra " +
+                        "di Windows e non mostra la barra sostitutiva. Win7Taskbar verra' chiuso.\n\n" +
+                        "Se il problema si ripete, allega i file in:\n" +
+                        StartupGuard.LogDirectory,
+                        "Win7Taskbar - modalita' di recupero",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    Shutdown(0);
+                    return;
+                }
+
+                // Il marcatore resta attivo fino alla fine dell'inizializzazione
+                // della finestra (incluso StartMenuHost), non solo fino a Show().
                 StartupGuard.Enter("finestra");
                 _taskbar = new TaskbarWindow(_bridge);
                 _taskbar.Show();
-
-                StartupGuard.Enter("start-menu");
-                StartMenu.StartMenuHost.Start(_bridge);
-                _taskbar.ReassertAppBar();
-
-                StartupGuard.Enter("pronto");
-                StartupGuard.Complete();
-                StartupGuard.Note("avvio completato" +
-                                  (StartupGuard.SafeMode ? " in modalita' provvisoria" : ""));
             }
             catch (Exception ex)
             {

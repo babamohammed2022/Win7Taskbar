@@ -33,6 +33,69 @@ namespace {
  * e non compare mai a schermo: non serve sorvegliarla. */
 constexpr wchar_t kFlip3dOverlayClass[] = L"Flip3DOverlayWndClass";
 
+/* A hard process termination can bypass both the C# cleanup and atexit().
+ * Keep the native taskbar state in our own HKCU key before changing it, so a
+ * later process can restore the user's original auto-hide/always-on-top
+ * choice instead of inheriting the temporary ABS_AUTOHIDE state. */
+constexpr wchar_t kTaskbarRecoveryKey[] = L"Software\\Win7Taskbar";
+constexpr wchar_t kTaskbarRecoveryValue[] = L"NativeTaskbarStateBeforeReplacement";
+
+bool ReadPersistedTaskbarState(UINT* state) {
+    if (state == nullptr) {
+        return false;
+    }
+
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kTaskbarRecoveryKey, 0,
+                      KEY_QUERY_VALUE, &key) != ERROR_SUCCESS) {
+        return false;
+    }
+
+    DWORD type = 0;
+    DWORD value = 0;
+    DWORD bytes = sizeof(value);
+    const LONG status = RegQueryValueExW(
+        key, kTaskbarRecoveryValue, nullptr, &type,
+        reinterpret_cast<LPBYTE>(&value), &bytes);
+    RegCloseKey(key);
+
+    constexpr DWORD kKnownStateBits = ABS_AUTOHIDE | ABS_ALWAYSONTOP;
+    if (status != ERROR_SUCCESS || type != REG_DWORD ||
+        bytes != sizeof(value) || (value & ~kKnownStateBits) != 0) {
+        return false;
+    }
+
+    *state = static_cast<UINT>(value);
+    return true;
+}
+
+bool PersistTaskbarState(UINT state) {
+    HKEY key = nullptr;
+    DWORD disposition = 0;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, kTaskbarRecoveryKey, 0, nullptr,
+                        REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr,
+                        &key, &disposition) != ERROR_SUCCESS) {
+        return false;
+    }
+
+    const DWORD value = static_cast<DWORD>(state & (ABS_AUTOHIDE | ABS_ALWAYSONTOP));
+    const LONG status = RegSetValueExW(
+        key, kTaskbarRecoveryValue, 0, REG_DWORD,
+        reinterpret_cast<const BYTE*>(&value), sizeof(value));
+    RegCloseKey(key);
+    return status == ERROR_SUCCESS;
+}
+
+void ClearPersistedTaskbarState() {
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kTaskbarRecoveryKey, 0,
+                      KEY_SET_VALUE, &key) != ERROR_SUCCESS) {
+        return;
+    }
+    RegDeleteValueW(key, kTaskbarRecoveryValue);
+    RegCloseKey(key);
+}
+
 /* Diagnostica soltanto: l'area di lavoro viene letta con l'API pubblica
  * SPI_GETWORKAREA, mai scritta implicitamente. SPI_SETWORKAREA altererebbe
  * anche le riserve di altre AppBar e per questo non fa parte del percorso
@@ -720,7 +783,7 @@ void AppBarService::RestoreNativeTaskbarNow() {
 /*  fuori dal callback, su un thread che dorme finche' non serve.        */
 /* ------------------------------------------------------------------ */
 
-void CALLBACK AppBarService::HideWatcherProc(HWINEVENTHOOK, DWORD event,
+void CALLBACK AppBarService::HideWatcherProc(HWINEVENTHOOK, DWORD,
                                              HWND hwnd, LONG idObject,
                                              LONG idChild, DWORD, DWORD) {
     if (hwnd == nullptr || idObject != OBJID_WINDOW || idChild != 0) {
@@ -729,19 +792,10 @@ void CALLBACK AppBarService::HideWatcherProc(HWINEVENTHOOK, DWORD event,
 
     AppBarService& self = Instance();
 
-    /* v1.7.4: a ogni cambio di finestra in primo piano riafferma la NOstra
-     * barra nella fascia topmost, come fa explorer.exe con la propria.
-     * Senza questo, un'app che torna in primo piano (Chrome a schermo
-     * intero in primis) puo' finire SOPRA la barra perche' nessuno
-     * riacquista lo z-order per noi. Manutenzione best-effort: HWND
-     * invalido o SetWindowPos fallito non propagano nulla (si ritenta al
-     * prossimo cambio di foreground). SWP_NOACTIVATE: si aggiorna solo la
-     * posizione nella fascia topmost, il focus resta dove e'. */
-    if (event == EVENT_SYSTEM_FOREGROUND &&
-        self.m_hwnd != nullptr && IsWindow(self.m_hwnd)) {
-        SetWindowPos(self.m_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    }
+    /* Do not promote our taskbar to the front of the topmost band on every
+     * foreground change. AppBar reservation controls the work area; a
+     * foreground-wide HWND_TOPMOST reassertion only races other windows and
+     * can paint the replacement over a newly activated application. */
 
     if (!self.m_nativeHidden.load() || self.m_watchEvent == nullptr) {
         return;
@@ -861,6 +915,22 @@ void AppBarService::StopHideWatcher() {
 int32_t AppBarService::SetNativeTaskbarHidden(bool hidden) {
     std::lock_guard<std::mutex> lock(m_hideMutex);
 
+    auto recoverPersistedState = [this]() -> bool {
+        UINT savedState = 0;
+        if (!ReadPersistedTaskbarState(&savedState)) {
+            return true;  /* no interrupted replacement run recorded */
+        }
+        if (FindNativeTaskbar() == nullptr) {
+            return false; /* leave the value for Explorer's next appearance */
+        }
+
+        SetNativeTaskbarState(savedState);
+        SetNativeTaskbarVisibility(false);
+        ClearPersistedTaskbarState();
+        AppendCoreLog(L"appbar: restored taskbar state left by an interrupted Win7Taskbar process");
+        return true;
+    };
+
     /* v2.62-alpha (G7): the bar is not the taskbar again: drop the
      * per-pid dedup so the next ownership period notifies cleanly. */
     if (!hidden) {
@@ -869,8 +939,21 @@ int32_t AppBarService::SetNativeTaskbarHidden(bool hidden) {
 
     if (hidden) {
         if (!m_stateSaved) {
+            /* A killed/failed previous process may have left Explorer in
+             * ABS_AUTOHIDE. Restore that run's saved user state before taking
+             * a fresh snapshot; never overwrite the only recovery copy. */
+            if (!recoverPersistedState()) {
+                AppendCoreLog(L"appbar: deferred hide because the previous taskbar state could not yet be recovered");
+                return W7T_ERR_APPBAR;
+            }
+
             m_startupState = GetNativeTaskbarState();
             m_stateSaved   = true;
+            if (!PersistTaskbarState(m_startupState)) {
+                m_stateSaved = false;
+                AppendCoreLog(L"appbar: refusing to hide the native taskbar because its original state could not be persisted");
+                return W7T_ERR_APPBAR;
+            }
         }
 
         InstallCrashRestorer();
@@ -880,7 +963,16 @@ int32_t AppBarService::SetNativeTaskbarHidden(bool hidden) {
         StartHideWatcher();
     } else {
         StopHideWatcher();
-        RestoreNativeTaskbarNow();
+        if (m_nativeHidden.load()) {
+            RestoreNativeTaskbarNow();
+            ClearPersistedTaskbarState();
+            m_stateSaved = false;
+        } else if (!recoverPersistedState()) {
+            AppendCoreLog(L"appbar: previous taskbar state remains pending until Explorer is available");
+            return W7T_ERR_APPBAR;
+        } else {
+            m_stateSaved = false;
+        }
     }
 
     return W7T_OK;

@@ -42,6 +42,10 @@ jobs:
           cmake -S native -B native/build -A x64 -DCMAKE_BUILD_TYPE=Release
           cmake --build native/build --config Release -j 2
 
+      - name: Run native unit tests
+        shell: pwsh
+        run: ctest --test-dir native/build -C Release --output-on-failure
+
       - name: Publish self-contained package
         shell: pwsh
         run: pwsh -File "compilation files/publish.ps1" -SkipNative -OutputDir dist-package
@@ -124,15 +128,23 @@ jobs:
           files: ${{ env.ZIP_NAME }}
           name: Win7Taskbar ${{ github.ref_name }}
           draft: false
-          # 1.0.0-alpha: pre-release finche' la numerazione resta "alpha".
-          prerelease: contains(github.ref_name, 'alpha')
+          prerelease: ${{ contains(github.ref_name, 'alpha') }}
           body: |
-            Pacchetto **self-contained** per Windows 10/11 **x64**: scarica,
-            scompatta e avvia `Win7Taskbar.exe`. Non serve installare .NET.
+            ## Win7Taskbar 1.3.38-alpha — release di prova
 
-            * The package is self-contained: no .NET installation required.
-            * Extract the whole folder (keep `Themes\`, `Resources\` and
-              `Languages\` next to the executable) and run `Win7Taskbar.exe`.
-            * To close it: right-click the clock -> Properties -> "Close Win7Taskbar".
+            Questa build interviene sull'avvio sicuro e sulla prenotazione AppBar:
+            se il sistema non conferma la registrazione e il rettangolo riservato,
+            la barra sostitutiva viene nascosta e la taskbar di Windows ripristinata;
+            lo stato originale della taskbar viene recuperato anche dopo un arresto
+            anomalo del processo. Il recupero non lascia una finestra Topmost priva
+            di area di lavoro.
 
-            **Window thumbnails:** temporarily disabled. **Tooltips:** supported.
+            **Pacchetto:** self-contained Windows 10/11 **x64**. Scarica lo ZIP,
+            estrai l'intera cartella (`Themes/`, `Resources/` e `Languages/` devono
+            restare accanto all'eseguibile) e avvia `Win7Taskbar.exe`.
+            Non serve installare .NET.
+
+            **Verifica:** build e test automatizzati del workflow Windows. In questo
+            ambiente non e' stato possibile riprodurre la segnalazione in una
+            sessione Windows interattiva; se l'avvio continua a fallire, allega i
+            log in `%APPDATA%\Win7Taskbar\logs` alla segnalazione.
