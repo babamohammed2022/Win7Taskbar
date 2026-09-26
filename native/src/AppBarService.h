@@ -39,6 +39,11 @@ public:
     /// True dopo una Register riuscita e finche' non arriva la Unregister.
     bool IsRegistered() const { return m_registered; }
 
+    /// Bordo su cui la AppBar e' attualmente posata (W7T_EDGE_*).
+    /// Stesso valore passato a SetPos: overflow e work area lo riusano
+    /// senza re-indovinare Top/Bottom dall'area di lavoro.
+    int32_t DockEdge() const { return m_edge; }
+
     /// Notifica ABN_* ricevuta dalla finestra della barra (il messaggio di
     /// callback registrato con ABM_NEW). Restituisce true se gestita.
     bool HandleCallback(uint32_t wParam, int32_t lParam);
