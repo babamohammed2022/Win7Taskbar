@@ -88,6 +88,7 @@
     <s:String x:Key="lang_sm_videos">ビデオ</s:String>
     <s:String x:Key="lang_sm_computer">コンピューター</s:String>
     <s:String x:Key="lang_sm_control">コントロール パネル</s:String>
+    <s:String x:Key="lang_sm_empty">(空)</s:String>
     <s:String x:Key="lang_sm_devices">デバイスとプリンター</s:String>
     <s:String x:Key="lang_sm_defaults">既定のプログラム</s:String>
     <s:String x:Key="lang_sm_help">ヘルプとサポート</s:String>

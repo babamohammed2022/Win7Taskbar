@@ -88,6 +88,7 @@
     <s:String x:Key="lang_sm_videos">Wideo</s:String>
     <s:String x:Key="lang_sm_computer">Komputer</s:String>
     <s:String x:Key="lang_sm_control">Panel sterowania</s:String>
+    <s:String x:Key="lang_sm_empty">(Pusty)</s:String>
     <s:String x:Key="lang_sm_devices">Urządzenia i drukarki</s:String>
     <s:String x:Key="lang_sm_defaults">Programy domyślne</s:String>
     <s:String x:Key="lang_sm_help">Pomoc i obsługa techniczna</s:String>

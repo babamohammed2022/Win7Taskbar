@@ -125,6 +125,19 @@
                                     </Setter.Value>
                                 </Setter>
                             </MultiTrigger>
+                            <!-- Row whose cascade (Control Panel submenu) is open stays
+                                 highlighted like Open-Shell's parent item (m_Submenu). -->
+                            <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#C0FFFFFF"/>
+                                <Setter TargetName="Bd" Property="Background">
+                                    <Setter.Value>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                            <GradientStop Color="#90FFFFFF" Offset="0"/>
+                                            <GradientStop Color="#50C8E4F8" Offset="1"/>
+                                        </LinearGradientBrush>
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -531,6 +544,22 @@
                                                 </Style>
                                             </TextBlock.Style>
                                         </TextBlock>
+                                        <!-- "Display as a menu" marker (Win7 draws a small arrow
+                                             on the right of cascading items). -->
+                                        <Path Data="M0,0 L4,3.5 L0,7 Z" Fill="White" Width="4" Height="7"
+                                              HorizontalAlignment="Right" VerticalAlignment="Center"
+                                              Margin="0,0,8,0" Opacity="0.85">
+                                            <Path.Style>
+                                                <Style TargetType="Path">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding HasCascade}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Path.Style>
+                                        </Path>
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>

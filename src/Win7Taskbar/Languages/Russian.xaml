@@ -88,6 +88,7 @@
     <s:String x:Key="lang_sm_videos">Видео</s:String>
     <s:String x:Key="lang_sm_computer">Компьютер</s:String>
     <s:String x:Key="lang_sm_control">Панель управления</s:String>
+    <s:String x:Key="lang_sm_empty">(Пусто)</s:String>
     <s:String x:Key="lang_sm_devices">Устройства и принтеры</s:String>
     <s:String x:Key="lang_sm_defaults">Программы по умолчанию</s:String>
     <s:String x:Key="lang_sm_help">Справка и поддержка</s:String>

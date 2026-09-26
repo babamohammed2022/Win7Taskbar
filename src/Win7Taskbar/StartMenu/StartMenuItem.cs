@@ -41,6 +41,9 @@ namespace Win7Taskbar.StartMenu
         public bool IsPinned { get; set; }
         public bool IsRecent { get; set; }
         public bool IsRightPane { get; set; }
+        /// <summary>Right-pane row that opens a submenu on hover/click
+        /// (Control Panel, Windows 7 "Display as a menu").</summary>
+        public bool HasCascade { get; set; }
         public bool IsTreeRow { get; set; }
 
         public int IndentLevel

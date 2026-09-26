@@ -93,6 +93,7 @@
     <s:String x:Key="lang_sm_videos">مقاطع الفيديو</s:String>
     <s:String x:Key="lang_sm_computer">الكمبيوتر</s:String>
     <s:String x:Key="lang_sm_control">لوحة التحكم</s:String>
+    <s:String x:Key="lang_sm_empty">(فارغ)</s:String>
     <s:String x:Key="lang_sm_devices">الأجهزة والطابعات</s:String>
     <s:String x:Key="lang_sm_defaults">البرامج الافتراضية</s:String>
     <s:String x:Key="lang_sm_help">التعليمات والدعم</s:String>

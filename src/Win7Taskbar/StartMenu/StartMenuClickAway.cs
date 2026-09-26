@@ -25,6 +25,7 @@ namespace Win7Taskbar.StartMenu
         private const int WmRButtonDown = 0x0204;
         private const int WmMButtonDown = 0x0207;
         private const uint GaRoot = 2;
+        private const uint GaRootOwner = 3;
 
         private readonly Dispatcher _dispatcher;
         private readonly Func<IntPtr> _hwnd;
@@ -127,6 +128,13 @@ namespace Win7Taskbar.StartMenu
                 {
                     IntPtr root = NativeMethods.GetAncestor(hit, GaRoot);
                     if (root == ours || hit == ours)
+                    {
+                        return;
+                    }
+                    /* Windows OWNED by the menu (the Control Panel cascade)
+                     * are part of it: a click there is not a click away. */
+                    if (root != IntPtr.Zero &&
+                        NativeMethods.GetAncestor(root, GaRootOwner) == ours)
                     {
                         return;
                     }

@@ -88,6 +88,7 @@
     <s:String x:Key="lang_sm_videos">视频</s:String>
     <s:String x:Key="lang_sm_computer">计算机</s:String>
     <s:String x:Key="lang_sm_control">控制面板</s:String>
+    <s:String x:Key="lang_sm_empty">(空)</s:String>
     <s:String x:Key="lang_sm_devices">设备和打印机</s:String>
     <s:String x:Key="lang_sm_defaults">默认程序</s:String>
     <s:String x:Key="lang_sm_help">帮助和支持</s:String>

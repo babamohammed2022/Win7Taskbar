@@ -125,6 +125,7 @@ namespace Win7Taskbar.StartMenu
             try
             {
                 try { _bridge.AppSearchHide(); } catch (Exception) { }
+                PrefetchControlPanelCascade();
                 _vm.ShowDefaultList();
                 SnapSearchLayout(false);
                 ResetUserPhoto(animate: false);
@@ -197,6 +198,7 @@ namespace Win7Taskbar.StartMenu
         internal void Dismiss()
         {
             try { _clickAway.Stop(); } catch (Exception) { }
+            CloseControlPanelCascade();
             CancelInfotip();
             _vm.SearchText = string.Empty;
             Topmost = false;
@@ -294,6 +296,13 @@ namespace Win7Taskbar.StartMenu
         {
             if (e.Key == Key.Escape)
             {
+                /* Like a real submenu: the first Escape closes the cascade,
+                 * the next one the Start Menu. */
+                if (CloseControlPanelCascade())
+                {
+                    e.Handled = true;
+                    return;
+                }
                 Dismiss();
                 e.Handled = true;
                 return;
@@ -417,6 +426,14 @@ namespace Win7Taskbar.StartMenu
             if (sender is ListBoxItem { DataContext: StartMenuItem item } &&
                 !item.IsSeparator)
             {
+                if (item.HasCascade)
+                {
+                    /* Open-Shell: a click on a cascading row opens the
+                     * submenu at once (ACTIVATE_OPEN), it does not launch. */
+                    OpenControlPanelCascade(sender as ListBoxItem, item);
+                    e.Handled = true;
+                    return;
+                }
                 if (_vm.OpenRightLink(item))
                 {
                     Dismiss();
@@ -491,6 +508,7 @@ namespace Win7Taskbar.StartMenu
             {
                 ShowLinkIcon(item.Icon);
                 ShowWin32Infotip(sender as FrameworkElement, item);
+                OnCascadeRowHover(sender as ListBoxItem, item);
             }
         }
 
@@ -499,6 +517,7 @@ namespace Win7Taskbar.StartMenu
             /* Delay hide: the Win32 tip can fire Leave without the cursor
              * having moved. Keep the open tip until we leave for real. */
             ScheduleInfotipHide();
+            OnCascadeRowLeave(sender as ListBoxItem);
         }
 
         private void OnRightListMouseLeave(object sender, MouseEventArgs e)

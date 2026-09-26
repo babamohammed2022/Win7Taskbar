@@ -126,6 +126,30 @@ every step guarded by try/catch as in the original. The checkbox labels are
 RetroBar's own "autostart" strings from its language files. The port remains
 under the Apache License 2.0, attributed in `CREDITS.txt`.
 
+Since the Control Panel cascade / edge drag PR, RetroBar is also the
+behavioural reference for dragging the unlocked bar between the top and
+bottom edges (`RetroBar/Taskbar.xaml.cs`, "Unlocked taskbar drag hook":
+low-level mouse hook while the button is held, quadrant/diagonal mapping
+of the pointer to an edge, immediate re-docking): original C# code in
+`src/Win7Taskbar/TaskbarWindow.EdgeDrag.cs`, derived algorithm, reduced to
+the two horizontal edges.
+
+### Open-Shell-Menu
+
+Copyright (c) 2017-2018 Open-Shell, MIT License
+(https://github.com/Open-Shell/Open-Shell-Menu). Behavioural reference for
+the Start Menu (pins, icons, All Programs measurements, search catalog) and,
+since the Control Panel cascade PR, for the Control Panel submenu of the
+right column: hover delay, shell enumeration and exclusions, sort order,
+multi-column packing, submenu placement, `IContextMenu` default-verb launch
+and the Win7Aero7 skin metrics. Original WPF/C# code in
+`src/Win7Taskbar/StartMenu/ControlPanelItems.cs`,
+`ControlPanelCascade.cs`, `StartMenuWindow.ControlPanelCascade.cs` and
+`ShellContextMenu.TryInvokeDefault`; no Open-Shell code, bitmaps or skin
+files are included. The component mapping is in
+`docs/CONTROL-PANEL-CASCADE-ANALYSIS.md`; the MIT text is reproduced in the
+root `THIRD-PARTY-NOTICES.md`.
+
 ### ExplorerPatcher
 
 Copyright Valentin-Gabriel Radu (valinet) and contributors. Original code
@@ -173,6 +197,12 @@ C# code in `src/Win7Taskbar/Controls/NotificationBalloon.cs`, derived algorithm
 (the queue bound, the drop-oldest policy, the expiry of a pending notification
 and the RAII timer are this project's own, modelled on `CoreState::QueueEvent`
 and `Utilities/TimerLease.cs`).
+
+The `Shell_NotifyIconGetRect` reply (`WM_COPYDATA` with `dwData = 3`,
+`WINNOTIFYICONIDENTIFIER`) follows `NotificationArea.IconDataCallback`: the
+two requests (`dwMessage` 1 and 2) are answered with the packed top-left and
+bottom-right coordinates in the `LRESULT`. Original C++ in
+`native/src/TrayService.cpp` (`HandleCopyDataLocal`, `HandleCopyData`).
 
 ### Aero Tray (Windhawk mod)
 

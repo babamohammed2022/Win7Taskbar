@@ -94,6 +94,14 @@ following documented shell APIs and Open-Shell's design):
   (`SIGDN_PARENTRELATIVEPARSING`), mirroring how the Open-Shell search
   maintains its Settings catalog, and verified by an actual
   `SHCreateItemFromParsingName` round-trip.
+- The Control Panel cascade of the Start Menu right column (hover delay,
+  live shell enumeration and its exclusions, `StrCmpLogicalW` order,
+  greedy multi-column packing against the monitor limits, submenu
+  placement, `IContextMenu` default-verb launch, Win7Aero7 metrics) is
+  an original WPF/C# implementation of the behaviour read in
+  `MenuContainer.cpp`, `MenuCommands.cpp`, `SkinManager.cpp` and the
+  `Win7Aero7` skin description. The component-by-component mapping is
+  in `docs/CONTROL-PANEL-CASCADE-ANALYSIS.md`.
 
 - Project: **Open-Shell-Menu**
 - Source: https://github.com/Open-Shell/Open-Shell-Menu

@@ -1419,9 +1419,15 @@ namespace Win7Taskbar.StartMenu
                 "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
                 T("lang_sm_tip_computer", "Opens a window for the disk drives, devices, and other hardware attached to this PC.")));
             next.Add(new StartMenuItem { IsSeparator = true });
-            next.Add(FolderLink(T("lang_sm_control", "Control Panel"), "control",
+            StartMenuItem controlPanel = FolderLink(T("lang_sm_control", "Control Panel"), "control",
                 "::{26EE0668-A00A-44D7-9371-BEB064C98683}",
-                T("lang_sm_tip_control", "Opens Control Panel, where you change settings, add or remove programs, and manage accounts.")));
+                T("lang_sm_tip_control", "Opens Control Panel, where you change settings, add or remove programs, and manage accounts."));
+            /* Windows 7 "Display as a menu": the row cascades its applets
+             * (ControlPanelCascade). As in Open-Shell a click on the row
+             * opens the cascade; the folder itself is reachable from the
+             * row's context menu ("Open"). */
+            controlPanel.HasCascade = true;
+            next.Add(controlPanel);
             next.Add(FolderLink(T("lang_sm_devices", "Devices and Printers"), "devices",
                 "shell:::{A8A91A66-3A7D-4424-8D24-04E180695C7A}",
                 T("lang_sm_tip_devices", "Opens Devices and Printers, where you view and manage printers, scanners, and other hardware.")));
