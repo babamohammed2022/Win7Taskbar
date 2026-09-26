@@ -128,7 +128,7 @@ enum CtrlId {
     IDC_LBL_EX_PRIVACY, IDC_CMB_EX_PRIVACY, IDC_TXT_PRIVACY_HINT,
     IDC_GRP_EX_TASKBAR, IDC_LBL_EX_THEME, IDC_CMB_EX_THEME,
     IDC_LBL_EX_ICON_ORDER, IDC_TXT_ORDER_HINT,
-    /* v1.21.43: riga "Posizione" + blocco barra (rotazione riattivata). */
+    /* Posizione orizzontale (Basso/Alto) + blocco barra. */
     IDC_LBL_EX_POSITION, IDC_CMB_EX_POSITION, IDC_CHK_EX_LOCK,
     IDC_LBL_EX_WINKEY, IDC_RADIO_WINKEY_OURS, IDC_RADIO_WINKEY_WINDOWS,
     IDC_BTN_APPLY = 3000,
@@ -185,7 +185,7 @@ void InitToolbarsList(HWND hwnd, const PropStrings& S,
     }
 }
 
-/* v2.47: visibilita' delle tre pagine. In un unico posto, cosi' l'apertura e
+/* v2.47: visibilita' delle quattro pagine. In un unico posto, cosi' l'apertura e
  * il cambio di scheda non possono divergere (era il difetto classico di
  * questo tipo di dialogo: si aggiunge un controllo e ci si dimentica di
  * nasconderlo in una delle due strade). */
@@ -201,13 +201,20 @@ void ShowTabPage(HWND hwnd, int page) {
         }
     };
 
-    /* Pagina 1: orologio, ricerca, flyout, lingua, area di notifica. */
+    /* Pagina 1: orologio, tema, posizione, flyout, lingua e area di
+     * notifica. Il flyout dell'orologio e' fisso a Windows 7: i vecchi
+     * controlli non vengono piu' creati e restano invisibili anche se un
+     * template piu' vecchio li avesse ancora. */
     vis(IDC_GRP_CLOCK, p1); vis(IDC_CHK_SECONDS, p1);
-    vis(IDC_LBL_CLOCK, p1); vis(IDC_CMB_CLOCK, p1);
-    vis(IDC_GRP_SEARCH, p1); vis(IDC_CHK_SEARCH, p1);
+    vis(IDC_LBL_CLOCK, false); vis(IDC_CMB_CLOCK, false);
+    vis(IDC_GRP_TASKBAR, p1);
+    vis(IDC_LBL_EX_THEME, p1); vis(IDC_CMB_EX_THEME, p1);
+    vis(IDC_LBL_EX_POSITION, p1); vis(IDC_CMB_EX_POSITION, p1);
+    vis(IDC_CHK_EX_LOCK, p1);
+    vis(IDC_GRP_SEARCH, p4); vis(IDC_CHK_SEARCH, p4);
     /* Windows 11 starts at build 22000 (21H2). Windows 10 has only the
      * ordinary taskmgr command, so this selector must not exist there. */
-    const bool showTaskManagerChoice = p1 && IsWindows11OrBetter();
+    const bool showTaskManagerChoice = p4 && IsWindows11OrBetter();
     vis(IDC_LBL_TASKMGR, showTaskManagerChoice);
     vis(IDC_CMB_TASKMGR, showTaskManagerChoice);
     vis(IDC_GRP_NETFLY, p1); vis(IDC_TXT_NETFLY, p1); vis(IDC_CMB_NETFLY, p1);
@@ -228,7 +235,10 @@ void ShowTabPage(HWND hwnd, int page) {
     /* Pagina 3: le nostre barre degli strumenti. */
     vis(IDC_TXT_TB_INFO, p3); vis(IDC_LST_TOOLBARS, p3);
 
-    /* Page 4: secondary settings (flyout, skin, icon order). */
+    /* Pagina 4: impostazioni extra. Colori e privacy restano qui, insieme
+     * alla scelta del tasto Windows; tema, posizione e blocco sono nella
+     * pagina principale. I controlli dell'ordine icone non vengono mostrati:
+     * il riordino con trascinamento resta invariato. */
     vis(IDC_TXT_EXTRA_TITLE, p4);
     vis(IDC_GRP_EX_FLYOUT, p4); vis(IDC_LBL_EX_COLOR, p4);
     vis(IDC_RADIO_COLOR_SYS, p4); vis(IDC_RADIO_COLOR_CUSTOM, p4);
@@ -236,13 +246,10 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_TXT_COLOR_HINT, p4);
     vis(IDC_LBL_EX_PRIVACY, p4); vis(IDC_CMB_EX_PRIVACY, p4);
     vis(IDC_TXT_PRIVACY_HINT, p4);
-    vis(IDC_GRP_EX_TASKBAR, p4); vis(IDC_LBL_EX_THEME, p4);
-    vis(IDC_CMB_EX_THEME, p4);
-    vis(IDC_LBL_EX_POSITION, p4); vis(IDC_CMB_EX_POSITION, p4);
-    vis(IDC_CHK_EX_LOCK, p4);
+    vis(IDC_GRP_EX_TASKBAR, p4);
     vis(IDC_LBL_EX_WINKEY, p4);
     vis(IDC_RADIO_WINKEY_OURS, p4); vis(IDC_RADIO_WINKEY_WINDOWS, p4);
-    vis(IDC_LBL_EX_ICON_ORDER, p4); vis(IDC_TXT_ORDER_HINT, p4);
+    vis(IDC_LBL_EX_ICON_ORDER, false); vis(IDC_TXT_ORDER_HINT, false);
 }
 
 /* v1.21.7 - Skins available in THIS version of the program.
@@ -522,7 +529,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         /* Indice fuori elenco: inglese, mai italiano per omissione. */
         m_lang = (lang >= 0 && lang < kLangCount) ? lang : LangIndex(Lang::En);
         m_seconds = seconds;
-        m_nativeFlyout = nativeFlyout;
+        /* Il flyout dell'orologio e' sempre quello Windows 7: il parametro
+         * legacy viene ignorato, ma resta nella firma per compatibilita'. */
+        (void)nativeFlyout;
         m_enableSearch = enableSearch;
         /* v3.8: 0 = Windows 7 (ricreato), 1 = Windows 10/11 (sistema),
          * 2 = Windows 8 (ricreato). Valori fuori elenco -> Windows 7. */
@@ -556,10 +565,10 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         /* v1.21.37: stato dell'avvio automatico letto dal registro dal gestito
          * prima di aprire il dialogo (come LoadAutoStart di RetroBar). */
         m_autoStart = autoStart ? 1 : 0;
-        /* v1.21.43: posizione della barra (0..3) e blocco. Fuori elenco ->
-         * Basso/bloccata, mai uno stato inventato. */
-        m_taskbarPosition =
-            (taskbarPosition >= 0 && taskbarPosition <= 3) ? taskbarPosition : 0;
+        /* Posizione della barra: solo i due bordi orizzontali sono validi.
+         * I valori legacy 2/3 (Sinistra/Destra) e ogni valore sconosciuto
+         * diventano Basso prima di inizializzare la combo. */
+        m_taskbarPosition = taskbarPosition == 1 ? 1 : 0;
         m_lockTaskbar = lockTaskbar ? 1 : 0;
         m_windowsKeyOpensOurMenu = windowsKeyOpensOurMenu ? 1 : 0;
         RefreshExtraSwatchColor();
@@ -620,59 +629,62 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         /* ============================================================
          * PAGINA 1 - "Barra delle applicazioni"
          *
-         * Impostazioni NOSTRE nella grafica classica del dialogo: orologio
-         * (secondi + riquadro), ricerca applicazioni, flyout
-         * (rete/volume/batteria), lingua e l'AREA DI NOTIFICA presa dalla foto
-         * di riferimento, con il pulsante "Personalizza..." che apre
-         * esattamente quello che apre il menu di overflow della barra.
-         * Niente Aero Peek, niente collegamenti esterni.
+         * La scheda principale contiene le impostazioni usate piu' spesso:
+         * secondi dell'orologio, flyout, tema, posizione, lingua e area di
+         * notifica. La ricerca e' nella scheda "Impostazioni extra", mentre
+         * il flyout dell'orologio resta fisso al comportamento Windows 7 e
+         * quindi non ha piu' una tendina da mostrare.
          * ============================================================ */
-        /* GRUPPO 1 - FLYOUT. E' il primo gruppo della pagina, in cima a
-         * tutto, come nella foto di riferimento: quattro righe etichetta +
-         * tendina (orologio, rete, volume, batteria). Passo fra le righe 16
-         * DLU (tendina alta 14 + 2 di aria), etichette a 18, tendine a 72
-         * larghe 172: la stessa griglia del resto del dialogo. */
-        addCtrl(BS_GROUPBOX, 0, 12, 30, GROUP_WIDTH, 74, IDC_GRP_NETFLY, L"Button", L"");
-        addCtrl(SS_LEFT, 0, 18, 40, 50, 10, IDC_LBL_CLOCK, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 38, 218, 80, IDC_CMB_CLOCK, L"ComboBox", L"");
-        addCtrl(SS_LEFT, 0, 18, 56, 50, 10, IDC_TXT_NETFLY, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 54, 218, 80, IDC_CMB_NETFLY, L"ComboBox", L"");
-        addCtrl(SS_LEFT, 0, 18, 72, 50, 10, IDC_LBL_VOLUME, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 70, 218, 80, IDC_CMB_VOLUME, L"ComboBox", L"");
-        addCtrl(SS_LEFT, 0, 18, 88, 50, 10, IDC_LBL_BATT, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 86, 218, 80, IDC_CMB_BATTERY, L"ComboBox", L"");
+        /* GRUPPO 1 - FLYOUT. Il flyout dell'orologio non e' selezionabile:
+         * restano le tre scelte effettivamente configurabili (rete, volume e
+         * batteria), su una griglia compatta a tre righe. */
+        addCtrl(BS_GROUPBOX, 0, 12, 30, GROUP_WIDTH, 58, IDC_GRP_NETFLY, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 40, 50, 10, IDC_TXT_NETFLY, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 38, 218, 80,
+                IDC_CMB_NETFLY, L"ComboBox", L"");
+        addCtrl(SS_LEFT, 0, 18, 56, 50, 10, IDC_LBL_VOLUME, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 54, 218, 80,
+                IDC_CMB_VOLUME, L"ComboBox", L"");
+        addCtrl(SS_LEFT, 0, 18, 72, 50, 10, IDC_LBL_BATT, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 70, 218, 80,
+                IDC_CMB_BATTERY, L"ComboBox", L"");
 
-        /* GRUPPO 2 - OROLOGIO: una sola casella, gruppo alto 30. */
-        addCtrl(BS_GROUPBOX, 0, 12, 108, GROUP_WIDTH, 30, IDC_GRP_CLOCK, L"Button", L"");
-        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 118, PAGE_TEXT_WIDTH, 10, IDC_CHK_SECONDS, L"Button", L"");
+        /* GRUPPO 2 - OROLOGIO: solo "mostra i secondi". */
+        addCtrl(BS_GROUPBOX, 0, 12, 92, GROUP_WIDTH, 30, IDC_GRP_CLOCK, L"Button", L"");
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 102, PAGE_TEXT_WIDTH, 10,
+                IDC_CHK_SECONDS, L"Button", L"");
 
-        /* GRUPPO 3 - RICERCA APPLICAZIONI. La casella e' su DUE righe
-         * (BS_MULTILINE, alto 20): la sua etichetta e' lunga e in tedesco,
-         * polacco e russo non entrerebbe in una riga sola - prima si leggeva
-         * "Attiva ricerca a..." e sembrava che la stringa mancasse. Il
-         * pulsante sta sotto, dentro il gruppo (142..188). */
-        /* Il pulsante "Apri ricerca" resta assente. Su Windows 11 21H2+
-         * la seconda riga sceglie quale Task Manager viene aperto dalla
-         * voce del menu contestuale; ShowTabPage la nasconde su Windows 10. */
-        addCtrl(BS_GROUPBOX, 0, 12, 142, GROUP_WIDTH, 50, IDC_GRP_SEARCH, L"Button", L"");
-        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 0, 18, 150, PAGE_TEXT_WIDTH, 18, IDC_CHK_SEARCH, L"Button", L"");
-        addCtrl(SS_LEFT, 0, 18, 175, 68, 10, IDC_LBL_TASKMGR, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 88, 172, 202, 80, IDC_CMB_TASKMGR, L"ComboBox", L"");
+        /* GRUPPO 3 - BARRA: tema, posizione e blocco sono visibili subito
+         * nella scheda principale. La combo posizione espone soltanto Basso
+         * e Alto; i valori legacy 2/3 vengono normalizzati prima di arrivare
+         * qui. */
+        addCtrl(BS_GROUPBOX, 0, 12, 126, GROUP_WIDTH, 64, IDC_GRP_TASKBAR, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 136, 60, 10, IDC_LBL_EX_THEME, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 84, 134, 218, 80,
+                IDC_CMB_EX_THEME, L"ComboBox", L"");
+        addCtrl(SS_LEFT, 0, 18, 152, 90, 10, IDC_LBL_EX_POSITION, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 112, 150, 190, 80,
+                IDC_CMB_EX_POSITION, L"ComboBox", L"");
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 168, PAGE_TEXT_WIDTH, 12,
+                IDC_CHK_EX_LOCK, L"Button", L"");
 
         /* GRUPPO 4 - LINGUA (al posto della sezione Aero Peek della foto).
-         * v3.5: due righe - la lingua del programma (come prima) e lo
-         * stile dell'indicatore della lingua di input (0 nascosta,
-         * 1 Windows 7, 2 Windows 8.1, 3 Windows 10/11). */
+         * v3.5: due righe - la lingua del programma e lo stile
+         * dell'indicatore della lingua di input. */
         addCtrl(BS_GROUPBOX, 0, 12, 196, GROUP_WIDTH, 44, IDC_GRP_LANG, L"Button", L"");
         addCtrl(SS_LEFT, 0, 18, 206, 50, 10, IDC_LBL_LANG, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 204, 218, 80, IDC_CMB_LANG, L"ComboBox", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 204, 218, 80,
+                IDC_CMB_LANG, L"ComboBox", L"");
         addCtrl(SS_LEFT, 0, 18, 222, 50, 10, IDC_LBL_LANGBAR, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 220, 218, 80, IDC_CMB_LANGBAR, L"ComboBox", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 72, 220, 218, 80,
+                IDC_CMB_LANGBAR, L"ComboBox", L"");
 
-        /* GRUPPO 5 - AREA DI NOTIFICA: testo su due righe (20) + pulsante. */
+        /* GRUPPO 5 - AREA DI NOTIFICA: testo su due righe + pulsante. */
         addCtrl(BS_GROUPBOX, 0, 12, 244, GROUP_WIDTH, 52, IDC_GRP_NOTIF, L"Button", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 254, PAGE_TEXT_WIDTH, 20, IDC_TXT_NOTIF, L"Static", L"");
-        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 18, 276, 76, 14, IDC_BTN_CUSTOMIZE, L"Button", L"");
+        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 254, PAGE_TEXT_WIDTH, 20,
+                IDC_TXT_NOTIF, L"Static", L"");
+        addCtrl(BS_PUSHBUTTON | WS_TABSTOP, 0, 18, 276, 76, 14,
+                IDC_BTN_CUSTOMIZE, L"Button", L"");
 
         /* ============================================================
          * PAGINA 2 - "Informazioni"
@@ -735,10 +747,9 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
          *   Flyout  - colour of the recreated flyout (system or custom, with
          *             swatch + colour chooser) and privacy mode of the
          *             connection flyout;
-         *   Taskbar - skin choice (Windows 7, with Windows 8.1 listed as not
-         *             available) and a reminder about the icon order, which
-         *             is changed by dragging the icons on the bar (not from
-         *             here: here it is only explained).
+         *   Taskbar - Windows-key destination. Skin, position and lock are
+         *             shown on the main taskbar page; the icon-order hint is
+         *             deliberately hidden, while drag-and-drop keeps working.
          *
          * The colour swatch is an owner-draw control (WM_DRAWITEM, see
          * DlgProc): filling it with the real colour is the only way, in this
@@ -763,55 +774,28 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 134, PAGE_TEXT_WIDTH, 24,
                 IDC_TXT_PRIVACY_HINT, L"Static", L"");
 
-        addCtrl(BS_GROUPBOX, 0, 12, 176, GROUP_WIDTH, 120, IDC_GRP_EX_TASKBAR, L"Button", L"");
-        addCtrl(SS_LEFT, 0, 18, 188, 60, 10, IDC_LBL_EX_THEME, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 84, 186, 218, 80,
-                IDC_CMB_EX_THEME, L"ComboBox", L"");
-        /* v1.21.43: riga "Posizione" (rotazione riattivata, ricetta v1.21.28)
-         * + casella di blocco (schema RetroBar LockTaskbar). */
-        addCtrl(SS_LEFT, 0, 18, 206, 90, 10,
-                IDC_LBL_EX_POSITION, L"Static", L"");
-        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
-                0, 112, 204, 190, 80,
-                IDC_CMB_EX_POSITION, L"ComboBox", L"");
-        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP, 0, 18, 222, PAGE_TEXT_WIDTH, 12,
-                IDC_CHK_EX_LOCK, L"Button", L"");
-        addCtrl(SS_LEFT, 0, 18, 234, PAGE_TEXT_WIDTH, 10,
-                IDC_LBL_EX_WINKEY, L"Static", L"");
-        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP | WS_GROUP, 0, 18, 244, PAGE_TEXT_WIDTH, 10,
-                IDC_RADIO_WINKEY_OURS, L"Button", L"");
-        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP, 0, 18, 254, PAGE_TEXT_WIDTH, 10,
-                IDC_RADIO_WINKEY_WINDOWS, L"Button", L"");
-        addCtrl(SS_LEFT, 0, 18, 266, 200, 10, IDC_LBL_EX_ICON_ORDER, L"Static", L"");
-        addCtrl(SS_LEFT | SS_EDITCONTROL, 0, 18, 276, PAGE_TEXT_WIDTH, 16,
-                IDC_TXT_ORDER_HINT, L"Static", L"");
+        /* Ricerca applicazioni: la casella e' stata spostata qui dalla
+         * scheda principale. Il gruppo resta compatto e mantiene sotto il
+         * selettore del Task Manager, visibile solo su Windows 11. */
+        addCtrl(BS_GROUPBOX, 0, 12, 176, GROUP_WIDTH, 50, IDC_GRP_SEARCH, L"Button", L"");
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 0, 18, 184,
+                PAGE_TEXT_WIDTH, 18, IDC_CHK_SEARCH, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 209, 68, 10, IDC_LBL_TASKMGR, L"Static", L"");
+        addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 0, 88, 207, 202, 80,
+                IDC_CMB_TASKMGR, L"ComboBox", L"");
 
-        /* v1.21.28 - OPZIONE "POSIZIONE DELLA BARRA" DISATTIVATA.
-         * La rotazione della taskbar e' stata ritirata (l'edge scelto non
-         * coincideva con l'enum del taskbar: "A destra" finiva in basso e le
-         * anteprime DWM restavano ancorate al lato sbagliato), quindi questa
-         * tendina non viene creata e il pacchetto WM_COPYDATA resta a 76 byte.
-         * Il codice e' tenuto qui commentato, pronto da riattivare insieme
-         * alla conversione esplicita posizione -> TaskbarEdge che manca nel
-         * core gestito (vedi TaskbarWindow.xaml.cs):
-         *
-         *   // IDC_LBL_EX_POSITION / IDC_CMB_EX_POSITION nell'enum CtrlId;
-         *   // gruppo IDC_GRP_EX_TASKBAR alto 102 per ospitare la riga:
-         *   // addCtrl(BS_GROUPBOX, 0, 12, 176, GROUP_WIDTH, 102,
-         *   //         IDC_GRP_EX_TASKBAR, L"Button", L"");
-         *   // addCtrl(SS_LEFT, 0, 18, 204, 90, 10,
-         *   //         IDC_LBL_EX_POSITION, L"Static", L"");
-         *   // addCtrl(CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
-         *   //         0, 112, 202, 190, 80,
-         *   //         IDC_CMB_EX_POSITION, L"ComboBox", L"");
-         *   //   + righe "Ordine icone"/hint spostate a y 220/236 (hint h26)
-         *   // WM_INITDIALOG: SetDlgItemTextW(IDC_LBL_EX_POSITION, X.lblPosition)
-         *   //   e 4 ComboBox_AddString (Basso/Alto/Sinistra/Destra) + SetCurSel
-         *   // SendApply: msg.taskbarPosition da CB_GETCURSEL (CB_ERR -> 0)
-         *   // Strings.h/Strings.cpp: lblPosition + posBottom/posTop/posLeft/
-         *   //   posRight APPESI IN FONDO a ExtraStrings (11 lingue, ordine
-         *   //   posizionale: campo e valore vanno aggiunti insieme).
-         */
+        /* La scheda extra conserva colori dei flyout, privacy e tasto Windows.
+         * Tema, posizione e blocco sono gia' nella scheda principale. */
+        addCtrl(BS_GROUPBOX, 0, 12, 234, GROUP_WIDTH, 52, IDC_GRP_EX_TASKBAR, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 242, PAGE_TEXT_WIDTH, 10,
+                IDC_LBL_EX_WINKEY, L"Static", L"");
+        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP | WS_GROUP, 0, 18, 252,
+                PAGE_TEXT_WIDTH, 10, IDC_RADIO_WINKEY_OURS, L"Button", L"");
+        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP, 0, 18, 262,
+                PAGE_TEXT_WIDTH, 10, IDC_RADIO_WINKEY_WINDOWS, L"Button", L"");
+
+        /* L'ordine delle icone continua a essere gestito dal trascinamento
+         * sulla taskbar; qui non viene piu' mostrata la scritta esplicativa. */
 
         // ---- pulsanti standard 50x14, come la mod ----
         /* v3.5: the row moves 14 DLU down with the window.
@@ -866,11 +850,10 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
     msg.batteryFlyout =
         (SendDlgItemMessageW(m_hWnd, IDC_CMB_BATTERY, CB_GETCURSEL, 0, 0) == 1)
             ? 0 : 1;
-    /* Tendine: indice 0 = versione ricreata dalla mod, 1 = quella del sistema.
-     * Ogni impostazione ha la sua polarita' (vedi le colonne nel messaggio). */
-    msg.nativeFlyout =
-        (SendDlgItemMessageW(m_hWnd, IDC_CMB_CLOCK, CB_GETCURSEL, 0, 0) == 1)
-            ? 1 : 0;
+    /* Il flyout dell'orologio non e' piu' selezionabile: il comportamento
+     * Windows 7 e' fisso. Il campo resta nel pacchetto per non cambiare il
+     * contratto WM_COPYDATA con il livello gestito. */
+    msg.nativeFlyout = 1;
     /* v3.8: la tendina ora ha tre voci e l'INDICE e' il modo (0/1/2):
      * il pacchetto lo porta cosi' com'e', limitato per difesa. */
     {
@@ -909,8 +892,8 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
      * The custom colour is the one chosen with the button (m_flyoutColorRgb is
      * updated there); the swatch is not read, because in "system colour" mode
      * it holds the system accent and not a choice of the user. The skin is
-     * read back from the dropdown and passed through ThemeIsAvailable(): the
-     * only value that can come out of here today is 0. */
+     * read back from the dropdown and passed through ThemeIsAvailable(): all
+     * skin IDs that are really shipped by this build remain valid. */
     msg.flyoutColorMode =
         (SendDlgItemMessageW(m_hWnd, IDC_RADIO_COLOR_CUSTOM, BM_GETCHECK, 0, 0)
             & BST_CHECKED) ? 1 : 0;
@@ -925,12 +908,13 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
             SendDlgItemMessageW(m_hWnd, IDC_CMB_EX_THEME, CB_GETCURSEL, 0, 0));
         msg.themeSelection = ThemeIsAvailable(themeSel) ? themeSel : 0;
     }
-    /* v1.21.43: posizione della barra + blocco (riga "Posizione" della
-     * scheda extra). CB_ERR -> 0 (Basso), come per le altre tendine. */
+    /* Posizione della barra: la UI espone solo Basso (0) e Alto (1).
+     * CB_ERR e qualsiasi valore inatteso ricadono su Basso; 2/3 non possono
+     * piu' arrivare dal controllo e non vengono mai inviati. */
     {
         const int32_t posSel = static_cast<int32_t>(
             SendDlgItemMessageW(m_hWnd, IDC_CMB_EX_POSITION, CB_GETCURSEL, 0, 0));
-        msg.taskbarPosition = (posSel >= 0 && posSel <= 3) ? posSel : 0;
+        msg.taskbarPosition = posSel == 1 ? 1 : 0;
     }
     msg.lockTaskbar =
         (SendDlgItemMessageW(m_hWnd, IDC_CHK_EX_LOCK, BM_GETCHECK, 0, 0)
@@ -1051,7 +1035,7 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
 
         SetDlgItemTextW(hwnd, IDC_GRP_CLOCK, S.grpClock);
         SetDlgItemTextW(hwnd, IDC_CHK_SECONDS, S.chkSeconds);
-        SetDlgItemTextW(hwnd, IDC_LBL_CLOCK, S.lblClock);
+        SetDlgItemTextW(hwnd, IDC_GRP_TASKBAR, X.grpTaskbar);
         SetDlgItemTextW(hwnd, IDC_GRP_SEARCH, S.grpSearch);
         SetDlgItemTextW(hwnd, IDC_CHK_SEARCH, S.chkSearch);
         SetDlgItemTextW(hwnd, IDC_LBL_TASKMGR, S.lblTaskManager);
@@ -1096,19 +1080,17 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SetDlgItemTextW(hwnd, IDC_LBL_EX_PRIVACY, X.lblPrivacy);
         SetDlgItemTextW(hwnd, IDC_TXT_PRIVACY_HINT, X.txtPrivacyHint);
         SetDlgItemTextW(hwnd, IDC_LBL_EX_THEME, X.lblTheme);
-        /* v1.21.43: posizione barra + blocco (riga "Posizione" della
-         * scheda extra, rotazione riattivata). */
+        /* Posizione e blocco sono nella sezione principale della barra e la
+         * combo offre solo i due bordi orizzontali. I valori legacy 2/3 sono
+         * gia' stati convertiti in Basso da Show(), ma il controllo resta
+         * difensivo. */
         SetDlgItemTextW(hwnd, IDC_LBL_EX_POSITION, X.lblPosition);
         SetDlgItemTextW(hwnd, IDC_CHK_EX_LOCK, X.chkLock);
         {
             HWND hPos = GetDlgItem(hwnd, IDC_CMB_EX_POSITION);
             ComboBox_AddString(hPos, X.posBottom);   /* 0 */
             ComboBox_AddString(hPos, X.posTop);      /* 1 */
-            ComboBox_AddString(hPos, X.posLeft);     /* 2 */
-            ComboBox_AddString(hPos, X.posRight);    /* 3 */
-            ComboBox_SetCurSel(hPos, (self->m_taskbarPosition >= 0 &&
-                                      self->m_taskbarPosition <= 3)
-                                     ? self->m_taskbarPosition : 0);
+            ComboBox_SetCurSel(hPos, self->m_taskbarPosition == 1 ? 1 : 0);
         }
         SendDlgItemMessageW(hwnd, IDC_CHK_EX_LOCK, BM_SETCHECK,
                             self->m_lockTaskbar ? BST_CHECKED
@@ -1123,8 +1105,8 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
                             self->m_windowsKeyOpensOurMenu ? BST_UNCHECKED
                                                            : BST_CHECKED, 0);
         SetDlgItemTextW(hwnd, IDC_GRP_EX_TASKBAR, X.grpTaskbar);
-        SetDlgItemTextW(hwnd, IDC_LBL_EX_ICON_ORDER, X.lblIconOrder);
-        SetDlgItemTextW(hwnd, IDC_TXT_ORDER_HINT, X.txtIconOrderHint);
+        /* Le etichette dell'ordine icone non fanno parte del template: il
+         * comportamento di riordino rimane quello della taskbar. */
 
         /* The two colour entries: 0 = system (default), 1 = chosen. WS_GROUP
          * on the first one keeps the two radio buttons independent of the
@@ -1175,20 +1157,9 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         }
         ComboBox_SetCurSel(hCL, self->m_lang);
 
-        /* v2.49: LE QUATTRO TENDINE DEI FLYOUT ERANO VUOTE. Una combo senza
-         * voci non ha nulla da mostrare: aprirla faceva comparire un
-         * rettangolo bianco vuoto con la barra di scorrimento, che copriva
-         * mezza finestra (ed e' il motivo per cui le etichette sotto
-         * sembravano "sparite"). Ora ogni tendina ha le sue voci, negli
-         * stessi termini del resto del programma, e parte dallo stato
-         * corrente: l'indice 0 e' sempre la versione ricreata dalla mod,
-         * l'indice 1 quella del sistema (la polarita' di ogni campo e'
-         * quella che il pacchetto WM_COPYDATA si aspetta). */
-        HWND hCC = GetDlgItem(hwnd, IDC_CMB_CLOCK);
-        ComboBox_AddString(hCC, S.flyRecreated);   /* 0 = ricreato */
-        ComboBox_AddString(hCC, S.flyNative);      /* 1 = sistema */
-        ComboBox_SetCurSel(hCC, self->m_nativeFlyout ? 1 : 0);
-
+        /* Il flyout dell'orologio e' fisso al comportamento Windows 7:
+         * nessuna combo viene riempita o mostrata. Il campo nativo resta nel
+         * pacchetto WM_COPYDATA solo per compatibilita' con il ricevente. */
         HWND hCN = GetDlgItem(hwnd, IDC_CMB_NETFLY);
         ComboBox_AddString(hCN, S.netWin7);        /* 0 = ricreato (Windows 7) */
         ComboBox_AddString(hCN, S.netModern);      /* 1 = sistema */

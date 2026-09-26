@@ -70,6 +70,15 @@ struct ExplorerTrayItem {
      * restava congelata. Il servizio ora adotta la fonte che cambia. */
     ArgbBitmap   iconBitmap;
     bool         hasIconBitmap   = false;
+
+    /* Windows 11 conserva la scelta visibile/overflow nella chiave privata
+     * NotifyIconSettings. Il nome della sottochiave e' un identificatore
+     * decimale opaco; il metadato si associa tramite UID ed ExecutablePath,
+     * senza tentare di ricalcolare l'id. IsPromoted non sostituisce la
+     * lettura visuale della toolbar: hidden resta sempre la fotografia
+     * toolbar/overflow. */
+    bool         promotionKnown  = false;
+    bool         promoted        = true;
 };
 
 /* Esito di una passata di lettura: `okVisible` dice se la toolbar delle

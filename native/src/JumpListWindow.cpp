@@ -119,11 +119,51 @@ Gdiplus::Color GpColor(COLORREF c, BYTE a = 255)
     return Gdiplus::Color(a, GetRValue(c), GetGValue(c), GetBValue(c));
 }
 
+/* Misura la stessa metrica GDI usata dal percorso di fallback. La larghezza
+ * della finestra viene poi applicata anche al percorso GDI+, così una label
+ * localizzata non viene troncata solo perché GDI+ e GDI hanno scelto due
+ * rettangoli diversi. Tutte le risorse temporanee hanno ownership RAII. */
+int MeasureJumpLabel(const std::wstring& text, UINT dpi, bool bold = false)
+{
+    if (text.empty()) {
+        return 0;
+    }
+    int result = 0;
+    W7T_SEH_TRY {
+        try {
+            const WindowDcGuard dc(nullptr, GetDC(nullptr));
+            if (dc.valid()) {
+                const int height = -::MulDiv(11, static_cast<int>(dpi), 96);
+                raii::unique_hfont font(CreateFontW(
+                    height, 0, 0, 0, bold ? FW_SEMIBOLD : FW_NORMAL,
+                    FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                    CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                    DEFAULT_PITCH, L"Segoe UI"));
+                if (font) {
+                    const SelectGuard selected(dc.get(), font.get());
+                    SIZE extent{};
+                    if (GetTextExtentPoint32W(dc.get(), text.c_str(),
+                                               static_cast<int>(text.size()),
+                                               &extent) != FALSE) {
+                        result = (std::max)(0L, extent.cx);
+                    }
+                }
+            }
+        } catch (...) {
+            result = 0;
+        }
+    } W7T_SEH_CATCH {
+        result = 0;
+    } W7T_SEH_END
+    return result;
+}
+
 bool DrawHbmpGp(Gdiplus::Graphics& g, HBITMAP hb, int x, int y, int dw, int dh)
 {
     if (hb == nullptr || dw <= 0 || dh <= 0) {
         return false;
     }
+    bool locked = false;
     try {
         BITMAP bm{};
         if (GetObjectW(hb, sizeof(bm), &bm) != sizeof(bm) ||
@@ -140,6 +180,13 @@ bool DrawHbmpGp(Gdiplus::Graphics& g, HBITMAP hb, int x, int y, int dw, int dh)
                          PixelFormat32bppPARGB, &data) != Gdiplus::Ok) {
             return false;
         }
+        locked = true;
+        const auto unlock = raii::on_scope_exit([&]() noexcept {
+            if (locked) {
+                (void)bmp.UnlockBits(&data);
+                locked = false;
+            }
+        });
         BITMAPINFO bmi{};
         bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
         bmi.bmiHeader.biWidth = bm.bmWidth;
@@ -147,13 +194,17 @@ bool DrawHbmpGp(Gdiplus::Graphics& g, HBITMAP hb, int x, int y, int dw, int dh)
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;
-        HDC screen = GetDC(nullptr);
-        if (screen != nullptr) {
-            GetDIBits(screen, hb, 0, static_cast<UINT>(bm.bmHeight),
-                      data.Scan0, &bmi, DIB_RGB_COLORS);
-            ReleaseDC(nullptr, screen);
+        const WindowDcGuard screen(nullptr, GetDC(nullptr));
+        if (!screen.valid()) {
+            return false;
         }
-        bmp.UnlockBits(&data);
+        if (GetDIBits(screen.get(), hb, 0, static_cast<UINT>(bm.bmHeight),
+                      data.Scan0, &bmi, DIB_RGB_COLORS) == 0) {
+            return false;
+        }
+        /* UnlockBits is guaranteed by the guard before the GDI+ draw. */
+        (void)bmp.UnlockBits(&data);
+        locked = false;
         g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
         g.DrawImage(&bmp, x, y, dw, dh);
         return true;
@@ -287,10 +338,10 @@ bool IconToArgb(HICON icon, std::vector<uint32_t>& outPx,
     } W7T_SEH_END
 }
 
-void DrawIconGp(Gdiplus::Graphics& g, HICON icon, int x, int y, int box)
+bool DrawIconGp(Gdiplus::Graphics& g, HICON icon, int x, int y, int box)
 {
     if (icon == nullptr || box <= 0) {
-        return;
+        return false;
     }
     try {
         std::vector<uint32_t> px;
@@ -303,19 +354,45 @@ void DrawIconGp(Gdiplus::Graphics& g, HICON icon, int x, int y, int box)
                 g.SetInterpolationMode(
                     Gdiplus::InterpolationModeHighQualityBicubic);
                 g.DrawImage(&bmp, x, y, box, box);
-                return;
+                return true;
             }
         }
         /* fallback: la conversione nativa di GDI+ (il vecchio
          * comportamento, utile per le poche icone monocromatiche). */
         std::unique_ptr<Gdiplus::Bitmap> bmp(Gdiplus::Bitmap::FromHICON(icon));
         if (!bmp || bmp->GetLastStatus() != Gdiplus::Ok) {
-            return;
+            return false;
         }
         g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
         g.DrawImage(bmp.get(), x, y, box, box);
+        return true;
     } catch (...) {
+        return false;
     }
+}
+
+/* Disegna un HICON direttamente sul DC gia' dipinto. DrawIconEx esegue la
+ * composizione AND/XOR e alpha di Windows; Bitmap::FromHICON di GDI+ invece
+ * puo' trasformare la maschera delle icone cartella in un rettangolo nero.
+ * Il risultato e' protetto sia da eccezioni C++ sia da fault SEH e non
+ * trasferisce ownership: l'IconHandle della riga resta il proprietario. */
+bool DrawIconSafe(HDC hdc, HICON icon, int x, int y, int width, int height)
+{
+    if (hdc == nullptr || icon == nullptr || width <= 0 || height <= 0) {
+        return false;
+    }
+    bool drawn = false;
+    W7T_SEH_TRY {
+        try {
+            drawn = DrawIconEx(hdc, x, y, icon, width, height, 0, nullptr,
+                               DI_NORMAL) != FALSE;
+        } catch (...) {
+            drawn = false;
+        }
+    } W7T_SEH_CATCH {
+        drawn = false;
+    } W7T_SEH_END
+    return drawn;
 }
 
 void FillHoverGp(Gdiplus::Graphics& g, const RECT& r)
@@ -1007,48 +1084,38 @@ int JumpListWindow::MeasureWidestRow() const {
     int best = Sc(kWidth96);
     W7T_SEH_TRY {
         try {
-            WindowDcGuard dcGuard(nullptr, GetDC(nullptr));
-            HDC hdc = dcGuard.get();
-            if (hdc == nullptr) {
-                return best;
-            }
-            const int fontH = -::MulDiv(11, static_cast<int>(m_dpi), 96);
-            /* SEMIBOLD deliberato: si misura il caso peggiore (alcune
-             * righe usano la faccia piu' pesante) cosi' la stima non
-             * puo' MAI tagliare. RAII su font/selezione/DC. */
-            const UniqueGdiObject font(CreateFontW(fontH, 0, 0, 0,
-                FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI"));
-            if (!font.valid()) {
-                return best;
-            }
-            const SelectGuard select(hdc, font.get());
-            for (const Row& r : m_rows) {
-                const bool isDoc =
-                    r.kind == Row::DocRecent ||
-                    r.kind == Row::DocFrequent;
-                const int iconLeft = Sc(14);
-                const int textLeft = isDoc
-                    ? iconLeft + Sc(kDocIcon96) + Sc(6)
-                    : (r.kind == Row::App
-                        ? iconLeft + Sc(kAppIcon96) + Sc(9)
-                        : (r.kind == Row::Close
-                            ? iconLeft + Sc(kClose96) + Sc(7)
-                            : (r.kind == Row::Pin
-                                ? iconLeft + Sc(kPinIcon96) + Sc(7)
-                                : iconLeft)));
-                RECT bounds{ 0, 0, 0, 0 };
-                DrawTextW(hdc, r.label.c_str(), -1, &bounds,
-                          DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
-                const int need =
-                    textLeft + (bounds.right - bounds.left) + Sc(12);
-                if (need > best) {
-                    best = need;
+            const int iconLeft = Sc(14);
+            auto textLeft = [this, iconLeft](Row::Kind kind) {
+                if (kind == Row::DocRecent || kind == Row::DocFrequent) {
+                    return iconLeft + Sc(kDocIcon96) + Sc(6);
                 }
+                if (kind == Row::App) {
+                    return iconLeft + Sc(kAppIcon96) + Sc(9);
+                }
+                if (kind == Row::Close) {
+                    return iconLeft + Sc(kClose96) + Sc(7);
+                }
+                if (kind == Row::Pin) {
+                    return iconLeft + Sc(kPinIcon96) + Sc(7);
+                }
+                return iconLeft;
+            };
+            for (const Row& row : m_rows) {
+                /* Il margine semibold e' intenzionalmente conservativo: la
+                 * riga effettiva puo' cambiare peso quando il testo e'
+                 * evidenziato, ma non deve mai tagliarsi. */
+                const int need = textLeft(row.kind) +
+                    MeasureJumpLabel(row.label, m_dpi, true) + Sc(12);
+                best = (std::max)(best, need);
             }
+            const JumpStr& strings = Str(m_lang);
+            const int headerLeft = Sc(12);
+            best = (std::max)(best, headerLeft +
+                MeasureJumpLabel(strings.recent, m_dpi, true) + Sc(12));
+            best = (std::max)(best, headerLeft +
+                MeasureJumpLabel(strings.frequent, m_dpi, true) + Sc(12));
         } catch (...) {
-            /* measuring failed: the base width survives */
+            /* Se la misurazione fallisce, la larghezza base resta valida. */
         }
     } W7T_SEH_CATCH {
     } W7T_SEH_END
@@ -1343,14 +1410,20 @@ int32_t JumpListWindow::Open(const RECT& buttonRectScreen, int32_t edge,
          * engineered explorer, see docs/JUMPLIST-RE-VERIFICATION.md). */
         {
             DWORD policy = 1, policySize = sizeof(policy);
-            HKEY key = nullptr;
+            raii::RegKeyHandle key;
+            HKEY rawKey = nullptr;
             if (RegOpenKeyExW(HKEY_CURRENT_USER,
                     L"Software\\Microsoft\\Windows\\CurrentVersion"
                     L"\\Explorer\\StartMenu",
-                    0, KEY_READ, &key) == ERROR_SUCCESS) {
-                (void)RegQueryValueExW(key, L"Start_JumpListItems", nullptr,
-                                       nullptr, (BYTE*)&policy, &policySize);
-                RegCloseKey(key);
+                    0, KEY_READ, &rawKey) == ERROR_SUCCESS) {
+                key.reset(rawKey);
+                DWORD type = 0;
+                if (RegQueryValueExW(key.get(), L"Start_JumpListItems", nullptr,
+                                     &type, reinterpret_cast<BYTE*>(&policy),
+                                     &policySize) != ERROR_SUCCESS ||
+                    type != REG_DWORD || policySize != sizeof(policy)) {
+                    policy = 1;
+                }
             }
             if (policy == 0) {
                 LogTagged(L"JUMPLIST",
@@ -1840,6 +1913,9 @@ void JumpListWindow::OnPaint(HWND hwnd) {
     PAINTSTRUCT ps;
     HDC screenDc = BeginPaint(hwnd, &ps);
     if (screenDc == nullptr) return;
+    const auto endPaint = raii::on_scope_exit([&]() noexcept {
+        EndPaint(hwnd, &ps);
+    });
     RECT client{};
     GetClientRect(hwnd, &client);
 
@@ -1934,18 +2010,28 @@ void JumpListWindow::OnPaint(HWND hwnd) {
                                     : iconLeft)));
                     const RECT closeRect = CloseRect();
                     const int lift = Sc(2);
+                    const int textRight = (std::max)(
+                        textLeft + 1, static_cast<int>(client.right) - margin);
+                    const int textTop = r.rect.top - lift;
+                    const int textBottom = (std::max)(
+                        textTop + 1, static_cast<int>(r.rect.bottom) - lift);
                     Gdiplus::RectF tr(
                         static_cast<Gdiplus::REAL>(textLeft),
-                        static_cast<Gdiplus::REAL>(r.rect.top - lift),
-                        static_cast<Gdiplus::REAL>(client.right - margin - textLeft),
-                        static_cast<Gdiplus::REAL>(r.rect.bottom - r.rect.top));
+                        static_cast<Gdiplus::REAL>(textTop),
+                        static_cast<Gdiplus::REAL>(textRight - textLeft),
+                        static_cast<Gdiplus::REAL>(textBottom - textTop));
                     g.DrawString(r.label.c_str(), -1, &font, tr, &fmt,
                                  (r.kind == Row::Pin) ? &pinBr : &textBr);
 
                     if (isDoc && r.icon.get() != nullptr) {
                         const int box = Sc(kDocIcon96);
-                        DrawIconGp(g, r.icon.get(), iconLeft,
-                                   r.rect.top + (Sc(kRowDoc96) - box) / 2, box);
+                        const int iconTop =
+                            r.rect.top + (Sc(kRowDoc96) - box) / 2;
+                        if (!DrawIconGp(g, r.icon.get(), iconLeft, iconTop,
+                                        box)) {
+                            (void)DrawIconSafe(hdc, r.icon.get(), iconLeft,
+                                               iconTop, box, box);
+                        }
                     }
                     if (r.kind == Row::App && m_appIcon) {
                         const int box = Sc(kAppIcon96);
@@ -1999,7 +2085,8 @@ void JumpListWindow::OnPaint(HWND hwnd) {
         const UniqueGdiObject fontBold(CreateFontW(fontH, 0, 0, 0, FW_SEMIBOLD,
             FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
             CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI"));
-        if (font.valid()) SelectObject(hdc, (HGDIOBJ)font.get());
+        const SelectGuard fontSelected(
+            hdc, font.valid() ? font.get() : nullptr);
 
         auto hline = [&](int lineY) {
             const UniqueGdiObject pen(
@@ -2061,14 +2148,18 @@ void JumpListWindow::OnPaint(HWND hwnd) {
             const RECT closeRect = CloseRect();
             const int lift = Sc(2);
             RECT tr{ textLeft, r.rect.top - lift,
-                     client.right - margin, r.rect.bottom - lift };
+                     (std::max)(textLeft + 1,
+                                static_cast<int>(client.right) - margin),
+                     (std::max)(static_cast<int>(r.rect.top) - lift + 1,
+                                static_cast<int>(r.rect.bottom) - lift) };
             DrawTextW(hdc, r.label.c_str(), -1, &tr,
                       DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
 
             if (isDoc && r.icon.get() != nullptr) {
                 const int box = Sc(kDocIcon96);
-                DrawIconEx(hdc, iconLeft, r.rect.top + (Sc(kRowDoc96) - box) / 2,
-                           r.icon.get(), box, box, 0, nullptr, DI_NORMAL);
+                (void)DrawIconSafe(hdc, r.icon.get(), iconLeft,
+                                   r.rect.top + (Sc(kRowDoc96) - box) / 2,
+                                   box, box);
             }
             if (r.kind == Row::App && m_appIcon) {
                 const int box = Sc(kAppIcon96);
@@ -2094,7 +2185,6 @@ void JumpListWindow::OnPaint(HWND hwnd) {
         }
     }
     buffer.Commit();
-    EndPaint(hwnd, &ps);
 }
 
 LRESULT CALLBACK JumpListWindow::WndProc(HWND hwnd, UINT msg,

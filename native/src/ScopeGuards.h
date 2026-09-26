@@ -10,6 +10,8 @@
 
 #pragma once
 #include <windows.h>
+#include <type_traits>
+#include <utility>
 
 namespace w7t {
 
@@ -143,5 +145,50 @@ private:
     HWND m_hwnd;
     HDC  m_hdc;
 };
+
+/* Guardia generica per le fasi di creazione che acquisiscono piu' risorse.
+ * Il callback viene eseguito anche quando un ritorno anticipato o
+ * un'eccezione interrompe la sequenza; eventuali eccezioni del cleanup non
+ * possono propagarsi dal distruttore. */
+template <typename Function>
+class ScopeExit {
+public:
+    explicit ScopeExit(Function&& function)
+        : m_function(std::forward<Function>(function)) {}
+
+    ScopeExit(ScopeExit&& other) noexcept(
+        std::is_nothrow_move_constructible<Function>::value)
+        : m_function(std::move(other.m_function)),
+          m_active(other.m_active) {
+        other.m_active = false;
+    }
+
+    ScopeExit(const ScopeExit&) = delete;
+    ScopeExit& operator=(const ScopeExit&) = delete;
+    ScopeExit& operator=(ScopeExit&&) = delete;
+
+    ~ScopeExit() noexcept {
+        if (!m_active) {
+            return;
+        }
+        try {
+            m_function();
+        } catch (...) {
+            /* Il cleanup non deve mai attraversare un distruttore. */
+        }
+    }
+
+    void Dismiss() noexcept { m_active = false; }
+
+private:
+    Function m_function;
+    bool     m_active = true;
+};
+
+template <typename Function>
+ScopeExit<typename std::decay<Function>::type> MakeScopeExit(Function&& function) {
+    using StoredFunction = typename std::decay<Function>::type;
+    return ScopeExit<StoredFunction>(std::forward<Function>(function));
+}
 
 } /* namespace w7t */

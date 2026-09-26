@@ -11,6 +11,12 @@ cmake_minimum_required(VERSION 3.20)
 set(CMAKE_SYSTEM_VERSION "10.0.22621.0" CACHE STRING "Windows SDK version" FORCE)
 project(Win7TaskbarCore VERSION 1.7.0 DESCRIPTION "Win7Taskbar native backend" LANGUAGES CXX RC)
 
+# Il mirror ToolbarWindow32 è compatibilità cosmetica e resta disattivato
+# nella release. Si abilita solo per una verifica esplicita del controllo.
+option(W7T_ENABLE_LEGACY_TOOLBAR_SHIM
+       "Enable the opt-in read-only ToolbarWindow32 compatibility mirror"
+       OFF)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -32,9 +38,12 @@ if(NOT WIN32)
 endif()
 add_library(Win7TaskbarCore SHARED
     src/Common.cpp src/WindowManager.cpp src/TrayService.cpp src/TrayToolbar.cpp
+    src/NotificationPageSync.cpp
+    src/LegacyToolbarShim.cpp
     src/SystemEventsWatch.cpp src/AppBarService.cpp src/ShellMenu.cpp
     src/ImmersiveFlyouts.cpp src/FlyoutLauncher.cpp src/AudioService.cpp
-    src/ExplorerTrayReader.cpp src/Win11TrayReader.cpp src/Win11TrayReaderResilience.cpp
+    src/ExplorerTrayReader.cpp src/TrayNotifyReader.cpp
+    src/Win11TrayReader.cpp src/Win11TrayReaderResilience.cpp
     src/TrayOverflowWindow.cpp src/AppSearchWindow.cpp
     src/Win7NetworkFlyout.cpp src/Win8NetworkFlyout.cpp src/BatteryFlyout.cpp src/JumpListWindow.cpp
     src/PropertiesDialog.cpp src/PinnedApps.cpp src/Exports.cpp
@@ -79,6 +88,9 @@ if(W7T_BUILD_STAMP STREQUAL "local")
 endif()
 message(STATUS "Win7TaskbarCore build stamp: ${W7T_BUILD_STAMP}")
 target_compile_definitions(Win7TaskbarCore PRIVATE W7T_BUILDING_DLL=1 UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00 "W7T_BUILD_STAMP=L\"${W7T_BUILD_STAMP}\"")
+if(W7T_ENABLE_LEGACY_TOOLBAR_SHIM)
+    target_compile_definitions(Win7TaskbarCore PRIVATE W7T_ENABLE_LEGACY_TOOLBAR_SHIM=1)
+endif()
 # comdlg32: v1.21.7, ChooseColorW for the colour picker of the extra
 # settings tab (the standard Windows colour chooser).
 target_link_libraries(Win7TaskbarCore PRIVATE user32 gdi32 gdiplus shell32 ole32 oleaut32 comctl32 wtsapi32 dwmapi uxtheme msimg32 propsys shlwapi advapi32 powrprof wlanapi iphlpapi uuid psapi windowscodecs comdlg32)

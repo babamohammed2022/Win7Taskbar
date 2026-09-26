@@ -365,6 +365,8 @@ W7T_API int32_t  W7T_CALL W7T_ShowTaskManagerMode(int32_t mode);
  * che il sistema offre). Restituisce W7T_OK se la shell ha accettato la
  * richiesta, altrimenti un codice d'errore (il frontend ha un ripiego). */
 W7T_API int32_t  W7T_CALL W7T_OpenNotificationIconsSettings(void);
+/* Backfill manuale della pagina legacy reale 05D7B0F4. */
+W7T_API int32_t  W7T_CALL W7T_NotificationPageBackfill(void);
 
 /* v2.2: scrive una riga in log-core.txt dal lato gestito. Serve a
  * tracciare, su Windows vero, i percorsi interattivi (drag&drop, apertura

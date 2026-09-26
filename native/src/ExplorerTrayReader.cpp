@@ -11,9 +11,12 @@
 
 #include "ExplorerTrayReader.h"
 #include "../include/RaiiWrappers.h"
+#include "ScopeGuards.h"
 
 
 #include <atomic>
+#include <cwchar>
+#include <cwctype>
 #include <set>
 #include <utility>
 #include <vector>
@@ -28,6 +31,19 @@ constexpr UINT kTbGetItemRect = WM_USER + 29;   /* TB_GETITEMRECT */
 
 /* fsState: il pulsante e' nascosto (icona nell'overflow di Explorer). */
 constexpr BYTE kTbStateHidden = 8;
+
+/* Il nome di classe Shell_TrayWnd puo' appartenere anche al nostro shim:
+ * accettiamo solo la finestra il cui proprietario e' davvero Explorer. */
+bool IsExplorerProcess(DWORD pid) {
+    const std::wstring path = GetProcessImagePath(pid);
+    if (path.empty()) {
+        return false;
+    }
+    const size_t slash = path.find_last_of(L"\\\\/");
+    const std::wstring name = slash == std::wstring::npos
+        ? path : path.substr(slash + 1);
+    return _wcsicmp(name.c_str(), L"explorer.exe") == 0;
+}
 
 /* Attesa massima per un messaggio alla toolbar di Explorer. Abbastanza lunga
  * da tollerare un Explorer sotto carico all'avvio, abbastanza corta da non
@@ -155,7 +171,7 @@ HWND FindTrayToolbar(bool overflow) {
     while ((tray = FindWindowExW(nullptr, tray, L"Shell_TrayWnd", nullptr)) != nullptr) {
         DWORD pid = 0;
         GetWindowThreadProcessId(tray, &pid);
-        if (pid != ourPid) {
+        if (pid != ourPid && IsExplorerProcess(pid)) {
             break;
         }
     }
@@ -175,6 +191,191 @@ HWND FindTrayToolbar(bool overflow) {
     }
 
     return FindWindowExW(pager, nullptr, L"ToolbarWindow32", nullptr);
+}
+
+/* ------------------------------------------------------------------ */
+/* Windows 11: stato promosso nell'overflow                            */
+/* ------------------------------------------------------------------ */
+
+/* Il formato osservato delle sottochiavi NotifyIconSettings e' una stringa
+ * decimale (in genere il valore unsigned a 64 bit visualizzato da regedit),
+ * ma Microsoft non pubblica né l'algoritmo né un contratto per il nome.
+ * Validiamo solo questa forma e trattiamo il nome come opaco: non
+ * ricostruiamo un hash inventato a partire da exe e UID. */
+bool IsNotifyIconSettingsId(const wchar_t* name)
+{
+    if (name == nullptr || name[0] == L'\0') {
+        return false;
+    }
+    size_t length = 0;
+    for (; name[length] != L'\0'; ++length) {
+        if (name[length] < L'0' || name[length] > L'9' || length >= 20) {
+            return false;
+        }
+    }
+    return length > 0 && length <= 20;
+}
+
+bool ReadNotifyDword(HKEY key, const wchar_t* value, DWORD& out)
+{
+    DWORD type = 0;
+    DWORD size = sizeof(out);
+    if (key == nullptr || RegQueryValueExW(key, value, nullptr, &type,
+                                           reinterpret_cast<BYTE*>(&out),
+                                           &size) != ERROR_SUCCESS) {
+        return false;
+    }
+    return type == REG_DWORD && size == sizeof(out);
+}
+
+bool ReadNotifyString(HKEY key, const wchar_t* value, std::wstring& out)
+{
+    out.clear();
+    if (key == nullptr) {
+        return false;
+    }
+    DWORD type = 0;
+    DWORD bytes = 0;
+    if (RegQueryValueExW(key, value, nullptr, &type, nullptr, &bytes)
+            != ERROR_SUCCESS ||
+        (type != REG_SZ && type != REG_EXPAND_SZ) ||
+        bytes == 0 || bytes > 64 * 1024 || bytes % sizeof(wchar_t) != 0) {
+        return false;
+    }
+    std::vector<wchar_t> buffer(bytes / sizeof(wchar_t) + 1, L'\0');
+    DWORD capacity = bytes;
+    if (RegQueryValueExW(key, value, nullptr, &type,
+                         reinterpret_cast<BYTE*>(buffer.data()), &capacity)
+            != ERROR_SUCCESS ||
+        (type != REG_SZ && type != REG_EXPAND_SZ) ||
+        capacity > bytes) {
+        return false;
+    }
+    buffer.back() = L'\0';
+    out.assign(buffer.data());
+    return !out.empty();
+}
+
+std::wstring NormalizeNotifyPath(const std::wstring& input)
+{
+    std::wstring result = input;
+    while (!result.empty() &&
+           (result.front() == L'"' || iswspace(result.front()))) {
+        result.erase(result.begin());
+    }
+    while (!result.empty() &&
+           (result.back() == L'"' || iswspace(result.back()))) {
+        result.pop_back();
+    }
+    /* Alcune installazioni memorizzano la variabile d'ambiente invece del
+     * percorso espanso. Se l'espansione entra nel buffer, confrontiamo la
+     * forma risultante; altrimenti conserviamo quella originale. */
+    wchar_t expanded[32768] = {};
+    const DWORD expandedLength = ExpandEnvironmentStringsW(
+        result.c_str(), expanded, ARRAYSIZE(expanded));
+    if (expandedLength > 1 && expandedLength < ARRAYSIZE(expanded)) {
+        result.assign(expanded, expandedLength - 1);
+    }
+    for (wchar_t& c : result) {
+        if (c == L'/') {
+            c = L'\\';
+        }
+        c = static_cast<wchar_t>(towlower(c));
+    }
+    return result;
+}
+
+std::wstring NotifyPathFileName(const std::wstring& input)
+{
+    const std::wstring normalized = NormalizeNotifyPath(input);
+    const size_t slash = normalized.find_last_of(L"\\");
+    return slash == std::wstring::npos
+        ? normalized : normalized.substr(slash + 1);
+}
+
+bool NotifyExecutableMatches(const std::wstring& registeredPath,
+                             const std::wstring& processPath,
+                             const std::wstring& rawExeName)
+{
+    const std::wstring registered = NormalizeNotifyPath(registeredPath);
+    if (registered.empty()) {
+        return false;
+    }
+    const std::wstring process = NormalizeNotifyPath(processPath);
+    const std::wstring raw = NormalizeNotifyPath(rawExeName);
+    if ((!process.empty() && registered == process) ||
+        (!raw.empty() && registered == raw)) {
+        return true;
+    }
+
+    /* ExecutablePath può contenere il prefisso della cartella nota di
+     * Windows (per esempio {GUID}\\programma.exe), mentre il percorso
+     * ottenuto dal processo è il percorso espanso. Con UID uguale, il nome
+     * finale è un disambiguatore sufficiente e non è un'euristica per l'id. */
+    const std::wstring registeredName = NotifyPathFileName(registered);
+    return (!process.empty() &&
+            registeredName == NotifyPathFileName(process)) ||
+           (!raw.empty() && registeredName == NotifyPathFileName(raw));
+}
+
+bool ReadNotifyIconPromotion(uint64_t ownerHwnd, uint32_t uid,
+                             const std::wstring& rawExeName,
+                             bool& known, bool& promoted)
+{
+    known = false;
+    promoted = true;
+
+    DWORD pid = 0;
+    GetWindowThreadProcessId(
+        reinterpret_cast<HWND>(static_cast<uintptr_t>(ownerHwnd)), &pid);
+    const std::wstring processPath = GetProcessImagePath(pid);
+
+    HKEY rawRoot = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                      L"Control Panel\\NotifyIconSettings", 0, KEY_READ,
+                      &rawRoot) != ERROR_SUCCESS) {
+        return false;
+    }
+    raii::RegKeyHandle root(rawRoot);
+
+    for (DWORD index = 0;; ++index) {
+        wchar_t name[64] = {};
+        DWORD nameLength = static_cast<DWORD>(ARRAYSIZE(name) - 1);
+        FILETIME lastWrite{};
+        const LSTATUS enumStatus = RegEnumKeyExW(
+            root.get(), index, name, &nameLength, nullptr, nullptr, nullptr,
+            &lastWrite);
+        if (enumStatus == ERROR_NO_MORE_ITEMS) {
+            break;
+        }
+        if (enumStatus != ERROR_SUCCESS || !IsNotifyIconSettingsId(name)) {
+            continue;
+        }
+
+        HKEY rawChild = nullptr;
+        if (RegOpenKeyExW(root.get(), name, 0, KEY_READ, &rawChild)
+                != ERROR_SUCCESS) {
+            continue;
+        }
+        raii::RegKeyHandle child(rawChild);
+
+        DWORD registryUid = 0;
+        DWORD registryPromotion = 0;
+        std::wstring registeredPath;
+        if (!ReadNotifyDword(child.get(), L"UID", registryUid) ||
+            registryUid != uid ||
+            !ReadNotifyString(child.get(), L"ExecutablePath", registeredPath) ||
+            !NotifyExecutableMatches(registeredPath, processPath, rawExeName) ||
+            !ReadNotifyDword(child.get(), L"IsPromoted", registryPromotion) ||
+            registryPromotion > 1) {
+            continue;
+        }
+
+        known = true;
+        promoted = registryPromotion == 1;
+        return true;
+    }
+    return false;
 }
 
 /* Cattura con PrintWindow cio' che Explorer DISEGNA davvero nella toolbar
@@ -202,10 +403,9 @@ bool CaptureToolbar(HWND toolbar, ToolbarCapture& cap) {
         return false;
     }
 
-    // RAII wrappers: DcHandle, CompatibleDcHandle, BitmapHandle, GdiSelector
-    // English: Use RAII to ensure DC and bitmap are released even on early return
-    raii::DcHandle screen(GetDC(nullptr), nullptr);
-    if (!screen) {
+    // RAII: il DC della finestra usa ReleaseDC, anche su ritorni anticipati.
+    const WindowDcGuard screen(nullptr, GetDC(nullptr));
+    if (!screen.valid()) {
         return false;
     }
     raii::CompatibleDcHandle mem(CreateCompatibleDC(screen.get()));
@@ -218,8 +418,6 @@ bool CaptureToolbar(HWND toolbar, ToolbarCapture& cap) {
     bi.bmiHeader.biCompression = BI_RGB;
     void* bits = nullptr;
     raii::BitmapHandle bmp(CreateDIBSection(screen.get(), &bi, DIB_RGB_COLORS, &bits, nullptr, 0));
-    // Release screen DC early via RAII reset
-    screen.reset();
     if (!mem || !bmp || bits == nullptr) {
         return false;
     }
@@ -603,6 +801,24 @@ bool ReadToolbar(HWND toolbar, bool fromOverflow,
         raw.szExeName[259]  = L'\0';
         item.tooltip = raw.szIconText;
         item.exeName = raw.szExeName;
+
+        /* IsPromoted è un indizio della preferenza privata di Windows 11:
+         * 1 tende alla zona visibile, 0 tende al cassetto overflow. La
+         * chiave privata usa un nome decimale opaco; il lettore ha verificato
+         * UID + ExecutablePath solo per associare il metadato. In assenza di
+         * una corrispondenza, la toolbar resta la fonte visuale reale. */
+        bool promotionKnown = false;
+        bool promoted = true;
+        if (ReadNotifyIconPromotion(item.ownerHwnd, item.uid, item.exeName,
+                                    promotionKnown, promoted) &&
+            promotionKnown) {
+            /* IsPromoted è una preferenza privata di Windows 11, non una
+             * fotografia assoluta: la posizione visuale resta quella della
+             * toolbar/overflow appena letta. Conserviamo il dato solo come
+             * metadato diagnostico per la fusione successiva. */
+            item.promotionKnown = true;
+            item.promoted = promoted;
+        }
 
         /* L'HICON letto dalla memoria di Explorer e' un handle della
          * sessione (cosi' la shell disegna le icone altrui): copiarlo e'
