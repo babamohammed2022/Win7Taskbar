@@ -1,3 +1,5 @@
+# Historical release-workflow template; automated releases are disabled in this repository.
+# Retained for consultation or adaptation in independent forks only.
 name: release
 
 # Builds the self-contained Windows x64 package.

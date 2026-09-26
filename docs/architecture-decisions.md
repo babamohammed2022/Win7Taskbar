@@ -144,16 +144,18 @@ screenshot or the image with a script, and the number recorded in the changelog.
 project came from a value being adjusted by eye; the entries that hold a measured
 percentage or pixel value are the ones that stayed correct.
 
-## 8. Changes are recorded in the release notes, not in the repository
+## 8. Release notes policy during active development (historical)
 
-**Decision.** Each version is described in its release notes (and in the commit history),
-in the order the items were requested. No changelog file is kept in the repository.
+**Historical decision.** During active development, each version was described in its
+release notes and commit history; no separate changelog file was kept in the repository.
 
-**Why.** The project is iterated against concrete reports ("the volume flyout opens in the
-top-left corner", "the white rectangles are still there"), and the diagnosis is what makes
-it possible to tell a regression from a preference months later - so it is written down.
-But a folder full of per-version text files is noise for anyone reading the repository, and
-the release page is where a reader already looks for "what changed in this build".
+**Historical rationale.** The project was iterated against concrete reports ("the volume
+flyout opens in the top-left corner", "the white rectangles are still there"), and recording
+the diagnosis helped distinguish a regression from a preference. The release page served
+as the location for version-specific notes.
+
+**Archive status.** Release notes are no longer maintained. All GitHub releases and tags
+except `v1.3.26-alpha` have been removed as part of the project discontinuation.
 
 ## 9. The AppBar rect is the only source of truth for the taskbar geometry
 

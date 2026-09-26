@@ -1,4 +1,6 @@
-# Win7Taskbar 1.0.0-alpha — guida rapida (italiano)
+# Win7Taskbar — guida rapida archiviata (italiano)
+
+> **Avviso di archiviazione.** La manutenzione è stata interrotta per mancanza di tempo. L'unica release conservata è [Win7Taskbar v1.3.26-alpha](https://github.com/babamohammed2022/Win7Taskbar/releases/tag/v1.3.26-alpha), ancora incompleta rispetto agli obiettivi iniziali del progetto. Questa guida, originariamente redatta per la versione v1.0.0-alpha, potrebbe non descrivere integralmente la release conservata. Non sono previsti ulteriori aggiornamenti né supporto da parte dei manutentori. Si ringraziano tutti coloro che hanno partecipato al progetto con contributi, verifiche, traduzioni, segnalazioni o materiali.
 
 Questa guida è per chi **vuole usare** Win7Taskbar e, se serve, per chi vuole
 **compilarlo da sé**. Non serve sapere nulla di programmazione.
@@ -28,12 +30,9 @@ liberata correttamente quando chiudi il programma.
 
 ## 3. Installazione (utente finale)
 
-1. Vai alla pagina della release:
-   **https://github.com/babamohammed2022/Win7Taskbar/releases/tag/v1.0.0-alpha**
-   (oppure **https://github.com/babamohammed2022/Win7Taskbar/releases** per
-   vedere tutte le versioni)
-2. Scarica `Win7Taskbar-1.0.0-alpha-win-x64.zip` (circa 64 MB: dentro c'è anche
-   il runtime .NET, per questo non devi installare nulla).
+1. Apri la pagina dell'unica release conservata:
+   **https://github.com/babamohammed2022/Win7Taskbar/releases/tag/v1.3.26-alpha**
+2. Scarica `Win7Taskbar-1.3.26-alpha-win-x64.zip` (il runtime .NET è incluso).
 3. **Scompatta tutto lo zip** in una cartella qualsiasi (es. `C:\Win7Taskbar`).
    Mantieni le sottocartelle `Themes`, `Resources` e `Languages` accanto a
    `Win7Taskbar.exe`: il tema viene letto da disco all'avvio.
@@ -41,11 +40,11 @@ liberata correttamente quando chiudi il programma.
 
 ### Verifica del file scaricato (facoltativa)
 
-Nella pagina della release trovi l'impronta **SHA-256** del pacchetto. Per
-controllarla, apri PowerShell nella cartella del download e digita:
+Se nella pagina della release è pubblicata l'impronta **SHA-256** del pacchetto,
+la si può verificare aprendo PowerShell nella cartella del download e digitando:
 
 ```powershell
-Get-FileHash .\Win7Taskbar-1.0.0-alpha-win-x64.zip -Algorithm SHA256
+Get-FileHash .\Win7Taskbar-1.3.26-alpha-win-x64.zip -Algorithm SHA256
 ```
 
 Il valore `Hash` che compare deve essere identico a quello pubblicato: se
@@ -78,19 +77,19 @@ notifica, barre aggiuntive e chiusura.
   ```
 
   Le righe che scorrono dicono se la parte nativa (`Win7TaskbarCore.dll`) è stata
-  caricata. Incolla quel testo in una issue su GitHub.
+  caricata. Il progetto è archiviato: non sono previsti gestione delle segnalazioni o supporto da parte dei manutentori.
 
 * **Le icone o il tema non si vedono.** Hai scompattato lo zip dentro un'altra
   cartella senza copiare `Themes\`, `Resources\` e `Languages\`: riscompatta tutto
   insieme con "Estrai tutto".
 
 * **Antivirus / SmartScreen.** Il programma non è firmato digitalmente: se Windows
-  avvisa, scegli *Ulteriori informazioni* → *Esegui comunque*. Il codice sorgente è
-  pubblico in questo repository.
+  avvisa, scegli *Ulteriori informazioni* → *Esegui comunque*. L'accesso al codice
+  sorgente è subordinato alle impostazioni di accesso del repository e alla licenza.
 
-* **L'anteprima delle finestre non appare.** È voluto: in questa alpha le anteprime
-  sono disattivate (vedi lo stato nel `README.md`); il tooltip con il nome
-  dell'applicazione funziona.
+* **Funzionalità incomplete.** La release conservata è incompleta. `FEATURE-STATUS.md`
+  documenta storicamente lo stato delle funzionalità; non costituisce un impegno a
+  correggerle o fornire supporto.
 
 ---
 
@@ -106,11 +105,11 @@ Lo script:
 * installa da solo il **.NET 8 SDK** se manca (senza diritti di amministratore);
 * compila anche la parte nativa C++ se hai CMake, altrimenti usa le DLL native
   **già incluse** nel repository (`dist\Win7TaskbarCore.dll`, `dist\W7TInject.dll`);
-* crea il pacchetto **self-contained** in `dist-package\` e l'archivio
-  `Win7Taskbar-1.0.0-alpha-win-x64.zip` nella cartella principale;
+* crea il pacchetto **self-contained** in `dist-package\` e uno zip il cui nome
+  versionato è determinato dal codice sorgente archiviato;
 * apre la cartella con lo zip finito.
 
-### Modo "progetto" — script ufficiale
+### Script di packaging conservato nel codice sorgente
 
 ```powershell
 pwsh -File "compilation files/publish.ps1" -Zip              # pacchetto + archivio
@@ -135,8 +134,8 @@ Con Visual Studio 2022 o Rider puoi aprire direttamente `Win7Taskbar.sln` e prem
 ## 6. Domande frequenti
 
 **Serve installare .NET?**
-No. Le release sono *self-contained*: il runtime .NET è dentro il pacchetto. Funziona
-anche su un Windows senza .NET installato.
+No. L'unica release conservata, `v1.3.26-alpha`, è *self-contained*: il runtime .NET
+è incluso nel pacchetto.
 
 **Posso usare la barra di Windows insieme a questa?**
 No, Win7Taskbar nasconde la barra originale: è la sostituzione della barra.
@@ -148,5 +147,6 @@ torna disponibile. Come per ogni software di questo tipo, tieni comunque un punt
 ripristino.
 
 **Come segnalo un problema?**
-Apri una issue su GitHub con: versione di Windows, cosa hai fatto, cosa ti aspettavi e
-il testo del log (sezione 4).
+Il progetto è archiviato e non prevede gestione delle segnalazioni o supporto da parte
+dei manutentori. Il codice resta consultabile e sviluppabile autonomamente da chi dispone
+dell'accesso al repository, nel rispetto della licenza applicabile.

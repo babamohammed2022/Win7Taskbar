@@ -1,14 +1,16 @@
-# Feature Status
+# Feature Status (historical)
 
-This document tracks the current feature status of Win7Taskbar and the main areas that still need improvement.
+> **Archived project notice.** This document records feature status at the end of active development. Maintenance was discontinued due to lack of available time. The sole retained release, `v1.3.26-alpha`, is incomplete relative to the initial objectives. No further maintainer-led implementation, testing, or support is planned.
 
-## Overall accuracy
+This document is a historical record of the source snapshot and the areas that remained incomplete or unverified; it is not a roadmap or commitment to future work.
 
-Win7Taskbar currently has high overall Windows 7 visual and behavioral accuracy, but it is not a complete reproduction of every Windows 7 taskbar feature.
+## Overall accuracy at discontinuation
 
-Some parts are already close to the original Windows 7 experience, while other parts are still being implemented or refined. If there are any imprecisions or problems, please report them to the author of this software.
+At the end of development, Win7Taskbar had substantial Windows 7 visual and behavioral coverage but was not a complete reproduction of every Windows 7 taskbar feature.
 
-## Current status
+Some parts were close to the original Windows 7 experience, while others remained incomplete or unverified. The status labels below are historical and should not be read as a commitment to further implementation or support.
+
+## Detailed historical status
 
 | Feature | Status | Notes |
 |---|---|---|
@@ -58,7 +60,7 @@ Some parts are already close to the original Windows 7 experience, while other p
 | Windhawk mod compatibility ("Aero Flip 3D Recreation") | ⚠️ | **v1.21.51:** the mod's 3D switcher is a fullscreen topmost popup (class `Flip3DOverlayWndClass`, code consulted at ramensoftware/windhawk-mods), which the shell reports as a fullscreen app: our `ABN_FULLSCREENAPP` handler hid the taskbar for the whole animation, so with the mod installed Win+Tab made the bar disappear. A Flip 3D guard now runs in the native core (`AppBarService`): two WinEvent hooks (RAII via `UniqueWinEventHook`, ScopeGuards.h) watch the overlay's SHOW / HIDE / DESTROY and foreground changes; while the overlay is up the taskbar stays VISIBLE, raised above the overlay, and non-interactive (`EnableWindow(FALSE)`: per the Win32 docs a disabled window receives no input and is skipped by hit-testing, so clicks and the mouse wheel fall through to the mod, which keeps responding over the bar strip). When the animation ends (overlay destroyed or hidden, `ABN_FULLSCREENAPP` FALSE, any foreground change, or the per-notification liveness re-check) the bar is re-enabled — several independent recovery paths so it can never stay stuck disabled. A recursive mutex protects the state (window calls re-enter the bar's WndProc), every callback and appbar export has try/catch barriers, and real fullscreen apps (video, games) keep the historical hide/show behaviour. Needs real-hardware confirmation with the mod installed. |
 | Explorer restart / tray recovery | ⚠️ | Field report: the bar survives Explorer restarts and the tray repopulates (overall fine, minor imperfections possible); stays ⚠️ pending wider confirmation. |
 
-## Main missing features
+## Main incomplete areas at discontinuation
 
 ### Taskbar rotation
 

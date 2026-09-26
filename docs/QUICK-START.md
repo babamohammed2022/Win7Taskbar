@@ -1,4 +1,6 @@
-# Win7Taskbar 1.0.0-alpha — Quick Start
+# Win7Taskbar — Quick Start (archived guide)
+
+> **Archived guide.** Maintenance was discontinued due to lack of available time. The sole retained release is [Win7Taskbar v1.3.26-alpha](https://github.com/babamohammed2022/Win7Taskbar/releases/tag/v1.3.26-alpha); it remains incomplete relative to the project's initial objectives. This guide was originally written for v1.0.0-alpha and may not fully describe the retained release. No maintainer-led updates or support are planned.
 
 This guide is for users who want to run Win7Taskbar and, optionally, build it themselves. No programming knowledge is required for normal use.
 
@@ -18,23 +20,23 @@ Only the new taskbar is displayed. The original Windows taskbar is hidden and re
 | --- | --- |
 | Operating system | Windows 10 (21H2 or later) or Windows 11 |
 | Architecture | **x64 (64-bit)** |
-| .NET installed | **No.** The official package includes the runtime. |
+| .NET installed | **No.** The retained v1.3.26-alpha package includes the runtime. |
 
 ---
 
 ## 3. Installation
 
-1. Open the [release page](https://github.com/babamohammed2022/Win7Taskbar/releases/tag/v1.0.0-alpha), or the [Releases](https://github.com/babamohammed2022/Win7Taskbar/releases) page for all versions.
-2. Download `Win7Taskbar-1.0.0-alpha-win-x64.zip`.
+1. Open the retained [Win7Taskbar v1.3.26-alpha release](https://github.com/babamohammed2022/Win7Taskbar/releases/tag/v1.3.26-alpha).
+2. Download `Win7Taskbar-1.3.26-alpha-win-x64.zip`.
 3. Extract the entire ZIP to any folder, for example `C:\Win7Taskbar`. Keep `Themes`, `Resources`, and `Languages` next to `Win7Taskbar.exe`; the theme is loaded from disk at startup.
 4. Run **`Win7Taskbar.exe`**.
 
 ### Optional file verification
 
-The release page provides the SHA-256 hash of the package. To verify it, open PowerShell in the download folder and run:
+If a SHA-256 hash is published on the release page, verify it by opening PowerShell in the download folder and running:
 
 ```powershell
-Get-FileHash .\Win7Taskbar-1.0.0-alpha-win-x64.zip -Algorithm SHA256
+Get-FileHash .\Win7Taskbar-1.3.26-alpha-win-x64.zip -Algorithm SHA256
 ```
 
 The displayed `Hash` must match the published value.
@@ -59,13 +61,13 @@ Right-click the clock → **Properties**. Settings include the clock, flyout sty
   .\Win7Taskbar.exe
   ```
 
-  The console output shows whether `Win7TaskbarCore.dll` was loaded. Include that output when opening a GitHub issue.
+  The console output shows whether `Win7TaskbarCore.dll` was loaded. This archived project has no planned maintainer support or issue handling.
 
 * **Icons or the theme are missing.** Make sure `Themes\`, `Resources\`, and `Languages\` are in the same folder as `Win7Taskbar.exe`.
 
-* **Windows Defender / SmartScreen warning.** The program is currently unsigned. The source code is public in this repository.
+* **Windows Defender / SmartScreen warning.** The program is unsigned. Source access is subject to the repository's access settings and license.
 
-* **Window previews do not appear.** This is intentional in the current alpha release. Window thumbnails are temporarily disabled; the application-name tooltip remains available.
+* **Feature limitations.** The retained alpha is incomplete. See [`FEATURE-STATUS.md`](./FEATURE-STATUS.md) for the historical feature record; it does not imply planned fixes or support.
 
 ---
 
@@ -81,9 +83,9 @@ The script:
 * installs the **.NET 8 SDK** if required;
 * builds the native C++ component when the required tools are available, otherwise reuses the native DLLs included in `dist\`;
 * creates a **self-contained** package in `dist-package\`;
-* creates the release ZIP.
+* creates a ZIP whose versioned filename is determined by the archived source.
 
-### Official PowerShell script
+### Packaging script retained in the source
 
 ```powershell
 pwsh -File "compilation files/publish.ps1" -Zip
@@ -97,7 +99,7 @@ For the complete build and architecture instructions, see [`PROJECT-INSTRUCTIONS
 ## 6. FAQ
 
 **Does Win7Taskbar require .NET to be installed?**  
-No. Official releases are self-contained and include the .NET runtime.
+No. The retained `v1.3.26-alpha` release is self-contained and includes the .NET runtime.
 
 **Can I use the original Windows taskbar at the same time?**  
 No. Win7Taskbar hides the original taskbar while it is running.
@@ -106,4 +108,4 @@ No. Win7Taskbar hides the original taskbar while it is running.
 No. It creates its own AppBar window and hides the original taskbar. Closing Win7Taskbar restores the original taskbar.
 
 **How do I report a problem?**  
-Open a GitHub issue with your Windows version, the steps that caused the problem, the expected behaviour, the actual behaviour, and any relevant console output.
+This archived project does not provide maintainer issue handling or support. The source may be examined or developed independently by users with repository access, subject to its license.

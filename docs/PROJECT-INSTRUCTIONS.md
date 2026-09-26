@@ -1,7 +1,8 @@
 # Win7Taskbar - Project Instructions
 
-Everything needed to build, run and understand the project.
-For the user-facing overview, see [`README.md`](../README.md).
+> **Archived project notice.** Maintenance was discontinued due to lack of available time. Development stopped at the state represented by this repository; the only retained release, [`v1.3.26-alpha`](https://github.com/babamohammed2022/Win7Taskbar/releases/tag/v1.3.26-alpha), remains incomplete relative to the initial objectives. This guide is retained for consultation and independent development, subject to repository access. No maintainer-led updates, releases, or support are planned.
+
+This file records build and architecture information for the archived source. For the user-facing status, see [`README.md`](../README.md).
 
 ---
 
@@ -82,9 +83,10 @@ The solution contains two projects, in dependency order:
 
 ### Step 3 - Distributable package (self-contained)
 
-The release is **self-contained**: it carries its own .NET runtime, so it runs on
-a Windows 10/11 x64 machine with no .NET installed. The script does the native
-step, the publish, the copy of the remaining native DLLs and the verification:
+The packaging process is designed to produce a **self-contained** package carrying
+its own .NET runtime, for Windows 10/11 x64 systems without a separate .NET installation.
+The script performs the native build, publish, copy of the remaining native DLLs, and
+verification:
 
 ```powershell
 pwsh -File "compilation files/publish.ps1"
@@ -108,9 +110,10 @@ default: the theme, `Resources/` and `Languages/` are read from the folder next
 to the executable and the native core is loaded with a plain `DllImport`, so the
 folder-shaped package is the predictable, debuggable one.
 
-The same steps run in CI ([`.github/workflows/release.yml`](../.github/workflows/release.yml)): package as an
-artifact on every push, release asset on a `v*` tag, with the self-contained check
-in between.
+Automated release publishing has been discontinued and
+`.github/workflows/release.yml` has been removed. These packaging commands are retained
+for code consultation and may be adapted independently in forks; they do not publish a
+release from this repository.
 
 The MSBuild target `CopyNativeCoreOnPublish` copies `dist/Win7TaskbarCore.dll` next to the
 published binary and fails the build if step 1 was skipped.
@@ -197,16 +200,12 @@ currently disabled, and so on) are in [`docs/architecture-decisions.md`](./archi
 
 ## 6. Repository conventions
 
-* **Release notes:** each version is described on the Releases page, in the order the
-  items were requested, together with the reasoning behind each change (a measurement, a
-  rejected approach, a reported bug). Nothing of that goes into the repository as a
-  separate file.
-* **Distribution:** releases are self-contained win-x64 packages built by
-  `compilation files/publish.ps1` (called by the release workflow; `build/publish.ps1`
-  stays as a compatibility shim because the workflow copy already published on GitHub
-  calls the old path). Any change that adds a file the
-  application needs at runtime must keep that file inside the package (or next to the
-  executable): the target machine has no .NET and downloads nothing else.
+* **Release history:** the repository is discontinued. The sole retained GitHub release
+  is `v1.3.26-alpha`; no further releases or release notes are maintained.
+* **Distribution:** the retained `v1.3.26-alpha` package is self-contained for win-x64.
+  The packaging script `compilation files/publish.ps1` remains available for independent
+  use; `build/publish.ps1` is retained as a compatibility shim for existing scripts and
+  forks. Runtime files must remain in the package or beside the executable.
 * **Code comments:** English for anything new. Historical Italian comments may be
   translated file by file; the technical notes they carry are worth preserving when
   still relevant.

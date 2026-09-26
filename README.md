@@ -6,15 +6,21 @@ A Windows 7-inspired taskbar recreation and for Windows 10 and 11.
 
 Win7Taskbar is a system utility that recreates the Windows 7-style taskbar and Superbar using a XAML frontend with a native C++/Win32 backend. It includes grouped task buttons, the notification area, system flyouts, overflow handling, Jump Lists, and a Windows 7-inspired Properties interface.
 
+## Project status — discontinued (archived)
+
+Maintenance of Win7Taskbar has been discontinued due to the lack of available time. Development has stopped at the state represented by this repository. The sole retained GitHub release, [Win7Taskbar v1.3.26-alpha](https://github.com/babamohammed2022/Win7Taskbar/releases/tag/v1.3.26-alpha), is marked **Latest**. It remains an incomplete alpha and does not satisfy all of the project's initial objectives. No further maintainer-led updates, releases, or support are planned.
+
+The source is retained for consultation, forking, and independent development, subject to repository access and the GNU GPL v3.0-or-later license. Acknowledgement is extended to all contributors, testers, translators, and other participants.
+
 The software has been tested on Windows 8.1, Windows 10 21H2, Windows 10 22H2, Windows 11 23H2 Windows 11 24H2, Windows 11 25H2 and Windows Server 2025. Windows 8.1 has been tested successfully and the software works reasonably well on this version, although some platform-specific differences may affect individual features. Some functionality on Windows 11, particularly the notification area, is recreated because newer versions of Windows no longer expose all of the same taskbar functionality available on previous versions.
 
-On Windows 11, Win7Taskbar reads the notification area **out-of-process, without ExplorerPatcher**: today it does so through the accessibility strip of the XAML tray, and work is in progress to also use the legacy Win32 layer that still ships inside the modern taskbar as a *data/control plane only, never shown* (see `docs/WIN11-NATIVE-TRAY-RESEARCH.md` and the Phase 0 probe `tools/win11-native-tray-probe/`). **ExplorerPatcher remains optional**: use it only if you prefer a Windows 10-style taskbar environment; once the native-Windows-11 tray reaches verified parity it will stop being recommended at all.
+In the archived source, Windows 11 notification-area access uses the accessibility surface of the XAML tray. Use of the legacy Win32 layer shipped inside the modern taskbar as a *data/control plane only, never shown* had been investigated, but verified parity was not reached before development stopped (see `docs/WIN11-NATIVE-TRAY-RESEARCH.md` and the Phase 0 probe `tools/win11-native-tray-probe/`). **ExplorerPatcher remained optional** for users who prefer a Windows 10-style taskbar environment; no further development of native Windows 11 tray support is planned.
 
-Win7Taskbar now ships its own Windows 7-style Start Menu (see below). **Open-Shell remains optional** if you prefer its menu instead: set **Windows key opens: Windows** in Properties → Extra.
+The archived source includes its own Windows 7-style Start Menu (see below). **Open-Shell is optional** for users who prefer its menu instead: set **Windows key opens: Windows** in Properties → Extra.
 
-This software has only been tested with ExplorerPatcher and OpenShell. Support for other third-party tools that serve a similar purpose will be analyzed individually where possible.
+Testing was limited to ExplorerPatcher and Open-Shell. Compatibility with other third-party tools was not comprehensively assessed; no further compatibility analysis is planned.
 
-**Current state: `Alpha`**
+**Project status: discontinued; retained release: `v1.3.26-alpha`.**
 
 ## Screenshot (Windows 7 skin)
 
@@ -27,7 +33,7 @@ This software has only been tested with ExplorerPatcher and OpenShell. Support f
 ## Requirements
 
 * Windows 8.1, Windows 10 or Windows 11 (64 bit)
-* Official releases should be self-contained and should not require a separate .NET installation
+* The retained `v1.3.26-alpha` package is self-contained and does not require a separate .NET installation.
 
 
 > ⚠️ **Compatibility warning: RetroBar**
@@ -43,14 +49,14 @@ This software has only been tested with ExplorerPatcher and OpenShell. Support f
 ## Installation Guide
 
 To install this software, the subsequent steps need to be followed:
-1. Download the latest release from [Releases](https://github.com/babamohammed2022/Win7Taskbar/releases).
+1. Download the retained [Win7Taskbar v1.3.26-alpha release](https://github.com/babamohammed2022/Win7Taskbar/releases/tag/v1.3.26-alpha). This is an incomplete alpha; see the project status notice above.
 2. Extract the complete package, keeping `Themes/`, `Resources/`, and `Languages/` next to `Win7Taskbar.exe`.
 3. Run `Win7Taskbar.exe`.
 4. To exit, right-click the clock → **Properties** → **Close Win7Taskbar**.
 
 ## Start Menu (v1.3.0-alpha)
 
-Win7Taskbar hosts its own Windows 7-style Start Menu **in the same process as the taskbar** (`Win7Taskbar.exe`), on a dedicated STA thread with its own WPF Dispatcher. A second tiny process, `Win7StartHelper.exe`, owns the low-level keyboard hook and the Windows-key state machine. There is no `Win7StartMenu.exe`, no named pipe, and no menu-side mutex.
+The archived source hosts its own Windows 7-style Start Menu **in the same process as the taskbar** (`Win7Taskbar.exe`), on a dedicated STA thread with its own WPF Dispatcher. A second tiny process, `Win7StartHelper.exe`, owns the low-level keyboard hook and the Windows-key state machine. There is no `Win7StartMenu.exe`, no named pipe, and no menu-side mutex.
 
 IPC is two session-local events:
 
@@ -86,9 +92,9 @@ If the message still appears, the automatic repair was blocked too. The usual ca
 * an incomplete extraction, it is suggested to extract the whole ZIP, keeping every file together;
 * launching the executable from inside the ZIP viewer - extract first, then run.
 
-## Current status
+## Status at discontinuation
 
-Win7Taskbar is still under development. Some features are incomplete or recreated, particularly parts of the notification area and system UI on Windows 11. Window thumbnail previews use a direct DWM surface with the existing image border and close button, without a coloured backing panel. Jump Lists open the Windows 7 way: press a task button with the left button and drag away from the bar (up for a bottom bar) - the list appears directly above the button, left-aligned with it, exactly where the Windows 7 shell opens its jump view, and stays anchored there for the whole gesture while the row under the cursor is highlighted; releasing on a row activates it, releasing over the list or the button leaves the list open to click, releasing elsewhere cancels. A plain click still activates the window and a drag along the bar still reorders the icons (the two gestures arbitrate by the first threshold crossed, so they never conflict). The list shows the application's real Shell data - recent/frequent items and, for a running window group, the Windows 7 window tasks (the pinned (custom) items are not shown: Windows 7 and later expose no public API that reads or removes them) - never appears from the right-click, whose menu is unchanged, and honors the `Start_JumpListItems` policy (see `docs/JUMPLIST-RE-VERIFICATION.md` for the Windows 7 reverse-engineering notes).
+At the time maintenance ended, the implementation remained incomplete relative to the project's initial objectives. Some features were incomplete or recreated, particularly parts of the notification area and system UI on Windows 11. No further maintainer-led development, verification, or support is planned. The source snapshot includes window thumbnail previews using a direct DWM surface with the existing image border and close button, without a coloured backing panel. Jump Lists use the Windows 7-style drag-away gesture: press a task button and drag away from the bar (up for a bottom bar); the list appears directly above the button, left-aligned with it, and remains anchored while the row under the cursor is highlighted. Releasing on a row activates it, releasing over the list or button leaves the list open, and releasing elsewhere cancels. A plain click activates the window and a drag along the bar reorders icons. The list shows Shell data—recent/frequent items and, for a running window group, Windows 7 window tasks; pinned custom items are not shown because Windows 7 and later expose no public API to read or remove them—and honors the `Start_JumpListItems` policy (see `docs/JUMPLIST-RE-VERIFICATION.md` for historical reverse-engineering notes).
 
 
 Other known limitations include unsupported decorative taskbar rotation and system windows that are hooked and repositioned rather than fully recreated.
@@ -101,11 +107,9 @@ For development and build instructions, see [`docs/PROJECT-INSTRUCTIONS.md`](./d
 
 For a quick guide, see [`docs/QUICK-START.md`](./docs/QUICK-START.md).
 
-## Contributing
+## Source access and independent development
 
-Bug reports, reproductions, pull requests, documentation, and code improvements are welcome.
-
-Please read [`AGENTS.md`](./docs/AGENTS.md) before making changes.
+No maintainer-led issue handling, pull-request review, or further development is planned. The source may be consulted, forked, and developed independently, subject to repository access and the applicable license.
 
 ## Credits
 
@@ -113,7 +117,7 @@ Please read [`AGENTS.md`](./docs/AGENTS.md) before making changes.
 * WinBoeing777 - Testing on Windows 10 22H2 and providing resources
 * AdministratoX - Testing on Windows 11 25H2
 
-Win7Taskbar was created using work from projects including RetroBar, ExplorerPatcher, and ManagedShell, but it is an independent project and is not affiliated with or endorsed by any of them. It acts as a community open-source project to help improve the user's experience.
+Win7Taskbar was created using work from projects including RetroBar, ExplorerPatcher, and ManagedShell, but it is an independent project and is not affiliated with or endorsed by any of them.
 
 Additional information and attribution details are available in the `docs` folder.
 

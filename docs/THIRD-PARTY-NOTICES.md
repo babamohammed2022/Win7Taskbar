@@ -242,8 +242,9 @@ contributions to this project, released under the same GPL-3.0-or-later
 licence. The Arabic translation (`Languages/Arabic.xaml`,
 `src/Win7Taskbar/Languages/Arabic.xaml` and the Arabic tables in
 `native/src/Strings.cpp`) was contributed by MAHMOGAMER
-(github.com/mahmogamer). `CREDITS.txt` lists the contributors; corrections to a
-translation are welcome as a pull request on the single file involved.
+(github.com/mahmogamer). `CREDITS.txt` lists the contributors. This repository is no
+longer maintained; any later translation corrections would need to be handled
+independently, for example in a fork.
 
 ### Other third-party components
 

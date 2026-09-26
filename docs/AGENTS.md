@@ -1,5 +1,8 @@
 # Repository Rules & AI Instructions
-These rules apply for human and AI contributors.
+
+> **Archived project notice.** Maintenance was discontinued due to lack of available time. No maintainer-led updates, releases, or support are planned. These rules are retained as historical guidance for independent development in forks; repository access remains subject to its access settings.
+
+These rules apply to human and AI contributors working on this source, including independent forks.
 
 1. **Prioritize UX and Maintainability Above all Else**
    - The primary goal is that the software functions correctly, smoothly, and reliably on the user's system.
@@ -26,40 +29,14 @@ These rules apply for human and AI contributors.
      Do not scatter new scripts elsewhere: reference them from there.
    - `src/`, `native/`, `Themes/`, `Resources/`, `Languages/` and `docs/` keep their
      position: move files inside them only when a task says so.
-   - `build/publish.ps1` is a compatibility shim for the release workflow copy that is
-     already published on GitHub and that the automation cannot modify; keep it working.
+   - `build/publish.ps1` is a compatibility shim retained for existing scripts and forks.
+     This repository has no active release workflow.
    - Generated assets (`native/src/TrayIconAssets.inc`, `native/src/BatteryAssets.inc`)
      are produced from the sources in `assets/icon-sources/` by
      `compilation files/icons_to_base64.py`. Never hand-edit the `.inc` files.
-7. **Release Phrase Template**
+7. **Release status**
 
-   Every release must always include a paragraph following this exact structure.
-   Section headers stay fixed; the description under each one must be written
-   fresh for that release (do not copy old version numbers, feature names, or
-   claims — describe the current state of the build being released).
-
-   ## Installation and Setup
-   Describe how to run the self-contained package on Windows 10/11 x64
-   (e.g. what to extract, what must stay alongside the executable, and that
-   no .NET installation is required).
-
-   ## Application Management
-   Describe how to close the running program.
-
-   ## Feature Status
-   Summarize which features are fully supported and which are currently
-   disabled or limited in this release.
-
-   ## Core DLL Auto-Repair
-   If this release includes self-healing/auto-repair mechanisms for native
-   DLLs, describe how they behave (what triggers repair, where backups are
-   stored). Omit this section if not applicable to the release.
-
-   ## Dependency Removal
-   If this release changes external runtime dependencies (e.g. removes or
-   adds a requirement on Visual C++ runtime libraries), describe the change.
-   Omit this section if nothing changed.
-
-   ## Diagnostics and Bug Reporting
-   Describe how startup errors are surfaced and where to find logs to
-   attach when reporting an issue.
+   No maintainer-led releases are planned for this archived repository.
+   `v1.3.26-alpha` is the sole retained GitHub release and remains incomplete
+   relative to the project's initial objectives. Release guidance may be adapted
+   independently by fork maintainers.
