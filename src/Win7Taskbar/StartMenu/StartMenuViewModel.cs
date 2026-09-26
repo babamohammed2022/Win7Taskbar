@@ -1509,6 +1509,58 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
+        /// <summary>
+        /// Launches one Control Panel applet from the cascade the way the
+        /// shell (and Open-Shell) does: the item's default verb through
+        /// IContextMenu, which is right for CLSID applets, .cpl pages,
+        /// legacy/third-party applets and the Administrative Tools folder
+        /// alike. Falls back to explorer.exe / control.exe only when the
+        /// shell refuses, so a broken handler never leaves a dead click.
+        /// </summary>
+        public bool LaunchControlPanelItem(ControlPanelItem item, IntPtr owner, bool runAs)
+        {
+            if (item == null || string.IsNullOrEmpty(item.ParsingName))
+            {
+                return false;
+            }
+            try
+            {
+                if (ShellContextMenu.TryInvokeDefault(item.ParsingName, owner, runAs))
+                {
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Win7Taskbar] control panel item: default verb failed: {ex.Message}");
+            }
+
+            /* Fallbacks. A parsing name that is a real file (a .cpl or a
+             * shortcut restored by a legacy-applet tool) goes through
+             * control.exe, which knows how to host applets; a virtual
+             * "::{...}" name goes through explorer.exe shell:::, the same
+             * channel the other right-pane links already use. */
+            try
+            {
+                string parsing = item.ParsingName;
+                if (parsing.StartsWith("::{", StringComparison.Ordinal))
+                {
+                    return StartProcess("explorer.exe", "shell:" + parsing);
+                }
+                if (File.Exists(parsing) &&
+                    parsing.EndsWith(".cpl", StringComparison.OrdinalIgnoreCase))
+                {
+                    return StartProcess("control.exe", "\"" + parsing + "\"");
+                }
+                return StartProcess(parsing, null);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Win7Taskbar] control panel item: fallback failed: {ex.Message}");
+                return false;
+            }
+        }
+
         public bool OpenRightLink(StartMenuItem item)
         {
             if (item == null)

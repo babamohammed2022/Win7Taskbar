@@ -183,6 +183,157 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
+        /// <summary>
+        /// Runs the shell's default verb for <paramref name="path"/> (a file
+        /// system path or a "::{CLSID}" parsing name such as a Control Panel
+        /// applet) without showing a menu. This is the launch sequence
+        /// Open-Shell uses for menu items (MenuCommands.cpp,
+        /// ActivateItem/ACTIVATE_EXECUTE): IContextMenu ->
+        /// QueryContextMenu(CMF_DEFAULTONLY) -> GetMenuDefaultItem ->
+        /// InvokeCommand with the numeric id. Applets that are folders,
+        /// .cpl pages, shortcuts and third-party CLSID applets all resolve
+        /// the correct verb this way, whereas control.exe/ShellExecute only
+        /// work for a subset. Returns false when anything fails so callers
+        /// can fall back to their existing launch path.
+        /// Set <paramref name="runAs"/> to request the "runas" verb instead
+        /// (Open-Shell does this for Ctrl+Shift+click).
+        /// </summary>
+        public static bool TryInvokeDefault(string path, IntPtr owner, bool runAs = false)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
+            IntPtr pidl = IntPtr.Zero;
+            IntPtr menu = IntPtr.Zero;
+            object? unk = null;
+            IntPtr verbBuffer = IntPtr.Zero;
+            try
+            {
+                int hr = NativeMethods.SHParseDisplayName(path, IntPtr.Zero,
+                    out pidl, 0, IntPtr.Zero);
+                if (hr != 0 || pidl == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                Guid iidFolder = new("000214E6-0000-0000-C000-000000000046");
+                hr = SHBindToParent(pidl, ref iidFolder, out IntPtr folderPtr,
+                    out IntPtr child);
+                if (hr != 0 || folderPtr == IntPtr.Zero || child == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                try
+                {
+                    var folder = (IShellFolder)Marshal.GetObjectForIUnknown(folderPtr);
+                    Guid iidMenu = new("000214E4-0000-0000-C000-000000000046");
+                    IntPtr[] apidl = { child };
+                    hr = folder.GetUIObjectOf(owner, 1, apidl, ref iidMenu,
+                        IntPtr.Zero, out unk);
+                    if (hr != 0 || unk == null)
+                    {
+                        return false;
+                    }
+
+                    var ctx = (IContextMenu)unk;
+                    if (owner == IntPtr.Zero)
+                    {
+                        owner = NativeMethods.GetForegroundWindow();
+                    }
+                    if (owner == IntPtr.Zero)
+                    {
+                        owner = GetDesktopWindow();
+                    }
+
+                    var info = new CMINVOKECOMMANDINFOEX
+                    {
+                        cbSize = Marshal.SizeOf<CMINVOKECOMMANDINFOEX>(),
+                        fMask = CMIC_MASK_UNICODE | CMIC_MASK_FLAG_LOG_USAGE,
+                        hwnd = owner,
+                        nShow = SW_SHOWNORMAL
+                    };
+
+                    if (runAs)
+                    {
+                        /* Named verb: the shell resolves "runas" itself, no
+                         * menu needed. Only the ANSI verb pointer is used
+                         * for the string form in the documented layout. */
+                        verbBuffer = Marshal.StringToHGlobalAnsi("runas");
+                        info.fMask = CMIC_MASK_FLAG_LOG_USAGE;
+                        info.lpVerb = verbBuffer;
+                        hr = ctx.InvokeCommand(ref info);
+                        return hr >= 0;
+                    }
+
+                    menu = CreatePopupMenu();
+                    if (menu == IntPtr.Zero)
+                    {
+                        return false;
+                    }
+                    hr = ctx.QueryContextMenu(menu, 0, idCmdFirst, idCmdLast,
+                        CMF_DEFAULTONLY);
+                    if (hr < 0)
+                    {
+                        return false;
+                    }
+                    uint def = GetMenuDefaultItem(menu, 0, 0);
+                    if (def == unchecked((uint)-1) || def < idCmdFirst)
+                    {
+                        return false;
+                    }
+
+                    info.lpVerb = (IntPtr)(def - idCmdFirst);
+                    info.lpVerbW = (IntPtr)(def - idCmdFirst);
+                    hr = ctx.InvokeCommand(ref info);
+                    if (hr >= 0)
+                    {
+                        return true;
+                    }
+                    /* Some handlers reject the Unicode form: retry ANSI. */
+                    info.fMask = CMIC_MASK_FLAG_LOG_USAGE;
+                    info.lpVerbW = IntPtr.Zero;
+                    hr = ctx.InvokeCommand(ref info);
+                    return hr >= 0;
+                }
+                finally
+                {
+                    Marshal.Release(folderPtr);
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+            finally
+            {
+                if (menu != IntPtr.Zero)
+                {
+                    DestroyMenu(menu);
+                }
+                if (unk != null)
+                {
+                    try { Marshal.ReleaseComObject(unk); } catch (Exception) { }
+                }
+                if (pidl != IntPtr.Zero)
+                {
+                    NativeMethods.ILFree(pidl);
+                }
+                if (verbBuffer != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(verbBuffer);
+                }
+            }
+        }
+
+        private const uint CMF_DEFAULTONLY = 0x00000001;
+        private const uint CMIC_MASK_FLAG_LOG_USAGE = 0x04000000;
+
+        [DllImport("user32.dll")]
+        private static extern uint GetMenuDefaultItem(IntPtr hMenu, uint fByPos, uint gmdiFlags);
+
         [ComImport]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         [Guid("000214E6-0000-0000-C000-000000000046")]
