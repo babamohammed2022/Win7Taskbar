@@ -1446,6 +1446,10 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
         }
     }
 
+    /* La pagina legacy viene aggiornata solo dopo la fotografia completa del
+     * modello, non dal window procedure che riceve TaskbarCreated. */
+    MaybeSyncNotificationPageLegacy();
+
     /* v3.8 - ripiego "icone sparite" (ispirazione dalla mod "Disappearing
      * Tray Icons Fix" della collezione Windhawk, MIT; solo l'idea: niente
      * codice Windhawk e nessun hook): un'icona e' stata CONFERMATA assente
@@ -1758,6 +1762,85 @@ void TrayService::SyncLegacyToolbarShim() {
      * overflow è arrivato sul thread proprietario, elimina il messaggio
      * residuo: una sola fotografia deve produrre una sola sync. */
     if (m_trayWnd != nullptr && GetCurrentThreadId() == m_threadId.load()) {
+        MSG pending = {};
+        while (PeekMessageW(&pending, m_trayWnd, kMsgLegacyShim,
+                            kMsgLegacyShim, PM_REMOVE) != FALSE) {
+        }
+    }
+
+    std::vector<LegacyToolbarShimItem> items;
+    std::set<uint32_t> usedCommands;
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
+        items.reserve(m_order.size());
+        for (const TrayIconKey& key : m_order) {
+            auto it = m_icons.find(key);
+            if (it == m_icons.end()) {
+                continue;
+            }
+            const TrayIconEntry& entry = it->second;
+            uint32_t command = key.uid;
+            if (command == 0 || usedCommands.count(command) != 0) {
+                /* uID è il command primario. Se due proprietari usano lo
+                 * stesso uID, il valore di ripiego è un hash deterministico
+                 * della coppia TrayIconKey: il controllo conserva comunque
+                 * un idCommand stabile e non confonde i due pulsanti. */
+                uint64_t value = key.ownerHwnd ^
+                    (static_cast<uint64_t>(key.uid) * 0x9E3779B97F4A7C15ull);
+                value ^= value >> 33;
+                value *= 0xFF51AFD7ED558CCDull;
+                value ^= value >> 33;
+                command = static_cast<uint32_t>(value) | 0x40000000u;
+                if (command == 0) {
+                    command = 0x40000001u;
+                }
+                while (usedCommands.count(command) != 0) {
+                    ++command;
+                    if (command == 0) {
+                        command = 0x40000001u;
+                    }
+                }
+            }
+            usedCommands.insert(command);
+            LegacyToolbarShimItem item;
+            item.ownerHwnd = key.ownerHwnd;
+            item.uid = key.uid;
+            item.command = command;
+            bool barVisible = false;
+            bool present = false;
+            ResolveVisibilityLocked(entry, barVisible, present);
+            item.hidden = !present || !barVisible ||
+                (entry.state & entry.stateMask & NIS_HIDDEN) != 0;
+            item.bitmap = entry.bitmap;
+            items.push_back(std::move(item));
+        }
+    }
+    LegacyToolbarShim::Instance().Sync(items);
+}
+
+void TrayService::SyncLegacyToolbarShim() {
+    if (!LegacyToolbarShimEnabled()) {
+        return;
+    }
+
+    /* Tutte le SendMessage TB_* devono restare sul thread proprietario delle
+     * finestre. Il punto che notifica il pannello overflow può invece essere
+     * raggiunto da un worker: si accoda una sola sincronizzazione e non si
+     * crea un trigger parallelo per ogni icona. */
+    if (m_threadId != 0 && GetCurrentThreadId() != m_threadId) {
+        if (m_trayWnd != nullptr && IsWindow(m_trayWnd) &&
+            !m_legacyShimPosted.exchange(true)) {
+            if (!PostMessageW(m_trayWnd, kMsgLegacyShim, 0, 0)) {
+                m_legacyShimPosted.store(false);
+            }
+        }
+        return;
+    }
+    m_legacyShimPosted.store(false);
+    /* Se un worker aveva già accodato la richiesta e nel frattempo il punto
+     * overflow è arrivato sul thread proprietario, elimina il messaggio
+     * residuo: una sola fotografia deve produrre una sola sync. */
+    if (m_trayWnd != nullptr && GetCurrentThreadId() == m_threadId) {
         MSG pending = {};
         while (PeekMessageW(&pending, m_trayWnd, kMsgLegacyShim,
                             kMsgLegacyShim, PM_REMOVE) != FALSE) {
@@ -4018,6 +4101,15 @@ void TrayService::ApplyWin11TraySnapshot() {
             }
             if ((entry.uiaUid != 0 && presentKeys.count(pair.first) != 0) ||
                 (entry.uiaUid == 0 && present.count(pair.first.uid) != 0)) {
+                continue;
+            }
+            /* L'isola dell'overflow e' spesso creata solo quando il flyout
+             * viene aperto. Una lettura valida della barra principale non e'
+             * una prova che una voce gia' vista nel cassetto sia stata
+             * rimossa: la conserviamo finche' UIA non attraversa davvero
+             * l'overflow. */
+            if ((!mainRead && !entry.hiddenDesired) ||
+                (!overflowRead && entry.hiddenDesired)) {
                 continue;
             }
             /* L'isola dell'overflow e' spesso creata solo quando il flyout

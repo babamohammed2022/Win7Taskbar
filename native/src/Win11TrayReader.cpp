@@ -1298,6 +1298,21 @@ void Win11TrayReader::WorkerMain() {
         return id == L"SystemTrayIcon" || text == L"SystemTrayIcon" ||
                (!id.empty() && id.find(L"SystemTrayIcon") != std::wstring::npos);
     };
+    auto isNotifyIconView = [](const std::wstring& cls) {
+        return cls.find(L"SystemTray.NotifyIconView") != std::wstring::npos;
+    };
+    auto isSystemIconView = [](const std::wstring& cls,
+                               const std::wstring& id,
+                               const std::wstring& text) {
+        if (cls.find(L"SystemTray.IconView") == std::wstring::npos) {
+            return false;
+        }
+        /* Nelle build osservate l'AutomationId e' SystemTrayIcon; il nome
+         * puo' essere vuoto per un provider XAML, quindi si accetta anche il
+         * testo solo come seconda forma, mai il solo prefisso SystemTray. */
+        return id == L"SystemTrayIcon" || text == L"SystemTrayIcon" ||
+               (!id.empty() && id.find(L"SystemTrayIcon") != std::wstring::npos);
+    };
 
     auto collectIsland = [&](HWND island, bool hidden, int& order,
                              std::set<uint32_t>& usedUids,
