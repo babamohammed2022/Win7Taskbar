@@ -121,10 +121,11 @@ jobs:
             Right-click the clock → Properties → "Close Win7Taskbar".
 
             ## Feature Status
-            This build registers an owned `Shell_TrayWnd` so applications send
-            `Shell_NotifyIcon` here (Windows 11 without ExplorerPatcher), and
-            reserves the work area as an AppBar so maximized windows do not
-            cover the bar. Thumbnails and other features follow FEATURE-STATUS.md.
+            **1.3.39-alpha trial:** owned `Shell_TrayWnd` is the `Shell_NotifyIcon`
+            target (UIPI filter + SHELLTRAYDATA parse). Close destroys that spy
+            before `SHAppBarMessage` and force-exits if it hangs. Work area is
+            reasserted with `SPI_SETWORKAREA` if Explorer overwrites it after
+            autohide. Thumbnails and other features follow FEATURE-STATUS.md.
 
             ## Core DLL Auto-Repair
             If `Win7TaskbarCore.dll` next to the exe is missing or from another

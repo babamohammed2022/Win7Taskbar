@@ -2125,6 +2125,11 @@ namespace Win7Taskbar
 
         private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            var forceExit = new System.Threading.Timer(
+                _ => Environment.Exit(0),
+                null,
+                TimeSpan.FromSeconds(4),
+                System.Threading.Timeout.InfiniteTimeSpan);
             /* v2.46: smontaggio in ordine inverso a come si e' costruito (RAII:
              * quello che la finestra ha creato lo libera la finestra). Prima
              * qui restavano vivi il watchdog del menu Start, i due timer
@@ -2186,6 +2191,7 @@ namespace Win7Taskbar
             _startMenuMonitor?.Dispose();
             _batteryMonitor?.Dispose();
             ShutdownTaskbar();
+            try { forceExit.Dispose(); } catch { }
         }
 
         // ---------------------------------------------------------------
@@ -2391,6 +2397,14 @@ namespace Win7Taskbar
             }
             _shuttingDown = true;
 
+            /* Destroy our Shell_TrayWnd BEFORE any SHAppBarMessage, otherwise
+             * UnregisterAppBar SendMessages this process and never returns. */
+            var forceExit = new System.Threading.Timer(
+                _ => Environment.Exit(0),
+                null,
+                TimeSpan.FromSeconds(3),
+                System.Threading.Timeout.InfiniteTimeSpan);
+
             try
             {
                 try { _bridge.NetFlyoutUninit(); } catch { }
@@ -2398,13 +2412,13 @@ namespace Win7Taskbar
                 try { _bridge.Net8FlyoutUninit(); } catch { }
                 try { _bridge.SetWin8NetworkFlyout(false); } catch { }
 
+                try { _bridge.StopTray(); } catch { }
+
                 if (_appBarRegistered && _hwndSource != null)
                 {
                     _bridge.UnregisterAppBar(_hwndSource.Handle);
                     _appBarRegistered = false;
                 }
-
-                _bridge.StopTray();
                 /* OPZIONE B: ripristino esplicito della chiave batteria in
                  * chiusura pulita. StopTray lo fa gia' (Stop nativo), ma la
                  * chiamata esplicita e idempotente chiude il cerchio anche
@@ -2423,6 +2437,10 @@ namespace Win7Taskbar
                 _viewModel.Dispose();
             }
             catch (Exception) { }
+            finally
+            {
+                try { forceExit.Dispose(); } catch { }
+            }
         }
 
         // ===============================================================

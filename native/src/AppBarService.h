@@ -167,6 +167,7 @@ private:
      * chiamate che possono rientrare, cosi' il rientro vede la guardia
      * gia' coerente. m_flipGuardActive e' anche uno specchio atomico
      * per i controlli rapidi nei callback ad alta frequenza. */
+    void ReassertWorkAreaFromWatcher();
     void ReassertBarOverFlipOverlay();
     bool FlipGuardOverlayAlive();
     bool FlipGuardOverlayAliveLocked() const;

@@ -337,6 +337,8 @@ private:
     HWND FindWindowsTray() const;
     LRESULT ForwardMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     int DefaultTrayHeightPx() const;
+    void AllowCopyDataOnWindow(HWND hwnd);
+    bool TryFillIconFromOwner(TrayIconEntry& entry);
 
     static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -514,6 +516,8 @@ private:
      * forwarding unhandled messages (ManagedShell HwndFwd). */
     HWND               m_hwndFwd   = nullptr;
     bool               m_taskbarCreatedSent = false;
+    std::atomic<bool>  m_shuttingDown{ false };
+    ULONGLONG          m_selfTaskbarCreatedTick = 0;
     /* Proprietà esplicita delle classi locali: si annullano solo quelle
      * registrate da questa istanza, mai una classe riutilizzata. */
     HINSTANCE          m_windowInstance = nullptr;

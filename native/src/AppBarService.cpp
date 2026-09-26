@@ -195,6 +195,28 @@ void AppBarService::EnsureWorkAreaReserved(HWND hwnd, int32_t edge,
     }
 }
 
+void AppBarService::ReassertWorkAreaFromWatcher() {
+    if (!m_registered || m_hwnd == nullptr || !m_haveLastRect) {
+        return;
+    }
+    if (!IsWindow(m_hwnd)) {
+        return;
+    }
+    RECT work = {};
+    HMONITOR mon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    if (mon != nullptr && GetMonitorInfoW(mon, &mi)) {
+        work = mi.rcWork;
+    } else if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0)) {
+        return;
+    }
+    if (!BarOverlapsWorkArea(work, m_lastRect)) {
+        return;
+    }
+    EnsureWorkAreaReserved(m_hwnd, m_edge, m_lastRect);
+}
+
 void AppBarService::RestoreWorkArea() {
     if (!m_workAreaOwned && !m_workAreaCaptured) {
         return;
@@ -438,14 +460,16 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
      * riscritto dopo SETPOS: la finestra visibile poteva quindi divergere
      * dall'area che la shell aveva davvero riservato, soprattutto cambiando
      * fra Basso e Alto. */
+    const RECT proposed = abd.rc;
     const UINT_PTR queryResult = SHAppBarMessage(ABM_QUERYPOS, &abd);
     if (queryResult == 0 || abd.rc.right <= abd.rc.left ||
         abd.rc.bottom <= abd.rc.top) {
-        m_lastSetPosTick = GetTickCount64();
-        if (out != nullptr && m_haveLastRect) {
-            *out = m_lastRect;
-        }
-        return W7T_ERR_APPBAR;
+        /* After we own Shell_TrayWnd, QUERYPOS often returns 0 because
+         * Explorer no longer services AppBar. Keep the proposed rect and
+         * reserve the work area ourselves. */
+        abd.rc = proposed;
+        AppendCoreLog(L"appbar: ABM_QUERYPOS non onorata, uso il rect proposto");
+        LogAppBarDiagnostics(L"QUERYPOS fallback", hwnd, &abd.rc);
     }
 
     /* QUERYPOS ha gia' scelto il rettangolo disponibile sul monitor e sul
@@ -478,13 +502,11 @@ int32_t AppBarService::SetPos(HWND hwnd, int32_t edge, int32_t sizePx, RECT* out
 
     /* ABM_SETPOS e' in/out: il rettangolo che rimane in APPBARDATA dopo
      * questa chiamata e' il rettangolo approvato dalla shell. */
+    const RECT beforeSet = abd.rc;
     if (SHAppBarMessage(ABM_SETPOS, &abd) == 0 ||
         abd.rc.right <= abd.rc.left || abd.rc.bottom <= abd.rc.top) {
-        m_lastSetPosTick = GetTickCount64();
-        if (out != nullptr && m_haveLastRect) {
-            *out = m_lastRect;
-        }
-        return W7T_ERR_APPBAR;
+        abd.rc = beforeSet;
+        AppendCoreLog(L"appbar: ABM_SETPOS non onorata, riservo il work area in locale");
     }
 
     m_edge = edge;
@@ -981,6 +1003,7 @@ void AppBarService::HideWatcherLoop() {
         if (!m_nativeHidden.load()) {
             continue;
         }
+        ReassertWorkAreaFromWatcher();
         /* Rinasconde una volta; se Explorer la rimostra, arriva un altro
          * evento. Il controllo di visibilita' evita lavoro inutile. */
         HWND taskbar = FindNativeTaskbar();

@@ -99,6 +99,8 @@ extern "C" W7T_API void W7T_CALL W7T_Shutdown(void) {
         return;
     }
 
+    /* Stop the spy Shell_TrayWnd first: SHAppBarMessage talks to that
+     * class name, so Unregister/restore must run against Explorer. */
     TrayService::Instance().Stop();
     WindowManager::Instance().Stop();
 

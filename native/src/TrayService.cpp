@@ -118,6 +118,10 @@ void UnregisterPrivateWindowClass(const wchar_t* className,
     owned = false;
 }
 
+#ifndef MSGFLT_ALLOW
+#define MSGFLT_ALLOW 1
+#endif
+
 /* Quante letture concordi prima di adottare un cambio di visibilita'
  * letto dalla toolbar di Explorer (isteresi anti-sfarfallio), e quante
  * assenze confermate prima di rimuovere un'icona importata. */
@@ -568,6 +572,8 @@ int32_t TrayService::Start() {
     m_running.store(true);
     m_startOk.store(false);
     m_threadDone.store(false);        /* v2.37 punto 15 */
+    m_shuttingDown.store(false);
+    m_selfTaskbarCreatedTick = 0;
     {
         std::lock_guard<std::recursive_mutex> lock(m_mutex);
         m_trayNotifySnapshotImported = false;
@@ -1404,10 +1410,14 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
          *    l'icona). */
         const bool readsComplete = read.okVisible && read.okOverflow;
         const bool graceActive   = InRemovalGracePeriod();
+        const bool toolbarEmpty  = read.items.empty();
 
         std::vector<TrayIconKey> toRemove;
         for (auto& pair : m_icons) {
             TrayIconEntry& entry = pair.second;
+            if (entry.fromCopyData) {
+                continue;
+            }
             const bool mirrored = entry.fromExplorer || entry.ownerIsExplorer;
             if (!mirrored) {
                 continue;
@@ -1421,12 +1431,10 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
                 toRemove.push_back(entry.key);   /* caso (a) */
                 continue;
             }
-            if (!readsComplete || graceActive) {
-                /* Lettura inaffidabile o finestra di garanzia: l'assenza
-                 * non si conta nemmeno; il contatore precedente non deve
-                 * pero' sopravvivere a una lettura tornata completa con
-                 * l'icona di nuovo presente (caso gia' coperto sopra dal
-                 * missCount=0 nella fase di aggiornamento). */
+            if (!readsComplete || graceActive || toolbarEmpty) {
+                /* Lettura inaffidabile, toolbar vuota o finestra di
+                 * garanzia: l'assenza non si conta. Una toolbar Win11
+                 * vuota non deve cancellare icone arrivate da WM_COPYDATA. */
                 entry.lastReadFailed = true;
                 continue;
             }
@@ -2068,6 +2076,7 @@ static void InstallBatteryKeyCrashGuard();
 static void OnBatteryKeySessionEnding();
 
 void TrayService::Stop() {
+    m_shuttingDown.store(true);
     /* OPZIONE B: ripristino INCONDIZIONATO della chiave legacy
      * UseWin32BatteryFlyout, PRIMA del controllo su m_running: anche se il
      * servizio risulta non avviato (Start fallita, Stop doppia, ...) una
@@ -2298,6 +2307,8 @@ bool TrayService::CreateWindows() {
     }
 
     m_taskbarCreatedMsg = RegisterWindowMessageW(L"TaskbarCreated");
+    AllowCopyDataOnWindow(m_trayWnd);
+    AllowCopyDataOnWindow(m_notifyWnd);
 
     /* Become the FindWindow("Shell_TrayWnd") target BEFORE asking apps
      * to re-register. ManagedShell TrayService.Run() does Resume() then
@@ -2318,6 +2329,69 @@ bool TrayService::CreateWindows() {
 
     rollback.Dismiss();
     return true;
+}
+
+bool TrayService::TryFillIconFromOwner(TrayIconEntry& entry) {
+    if (!entry.bitmap.empty()) {
+        return true;
+    }
+    try {
+        std::wstring path = entry.ownerPath;
+        if (path.empty()) {
+            path = OwnerPathOf(entry.key.ownerHwnd);
+            entry.ownerPath = path;
+        }
+        if (path.empty()) {
+            return false;
+        }
+        HICON big = nullptr;
+        HICON smallIcon = nullptr;
+        if (ExtractIconExW(path.c_str(), 0, &big, &smallIcon, 1) == 0) {
+            return false;
+        }
+        HICON use = smallIcon != nullptr ? smallIcon : big;
+        if (smallIcon != nullptr && big != nullptr && smallIcon != big) {
+            DestroyIcon(big);
+        }
+        if (use == nullptr) {
+            return false;
+        }
+        raii::IconHandle owned(use);
+        ArgbBitmap bmp;
+        if (IconToArgb(owned.get(), bmp) && BitmapSane(bmp)) {
+            entry.bitmap = std::move(bmp);
+            entry.pixelHash = ArgbHash(entry.bitmap);
+            entry.iconRevision++;
+            return true;
+        }
+    } catch (...) {
+    }
+    return false;
+}
+
+void TrayService::AllowCopyDataOnWindow(HWND hwnd) {
+    if (hwnd == nullptr) {
+        return;
+    }
+#ifndef MSGFLT_ALLOW
+    constexpr DWORD kMsgFltAllow = 1;
+#else
+    constexpr DWORD kMsgFltAllow = MSGFLT_ALLOW;
+#endif
+    using ChangeFilterExFn = BOOL (WINAPI*)(HWND, UINT, DWORD, LPVOID);
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (user32 == nullptr) {
+        return;
+    }
+    auto changeFilter = reinterpret_cast<ChangeFilterExFn>(
+        reinterpret_cast<void*>(GetProcAddress(user32, "ChangeWindowMessageFilterEx")));
+    if (changeFilter == nullptr) {
+        return;
+    }
+    changeFilter(hwnd, WM_COPYDATA, kMsgFltAllow, nullptr);
+    if (m_taskbarCreatedMsg != 0) {
+        changeFilter(hwnd, m_taskbarCreatedMsg, kMsgFltAllow, nullptr);
+    }
 }
 
 int TrayService::DefaultTrayHeightPx() const {
@@ -2392,6 +2466,7 @@ void TrayService::SendTaskbarCreated() {
         return;
     }
     m_taskbarCreatedSent = true;
+    m_selfTaskbarCreatedTick = GetTickCount64();
     AppendCoreLog(L"tray: broadcast TaskbarCreated (apps re-register here)");
     SendNotifyMessageW(HWND_BROADCAST, m_taskbarCreatedMsg, 0, 0);
 }
@@ -2413,6 +2488,9 @@ void TrayService::MaintainTrayTopmost() {
 }
 
 LRESULT TrayService::ForwardMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (m_shuttingDown.load()) {
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
     try {
         if (m_hwndFwd == nullptr || !IsWindow(m_hwndFwd)) {
             m_hwndFwd = FindWindowsTray();
@@ -2831,11 +2909,18 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
     }
 
     if (self.m_taskbarCreatedMsg != 0 && msg == self.m_taskbarCreatedMsg) {
+        self.ResumeTrayReceiver();
+        /* Our own startup broadcast is not an Explorer restart: treating it
+         * as one scheduled a toolbar reconcile that dropped live COPYDATA
+         * icons on Windows 11 (empty legacy toolbar). */
+        if (self.m_selfTaskbarCreatedTick != 0 &&
+            GetTickCount64() - self.m_selfTaskbarCreatedTick < 4000ULL) {
+            return 0;
+        }
         /* Explorer (ri)avviato: le sue toolbar sono nuove. Si alza la
          * bandierina e si fa tutto tra poco su questo thread: il wndproc
          * non deve bloccarsi qui dentro. */
         self.m_explorerRestarted.store(true);
-        self.ResumeTrayReceiver();
         /* WORKAROUND: la forma della tray puo' cambiare dopo il riavvio di
          * Explorer. La cache "Classic" del rilevatore Win11 deve quindi
          * essere invalidata prima della prossima riconciliazione. */
@@ -2923,6 +3008,9 @@ LRESULT CALLBACK TrayService::TaskSwitchWndProc(HWND hwnd, UINT msg, WPARAM wPar
 
 bool TrayService::ForwardCopyDataToExplorer(
     WPARAM sender, const COPYDATASTRUCT* cds) const {
+    if (m_shuttingDown.load()) {
+        return false;
+    }
     if (cds == nullptr ||
         (cds->dwData != kCopyDataAppBar &&
          cds->dwData != kCopyDataTrayIcon &&
@@ -3036,11 +3124,17 @@ LRESULT TrayService::HandleCopyData(HWND hwnd, WPARAM sender,
         /* dwData==1/3 that we applied locally stay here (we are the
          * Shell_NotifyIcon destination). AppBar packets and parse
          * failures still go to Explorer's real Shell_TrayWnd. */
+        /* AppBar COPYDATA must not be forwarded: SHAppBarMessage is a
+         * cross-thread SendMessage to this window; forwarding it to
+         * Explorer (which then posts ABN_* back to the WPF bar) deadlocks
+         * shutdown and SetPos. Tray packets already applied locally stay
+         * here; only unparsed ones go to Explorer. */
         const bool intercepted =
-            localHandled &&
             cds != nullptr &&
-            (cds->dwData == kCopyDataTrayIcon ||
-             cds->dwData == kCopyDataIconRect);
+            (cds->dwData == kCopyDataAppBar ||
+             (localHandled &&
+              (cds->dwData == kCopyDataTrayIcon ||
+               cds->dwData == kCopyDataIconRect)));
         if (!intercepted) {
             forwarded = ForwardCopyDataToExplorer(sender, cds);
         }
@@ -3088,12 +3182,15 @@ LRESULT TrayService::HandleCopyDataLocal(const COPYDATASTRUCT* cds) {
      * notificare una shell 64 bit. */
     if (cds->dwData == kCopyDataTrayIcon &&
         cds->cbData >= sizeof(uint32_t) + sizeof(uint32_t)) {
+        /* Layouts seen in the wild (all undocumented):
+         *   { DWORD dwMessage; NOTIFYICONDATA nid; }          nid @ 4
+         *   { DWORD dwMessage; DWORD pad; NOTIFYICONDATA }    nid @ 8
+         *   { DWORD cookie; DWORD dwMessage; NOTIFYICONDATA } nid @ 8, msg @ 4
+         * dwMessage is the DWORD immediately before nid, not always @ 0. */
         uint32_t message = 0;
-        memcpy(&message, bytes, sizeof(message));
-
         size_t nidOffset = 0;
-        const size_t candidates[] = { sizeof(uint32_t), sizeof(uint64_t) };
-        for (const size_t candidate : candidates) {
+        const size_t nidCandidates[] = { 4u, 8u, 12u };
+        for (const size_t candidate : nidCandidates) {
             if (cds->cbData < candidate + sizeof(uint32_t)) {
                 continue;
             }
@@ -3103,31 +3200,30 @@ LRESULT TrayService::HandleCopyDataLocal(const COPYDATASTRUCT* cds) {
             const bool plausible =
                 candidateSize >= sizeof(NidLayout32) &&
                 candidateSize <= available &&
-                candidateSize <= sizeof(NidLayout64);
+                candidateSize <= sizeof(NidLayout64) + 16u;
             if (!plausible) {
                 continue;
             }
-            /* Le dimensioni complete disambiguano in modo deterministico
-             * i due offset; per una struttura legacy piu' corta si usa il
-             * primo candidato plausibile. */
+            uint32_t candidateMsg = 0;
+            if (candidate >= sizeof(uint32_t)) {
+                memcpy(&candidateMsg, bytes + candidate - sizeof(uint32_t),
+                       sizeof(candidateMsg));
+            }
+            if (candidateMsg > NIM_SETVERSION) {
+                memcpy(&candidateMsg, bytes, sizeof(candidateMsg));
+            }
+            if (candidateMsg > NIM_SETVERSION) {
+                continue;
+            }
+            nidOffset = candidate;
+            message = candidateMsg;
             if (candidateSize == sizeof(NidLayout64) ||
-                (candidate == sizeof(uint32_t) &&
-                 candidateSize == sizeof(NidLayout32)) ||
-                nidOffset == 0) {
-                nidOffset = candidate;
-                if (candidateSize == sizeof(NidLayout64) ||
-                    candidateSize == sizeof(NidLayout32)) {
-                    break;
-                }
+                candidateSize == sizeof(NidLayout32)) {
+                break;
             }
         }
 
-        /* Forma Windows: codice NIM_* plausibile e cbSize dichiarato
-         * coerente con i byte realmente ricevuti. Le app possono inviare
-         * una NOTIFYICONDATA estesa, quindi si usa il limite dichiarato e
-         * non un intervallo fisso che scarta i pacchetti moderni. */
-        const bool windowsShape = message <= NIM_SETVERSION && nidOffset != 0;
-        if (windowsShape) {
+        if (nidOffset != 0 && message <= NIM_SETVERSION) {
             const size_t payloadSize = cds->cbData - nidOffset;
             NormalizedNid nid;
             if (NormalizeNid(bytes + nidOffset, payloadSize, nid)) {
@@ -3138,11 +3234,6 @@ LRESULT TrayService::HandleCopyDataLocal(const COPYDATASTRUCT* cds) {
                           static_cast<unsigned long long>(nid.hWnd),
                           static_cast<unsigned>(nid.uID));
                 AppendCoreLog(line);
-                /* v1.0.0-alpha: WM_COPYDATA viene da qualunque processo
-                 * del desktop; un'eccezione C++ risalita da ApplyMessage
-                 * (lock, mappa icone, copia HICON tramite GDI+) non deve
-                 * MAI terminare il thread della tray di Explorer, che e'
-                 * quello che pumpa il wndproc Shell_TrayWnd. */
                 try {
                     ApplyMessage(message, nid);
                 } catch (const std::exception& e) {
@@ -3519,7 +3610,11 @@ void TrayService::ApplyMessage(uint32_t message, const NormalizedNid& nid) {
                                 entry.iconRevision++;
                             }
                         }
+                    } else {
+                        TryFillIconFromOwner(entry);
                     }
+                } else if (entry.bitmap.empty()) {
+                    TryFillIconFromOwner(entry);
                 }
                 /* hIcon == NULL senza bitmap Wine: l'applicazione ha mandato
                  * un MODIFY "senza icona". La shell conserva l'ultima icona;
@@ -4279,7 +4374,8 @@ void TrayService::ApplyWin11TraySnapshot() {
                  * disegno e' davvero diverso (il confronto e' un hash, non
                  * un'uguaglianza pixel per pixel). */
                 if (!item.bitmap.empty() &&
-                    (!entry.fromTrayNotify || entry.bitmap.empty())) {
+                    (entry.bitmap.empty() ||
+                     (!entry.fromTrayNotify && !entry.fromCopyData))) {
                     const uint64_t hash = ArgbHash(item.bitmap);
                     if (hash != entry.pixelHash) {
                         entry.bitmap = item.bitmap;
