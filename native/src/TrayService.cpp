@@ -2776,7 +2776,10 @@ LRESULT CALLBACK TrayService::TaskSwitchWndProc(HWND hwnd, UINT msg, WPARAM wPar
 }
 
 bool TrayService::ForwardCopyDataToExplorer(
-    WPARAM sender, const COPYDATASTRUCT* cds) const {
+    WPARAM sender, const COPYDATASTRUCT* cds, DWORD_PTR* responseOut) const {
+    if (responseOut != nullptr) {
+        *responseOut = 0;
+    }
     if (cds == nullptr ||
         (cds->dwData != kCopyDataAppBar &&
          cds->dwData != kCopyDataTrayIcon &&
@@ -2833,6 +2836,11 @@ bool TrayService::ForwardCopyDataToExplorer(
                     reinterpret_cast<LPARAM>(cds),
                     SMTO_ABORTIFHUNG | SMTO_BLOCK, 1500, &response);
                 delivered = sent != 0;
+                if (delivered && responseOut != nullptr) {
+                    /* Shell_NotifyIconGetRect callers read the reply
+                     * (packed coordinates): pass it through unchanged. */
+                    *responseOut = response;
+                }
                 if (!delivered) {
                     wchar_t line[160];
                     wsprintfW(line,
@@ -2857,6 +2865,8 @@ LRESULT TrayService::HandleCopyData(HWND hwnd, WPARAM sender,
     (void)hwnd;
     bool localHandled = false;
     bool shouldForward = false;
+    LRESULT localResult = 0;
+    bool isRectQuery = false;
 
     /* Il forwarding non e' nel ramo locale: anche un payload corrotto o una
      * eccezione dell'applicazione deve lasciare arrivare a Explorer il
@@ -2871,7 +2881,9 @@ LRESULT TrayService::HandleCopyData(HWND hwnd, WPARAM sender,
                 (cds->dwData == kCopyDataAppBar ||
                  cds->dwData == kCopyDataTrayIcon ||
                  cds->dwData == kCopyDataIconRect);
-            localHandled = HandleCopyDataLocal(cds) != FALSE;
+            isRectQuery = cds != nullptr && cds->dwData == kCopyDataIconRect;
+            localResult = HandleCopyDataLocal(cds);
+            localHandled = localResult != FALSE;
         } catch (...) {
             AppendCoreLog(L"copydata: eccezione nell'elaborazione locale");
             localHandled = false;
@@ -2884,6 +2896,22 @@ LRESULT TrayService::HandleCopyData(HWND hwnd, WPARAM sender,
          * inventato a Explorer. */
         shouldForward = false;
     } W7T_SEH_END
+
+    if (isRectQuery) {
+        /* Shell_NotifyIconGetRect: the caller needs the packed coordinates,
+         * not a boolean. Our own answer wins when the icon is ours; when it
+         * is not, Explorer's reply is returned untouched (the icon lives in
+         * the shell's tray, e.g. a Windows 11 system icon). */
+        if (localHandled) {
+            return localResult;
+        }
+        DWORD_PTR explorerReply = 0;
+        if (shouldForward &&
+            ForwardCopyDataToExplorer(sender, cds, &explorerReply)) {
+            return static_cast<LRESULT>(explorerReply);
+        }
+        return FALSE;
+    }
 
     bool forwarded = false;
     if (shouldForward) {
@@ -3015,6 +3043,21 @@ LRESULT TrayService::HandleCopyDataLocal(const COPYDATASTRUCT* cds) {
         uint32_t magic = 0;
         memcpy(&magic, bytes, sizeof(magic));
         if (magic == 0x34753423u) {
+            /* WINNOTIFYICONIDENTIFIER as declared by ManagedShell
+             * (ManagedShell.Interop/NativeMethods.Shell32.cs, the tray
+             * RetroBar uses): { dwMagic, dwMessage, cbSize, dwPadding,
+             * hWnd, uID, guidItem }. ManagedShell's NotificationArea
+             * .IconDataCallback answers the two requests shell32 issues
+             * by returning the coordinates packed in the LRESULT:
+             *   dwMessage = 1 -> MAKELONG(left, top)
+             *   dwMessage = 2 -> MAKELONG(right, bottom)
+             * A plain TRUE was not a usable answer, so callers such as the
+             * Windows 11 flyouts and applications anchoring their own
+             * popups (Shell_NotifyIconGetRect) fell back to (0,0) or gave
+             * up. The RECT copy into the buffer below stays for callers of
+             * the historical shape. */
+            uint32_t query = 0;
+            memcpy(&query, bytes + 4, sizeof(query));
             uint32_t hWnd32 = 0;
             uint32_t uID = 0;
             GUID guid = {};
@@ -3034,7 +3077,13 @@ LRESULT TrayService::HandleCopyDataLocal(const COPYDATASTRUCT* cds) {
                 if (cds->cbData >= 40 + sizeof(RECT)) {
                     memcpy(const_cast<uint8_t*>(bytes) + 40, &rect, sizeof(rect));
                 }
-                return TRUE;
+                const LONG x = (query == 2) ? rect.right : rect.left;
+                const LONG y = (query == 2) ? rect.bottom : rect.top;
+                const LRESULT packed = static_cast<LRESULT>(
+                    MAKELONG(static_cast<WORD>(x), static_cast<WORD>(y)));
+                /* A packed (0,0) cannot be told apart from "no answer";
+                 * in that unlikely case report success as before. */
+                return packed != 0 ? packed : static_cast<LRESULT>(1);
             }
             return FALSE;
         }

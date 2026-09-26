@@ -364,7 +364,8 @@ private:
                            const COPYDATASTRUCT* cds);
     LRESULT HandleCopyDataLocal(const COPYDATASTRUCT* cds);
     bool ForwardCopyDataToExplorer(WPARAM sender,
-                                   const COPYDATASTRUCT* cds) const;
+                                   const COPYDATASTRUCT* cds,
+                                   DWORD_PTR* responseOut = nullptr) const;
 
     /* SetShellRects può essere chiamata dal thread WPF, mentre le finestre
      * della tray e i controlli comctl32 appartengono al thread del servizio.
