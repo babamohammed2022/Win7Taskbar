@@ -151,6 +151,13 @@ private:
     void EnsureWorkAreaReserved(HWND hwnd, int32_t edge, const RECT& barRect);
     void RestoreWorkArea();
     static bool BarOverlapsWorkArea(const RECT& work, const RECT& bar);
+    /* Windhawk taskbar-on-top (m417z): work = monitor minus stuck rect.
+     * We do not hook explorer.exe; we apply the same geometry and move
+     * maximized windows whose title bar is still under the bar. */
+    static bool DesiredWorkFromMonitor(HMONITOR mon, int32_t edge,
+                                       const RECT& barRect, RECT* desired);
+    void SnapMaximizedAwayFromBar(HMONITOR mon, HWND barHwnd,
+                                  const RECT& barRect, const RECT& work);
 
     static void CALLBACK HideWatcherProc(HWINEVENTHOOK hook, DWORD event,
                                          HWND hwnd, LONG idObject, LONG idChild,

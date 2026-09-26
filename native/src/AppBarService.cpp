@@ -21,6 +21,7 @@
 #include "SehGuard.h"
 
 #include <cstdlib>
+#include <dwmapi.h>
 
 namespace w7t {
 
@@ -96,6 +97,163 @@ bool AppBarService::BarOverlapsWorkArea(const RECT& work, const RECT& bar) {
     return (isect.right - isect.left) > 2 && (isect.bottom - isect.top) > 2;
 }
 
+bool AppBarService::DesiredWorkFromMonitor(HMONITOR mon, int32_t edge,
+                                           const RECT& barRect, RECT* desired) {
+    if (desired == nullptr) {
+        return false;
+    }
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    if (mon == nullptr || !GetMonitorInfoW(mon, &mi)) {
+        return false;
+    }
+    /* Same geometry as Windhawk taskbar-on-top TrayUI_MakeStuckRect +
+     * GetMonitorWorkAreaWithoutTaskbar (SubtractRect of the stuck strip):
+     * the work area is the monitor minus the bar, not "current rcWork
+     * minus the bar" which keeps Explorer's leftover bottom inset and
+     * can skip the top inset entirely. */
+    RECT canvas = mi.rcMonitor;
+    switch (edge) {
+        case W7T_EDGE_TOP:
+            if (canvas.top < barRect.bottom) {
+                canvas.top = barRect.bottom;
+            }
+            break;
+        case W7T_EDGE_LEFT:
+            if (canvas.left < barRect.right) {
+                canvas.left = barRect.right;
+            }
+            break;
+        case W7T_EDGE_RIGHT:
+            if (canvas.right > barRect.left) {
+                canvas.right = barRect.left;
+            }
+            break;
+        case W7T_EDGE_BOTTOM:
+        default:
+            if (canvas.bottom > barRect.top) {
+                canvas.bottom = barRect.top;
+            }
+            break;
+    }
+    if (canvas.right <= canvas.left || canvas.bottom <= canvas.top) {
+        return false;
+    }
+    *desired = canvas;
+    return true;
+}
+
+namespace {
+struct SnapEnumData {
+    HWND     barHwnd;
+    HMONITOR monitor;
+    RECT     barRect;
+    RECT     work;
+    DWORD    ourPid;
+    int      moved;
+};
+
+bool WindowLooksFullscreen(HWND hwnd, const RECT& monitor) {
+    RECT wr = {};
+    if (!GetWindowRect(hwnd, &wr)) {
+        return false;
+    }
+    const LONG style = static_cast<LONG>(GetWindowLongPtrW(hwnd, GWL_STYLE));
+    if ((style & WS_CAPTION) != 0) {
+        return false;
+    }
+    return wr.left <= monitor.left && wr.top <= monitor.top &&
+           wr.right >= monitor.right && wr.bottom >= monitor.bottom;
+}
+
+BOOL CALLBACK SnapMaximizedEnumProc(HWND hwnd, LPARAM lp) {
+    auto* data = reinterpret_cast<SnapEnumData*>(lp);
+    if (hwnd == nullptr || hwnd == data->barHwnd || !IsWindowVisible(hwnd)) {
+        return TRUE;
+    }
+    if (GetWindow(hwnd, GW_OWNER) != nullptr) {
+        return TRUE;
+    }
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == 0 || pid == data->ourPid) {
+        return TRUE;
+    }
+    WCHAR cls[64] = {};
+    if (GetClassNameW(hwnd, cls, ARRAYSIZE(cls)) > 0) {
+        if (_wcsicmp(cls, L"Progman") == 0 ||
+            _wcsicmp(cls, L"WorkerW") == 0 ||
+            _wcsicmp(cls, L"Shell_TrayWnd") == 0 ||
+            _wcsicmp(cls, L"Shell_SecondaryTrayWnd") == 0 ||
+            _wcsicmp(cls, L"NotifyIconOverflowWindow") == 0) {
+            return TRUE;
+        }
+    }
+    if (!IsZoomed(hwnd)) {
+        return TRUE;
+    }
+    if (MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) != data->monitor) {
+        return TRUE;
+    }
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    GetMonitorInfoW(data->monitor, &mi);
+    if (WindowLooksFullscreen(hwnd, mi.rcMonitor)) {
+        return TRUE;
+    }
+
+    RECT vis = {};
+    if (FAILED(DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS,
+                                     &vis, sizeof(vis)))) {
+        if (!GetWindowRect(hwnd, &vis)) {
+            return TRUE;
+        }
+    }
+    RECT hit = {};
+    if (IntersectRect(&hit, &vis, &data->barRect) == FALSE ||
+        (hit.bottom - hit.top) <= 8 || (hit.right - hit.left) <= 8) {
+        return TRUE;
+    }
+
+    /* Place the maximized frame on the work area so the caption sits
+     * just below a top bar (same result Explorer produces when its
+     * stuck edge is ABE_TOP). */
+    const int width = data->work.right - data->work.left;
+    const int height = data->work.bottom - data->work.top;
+    if (width <= 0 || height <= 0) {
+        return TRUE;
+    }
+    SetWindowPos(hwnd, nullptr,
+                 data->work.left, data->work.top, width, height,
+                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    ++data->moved;
+    return TRUE;
+}
+} /* namespace */
+
+void AppBarService::SnapMaximizedAwayFromBar(HMONITOR mon, HWND barHwnd,
+                                             const RECT& barRect,
+                                             const RECT& work) {
+    if (mon == nullptr || barHwnd == nullptr) {
+        return;
+    }
+    SnapEnumData data = {};
+    data.barHwnd = barHwnd;
+    data.monitor = mon;
+    data.barRect = barRect;
+    data.work = work;
+    data.ourPid = GetCurrentProcessId();
+    data.moved = 0;
+    EnumWindows(SnapMaximizedEnumProc, reinterpret_cast<LPARAM>(&data));
+    if (data.moved > 0) {
+        wchar_t line[160] = {};
+        swprintf(line, ARRAYSIZE(line),
+                 L"appbar: riallineate %d finestre massimizzate (work area stile taskbar-on-top)",
+                 data.moved);
+        AppendCoreLog(line);
+    }
+}
+
 void AppBarService::CaptureOriginalWorkArea(HWND hwnd) {
     if (m_workAreaCaptured) {
         return;
@@ -128,8 +286,6 @@ void AppBarService::EnsureWorkAreaReserved(HWND hwnd, int32_t edge,
     }
 
     try {
-        LogAppBarDiagnostics(L"prima EnsureWorkArea", hwnd, &barRect);
-
         HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         MONITORINFO mi = {};
         mi.cbSize = sizeof(mi);
@@ -141,67 +297,37 @@ void AppBarService::EnsureWorkAreaReserved(HWND hwnd, int32_t edge,
             return;
         }
 
-        /* Always shrink the ORIGINAL work area, not the already-reserved
-         * one. Otherwise dragging Bottom -> Top would keep the bottom gap
-         * and never free the title-bar strip (or skip SETWORKAREA entirely
-         * because the new bar no longer overlaps the old rcWork). */
-        RECT baseline = current;
-        if (m_workAreaCaptured &&
-            m_savedWorkArea.right > m_savedWorkArea.left &&
-            m_savedWorkArea.bottom > m_savedWorkArea.top) {
-            baseline = m_savedWorkArea;
-        }
-
-        RECT desired = baseline;
-        switch (edge) {
-            case W7T_EDGE_TOP:
-                if (desired.top < barRect.bottom) {
-                    desired.top = barRect.bottom;
-                }
-                break;
-            case W7T_EDGE_LEFT:
-                if (desired.left < barRect.right) {
-                    desired.left = barRect.right;
-                }
-                break;
-            case W7T_EDGE_RIGHT:
-                if (desired.right > barRect.left) {
-                    desired.right = barRect.left;
-                }
-                break;
-            case W7T_EDGE_BOTTOM:
-            default:
-                if (desired.bottom > barRect.top) {
-                    desired.bottom = barRect.top;
-                }
-                break;
-        }
-
-        if (desired.right <= desired.left || desired.bottom <= desired.top) {
+        RECT desired = {};
+        if (!DesiredWorkFromMonitor(mon, edge, barRect, &desired)) {
             AppendCoreLog(L"appbar: SPI_SETWORKAREA saltata, rect degenerata");
             return;
         }
 
-        if (desired.left == current.left && desired.top == current.top &&
-            desired.right == current.right && desired.bottom == current.bottom) {
-            LogAppBarDiagnostics(L"workarea gia' riservata", hwnd, &barRect);
-            return;
+        if (desired.left != current.left || desired.top != current.top ||
+            desired.right != current.right || desired.bottom != current.bottom) {
+            LogAppBarDiagnostics(L"prima EnsureWorkArea", hwnd, &barRect);
+            /* SPIF_SENDCHANGE only: never write the user profile / registry. */
+            const BOOL ok = SystemParametersInfoW(SPI_SETWORKAREA, 0, &desired,
+                                                  SPIF_SENDCHANGE);
+            if (ok) {
+                m_workAreaOwned = true;
+                AppendCoreLog(L"appbar: SPI_SETWORKAREA monitor-barretta (ABE_TOP/BOTTOM stile taskbar-on-top)");
+                SendNotifyMessageW(HWND_BROADCAST, WM_SETTINGCHANGE,
+                                   SPI_SETWORKAREA, 0);
+            } else {
+                wchar_t line[160] = {};
+                swprintf(line, ARRAYSIZE(line),
+                         L"appbar: SPI_SETWORKAREA fallita err=%lu, resto overlay",
+                         static_cast<unsigned long>(GetLastError()));
+                AppendCoreLog(line);
+            }
+            LogAppBarDiagnostics(L"dopo EnsureWorkArea", hwnd, &desired);
         }
 
-        /* SPIF_SENDCHANGE only: never write the user profile / registry. */
-        const BOOL ok = SystemParametersInfoW(SPI_SETWORKAREA, 0, &desired,
-                                              SPIF_SENDCHANGE);
-        if (ok) {
-            m_workAreaOwned = true;
-            AppendCoreLog(L"appbar: SPI_SETWORKAREA applicata (ABM_SETPOS non ha ridotto il work area)");
-        } else {
-            wchar_t line[160] = {};
-            swprintf(line, ARRAYSIZE(line),
-                     L"appbar: SPI_SETWORKAREA fallita err=%lu, resto overlay",
-                     static_cast<unsigned long>(GetLastError()));
-            AppendCoreLog(line);
-        }
-        LogAppBarDiagnostics(L"dopo EnsureWorkArea", hwnd, &desired);
+        /* Win11 maximized windows often keep using the full monitor while
+         * Explorer's taskbar is ABS_AUTOHIDE. Move any that still sit under
+         * our bar so the caption/min/max/close row is in the work area. */
+        SnapMaximizedAwayFromBar(mon, hwnd, barRect, desired);
     } catch (...) {
         AppendCoreLog(L"appbar: eccezione in EnsureWorkAreaReserved, overlay fallback");
     }
@@ -223,9 +349,10 @@ void AppBarService::ReassertWorkAreaFromWatcher() {
     } else if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0)) {
         return;
     }
-    if (!BarOverlapsWorkArea(work, m_lastRect)) {
-        return;
-    }
+    /* Always re-apply: Explorer may restore a full-monitor rcWork after
+     * autohide, and maximized windows may still cover a top bar even
+     * when SPI_GETWORKAREA already looks correct. */
+    (void)work;
     EnsureWorkAreaReserved(m_hwnd, m_edge, m_lastRect);
 }
 
