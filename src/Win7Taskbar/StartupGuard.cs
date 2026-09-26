@@ -50,6 +50,7 @@ namespace Win7Taskbar
         private const int MaxReportFiles = 20;
 
         private static readonly object Sync = new();
+        private static readonly long StartTick = Environment.TickCount64;
         private static string _stage = "<non avviato>";
         private static bool _handlersInstalled;
 
@@ -197,6 +198,7 @@ namespace Win7Taskbar
                 File.WriteAllText(MarkerPath,
                     $"fase={stage}\r\n" +
                     $"istante={DateTime.Now.ToString("o", CultureInfo.InvariantCulture)}\r\n" +
+                    $"elapsed_ms={Environment.TickCount64 - StartTick}\r\n" +
                     $"pid={Environment.ProcessId}\r\n" +
                     $"versione={VersionText}\r\n",
                     Encoding.UTF8);
@@ -421,6 +423,7 @@ namespace Win7Taskbar
                 string path = Path.Combine(LogDirectory, "avvio.log");
                 File.AppendAllText(path,
                     $"{DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture)}  " +
+                    $"+{Environment.TickCount64 - StartTick}ms  " +
                     $"[{CurrentStage}] {message}{Environment.NewLine}",
                     Encoding.UTF8);
             }
@@ -539,13 +542,19 @@ namespace Win7Taskbar
         {
             try
             {
+                Interop.EarlyNativeTaskbarHide.StopAndShow();
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
                 Interop.NativeMethods.W7T_SetNativeTaskbarHidden(0);
             }
             catch (Exception)
             {
                 // La DLL potrebbe non essere nemmeno caricabile: in quel caso
-                // la barra di sistema non e' stata nascosta, quindi non c'e'
-                // nulla da ripristinare.
+                // il ripristino user32 sopra ha gia' rimesso la barra.
             }
         }
 

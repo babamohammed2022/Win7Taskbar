@@ -609,7 +609,11 @@ namespace Win7Taskbar
             else
             {
                 RunStage("appbar", RegisterAppBar);
-                RunStage("nascondi-barra-nativa", () => _bridge.SetNativeTaskbarHidden(true));
+                RunStage("nascondi-barra-nativa", () =>
+                {
+                    _bridge.SetNativeTaskbarHidden(true);
+                    EarlyNativeTaskbarHide.Stop();
+                });
                 RunStage("appbar-dopo-autohide", UpdateAppBarPosition);
                 ScheduleNativeTaskbarHideRetries();
             }

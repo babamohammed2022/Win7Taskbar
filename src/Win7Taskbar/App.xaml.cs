@@ -114,6 +114,30 @@ namespace Win7Taskbar
                         System.Diagnostics.SourceLevels.Warning;
                 }
 
+                // Mutex BEFORE hide: a second instance must not hide Explorer's
+                // bar and then exit. Hide BEFORE theme/Core.dll: RetroBar does
+                // the same from App(), and a clean first start spends seconds
+                // in ThemeLoader + Defender's first scan of Win7TaskbarCore.dll.
+                StartupGuard.Enter("istanza-unica");
+                _instanceMutex = new Mutex(true, SingleInstanceMutexName, out bool isFirstInstance);
+                if (!isFirstInstance)
+                {
+                    StartupGuard.Complete();
+                    MessageBox.Show(
+                        "Win7Taskbar è già in esecuzione.",
+                        "Win7Taskbar",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    Shutdown();
+                    return;
+                }
+
+                if (!StartupGuard.SafeMode)
+                {
+                    StartupGuard.Enter("nascondi-barra-nativa-subito");
+                    EarlyNativeTaskbarHide.HideAndWatch();
+                }
+
                 // WPF ignora la cultura di sistema: ogni StringFormat dei binding
                 // usa "en-US" salvo che non si sovrascriva FrameworkElement.Language.
                 // Senza questa riga l'orologio mostra "9:34 PM" e "9/8/2026" anche
@@ -144,26 +168,12 @@ namespace Win7Taskbar
                 StartupGuard.Enter("font");
                 EnsureUsableFontFamily();
 
-                // Due taskbar contemporanee litigherebbero su AppBar e tray.
-                StartupGuard.Enter("istanza-unica");
-                _instanceMutex = new Mutex(true, SingleInstanceMutexName, out bool isFirstInstance);
-                if (!isFirstInstance)
-                {
-                    StartupGuard.Complete();
-                    MessageBox.Show(
-                        "Win7Taskbar è già in esecuzione.",
-                        "Win7Taskbar",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
-                    Shutdown();
-                    return;
-                }
-
                 StartupGuard.Enter("core-nativo");
                 _bridge = new NativeBridge();
 
                 if (!_bridge.TryInitialize(out string? bridgeError))
                 {
+                    EarlyNativeTaskbarHide.StopAndShow();
                     StartupGuard.Complete();
                     StartupGuard.Note("core nativo non inizializzabile: " + bridgeError);
                     MessageBox.Show(
@@ -176,6 +186,13 @@ namespace Win7Taskbar
                         MessageBoxImage.Error);
                     Shutdown();
                     return;
+                }
+
+                if (!StartupGuard.SafeMode)
+                {
+                    _bridge.SetNativeTaskbarHidden(true);
+                    EarlyNativeTaskbarHide.Stop();
+                    StartupGuard.Note("nascondi-barra-nativa: watcher nativo attivo");
                 }
 
                 StartupGuard.Enter("finestra");

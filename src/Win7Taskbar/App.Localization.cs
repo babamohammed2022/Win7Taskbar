@@ -20,22 +20,14 @@ namespace Win7Taskbar
              * essere impostata da altro. Si interviene SOLO quando non esiste
              * ancora una configurazione salvata: dopo, la scelta dell'utente
              * (o quella rilevata, che lui vede in Proprieta') vince sempre. */
-            try
-            {
-                if (!Settings.HasPersistedConfig)
-                {
-                    string? systemLanguage = NativeLocalization.SystemLanguageCode();
-                    if (!string.IsNullOrEmpty(systemLanguage))
-                    {
-                        Settings.Instance.Language = systemLanguage;
-                    }
-                }
-            }
-            catch
-            {
-                // Nessun blocco: senza core si resta sulla lingua rilevata
-                // dal managed, che e' comunque quella di Windows.
-            }
+            /* First run used to call NativeLocalization.SystemLanguageCode()
+             * here, which P/Invokes Win7TaskbarCore.dll from the App static
+             * ctor — before mutex, hide, or NativeCore.EnsureLoaded.
+             * On a clean install that is the first load of the DLL and
+             * Defender/SmartScreen scan it synchronously, delaying the
+             * native-bar hide. Settings.Migrate already wrote the system
+             * language via managed DetectSystemLanguage(); the core is
+             * told later from OnStartup after the bar is hidden. */
 
             Settings.Instance.PropertyChanged += (_, e) =>
             {
