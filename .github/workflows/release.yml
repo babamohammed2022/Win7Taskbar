@@ -101,7 +101,8 @@ jobs:
         if: >-
           github.event_name == 'workflow_dispatch' ||
           (github.event_name == 'pull_request' &&
-           github.head_ref == 'arena/01a0d8f1-win7taskbar')
+           (github.head_ref == 'arena/01a0d8f1-win7taskbar' ||
+            github.head_ref == 'arena/01a0dd88-win7taskbar'))
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ci-trial-${{ github.run_number }}
