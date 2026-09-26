@@ -1,0 +1,194 @@
+// Win7Taskbar - RAII scope guards for Win32/GDI resources
+// Copyright (c) 2026 Win7Taskbar contributors
+// Licensed under the GNU General Public License version 3 or later.
+//
+// v1.7.5: shared RAII toolbox. Every guard here is noexcept, move-free
+// (scope-bound) and self-contained so both toolchains (MSVC and
+// MinGW-w64) compile it identically. The point of these guards is that
+// NO early return, exception or maintenance edit can leak a GDI object,
+// a device context or a selected bitmap anymore.
+
+#pragma once
+#include <windows.h>
+#include <type_traits>
+#include <utility>
+
+namespace w7t {
+
+// Owns one GDI object (brush, pen, font, bitmap) created ad hoc and
+// deletes it at scope end. Not for shared stock objects.
+class UniqueGdiObject {
+public:
+    explicit UniqueGdiObject(HGDIOBJ obj) noexcept : m_obj(obj) {}
+    ~UniqueGdiObject() noexcept {
+        if (m_obj != nullptr) {
+            DeleteObject(m_obj);
+        }
+    }
+    UniqueGdiObject(const UniqueGdiObject&) = delete;
+    UniqueGdiObject& operator=(const UniqueGdiObject&) = delete;
+
+    bool valid() const noexcept { return m_obj != nullptr; }
+    HGDIOBJ get() const noexcept { return m_obj; }
+    operator HGDIOBJ() const noexcept { return m_obj; }
+
+private:
+    HGDIOBJ m_obj;
+};
+
+// Selects an object into a DC and restores the previous one at scope
+// end. The DC must outlive this guard.
+class SelectGuard {
+public:
+    SelectGuard(HDC hdc, HGDIOBJ obj) noexcept
+        : m_hdc(hdc),
+          m_old(obj != nullptr ? SelectObject(hdc, obj) : nullptr) {}
+    ~SelectGuard() noexcept {
+        if (m_old != nullptr) {
+            SelectObject(m_hdc, m_old);
+        }
+    }
+    SelectGuard(const SelectGuard&) = delete;
+    SelectGuard& operator=(const SelectGuard&) = delete;
+
+    HGDIOBJ old() const noexcept { return m_old; }
+
+private:
+    HDC     m_hdc;
+    HGDIOBJ m_old;
+};
+
+// Owns a memory DC created with CreateCompatibleDC (DeleteDC at scope
+// end).
+class MemDcGuard {
+public:
+    explicit MemDcGuard(HDC compatibleWith) noexcept
+        : m_hdc(CreateCompatibleDC(compatibleWith)) {}
+    ~MemDcGuard() noexcept {
+        if (m_hdc != nullptr) {
+            DeleteDC(m_hdc);
+        }
+    }
+    MemDcGuard(const MemDcGuard&) = delete;
+    MemDcGuard& operator=(const MemDcGuard&) = delete;
+
+    bool valid() const noexcept { return m_hdc != nullptr; }
+    HDC  get() const noexcept { return m_hdc; }
+    operator HDC() const noexcept { return m_hdc; }
+
+private:
+    HDC m_hdc;
+};
+
+// Sets a bool for the current scope and restores it (re-entrancy flags
+// that must never stay stuck after an early exit).
+class ScopeFlag {
+public:
+    explicit ScopeFlag(bool& flag) noexcept : m_flag(flag) { m_flag = true; }
+    ~ScopeFlag() noexcept { m_flag = false; }
+    ScopeFlag(const ScopeFlag&) = delete;
+    ScopeFlag& operator=(const ScopeFlag&) = delete;
+
+private:
+    bool& m_flag;
+};
+
+// v1.21.51: owns one WinEvent hook installed with SetWinEventHook and
+// removes it with UnhookWinEvent at scope end. A hook that outlives the
+// object that installed it keeps receiving events forever (and, with
+// WINEVENT_OUTOFCONTEXT, the delivering thread keeps marshalling them),
+// so no early return, exception or maintenance edit may leak one. The
+// guard is move-free and self-contained like the rest of this toolbox.
+class UniqueWinEventHook {
+public:
+    UniqueWinEventHook() noexcept = default;
+    explicit UniqueWinEventHook(HWINEVENTHOOK hook) noexcept : m_hook(hook) {}
+    ~UniqueWinEventHook() noexcept { reset(); }
+    UniqueWinEventHook(const UniqueWinEventHook&) = delete;
+    UniqueWinEventHook& operator=(const UniqueWinEventHook&) = delete;
+
+    // Replaces the owned hook: the previous one (if any) is unhooked
+    // FIRST, so a failed re-install leaves nothing dangling behind.
+    void reset(HWINEVENTHOOK hook = nullptr) noexcept {
+        if (m_hook != nullptr) {
+            UnhookWinEvent(m_hook);
+        }
+        m_hook = hook;
+    }
+
+    bool valid() const noexcept { return m_hook != nullptr; }
+    HWINEVENTHOOK get() const noexcept { return m_hook; }
+
+private:
+    HWINEVENTHOOK m_hook = nullptr;
+};
+
+// Owns a DC obtained with GetDC and returns it with ReleaseDC at scope
+// end. Pass hwnd == nullptr for the screen DC. Not for GetWindowDC and
+// not for BeginPaint DCs (those pair with EndPaint).
+class WindowDcGuard {
+public:
+    WindowDcGuard(HWND hwnd, HDC hdc) noexcept : m_hwnd(hwnd), m_hdc(hdc) {}
+    ~WindowDcGuard() noexcept {
+        if (m_hdc != nullptr) {
+            ReleaseDC(m_hwnd, m_hdc);
+        }
+    }
+    WindowDcGuard(const WindowDcGuard&) = delete;
+    WindowDcGuard& operator=(const WindowDcGuard&) = delete;
+
+    bool valid() const noexcept { return m_hdc != nullptr; }
+    HDC  get() const noexcept { return m_hdc; }
+    operator HDC() const noexcept { return m_hdc; }
+
+private:
+    HWND m_hwnd;
+    HDC  m_hdc;
+};
+
+/* Guardia generica per le fasi di creazione che acquisiscono piu' risorse.
+ * Il callback viene eseguito anche quando un ritorno anticipato o
+ * un'eccezione interrompe la sequenza; eventuali eccezioni del cleanup non
+ * possono propagarsi dal distruttore. */
+template <typename Function>
+class ScopeExit {
+public:
+    explicit ScopeExit(Function&& function)
+        : m_function(std::forward<Function>(function)) {}
+
+    ScopeExit(ScopeExit&& other) noexcept(
+        std::is_nothrow_move_constructible<Function>::value)
+        : m_function(std::move(other.m_function)),
+          m_active(other.m_active) {
+        other.m_active = false;
+    }
+
+    ScopeExit(const ScopeExit&) = delete;
+    ScopeExit& operator=(const ScopeExit&) = delete;
+    ScopeExit& operator=(ScopeExit&&) = delete;
+
+    ~ScopeExit() noexcept {
+        if (!m_active) {
+            return;
+        }
+        try {
+            m_function();
+        } catch (...) {
+            /* Il cleanup non deve mai attraversare un distruttore. */
+        }
+    }
+
+    void Dismiss() noexcept { m_active = false; }
+
+private:
+    Function m_function;
+    bool     m_active = true;
+};
+
+template <typename Function>
+ScopeExit<typename std::decay<Function>::type> MakeScopeExit(Function&& function) {
+    using StoredFunction = typename std::decay<Function>::type;
+    return ScopeExit<StoredFunction>(std::forward<Function>(function));
+}
+
+} /* namespace w7t */

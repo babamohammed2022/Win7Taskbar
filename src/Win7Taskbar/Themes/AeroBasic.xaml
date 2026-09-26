@@ -1,0 +1,155 @@
+<!--
+    Win7Taskbar - skin "Windows 7 Aero Basic" (v1.21.42, gradienti v1.21.43,
+    workaround texture v1.21.44)
+    Copyright (c) 2026 Win7Taskbar contributors
+    Licensed under the GNU General Public License
+    version 3 or later (see the LICENSE file).
+
+    Il tema e' derivato da RetroBar (https://github.com/dremin/RetroBar),
+    Copyright (c) dremin, Apache License 2.0. Vedere CREDITS.txt.
+
+    COME FUNZIONA
+    =============
+    Questo dizionario NON e' un tema completo: ThemeLoader.Build() lo
+    mergia per ULTIMO - dopo il tema Windows7.xaml e dopo Overrides.xaml -
+    solo quando la skin scelta e' TaskbarThemeIds.Windows7AeroBasic
+    (id 2). Fra dizionari mergiati vince quello aggiunto per ultimo (la
+    precedenza vale per StaticResource e DynamicResource, come documenta
+    Microsoft in "Merged resource dictionaries"), quindi le chiavi qui
+    sotto sostituiscono quelle omonime del tema Windows 7 e TUTTO il
+    resto - template, pulsanti, tray, orologio, separatori, misure,
+    animazioni - resta esattamente quello di Themes/Windows7.xaml, che
+    non viene toccato.
+
+    COSA SOSTITUISCE
+    =================
+    Solo lo sfondo della barra. Nel tema Windows 7 lo sfondo e' vetro
+    Aero: il template "Taskbar" sovrappone (1) la texture win7taskbar.png
+    600x40 con i riflessi diagonali e (2) un gradiente bianco/nero quasi
+    invisibile con Opacity 0.35 che lascia trasparire il desktop, sopra
+    una finestra trasparente.
+
+    v1.21.44 - WORKAROUND: GRADIENTE COTTO IN UNA TEXTURE.
+    I LinearGradientBrush WPF delle versioni 1.21.42/43 sull'hardware
+    reale non rendevano l'aspetto voluto (troppo blu e piatto prima,
+    gradiente "che non funziona" poi). Qui si usa lo STESSO meccanismo
+    che sul quell'hardware renderizza correttamente, cioe' la ImageBrush
+    con tile della texture Aero: il gradiente desaturato a bassa cromia
+    (grigio chiaro con tinta blu appena percettibile) viene cotto in una
+    PNG 128x40 dentro GraphicalResourceBundle (chiave aerobasictaskbar),
+    con dither ordinato +-1 per riga/colonna contro il banding e contro
+    l'effetto "riempimento piatto": la variazione c'e', si vede nel
+    confronto pixel per pixel, non si vede a occhio. Le ImageBrush qui
+    sotto replicano ESATTAMENTE i parametri delle ImageBrush del tema
+    (TileMode, Viewport assoluti in DIP, Stretch, la RotateTransform 90
+    della variante verticale), quindi il rendering segue la barra a
+    qualsiasi DPI come fa la texture Aero.
+
+    Andamento verticale cotto nella PNG (palette desaturata ~45% verso il
+    grigio di luminanza dei colori misurati sulla reference):
+      bordo superiore sottilissimo -> highlight morbido ~2 px ->
+      transizione grigio-azzurra continua -> superficie principale con
+      deriva dolce verso il fondo. Niente bande, niente tinta piatta,
+      niente vetro/blur/trasparenze/riflessi.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:bundle="clr-namespace:Win7Taskbar.Utilities">
+
+    <!-- La superficie cotta: stesso bundle base64 delle immagini del tema,
+         validato all'avvio da ThemeLoader.ValidateStaticMembers. -->
+    <x:Static x:Key="AeroBasicTaskbarImage"
+              Member="bundle:GraphicalResourceBundle.aerobasictaskbar" />
+
+    <!-- Layer 1 del template Taskbar (barra orizzontale): stessi parametri
+         della ImageBrush Aero (tile 600x40 -> qui 128x40, colonne
+         statisticamente identiche). -->
+    <ImageBrush x:Key="Win7_TaskbarTextureBrush"
+                ImageSource="{StaticResource AeroBasicTaskbarImage}"
+                TileMode="Tile"
+                Viewport="0,0,128,40"
+                ViewportUnits="Absolute"
+                Stretch="Fill"
+                Opacity="1" />
+
+    <!-- Variante verticale: stessa RotateTransform 90 e tile ruotato della
+         ImageBrush Aero (40x600 -> qui 40x128). -->
+    <ImageBrush x:Key="Win7_Win7_TaskbarTextureBrushVertical"
+                ImageSource="{StaticResource AeroBasicTaskbarImage}"
+                TileMode="Tile"
+                Viewport="0,0,40,128"
+                ViewportUnits="Absolute"
+                Stretch="Fill"
+                Opacity="1">
+        <ImageBrush.Transform>
+            <RotateTransform Angle="90" />
+        </ImageBrush.Transform>
+    </ImageBrush>
+
+    <!-- Chiavi storiche del tema Windows 7 (ImageBrush sulla PNG
+         taskbarbackground): nessun template le referenzia piu', ma sono
+         definite dalla stessa texture vetro, quindi vengono sostituite
+         pure loro: sotto questa skin non deve restare raggiungibile
+         nessuna risorsa di vetro. -->
+    <ImageBrush x:Key="TaskbarTextureBrush"
+                ImageSource="{StaticResource AeroBasicTaskbarImage}"
+                TileMode="Tile"
+                Viewport="0,0,128,40"
+                ViewportUnits="Absolute"
+                Stretch="Fill"
+                Opacity="1" />
+
+    <ImageBrush x:Key="Win7_TaskbarTextureBrushVertical"
+                ImageSource="{StaticResource AeroBasicTaskbarImage}"
+                TileMode="Tile"
+                Viewport="0,0,40,128"
+                ViewportUnits="Absolute"
+                Stretch="Fill"
+                Opacity="1">
+        <ImageBrush.Transform>
+            <RotateTransform Angle="90" />
+        </ImageBrush.Transform>
+    </ImageBrush>
+
+    <!-- Layer 2 del template Taskbar (Opacity 0.35): nel tema Windows 7 e'
+         il gradiente "ultra-trasparente" che lascia vedere il desktop
+         attraverso il vetro. Con Aero Basic non deve aggiungere nulla:
+         trasparente, e la barra resta interamente opaca. -->
+    <SolidColorBrush x:Key="TaskbarBackground" Color="Transparent" />
+    <SolidColorBrush x:Key="TaskbarVerticalBackground" Color="Transparent" />
+
+    <!-- Sfondo della finestra barra: nel tema Windows 7 e' Transparent
+         (il vetro e' disegnato dai layer); qui e' il tono medio della
+         superficie cotta nella PNG, cosi' nessun pixel della barra puo'
+         restare trasparente nemmeno ai bordi del template. -->
+    <SolidColorBrush x:Key="TaskbarWindowBackground" Color="#FFC1D2E0" />
+
+    <!-- v1.21.45 / v1.21.46 - FASCIA SCURA DELL'AREA DI NOTIFICA, VERSIONE
+         AERO BASIC. Con il fade leggero ereditato dal tema Windows 7
+         (alpha 8.6-11.8%) la superficie chiara restava troppo chiara per
+         il testo BIANCO di orologio e tray: poco leggibile. Qui la chiave
+         TrayAreaShade viene RIDEFINITA (fra dizionari mergiati vince
+         l'ultimo aggiunto, quindi questa definizione copre quella del
+         tema solo per la skin Aero Basic; il tema Windows 7 resta
+         intatto con il suo fade leggero): stesso effetto fade -
+         trasparente a sinistra, ombra piena verso destra, mai un bordo
+         netto - ma con molta piu' scurita', senza esagerare.
+         Come da documentazione Microsoft di LinearGradientBrush
+         (System.Windows.Media), il pennello interpola i GradientStop -
+         colore E alpha - lungo StartPoint/EndPoint, e la curva del fade
+         si sagoma con stop intermedi: qui la salita e' ease-out (dolce
+         all'inizio, piena entro meta' fascia, poi quasi piatta con una
+         crescita minima). Alpha massima ~44%: sulla superficie chiara
+         (luminanza ~207) la fascia scende a luminanza ~116-124, cioe'
+         un contrasto col testo bianco di circa 4.0-4.7:1, leggibile
+         senza diventare una banda nera. -->
+    <LinearGradientBrush x:Key="TrayAreaShade"
+                         StartPoint="0,0"
+                         EndPoint="1,0">
+        <GradientStop Color="#00000000" Offset="0.00" />
+        <GradientStop Color="#4D000000" Offset="0.25" />
+        <GradientStop Color="#66000000" Offset="0.55" />
+        <GradientStop Color="#70000000" Offset="1.00" />
+    </LinearGradientBrush>
+
+</ResourceDictionary>

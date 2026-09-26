@@ -1,0 +1,43 @@
+# Icon sources (PNG) - never committed.
+# The tray/battery artwork lives in assets/icon-sources/ and is turned into the
+# embedded C++ tables by "compilation files/icons_to_base64.py"; only those
+# generated .inc files are tracked, so the repository carries no binary art.
+assets/icon-sources/*.png
+
+# Build output
+bin/
+obj/
+out/
+# self-contained package produced by "compilation files/publish.ps1" (CI artifact)
+dist-package/
+dist/*.pdb
+Win7Taskbar-*-win-x64.zip
+release/
+
+# CMake build trees
+native/build/
+native/build-*/
+*.log
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.csproj.user
+
+# Misc
+*.log
+*.tmp
+*.bak
+*.swp
+*~
+__pycache__/
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# foto di riferimento per il design (non nel repo)
+image-search/

@@ -1,0 +1,636 @@
+================================================================================
+ Win7Taskbar - CREDITS AND ATTRIBUTIONS
+================================================================================
+
+Win7Taskbar
+Copyright (c) 2026 Win7Taskbar contributors
+Distributed under the GNU General Public License v3.0 (or, at your option, any
+later version). The full text is in LICENSE.
+
+Why that licence: combining code derived from RetroBar (Apache-2.0) with code
+derived from ExplorerPatcher (GPL) requires GPL-3.0, because Apache-2.0 is not
+compatible with GPL-2.0. The reasoning is spelled out in English in
+THIRD-PARTY-NOTICES.md, section "Why GPL-3.0".
+The upstream portions stay under their own licence: the XAML theme and the PNGs
+are Apache-2.0, and the full Apache-2.0 text is included as an appendix to this
+file as required by its section 4.
+
+
+--------------------------------------------------------------------------------
+1. RetroBar  (main attribution)
+--------------------------------------------------------------------------------
+
+The XAML layout and the structural approach of the theme used by Win7Taskbar are
+inspired by / derived from RetroBar.
+
+    Project : RetroBar
+    Author  : dremin
+    Site    : https://github.com/dremin/RetroBar
+    License : Apache License, Version 2.0
+
+Derived works and scope of the attribution:
+
+  * Themes/Windows7.xaml
+    A RetroBar skin from the Windows7RetrobarTheme repository, itself a derived
+    work of RetroBar: it extends its styles through BasedOn and references its
+    types. Image keys now resolve through GraphicalResourceBundle (Base64 PNG
+    payloads that preserve the original artwork bytes); see
+    docs/GRAPHICAL-RESOURCES.md.
+
+  * src/RetroBar.Shim/
+    A compatibility assembly named "RetroBar". The theme declares
+    xmlns:controls="clr-namespace:RetroBar.Controls;assembly=RetroBar" and
+    therefore requires an assembly with that name. ONLY the public surfaces
+    (type and property names) needed to resolve the theme bindings are
+    replicated:
+        RetroBar.Controls.NotifyIcon        (IsPinned, Host)
+        RetroBar.Controls.NotifyIconList    (NotificationArea, PinnedIcons)
+        RetroBar.Converters.BoolToVisibilityConverter
+        RetroBar.Utilities.Settings         (Instance, CollapseNotifyIcons)
+
+EXPLICIT STATEMENT ABOUT THE SOURCE CODE
+    Apart from the single, documented exception below (the autostart logic,
+    copied verbatim since v1.21.37 on purpose and fully attributed), NO line
+    of RetroBar's C# source code was copied verbatim into this project.
+    All the other logic (Superbar grouping, jump lists, notification area,
+    AppBar behaviour) was REIMPLEMENTED FROM SCRATCH in native C++, under
+    native/. What is taken from the RetroBar project:
+      - the XAML theme file listed above, an existing derived work;
+      - the public type/member names that the XAML bindings require;
+      - the ALGORITHMS of a few features described below, reimplemented as
+        original code but following the same logic;
+      - the autostart implementation, copied as described below.
+
+  * src/Win7Taskbar/Controls/TaskThumbnail.cs
+    Live window previews through the DWM APIs. It follows the logic of
+    RetroBar/Controls/TaskThumbnail.cs: registering the thumbnail with
+    DwmRegisterThumbnail, using DWM_TNP_SOURCECLIENTAREAONLY, querying the
+    source size with DwmQueryThumbnailSourceSize, fitting it to the maximum
+    size (180x120) while preserving the aspect ratio, expressing the
+    destination rectangle in physical pixels and updating it every frame, and
+    calling DwmUnregisterThumbnail when the control goes away.
+    Original code, derived algorithm. Apache 2.0.
+    NOTE (v2.56): the feature is currently disabled - the popup is not opened
+    and both implementations are kept, commented out, as a reference. See the
+    README for the user-facing statement.
+
+  * src/Win7Taskbar/Converters/ToolTipOffsetConverters.cs
+    Positioning of the preview relative to the edge occupied by the taskbar
+    (horizontal/vertical offset and PlacementMode). Same logic as the
+    converters with the same name in RetroBar/Converters/. Apache 2.0.
+
+  * src/Win7Taskbar/Controls/NotifyBalloon.xaml.cs, Controls/BalloonHost.cs,
+    TaskbarWindow.xaml.cs  (balloon notifications, v1.21.39)
+    Anchoring the balloon to the icon that generated it; promoting an
+    overflow icon to the bar for the balloon's duration plus 500 ms
+    (RetroBar NotifyIconList: "used to promote unpinned icons to show when
+    the tray is collapsed"); showing a missed balloon once the icon's
+    container is generated (RetroBar MissedNotifications); icon fallbacks
+    and timeout from the system message duration, "SystemNotification"
+    sound unless NIIF_NOSOUND, and the NIN_BALLOONSHOW/HIDE/TIMEOUT/
+    USERCLICK feedback with the NOTIFYICON_VERSION_4 wParam/lParam layout
+    (ManagedShell NotificationBalloon / NotifyIcon.SendMessage).
+    Original code, derived algorithms. Apache 2.0.
+
+  * native/src/FlyoutLauncher.cpp  (second path: Aero Clock fallback)
+    Opening the system calendar (Aero Clock). It follows the logic of
+    RetroBar/Utilities/ClockFlyoutLauncher.cs: creating the COM object with
+    CLSID A323554A-0FE1-4E49-AEE1-6722465D799F, choosing between the
+    IAeroClock interface (7A5FCA8A-..., Windows 8 and later, first parameter
+    HWND) and IAeroClockLegacy (4376DF10-..., Vista/7, first parameter
+    integer), calling ShowFlyout with the taskbar rectangle, and then
+    correcting the position of the "ClockFlyoutWindow" window by snapping it to
+    the edges (15 px threshold, 7 px margin) and keeping it inside the work
+    area. Original C++ code, derived algorithm. Apache 2.0.
+
+  * native/src/ImmersiveFlyouts.cpp / .h  (first path: modern flyouts)
+    Opening the real Windows 10/11 flyouts for network, clock, battery and
+    volume. The invocation sequence is ADAPTED FROM ExplorerPatcher (see
+    section 3); previously it was only conceptually derived, with ManagedShell
+    (see section 4) as the reference for the shape of the interfaces:
+      - creating CImmersiveShell (C2F03A33-21F5-47FA-B4BB-156362A2F239);
+      - IServiceProvider::QueryService towards the experience manager factory
+        (2E8FCB18-A0EE-41AD-8EF8-77FB3A370CA5);
+      - GetExperienceManager with the runtime name of the desired flyout
+        ("Windows.Internal.ShellExperience.TrayClockFlyout" for the clock,
+        "...MtcUvc" for the volume) and QueryInterface on the matching IID;
+      - calling ShowFlyout with the taskbar rectangle (a
+        Windows.Foundation.Rect, four floats, passed by reference), preceded by
+        AllowSetForegroundWindow on the shell process so that the flyout appears
+        and receives input.
+    The COM interfaces are redeclared in C++ from their binary shape (vtable).
+    From ManagedShell: the shape of the interfaces. From ExplorerPatcher: the
+    sequence, the GUIDs and the runtime names, including the network and battery
+    ones. GPL-3.0-or-later.
+
+  * native/src/ExplorerTrayReader.cpp
+    Reading the icons already present in the Explorer notification area, to fill
+    the taskbar at startup. Algorithm derived from ManagedShell,
+    src/ManagedShell.WindowsTray/ExplorerTrayService.cs (see section 4):
+      - locating the toolbars Shell_TrayWnd > TrayNotifyWnd > SysPager >
+        ToolbarWindow32 and, for the hidden icons, the
+        NotifyIconOverflowWindow window;
+      - counting the buttons with TB_BUTTONCOUNT and reading each one with
+        TB_GETBUTTON, allocating the exchange structure in Explorer's address
+        space (VirtualAllocEx) and reading it back with ReadProcessMemory,
+        followed by a second read at the address in the dwData field to obtain
+        the icon data;
+      - the TBSTATE_HIDDEN (8) state to tell hidden icons apart;
+      - using the TrayNotify COM object (25DEAD04-1EAC-4911-9E3A-AD0A4AB560FD,
+        ITrayNotify/ITrayNotifyWin8) as an optional callback snapshot when the
+        shell exposes it; the callback is always deregistered and no automatic
+        grouping or Explorer preference is written;
+      - treating the private COM contract as a compatibility/reverse-engineering
+        fallback, never as a supported Microsoft API.
+    Original C++ code, derived algorithm. Apache 2.0.
+
+  * Task button behaviours in src/Win7Taskbar/TaskbarWindow.xaml.cs
+    Interaction rules taken from RetroBar/Controls/TaskButton.xaml.cs:
+      - clicking a window that is already in the foreground minimises it; the
+        condition has to be evaluated on button DOWN, not on release;
+      - releasing the foreground right with SendInput on an unassigned virtual
+        key before activating someone else's window;
+      - mouse wheel: up activates, down minimises;
+      - middle click opens a new instance of the application.
+    Reimplemented as original code. Apache 2.0.
+
+  * src/Win7Taskbar/Utilities/AutoStart.cs  (v1.21.37)
+    "Start with Windows" (reversible) - the checkbox in the "About /
+    Informazioni" tab of the Properties window. This one is a COMPLETE PORT,
+    copied from RetroBar on purpose:
+      - RetroBar/PropertiesWindow.xaml.cs, LoadAutoStart(): the state is read
+        from the VALUE NAMES of
+        HKCU\Software\Microsoft\Windows\CurrentVersion\Run;
+      - RetroBar/PropertiesWindow.xaml.cs, CbAutoStart_OnChecked(): enabling
+        writes the quoted executable path as the "Win7Taskbar" value of that
+        key (Run values are command lines, hence the quotes), disabling
+        DELETES the value - fully reversible;
+      - RetroBar/Utilities/ExePath.cs, GetExecutablePath(): the executable
+        path through GetModuleFileName(NULL).
+    Every step is wrapped in try/catch with error logging, exactly as in the
+    original. The only differences: the value name ("Win7Taskbar" instead of
+    "RetroBar"), the error sink (DiagnosticLogger instead of ShellLogger), the
+    checkbox labels (the very "autostart" strings of RetroBar's language
+    files, minus the accelerator character) and the moment the choice is
+    committed (OK/Apply of this Properties dialog instead of the checkbox
+    click, like every other setting of this dialog). Apache 2.0.
+
+
+--------------------------------------------------------------------------------
+2. Windows7RetrobarTheme  (graphic resources)
+--------------------------------------------------------------------------------
+
+    Project : Windows7RetrobarTheme
+    Author  : babamohammed2022
+    Site    : https://github.com/babamohammed2022/Windows7RetrobarTheme
+
+Material included without modification:
+    Themes/Windows7.xaml          (1 file; image references resolved via GraphicalResourceBundle)
+    Resources/**.png              (WPF PNGs centralized as Base64 in GraphicalResourceBundle.cs;
+                                  8 native Aero 9-slice PNGs remain on disk under Resources/ and
+                                  src/Win7Taskbar/Resources/; app.ico remains a build-input ICO)
+
+Credits declared by the theme author in the original credits.txt:
+    WinBoeing 777  - Show desktop button icon
+    Traindere      - supervision
+    3Ds            - inspiration
+
+
+--------------------------------------------------------------------------------
+3. ExplorerPatcher  (direct derivation, GPL compatible)
+--------------------------------------------------------------------------------
+
+    Project : ExplorerPatcher
+    Author  : Valentin Radu (valinet) and contributors
+    Site    : https://github.com/valinet/ExplorerPatcher
+    License : GNU General Public License v2 (no version indication in the source
+              files, so the "any version ever published by the FSF" clause
+              applies)
+
+Since Win7Taskbar moved to GPL-3.0, ExplorerPatcher's code can be used as a direct
+source, no longer just as inspiration: GPL-2.0 "or later" allows redistributing the
+derived work under GPL-3.0, which in turn is compatible with RetroBar's Apache-2.0.
+
+What was adapted, file by file:
+
+  * native/src/ImmersiveFlyouts.h and native/src/ImmersiveFlyouts.cpp
+    from ExplorerPatcher/ImmersiveFlyouts.h and ImmersiveFlyouts.c
+      - the COM call sequence: CoCreateInstance(CLSID_ImmersiveShell,
+        CLSCTX_NO_CODE_DOWNLOAD | CLSCTX_LOCAL_SERVER, IID_IServiceProvider)
+        -> QueryService(CLSID_ShellExperienceManagerFactory)
+        -> GetExperienceManager(runtime name)
+        -> QueryInterface(IID of the flyout)
+        -> ShowFlyout / HideFlyout;
+      - the four runtime names (NetworkFlyout, TrayClockFlyout,
+        TrayBatteryFlyout, MtcUvc) and their IIDs
+        (C9DDC674-..., B1604325-..., 0A73AEDC-..., 7154C95D-...);
+      - the use of WindowsCreateStringReference with HSTRING_HEADER instead of
+        WindowsCreateString;
+      - the shape of the IExperienceManager and IShellExperienceManagerFactory
+        interfaces (IInspectable plus specific methods).
+
+    Rewritten from scratch instead:
+      - resource management, with RAII wrappers (ComPtr, HStringRef) replacing the
+        manual release nested in if(SUCCEEDED(hr)) blocks;
+      - CACHING of the factory and of the experience managers between calls (the
+        original creates and releases them on every invocation), with a second
+        attempt on an emptied cache to survive an Explorer restart;
+      - runtime loading of combase.dll with GetProcAddress, so the DLL also loads
+        on Windows 7 where that module does not exist;
+      - error propagation, crossing the DLL boundary as return values and not as
+        exceptions;
+      - the interface declarations, in C++ with virtual methods instead of
+        explicit C vtables.
+
+    One correction with respect to the original: in ExplorerPatcher's header
+    GetExperienceManager declares the first parameter as HSTRING* but receives an
+    HSTRING; the correct signature is used here, by value.
+
+  * native/src/FlyoutLauncher.cpp
+    delegates the immersive path to ImmersiveFlyouts; the Aero Clock fallback and
+    the flyout position correction remain derived from RetroBar (section 1).
+
+  * native/include/Win7TaskbarCore.h
+    the numeric values of W7T_FLYOUT_* and W7T_FLYOUT_SHOW/HIDE mirror
+    ExplorerPatcher's INVOKE_FLYOUT_*, so the value crosses the DLL boundary
+    without a translation table.
+
+The jump-list and button-grouping behaviour remains CONCEPTUALLY inspired by
+ExplorerPatcher, as does the idea of reusing the system flyouts through
+ImmersiveShell, publicly described by the author in:
+    https://valinet.ro/2021-11-18/Functional-Windows-10-flyouts-on-Windows-11.html
+
+The GUIDs are interoperability identifiers for system COM interfaces: facts about
+the Windows API, not protected creative material.
+
+The English summary of this section, with the file-by-file table, is in
+THIRD-PARTY-NOTICES.md.
+
+
+--------------------------------------------------------------------------------
+4. ManagedShell  (notification area and system flyout algorithms)
+--------------------------------------------------------------------------------
+
+    Project : ManagedShell
+    Author  : Cairo Shell contributors (cairoshell)
+    Site    : https://github.com/cairoshell/ManagedShell
+    License : Apache License 2.0 (full text in the appendix)
+
+ManagedShell is the library RetroBar is built on. The ALGORITHMS of three parts of
+this project derive from it:
+
+  * native/src/ExplorerTrayReader.cpp
+    from src/ManagedShell.WindowsTray/ExplorerTrayService.cs and TrayNotify.cs
+
+  * native/src/TrayNotifyReader.cpp
+    from the TrayNotify callback/COM declarations in
+    src/ManagedShell.WindowsTray/TrayNotify.cs; the C++ implementation is
+    rewritten with local RAII, optional failure handling, and no preference
+    writes
+
+  * native/src/FlyoutLauncher.cpp  (the modern flyouts part)
+    from src/ManagedShell.UWPInterop/ImmersiveShellHelper.cs and the declarations
+    in src/ManagedShell.UWPInterop/Interfaces/
+
+What was derived in detail is described in section 1. In both cases this is C++
+code written from scratch: what was taken from the C# source is the sequence of
+system calls and the COM identifiers, not the text of the program.
+
+
+--------------------------------------------------------------------------------
+5. Aero Tray  (Windhawk mod by aubymori - overflow panel layout)
+--------------------------------------------------------------------------------
+
+    Project : Aero Tray (Windhawk mod)
+    Author  : aubymori
+    Site    : https://github.com/aubymori (windhawk-mods repository)
+    License : GNU GPL-3.0 (the licence Windhawk mods are distributed under)
+
+What was adapted (v2.2, files src/Win7Taskbar/TaskbarWindow.xaml and
+TaskbarWindow.xaml.cs):
+
+  * the overflow panel metrics at 96 DPI: the "Customize" link area is 43 px high
+    with 16 px padding, 7 px padding around the icon area, 18 px between icons,
+    8 px offset of the flyout from the monitor edges; in WPF the values are in
+    DIPs and already scale with the DPI (the equivalent of the mod's
+    MulDiv(value, dpiY, 96));
+  * the fixed grid of 3 icons per row (Windows 7/8 behaviour, not the 2-per-row
+    of Windows 10/11);
+  * the hover/pressed states of the "Customize..." link and the Control Panel
+    path used to open it:
+    shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}\0\::{05D7B0F4-...}.
+
+What was NOT ported: the whole symbol hooking part (SYMBOL_HOOK, *_orig,
+HookSymbols, Wh_ModInit, PatchStartIsBack). The mod hooks explorer.exe's internal
+classes, while Win7Taskbar draws its own UI and has nothing to hook. The layout
+logic was rewritten in WPF/C# (Popup + styles + global mouse hook for closing),
+not copied.
+
+--------------------------------------------------------------------------------
+5bis. ViGlance and ExplorerEx  (v2.3 references, no code copied)
+--------------------------------------------------------------------------------
+
+  * ViGlance (lee-soft, github.com/lee-soft/ViGlance): reference for refreshing the
+    battery icon immediately from the real power state (GetSystemPowerStatus) when
+    Explorer's legacy toolbar stays frozen on Windows 10/11. No VB6 source copied.
+  * ExplorerEx (kfh83, github.com/kfh83/ExplorerEx): inspiration for the Address /
+    Links / Desktop bands, reimplemented as a WPF layer on top of public shell
+    APIs. No source copied.
+
+--------------------------------------------------------------------------------
+5ter. Taskbar jump list on cursor pos  (Windhawk mod by m417z - v2.62,
+     rule evaluated and discarded after the alpha test)
+--------------------------------------------------------------------------------
+
+    Project : Taskbar jump list on cursor pos
+    Author  : m417z
+    Site    : https://windhawk.net/mods/taskbar-jump-list-on-cursor-pos
+              (source: ramensoftware/windhawk-mods,
+              mods/taskbar-jump-list-on-cursor-pos.wh.cpp)
+    License : GNU General Public License v3.0 (dichiarato nell'intestazione del
+              file del mod; compatibile con il GPL-3.0-or-later di questo
+              progetto)
+
+What was evaluated (v2.62, files native/src/JumpListWindow.cpp and
+src/Win7Taskbar/TaskbarWindow.JumpList.cs):
+
+  * the positioning rule of the mod: the jump list is anchored to the mouse
+    cursor, not to the taskbar button. The mod implements it by hooking
+    CTaskListWnd::_ComputeJumpViewPosition and overwriting the computed
+    position's X with the cursor's X (GetMessagePos); Win7Taskbar has no
+    taskbar.dll to hook, so the v2.62-alpha applied the same rule to its
+    own popup window: DragMove recenters the popup on the cursor along the
+    taskbar axis and clamps it to the work area of the monitor that hosts
+    the button, on every move of the drag that opened the list (and on the
+    release).
+
+Outcome: the alpha test showed that the cursor-following position does not
+match the real Windows 7 shell, which opens its jump view next to the
+button (left-aligned above it, small gap). The final v2.62 removed the
+cursor-following re-anchoring entirely: the popup keeps the canonical
+button-anchored placement, and no rule or code derived from the mod remains
+in the released build. The mod is recorded here as the inspiration that was
+evaluated and then discarded.
+
+What was NOT ported (at any point): the Windhawk/PEB plumbing and the
+taskbar.dll symbol hooking, which do not exist in a standalone taskbar. No
+line of the mod's C++ was ever copied verbatim.
+
+--------------------------------------------------------------------------------
+5ter. Language contributions
+--------------------------------------------------------------------------------
+
+The interface of Win7Taskbar is translated by hand, language by language.
+People who contributed a translation:
+
+  * Arabic (Languages/Arabic.xaml, src/Win7Taskbar/Languages/Arabic.xaml and the
+    Arabic tables in native/src/Strings.cpp)
+      - MAHMOGAMER (github.com/mahmogamer)
+        The first complete Arabic translation of the interface, including the
+        strings the native core draws itself (Properties window, application
+        search, context menus, battery flyout).
+
+Translations are plain source files under the same GPL-3.0-or-later licence as
+the rest of the project. Corrections are welcome: open an issue, or a pull
+request with the single file you want to change.
+
+--------------------------------------------------------------------------------
+6. Third-party components
+--------------------------------------------------------------------------------
+
+    .NET 8 / WPF - Microsoft Corporation - MIT License
+                   https://github.com/dotnet/wpf
+
+
+=====
+ APPENDIX - APACHE LICENSE 2.0 (FULL TEXT)
+================================================================================
+
+Required by section 4 of the Apache License 2.0 for the portions of this project
+that remain Apache-2.0: the Themes/Windows7.xaml theme, the PNG artwork now
+stored as Base64 in GraphicalResourceBundle.cs (and the 8 native slices still
+shipped under Resources/)
+and the algorithms derived from RetroBar and ManagedShell. The rest of the
+project is GPL-3.0-or-later (see the LICENSE file).
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+3ds
+ - Some of the graphic resources of the project.
+ - Inspiration for the XAML theme idea.
+
+AdmXP8 (Administratox)
+ - Author of the MIT-licensed Windhawk mod "Windows 8x Network Flyout
+   Recreation" v1.0.0 (github.com/AdmXP8, published in the
+   ramensoftware/windhawk-mods repository, MIT by repository policy for
+   mods without an explicit license). Since v1.21.14 the network flyout's
+   "Windows 8 (recreated)" variant (native/src/Win8NetworkFlyout.cpp,
+   selected from Properties with "Windows 8 (ricreato)") is a COMPLETE
+   port of that mod: Charms-style full-height pane with vsync slide
+   animation, live Wi-Fi list with signal bars, connect/disconnect with
+   native-style password dialog, Ethernet state, Home/Work/Public network
+   categories, privacy mode, tooltips, context menu, dark theme and all
+   11 built-in languages. The only part excluded from the port is the
+   Control Panel restyling (Network and Sharing Center), as it is outside
+   this project's scope. Attribution is also carried in the header of
+   native/src/Win8NetworkFlyout.cpp.

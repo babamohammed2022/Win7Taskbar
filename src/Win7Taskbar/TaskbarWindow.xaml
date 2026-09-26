@@ -1,0 +1,1216 @@
+<!--
+    Win7Taskbar - finestra principale della barra
+    Copyright (c) 2026 Win7Taskbar contributors
+    Licensed under the GNU General Public License
+    version 3 or later (see the LICENSE file).
+
+    Il layout usa gli stili del tema Windows7.xaml (chiavi Taskbar, TaskButton,
+    StartButton, Tray, ClockTemplateKey, ShowDesktopButton...).
+
+    IMPORTANTE: le proprieta' Orientation, Rows, AppBarEdge e IsScaled sono
+    richieste dai DataTrigger del tema, che le cerca con
+    RelativeSource FindAncestor AncestorType=Window. Sono definite in
+    TaskbarWindow.xaml.cs come DependencyProperty.
+
+    Il tema e' derivato da RetroBar (https://github.com/dremin/RetroBar),
+    Copyright (c) dremin, Apache License 2.0. Vedere CREDITS.txt.
+-->
+<Window x:Class="Win7Taskbar.TaskbarWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:RetroBar.Controls;assembly=RetroBar"
+        xmlns:w7controls="clr-namespace:Win7Taskbar.Controls"
+        xmlns:local="clr-namespace:Win7Taskbar"
+        xmlns:conv="clr-namespace:Win7Taskbar.Converters"
+        xmlns:w7util="clr-namespace:Win7Taskbar.Utilities"
+        Title="Win7Taskbar"
+        Style="{DynamicResource TaskbarWindow}"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Topmost="True"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display"
+        Height="40"
+        Width="800">
+
+    <Window.Resources>
+        <!-- v3.12: converter della barra verticale (frecce Superbar e
+             barra di scorrimento verticale). Vedere Converters/
+             OrientationViewConverters.cs. -->
+        <conv:OrientationArrowAngleConverter x:Key="OrientationArrowAngle" />
+        <conv:OrientationVerticalScrollConverter x:Key="OrientationVerticalScroll" />
+        <!-- Pannello usato dalla tray quando la barra e' verticale. Il tema
+             resta responsabile del pannello orizzontale: il code-behind applica
+             questa risorsa solo durante il cambio di orientamento. -->
+        <ItemsPanelTemplate x:Key="VerticalTrayItemsPanel">
+            <StackPanel Orientation="Vertical"
+                        HorizontalAlignment="Stretch" />
+        </ItemsPanelTemplate>
+        <!-- ============================================================
+             v2.44: voce dell'anteprima live (una per finestra del gruppo).
+
+             Era il contenuto del ToolTip del pulsante della Superbar; ora
+             vive dentro il Popup TaskPreviewPopup. Il motivo e' strutturale:
+             un ToolTip WPF si chiude appena il mouse esce dal pulsante -
+             anche se sta entrando nell'anteprima stessa - quindi non puo'
+             ospitare un clic. Dentro un Popup la miniatura e' cliccabile
+             (porta la finestra in primo piano) e ha la sua X di chiusura,
+             esattamente come la Superbar di Windows 7.
+             ============================================================ -->
+        <DataTemplate x:Key="LiveThumbnailItemTemplate">
+            <!-- A non-zero alpha of 1 defines the exact rectangular input
+                 surface of the visible framed preview. It is visually
+                 imperceptible, stays behind DWM, and prevents the layered
+                 window from passing clicks through to applications below. -->
+            <Grid x:Name="ThumbRoot"
+                  Background="#01000000"
+                  ClipToBounds="True"
+                  MouseEnter="PreviewThumbnail_MouseEnter"
+                  MouseLeave="PreviewThumbnail_MouseLeave"
+                  MouseLeftButtonDown="PreviewThumbnail_MouseLeftButtonDown"
+                  MouseMove="PreviewThumbnail_MouseMove"
+                  MouseLeftButtonUp="PreviewThumbnail_MouseLeftButtonUp">
+                <!-- Supplied image border, one live preview, a dedicated
+                     title/icon band, and one close X. No title element enters
+                     the live DWM destination rectangle.
+
+                     The two handlers give the frame its border from the core's
+                     native 9-slice renderer as soon as it knows its own device
+                     size (Loaded) and again whenever TaskThumbnail refits it
+                     (SizeChanged). Both only reach
+                     TaskbarWindow.ApplyNativePreviewFrame, which leaves the
+                     XAML frame untouched when the core cannot supply one. -->
+                <ContentControl x:Name="PreviewFrameHost"
+                                Template="{DynamicResource TaskPreviewFrameVista}"
+                                Loaded="PreviewFrameHost_Loaded"
+                                SizeChanged="PreviewFrameHost_SizeChanged">
+                    <!-- v3.9: DWMBorder.png riserva 38px top chrome. La live
+                         surface riempie sempre l'apertura fissa 202x109
+                         (Stretch) invece di ridimensionare il frame esterno;
+                         l'aspect ratio e' gestito via rcSource/rcDestination
+                         in TaskThumbnail.Refresh(). -->
+                    <w7controls:TaskThumbnail x:Name="Thumb"
+                                              SourceWindowHandle="{Binding HandlePtr}"
+                                              ApplicationName="{Binding ApplicationName}"
+                                              Title="{Binding Title}"
+                                              DwmGeometryChanged="PreviewDwmGeometryChanged"
+                                              HorizontalAlignment="Stretch"
+                                              VerticalAlignment="Stretch" />
+                </ContentControl>
+
+                <!-- Title chrome occupies only y=0..37. Microsoft defines the
+                     DWM thumbnail output through rcDestination; ours begins at
+                     y=38, so the live surface can neither cover this text nor
+                     take its hit testing. Binding Width to the already-laid-out
+                     root prevents long titles from resizing the preview. -->
+                <Grid Height="38"
+                      Width="{Binding ActualWidth, ElementName=ThumbRoot}"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Top"
+                      IsHitTestVisible="False"
+                      Panel.ZIndex="50">
+                    <!-- Left edge follows the bitmap aperture; the larger
+                         right reserve keeps text clear of the close button. -->
+                    <Grid Margin="17,0,47,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Image Grid.Column="0"
+                               Source="{Binding Icon}"
+                               Width="12"
+                               Height="12"
+                               Margin="0,0,5,0"
+                               Stretch="Uniform"
+                               VerticalAlignment="Center"
+                               RenderOptions.BitmapScalingMode="HighQuality" />
+                        <TextBlock Grid.Column="1"
+                                   x:Name="PreviewTitleText"
+                                   Text="{Binding Title}"
+                                   FontSize="12"
+                                   Foreground="#FFFFFFFF"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis" />
+                    </Grid>
+                </Grid>
+
+                <!-- Three-state close X in the top image border, outside the
+                     centre cell painted by DWM. At 20x20, margin right 21
+                     keeps the full hit target above y=38 and left of the 17px
+                     rounded outer-corner slice.
+
+                     v1.21.32: the vertical position is no longer a fixed
+                     magic number. Loaded/SizeChanged call
+                     TaskbarWindow.AlignPreviewCloseButton, which copies the
+                     height of the title TEXT (the label of the band below)
+                     and centres the X on it - exactly the geometry the eye
+                     expects - and falls back to the historical magic value
+                     (14) when the text or the layout cannot be measured. -->
+                <Button x:Name="PreviewCloseButton"
+                        Style="{DynamicResource TaskPreviewCloseButton}"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        Margin="0,14,21,0"
+                        Panel.ZIndex="99"
+                        Loaded="PreviewCloseButton_Loaded"
+                        SizeChanged="PreviewCloseButton_SizeChanged"
+                        Click="PreviewCloseButton_Click" />
+            </Grid>
+        </DataTemplate>
+    </Window.Resources>
+
+
+    <!-- Il ContentControl "Taskbar" porta lo sfondo Aero del tema. -->
+    <ContentControl Style="{DynamicResource Taskbar}">
+        <!-- Il click destro su una zona vuota apre il menu della barra
+             (come in Windows 7). Background="Transparent" e' necessario:
+             senza un pennello impostato le zone vuote non ricevono eventi
+             del mouse e il menu non si aprirebbe mai. -->
+        <!-- v3.12: il root e' NOMINATO perche' il code-behind
+             (ApplyOrientationLayout) scambia Grid.Column<->Grid.Row dei
+             figli quando la barra si aggancia a un bordo laterale:
+             WPF non permette di scambiare assi via puro DataTrigger. -->
+        <Grid x:Name="RootLayoutGrid"
+              Background="Transparent"
+              PreviewMouseLeftButtonDown="TaskbarRoot_PreviewMouseLeftButtonDown"
+              MouseLeftButtonDown="TaskbarBackground_MouseLeftButtonDown"
+              MouseRightButtonUp="TaskbarBackground_MouseRightButtonUp">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <!-- v3.13: le RowDefinitions NON esistono piu' nel markup. In
+                 orizzontale il Grid resta a riga singola IMPLICITA (stella),
+                 identico alle release precedenti la v3.12 - i contenuti si
+                 distendono per tutta l'altezza come sempre. Le righe le
+                 CREA il code-behind (ApplyOrientationLayout) SOLO entrando
+                 in verticale, con lo stesso schema leading/trailing/fill
+                 che RetroBar applica al suo DockPanel: Start e pannelli in
+                 testa (leading -> righe Auto), Superbar che riempie (fill
+                 -> riga stella), tray/orologio/Mostra desktop in coda
+                 (trailing -> righe Auto). Schema di RetroBar,
+                 https://github.com/dremin/RetroBar, Copyright (c) dremin,
+                 licenza Apache 2.0: vedi CREDITS.txt. -->
+
+            <!-- v3.3: pulsante ricerca (lente) A SINISTRA dello Start:
+                 esiste solo durante l'esecuzione della nostra taskbar e
+                 solo se la ricerca e' attivata dalle Proprieta'.
+                 v2.44: usa lo stile SuperbarButton (lo stesso dei bottoni
+                 pinnati/aperti) invece del chrome di sistema di WPF, e
+                 l'icona e' 32 px come le icone delle app: il bottone non
+                 e' piu' forzato a un quadrato 30x30. Il DataContext del
+                 bottone non ha IsRunning/IsActive, quindi i DataTrigger
+                 dello stile non scattano e resta SuperbarIdleTemplate:
+                 e' il comportamento voluto (la ricerca non e' una
+                 finestra, resta sempre "idle" con l'hover delle altre
+                 icone). -->
+            <!-- v3.12: l'orientamento segue il Window (DP Orientation):
+                 bottoni affiancati in orizzontale, impilati in verticale. -->
+            <StackPanel Grid.Column="1"
+                        Orientation="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}">
+            <Button x:Name="SearchButton"
+                    Style="{DynamicResource SuperbarButton}"
+                    Margin="{DynamicResource TaskButtonMargin}"
+                    VerticalAlignment="Stretch"
+                    Visibility="Collapsed"
+                    ToolTip="{DynamicResource lang_appsearch_open}"
+                    PreviewMouseLeftButtonDown="SearchButton_PreviewMouseDown"
+                    Click="SearchButton_Click">
+                <!-- v2.47: torna l'IMMAGINE fornita dall'utente (image-2.png:
+                     cartella di documenti con la lente), incorporata come PNG
+                     base64 in Utilities/EmbeddedAssets.cs - e' quello che
+                     l'utente ha chiesto esplicitamente ("usa questa per la
+                     ricerca, in base64").
+
+                     La misura la decide il codice: l'icona viene ridotta per
+                     CONTENERE 22x22 px dentro la casella 32x32 e centrata.
+                     Prima riempiva 28x28 e "risultava troppo grande" rispetto
+                     alle icone delle applicazioni; il rapporto ora e' lo
+                     stesso della Superbar vera, dove il pulsante di ricerca
+                     non ha la taglia di un'icona di programma.
+                     Fuori dalla barra (icona della finestra di ricerca) resta
+                     la stessa immagine, non toccata. -->
+                <!-- v2.48: icona SEMPLICE di Windows 10: una lente di
+                     ingrandimento BIANCA disegnata come vettore. Nessuno
+                     sfondo dietro (niente riquadro, niente alone/ombra) e
+                     nessuna immagine incorporata: il tratto bianco resta
+                     nitido a qualunque DPI.
+
+                     Riguarda SOLO il pulsante della barra: fuori (icona della
+                     finestra di ricerca) resta l'immagine dell'utente, non
+                     toccata. -->
+                <Grid Width="32"
+                      Height="32"
+                      VerticalAlignment="Center"
+                      SnapsToDevicePixels="True"
+                      UseLayoutRounding="True">
+                    <Ellipse Width="15"
+                             Height="15"
+                             HorizontalAlignment="Left"
+                             VerticalAlignment="Top"
+                             Margin="6.5,6.5,0,0"
+                             Stroke="#FFFFFFFF"
+                             StrokeThickness="2.2" />
+                    <Path Data="M19.2,19.2 L24.4,24.4"
+                          Stroke="#FFFFFFFF"
+                          StrokeThickness="2.6"
+                          StrokeStartLineCap="Round"
+                          StrokeEndLineCap="Round" />
+                    <!-- v1.7.2: effetto hover esplicito sulla ricerca: al
+                         passaggio del mouse un velo dello stesso blu di
+                         pressione dei pulsanti della barra compare SOPRA
+                         la lente. -->
+                    <Border CornerRadius="3"
+                            Background="Transparent"
+                            Opacity="0.45"
+                            IsHitTestVisible="False">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="Transparent" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMouseOver,
+                                                RelativeSource={RelativeSource AncestorType=Button}}"
+                                                Value="True">
+                                        <Setter Property="Background"
+                                                Value="{DynamicResource TaskButtonBackgroundPressed}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
+                </Grid>
+            </Button>
+            <Button x:Name="ControlCenterButton"
+                    Style="{DynamicResource SuperbarButton}"
+                    Margin="{DynamicResource TaskButtonMargin}"
+                    VerticalAlignment="Stretch"
+                    Visibility="Collapsed"
+                    ToolTip="Control Center"
+                    Click="ControlCenterButton_Click">
+                <Grid Width="32" Height="32" VerticalAlignment="Center">
+                    <Rectangle Width="14" Height="10" Stroke="#FFFFFFFF" StrokeThickness="1.4"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               RadiusX="1" RadiusY="1"/>
+                    <Ellipse Width="3" Height="3" Fill="#FFFFFFFF"
+                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                             Margin="0,6,0,0"/>
+                </Grid>
+            </Button>
+            <Button x:Name="NotificationCenterButton"
+                    Style="{DynamicResource SuperbarButton}"
+                    Margin="{DynamicResource TaskButtonMargin}"
+                    VerticalAlignment="Stretch"
+                    Visibility="Collapsed"
+                    ToolTip="Notification Center"
+                    Click="NotificationCenterButton_Click">
+                <Grid Width="32" Height="32" VerticalAlignment="Center">
+                    <Path Data="M6,10 L16,10 L16,20 L11,20 L9,23 L9,20 L6,20 Z"
+                          Stroke="#FFFFFFFF" StrokeThickness="1.5" Fill="Transparent"
+                          Stretch="Uniform" Width="16" Height="16"
+                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Grid>
+            </Button>
+            </StackPanel>
+
+            <!-- ============ Pulsante Start ============ -->
+            <ToggleButton x:Name="StartButton"
+                          Grid.Column="0"
+                          Style="{DynamicResource StartButton}"
+                          ToolTip="{DynamicResource start_button_tip_vista}"
+                          PreviewMouseLeftButtonDown="StartButton_PreviewMouseLeftButtonDown"
+                          Click="StartButton_Click" />
+
+            <!-- ============ Superbar: bottoni raggruppati ============ -->
+            <!-- ItemHeight = TaskbarRowHeight (34 su barra da 40): senza di
+                 esso il WrapPanel dimensiona ogni figlio sull'altezza
+                 naturale del contenuto (l'icona da 32px), e la cornice del
+                 pulsante risultava piu' bassa della barra invece di
+                 riempirla come nella Superbar originale. -->
+            <!-- v2.60: l'elenco dei pulsanti vive dentro uno ScrollViewer.
+                 Serve a due cose: dare SEMPRE la misura dello spazio
+                 disponibile (il ScrollViewer riempie la colonna anche quando
+                 il contenuto e' piu' largo) e, quando i pulsanti non ci
+                 stanno nemmeno alla larghezza minima, scorrerli invece di
+                 lasciarli disegnare sopra l'orologio e la tray con le
+                 cornici tagliate. La barra di scorrimento non si vede
+                 (HorizontalScrollBarVisibility=Hidden): si scorre con
+                 Shift + rotellina sopra la barra. -->
+            <!-- v2.61: il margine destro negativo sposta di 4 px a destra il
+                 gruppo delle frecce (e la striscia che scorrono) dentro il
+                 margine trasparente che il riquadro della tray ha a sinistra
+                 ("Tray", Padding 8,0,0,0 - nessuno sfondo li'), cosi' le
+                 frecce stanno un po' piu' a destra come nella barra di
+                 Windows 7 di riferimento. E' solo geometria: nessun colore,
+                 nessun bordo, nessun'altra parte della barra si muove. -->
+            <!-- v3.12: anche la banda interna della Superbar scambia
+                 assi (frecce + scroller): nominata per il code-behind. -->
+            <Grid x:Name="TaskListBandGrid" Grid.Column="2">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <!-- Il margine negativo serve solo all'allineamento
+                             orizzontale delle frecce; in verticale sarebbe un
+                             allargamento oltre il bordo corto della barra. -->
+                        <Setter Property="Margin"
+                                Value="0,0,-4,0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                         Value="Vertical">
+                                <Setter Property="Margin"
+                                        Value="0" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- v2.60: le frecce di scorrimento della Superbar. Sono gli
+                     stili del tema (TaskListScrollLeftButton/RightButton:
+                     esistevano in Windows7.xaml dalla prima versione e non
+                     erano mai stati usati) e compaiono soltanto quando i
+                     pulsanti non entrano nemmeno alla larghezza minima,
+                     esattamente come nella barra vera: clic o clic tenuto =
+                     la striscia scorre di un quarto di barra. -->
+                <RepeatButton x:Name="TaskListScrollLeft"
+                              Grid.Column="0"
+                              Width="16"
+                              VerticalAlignment="Stretch"
+                              Style="{DynamicResource TaskListScrollLeftButtonOverride}"
+                              Delay="250"
+                              Interval="60"
+                              Visibility="Collapsed"
+                              Click="TaskListScrollLeft_Click">
+                    <!-- v3.12: in verticale la stessa freccia, ruotata di
+                         90 gradi, punta in ALTO (diventa la freccia di
+                         scorrimento superiore della pila). -->
+                    <Path Data="M6,0 L0,4 L6,8 Z"
+                          Fill="{DynamicResource TaskListScrollArrow}"
+                          SnapsToDevicePixels="True">
+                        <Path.LayoutTransform>
+                            <RotateTransform Angle="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}, Converter={StaticResource OrientationArrowAngle}}" />
+                        </Path.LayoutTransform>
+                    </Path>
+                </RepeatButton>
+
+            <ScrollViewer x:Name="TaskListScroller"
+                          Grid.Column="1"
+                          HorizontalScrollBarVisibility="Hidden"
+                          VerticalScrollBarVisibility="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}, Converter={StaticResource OrientationVerticalScroll}}"
+                          VerticalAlignment="Stretch"
+                          PreviewMouseWheel="TaskListScroller_PreviewMouseWheel"
+                          AllowDrop="True"
+                          DragOver="TaskList_DragOver"
+                          Drop="TaskList_Drop"
+                          DragLeave="TaskList_DragLeave">
+                <ScrollViewer.Style>
+                    <Style TargetType="ScrollViewer">
+                        <!-- In orizzontale resta il piccolo rientro storico;
+                             in verticale il contenuto deve usare tutta la
+                             larghezza disponibile, senza traslazioni laterali. -->
+                        <Setter Property="Margin"
+                                Value="2,0,0,0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                         Value="Vertical">
+                                <Setter Property="Margin"
+                                        Value="0" />
+                                <Setter Property="HorizontalContentAlignment"
+                                        Value="Stretch" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ScrollViewer.Style>
+            <ItemsControl x:Name="TaskList"
+                          ItemsSource="{Binding Groups}"
+                          VerticalAlignment="Stretch"
+                          AllowDrop="True"
+                          DragOver="TaskList_DragOver"
+                          Drop="TaskList_Drop"
+                          DragLeave="TaskList_DragLeave">
+                <ItemsControl.Style>
+                    <Style TargetType="ItemsControl">
+                        <!-- L'orizzontale resta una striscia dimensionata dal
+                             contenuto; in verticale la lista deve riempire la
+                             colonna cosi' ogni pulsante ha lo stesso centro. -->
+                        <Setter Property="HorizontalAlignment"
+                                Value="Left" />
+                        <Setter Property="HorizontalContentAlignment"
+                                Value="Left" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                         Value="Vertical">
+                                <Setter Property="HorizontalAlignment"
+                                        Value="Stretch" />
+                                <Setter Property="HorizontalContentAlignment"
+                                        Value="Stretch" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ItemsControl.Style>
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <!-- StackPanel orizzontale, non WrapPanel: lo
+                             StackPanel concede ai figli TUTTA l'altezza
+                             disponibile sull'asse trasversale, mentre il
+                             WrapPanel li dimensiona sull'altezza naturale del
+                             contenuto (o su ItemHeight, che pero' e' un
+                             valore fisso e non segue la barra). E' lo stesso
+                             risultato che RetroBar ottiene incapsulando la
+                             lista in un DockPanel+ScrollViewer. Con una sola
+                             riga di pulsanti l'andare a capo non serve. -->
+                        <!-- v3.12: segue l'orientamento del Window: i
+                             pulsanti si AFFIANCANO in orizzontale, si
+                             IMPILANO uno per riga in verticale. -->
+                        <StackPanel Orientation="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                    HorizontalAlignment="Stretch"
+                                    VerticalAlignment="Stretch"
+                                    Background="Transparent" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <!-- Un bottone per gruppo applicativo. -->
+                        <!-- Niente Width fissa: in Windows 7 il pulsante si
+                             adatta al contenuto fra un minimo e un massimo.
+                             Inchiodarlo a TaskButtonWidth lo rendeva un
+                             quadratino con la sola icona. -->
+                        <!-- v2.48: nessun massimo forzato, come nella
+                             2.46: il pulsante si dimensiona fra il minimo del
+                             tema (TaskButtonMinWidth) e il suo contenuto
+                             (icona 32 + indicatore delle finestre impilate). -->
+                        <!-- v2.53: tooltip di testo col nome dell'applicazione
+                             (mezzo secondo, come l'orologio). Non si apre se il
+                             riquadro delle anteprime e' gia' a schermo, e quando
+                             l'anteprima si apre un tooltip a schermo viene
+                             chiuso: due riquadri insieme non si devono vedere. -->
+                        <!-- v2.58: la larghezza minima e' la NOSTRA (52 = 50 + 4%),
+                             non quella dichiarata dal tema (TaskButtonMinWidth = 50):
+                             il pulsante con una sola finestra era largo 50 px mentre il
+                             riferimento ne mostra 57 con la stessa icona da 32. -->
+                        <Button Style="{DynamicResource SuperbarButton}"
+                                w7controls:TaskButtonFlasher.IsFlashing="{Binding IsFlashing}"
+                                Width="{Binding ButtonWidth}"
+                                MinWidth="{Binding ButtonMinWidth}"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                Margin="{DynamicResource TaskButtonMargin}"
+                                ToolTip="{Binding DisplayTitle}"
+                                ToolTipService.InitialShowDelay="500"
+                                ToolTipService.BetweenShowDelay="0"
+                                ToolTipOpening="TaskButton_ToolTipOpening"
+                                ContentTemplate="{DynamicResource TaskButtonContentTemplate}"
+                                Content="{Binding}"
+                                Click="TaskButton_Click"
+                                MouseDown="TaskButton_MouseDown"
+                                PreviewMouseDown="TaskButton_PreviewMouseDown"
+                                PreviewMouseMove="TaskButton_PreviewMouseMove"
+                                PreviewMouseLeftButtonUp="TaskButton_PreviewMouseLeftButtonUp"
+                                MouseMove="TaskButton_MouseMove"
+                                MouseWheel="TaskButton_MouseWheel"
+                                MouseEnter="TaskButton_MouseEnter"
+                                MouseLeave="TaskButton_MouseLeave"
+                                MouseRightButtonUp="TaskButton_MouseRightButtonUp"
+                                AllowDrop="True"
+                                DragOver="TaskButton_DragOver"
+                                Drop="TaskButton_Drop">
+                            <!-- v2.44: qui c'era il ToolTip con le anteprime
+                                 live. E' stato sostituito dal Popup
+                                 TaskPreviewPopup (in fondo a questa Grid):
+                                 un ToolTip si chiude appena il mouse esce dal
+                                 pulsante, anche se sta entrando
+                                 nell'anteprima, quindi non poteva ospitare il
+                                 clic sulla miniatura ne' la X di chiusura.
+                                 Il ritardo di comparsa (400 ms) e la
+                                 centratura sul pulsante sono rimasti gli
+                                 stessi: li gestisce il code-behind in
+                                 TaskButton_MouseEnter / PlaceTaskPreview. -->
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            </ScrollViewer>
+
+                <RepeatButton x:Name="TaskListScrollRight"
+                              Grid.Column="2"
+                              Width="16"
+                              VerticalAlignment="Stretch"
+                              Style="{DynamicResource TaskListScrollRightButtonOverride}"
+                              Delay="250"
+                              Interval="60"
+                              Visibility="Collapsed"
+                              Click="TaskListScrollRight_Click">
+                    <!-- v3.12: in verticale punta in BASSO (freccia di
+                         scorrimento inferiore). -->
+                    <Path Data="M0,0 L6,4 L0,8 Z"
+                          Fill="{DynamicResource TaskListScrollArrow}"
+                          SnapsToDevicePixels="True">
+                        <Path.LayoutTransform>
+                            <RotateTransform Angle="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}, Converter={StaticResource OrientationArrowAngle}}" />
+                        </Path.LayoutTransform>
+                    </Path>
+                </RepeatButton>
+            </Grid>
+
+            <!-- ============ v2.4: Barre degli strumenti (Desktop,
+                 Collegamenti, Indirizzo) ispirate a ExplorerEx
+                 (kfh83/ExplorerEx). NON forzate: ogni banda e' nascosta
+                 per default e si attiva dal menu contestuale della barra,
+                 voce "Barre degli strumenti", come in Windows 7. -->
+            <StackPanel x:Name="ShellToolbars"
+                        Grid.Column="3"
+                        Orientation="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                        VerticalAlignment="Center"
+                        Margin="6,0,6,0">
+                <StackPanel.Resources>
+                    <!-- v2.6.1: palette "aero" per le bande, gli stessi colori
+                         chiari del flyout di rete Win7 (Win7NetworkFlyout.cpp:
+                         GetRowHoverColor RGB(242,247,253), GetRowHoverBorderColor
+                         RGB(216,231,248), GetRowSelectedColor RGB(228,241,252),
+                         GetRowSelectedBorderColor RGB(174,212,243)). -->
+                    <LinearGradientBrush x:Key="AeroItemHoverBackground" StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#FFF6FAFE" Offset="0.0" />
+                        <GradientStop Color="#FFE9F2FA" Offset="1.0" />
+                    </LinearGradientBrush>
+                    <SolidColorBrush x:Key="AeroItemHoverBorder" Color="#FFD8E7F8" />
+                    <LinearGradientBrush x:Key="AeroItemPressedBackground" StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#FFE4F1FC" Offset="0.0" />
+                        <GradientStop Color="#FFD8EAF9" Offset="1.0" />
+                    </LinearGradientBrush>
+                    <SolidColorBrush x:Key="AeroItemPressedBorder" Color="#FFAED4F3" />
+
+                    <!-- v2.6.1: la voce del popup Desktop e' ora un vero
+                         pulsante con stato hover/premuto aero (gradiente
+                         azzurro chiaro + bordo), come le righe del flyout
+                         di connessione. Prima era uno StackPanel senza
+                         alcuno stato visivo. -->
+                    <Style x:Key="AeroPopupItemButton" TargetType="Button">
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="BorderBrush" Value="Transparent" />
+                        <Setter Property="Cursor" Value="Hand" />
+                        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="ItemBorder"
+                                            Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="3"
+                                            Padding="3,2">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="ItemBorder" Property="Background"
+                                                    Value="{StaticResource AeroItemHoverBackground}" />
+                                            <Setter TargetName="ItemBorder" Property="BorderBrush"
+                                                    Value="{StaticResource AeroItemHoverBorder}" />
+                                        </Trigger>
+                                        <Trigger Property="IsPressed" Value="True">
+                                            <Setter TargetName="ItemBorder" Property="Background"
+                                                    Value="{StaticResource AeroItemPressedBackground}" />
+                                            <Setter TargetName="ItemBorder" Property="BorderBrush"
+                                                    Value="{StaticResource AeroItemPressedBorder}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+
+                    <Style x:Key="BandButton" TargetType="Button">
+                        <Setter Property="Background" Value="Transparent" />
+                        <!-- v2.6.1: testo BIANCO. Le bande sono WPF (non un
+                             controllo nativo: non esiste alcun NM_CUSTOMDRAW
+                             con clrText qui) e lo stile esplicito BandButton
+                             sostituiva quello di tema, quindi le etichette
+                             dei Collegamenti ereditavano il colore di
+                             sistema (azzurrino su vetro scuro) invece del
+                             bianco del tema Aero. -->
+                        <Setter Property="Foreground" Value="White" />
+                        <Setter Property="BorderThickness" Value="0" />
+                        <Setter Property="Cursor" Value="Hand" />
+                        <Setter Property="Padding" Value="4,2" />
+                        <Setter Property="VerticalAlignment" Value="Center" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="BandBorder"
+                                            Background="{TemplateBinding Background}"
+                                            BorderBrush="Transparent"
+                                            BorderThickness="1"
+                                            CornerRadius="2"
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <!-- v2.6.1: hover azzurro aero (la
+                                             palette del flyout, in opacita'
+                                             adatta al vetro scuro) al posto
+                                             del vecchio bianco 20%. -->
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="BandBorder" Property="Background">
+                                                <Setter.Value>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                        <GradientStop Color="#4DD8E7F8" Offset="0.0" />
+                                                        <GradientStop Color="#33AED4F3" Offset="1.0" />
+                                                    </LinearGradientBrush>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Setter TargetName="BandBorder" Property="BorderBrush" Value="#80D8E7F8" />
+                                        </Trigger>
+                                        <Trigger Property="IsPressed" Value="True">
+                                            <Setter TargetName="BandBorder" Property="Background" Value="#66AED4F3" />
+                                            <Setter TargetName="BandBorder" Property="BorderBrush" Value="#B3AED4F3" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </StackPanel.Resources>
+
+                <!-- Desktop: menu a comparsa con le icone del desktop -->
+                <StackPanel x:Name="DesktopBandHost"
+                            Orientation="Horizontal"
+                            Visibility="Collapsed">
+                    <Button Style="{StaticResource BandButton}"
+                            ToolTip="{DynamicResource lang_menu_desktop}"
+                            Click="DesktopBandToggle_Click">
+                        <!-- v3.0: come negli screenshot di Windows 7, la scritta
+                             della banda Desktop e' BIANCA sulla barra Aero,
+                             non nera. -->
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="{DynamicResource lang_menu_desktop}"
+                                       FontSize="11"
+                                       Foreground="White"
+                                       VerticalAlignment="Center" />
+                            <!-- La freccia e' un glifo, non testo: non si traduce. -->
+                            <TextBlock Text="&#9662;"
+                                       FontSize="11"
+                                       Margin="3,0,0,0"
+                                       Foreground="White"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Popup x:Name="DesktopBandPopup"
+                           Placement="Top"
+                           PlacementTarget="{Binding ElementName=ShellToolbars}"
+                           StaysOpen="False"
+                           AllowsTransparency="True"
+                           PopupAnimation="Fade">
+                        <Border BorderBrush="#FF868686" BorderThickness="1" CornerRadius="3" Padding="4">
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                    <GradientStop Color="#F3FFFFFF" Offset="0.0" />
+                                    <GradientStop Color="#EDF4F4F4" Offset="1.0" />
+                                </LinearGradientBrush>
+                            </Border.Background>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="460">
+                                <ItemsControl x:Name="DesktopBandList">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <!-- v2.6.1: pulsante aero con hover/premuto
+                                                 azzurro chiaro (stile flyout di rete
+                                                 Win7) al posto del vecchio StackPanel
+                                                 senza alcun effetto. -->
+                                            <Button Style="{StaticResource AeroPopupItemButton}"
+                                                    Margin="0,1"
+                                                    ToolTip="{Binding Path}"
+                                                    Click="DesktopBandItem_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Image Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,6,0" />
+                                                    <TextBlock Text="{Binding Name}" FontSize="11"
+                                                               VerticalAlignment="Center"
+                                                               MaxWidth="260" TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Border>
+                    </Popup>
+                    <Border Width="1" Background="#33000000" Margin="4,6" />
+                </StackPanel>
+
+                <!-- Collegamenti: scorciatoie rapide della cartella Links -->
+                <StackPanel x:Name="LinksBandHost"
+                            Orientation="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                            Visibility="Collapsed">
+                    <ItemsControl x:Name="LinksBand">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Style="{StaticResource BandButton}"
+                                        ToolTip="{Binding Path}"
+                                        Click="LinksBandItem_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Image Source="{Binding Icon}" Width="16" Height="16" Margin="0,0,3,0" />
+                                        <TextBlock Text="{Binding Name}" FontSize="11" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Border Width="1" Background="#33000000" Margin="4,6" />
+                </StackPanel>
+
+                <!-- Indirizzo: digita percorso o URL e premi Invio -->
+                <Border x:Name="AddressBandHost" Visibility="Collapsed">
+                    <TextBox x:Name="AddressBand"
+                             Width="170"
+                             Height="22"
+                             FontSize="11"
+                             VerticalContentAlignment="Center"
+                             KeyDown="AddressBand_KeyDown"
+                             LostKeyboardFocus="AddressBand_LostKeyboardFocus"
+                             ToolTip="{DynamicResource lang_address_tip}" />
+                </Border>
+            </StackPanel>
+
+            <!-- ============ Area di notifica ============ -->
+            <!-- v1.21.44 / v1.21.45: fascia piu' scura sotto l'area di
+                 notifica (tray + orologio), fedele al vetro Aero di
+                 Windows 7. v1.21.45: il pennello TrayAreaShade e' un
+                 FADE orizzontale (trasparente -> ombra piena entro il
+                 primo terzo della fascia, ombra ridotta di 7.41 punti
+                 rispetto alla 1.21.44), quindi il passaggio chiaro ->
+                 scuro e' una transizione leggera, mai un bordo netto;
+                 vale per Windows 7, mentre Aero Basic ridefinisce la
+                 chiave con un fade molto piu' scuro (v1.21.46, per la
+                 leggibilita' del testo bianco sulla sua superficie
+                 chiara) e la 8.1 non la definisce affatto. E' un
+                 OVERLAY: primo figlio in markup fra quelli delle colonne
+                 4-5, quindi disegnato SOTTO icone e orologio; con
+                 IsHitTestVisible=False tutti i comportamenti del mouse
+                 restano identici. -->
+            <Border Grid.Column="4"
+                    Grid.ColumnSpan="2"
+                    Background="{DynamicResource TrayAreaShade}"
+                    IsHitTestVisible="False" />
+            <GroupBox Grid.Column="4"
+                      Style="{DynamicResource Tray}">
+                <!-- v3.12: le icone della tray si impilano in verticale
+                     quando la barra e' su un bordo laterale. Il code-behind
+                     sostituisce il pannello orizzontale del tema solo in
+                     verticale, cosi' il ritorno orizzontale resta invariato. -->
+                <StackPanel x:Name="TrayArea"
+                            Orientation="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Center"
+                            MouseWheel="TrayArea_MouseWheel">
+
+                    <!-- v3.5: L'INDICATORE DELLA LINGUA DI INPUT, come nella
+                         barra di Windows 7/8.1/10. Primo elemento dell'area
+                         di notifica, come nell'originale. Lo stile (nascosta,
+                         Windows 7, Windows 8.1, Windows 10/11 un po' piu'
+                         grande) si sceglie dalle Proprieta'; il controllo
+                         gestisce da solo la visibilita' in base al modo.
+                         Il menu di scelta lo apre il core nativo, per avere
+                         lo stesso aspetto delle altre voci della barra. -->
+                    <w7controls:InputLanguageBar x:Name="LanguageBar"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                Mode="1"
+                                                Visibility="Collapsed" />
+
+                    <!-- Freccetta "mostra icone nascoste" + popup di overflow. -->
+                    <!-- v2.1: AllowDrop sulla freccetta: trascinarci sopra
+                         un'icona visibile la sposta nell'overflow (come in
+                         Windows 7), trascinarci un'icona nascosta apre il
+                         pannello. -->
+                    <!-- v2.7: niente OLE DnD (AllowDrop/DragOver/Drop rimossi):
+                         il trascinamento icone usa mouse-capture + hit-test,
+                         come la toolbar vera di Explorer. -->
+                    <ToggleButton x:Name="OverflowToggle"
+                                  HorizontalAlignment="Center"
+                                  Style="{DynamicResource TrayOverflowButton}"
+                                  ToolTip="{DynamicResource show_hidden}"
+                                  Checked="OverflowToggle_Checked"
+                                  Unchecked="OverflowToggle_Unchecked"
+                                  Visibility="{Binding HasOverflowIcons,
+                                               RelativeSource={RelativeSource AncestorType=Window},
+                                               Converter={StaticResource BoolToVisibility}}" />
+
+                    <!-- v2.2: StaysOpen=True + chiusura esplicita (click fuori
+                         via hook globale, come i flyout dell'orologio). Il
+                         meccanismo automatico di chiusura del Popup entrava in
+                         conflitto con l'OLE drag&drop avviato da un'icona del
+                         pannello: il trascinamento "non faceva nulla".
+                         Misure del pannello (area icone, spazio fra icone,
+                         piede col link) dal mod Windhawk "Aero Tray" di
+                         aubymori, riscritte senza hooking: vedere il commento
+                         nel code-behind (OverflowPopup_Opened). -->
+                    <!-- v2.7 FALLBACK RARO: usato solo se la finestra nativa
+                         TrayOverflowWindow non si crea (ambienti RDP/sandbox
+                         molto ristretti). Non e' piu' mantenuto attivamente:
+                         se serve toccarlo, valutare prima se il vero problema
+                         e' nel path nativo. -->
+                    <Popup x:Name="OverflowPopup"
+                           Placement="Top"
+                           PlacementTarget="{Binding ElementName=OverflowToggle}"
+                           StaysOpen="True"
+                           AllowsTransparency="True"
+                           PopupAnimation="Fade"
+                           Opened="OverflowPopup_Opened"
+                           Closed="OverflowPopup_Closed"
+                           IsOpen="{Binding IsChecked, ElementName=OverflowToggle, Mode=TwoWay}">
+                        <!-- Copia visiva del pannello di overflow del tema
+                             Windows7.xaml (Windows7RetrobarTheme): stessi bordi,
+                             stessi gradienti, griglia a tre colonne, selezione
+                             blu al passaggio del mouse, spillo nell'angolo e
+                             piede con "Personalizza...". A differenza del tema,
+                             dove il collegamento e' un testo statico, qui e'
+                             funzionale: apre l'applet "Icone dell'area di
+                             notifica". -->
+                        <Border BorderBrush="#FF93AECB"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                SnapsToDevicePixels="True">
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0"
+                                                     EndPoint="0,1">
+                                    <GradientStop Color="#F3FFFFFF"
+                                                  Offset="0.0" />
+                                    <GradientStop Color="#EDF4F4F4"
+                                                  Offset="1.0" />
+                                </LinearGradientBrush>
+                            </Border.Background>
+                            <!-- Win7-style inner white hairline -->
+                            <Border BorderBrush="#FFFFFFFF"
+                                    BorderThickness="1"
+                                    CornerRadius="2">
+                                <Border.Resources>
+                                    <!-- Popup icons: Win7 blue selection (like the
+                                         real Windows 7 overflow panel) -->
+                                    <Style x:Key="PopupNotifyIcon"
+                                           TargetType="{x:Type controls:NotifyIcon}">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="{x:Type controls:NotifyIcon}">
+                                                    <Grid SnapsToDevicePixels="True">
+                                                        <Border x:Name="HoverFrame"
+                                                                Background="Transparent"
+                                                                BorderBrush="Transparent"
+                                                                BorderThickness="1"
+                                                                CornerRadius="2">
+                                                            <ContentPresenter Margin="8,7,4,6" />
+                                                        </Border>
+                                                        <ToggleButton x:Name="PinToggle"
+                                                                      Width="9"
+                                                                      Height="9"
+                                                                      HorizontalAlignment="Right"
+                                                                      VerticalAlignment="Top"
+                                                                      Margin="0,1,1,0"
+                                                                      Opacity="0"
+                                                                      ToolTip="{DynamicResource lang_tray_pin_tip}"
+                                                                      IsChecked="{Binding IsPinned, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                                                            <ToggleButton.Style>
+                                                                <Style TargetType="ToggleButton">
+                                                                    <Setter Property="Focusable"
+                                                                            Value="False" />
+                                                                    <Setter Property="Template">
+                                                                        <Setter.Value>
+                                                                            <ControlTemplate TargetType="ToggleButton">
+                                                                                <Border x:Name="PinBg"
+                                                                                        Background="Transparent"
+                                                                                        CornerRadius="2"
+                                                                                        Padding="1">
+                                                                                    <Path Data="M1.5,0.5 h5 v3.5 l-1,1 v2.5 l-1.5,1.5 -1.5,-1.5 v-2.5 l-1,-1 z"
+                                                                                          Stretch="Uniform">
+                                                                                        <Path.Fill>
+                                                                                            <SolidColorBrush Color="#FF4A4A4A" />
+                                                                                        </Path.Fill>
+                                                                                        <Path.LayoutTransform>
+                                                                                            <ScaleTransform ScaleX="-1" />
+                                                                                        </Path.LayoutTransform>
+                                                                                    </Path>
+                                                                                </Border>
+                                                                                <ControlTemplate.Triggers>
+                                                                                    <Trigger Property="IsMouseOver"
+                                                                                             Value="True">
+                                                                                        <Setter TargetName="PinBg"
+                                                                                                Property="Background"
+                                                                                                Value="#406EA5D2" />
+                                                                                    </Trigger>
+                                                                                    <Trigger Property="IsPressed"
+                                                                                             Value="True">
+                                                                                        <Setter TargetName="PinBg"
+                                                                                                Property="Background"
+                                                                                                Value="#736EA5D2" />
+                                                                                    </Trigger>
+                                                                                    <Trigger Property="IsChecked"
+                                                                                             Value="True">
+                                                                                        <Setter TargetName="PinBg"
+                                                                                                Property="Background"
+                                                                                                Value="#66000000" />
+                                                                                    </Trigger>
+                                                                                </ControlTemplate.Triggers>
+                                                                            </ControlTemplate>
+                                                                        </Setter.Value>
+                                                                    </Setter>
+                                                                </Style>
+                                                            </ToggleButton.Style>
+                                                        </ToggleButton>
+                                                    </Grid>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver"
+                                                                 Value="True">
+                                                            <Setter TargetName="HoverFrame"
+                                                                    Property="Background"
+                                                                    Value="#266EA5D2" />
+                                                            <Setter TargetName="HoverFrame"
+                                                                    Property="BorderBrush"
+                                                                    Value="#666EA5D2" />
+                                                            <Setter TargetName="PinToggle"
+                                                                    Property="Opacity"
+                                                                    Value="0.9" />
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </Border.Resources>
+                                <DockPanel>
+                                    <!-- footer strip, like the real Win7 overflow panel.
+                                         v2.2: misure dal mod "Aero Tray" (aubymori):
+                                         area del link alta 43 px a 96 DPI con padding
+                                         orizzontale 16; in WPF i DIP scalano gia' col
+                                         DPI (equivalente di MulDiv(v, dpiY, 96)). -->
+                                    <Border DockPanel.Dock="Bottom"
+                                            BorderBrush="#FFDEDEDE"
+                                            BorderThickness="0,1,0,0"
+                                            Height="34"
+                                            Padding="16,0">
+                                        <Border.Background>
+                                            <LinearGradientBrush StartPoint="0,0"
+                                                                 EndPoint="0,1">
+                                                <GradientStop Color="#FFF7F7F7"
+                                                              Offset="0.0" />
+                                                <GradientStop Color="#FFECECEC"
+                                                              Offset="1.0" />
+                                            </LinearGradientBrush>
+                                        </Border.Background>
+                                        <TextBlock x:Name="CustomizeLink"
+                                                   Text="{DynamicResource lang_customize}"
+                                                   FontSize="11"
+                                                   Foreground="#FF0066CC"
+                                                   Cursor="Hand"
+                                                   VerticalAlignment="Center"
+                                                   HorizontalAlignment="Center"
+                                                   MouseLeftButtonDown="CustomizeTrayLink_Pressed"
+                                                   MouseLeave="CustomizeTrayLink_Unpressed"
+                                                   MouseLeftButtonUp="CustomizeTrayLink_Click">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver"
+                                                                 Value="True">
+                                                            <Setter Property="TextDecorations"
+                                                                    Value="Underline" />
+                                                            <Setter Property="Foreground"
+                                                                    Value="#FF0B76D6" />
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Border>
+                                    <!-- v2.2: padding area icone 7 e spazio fra
+                                         icone 18 (margini 9+9), valori a 96 DPI
+                                         del mod "Aero Tray" (aubymori); griglia
+                                         fissa a 3 per riga come Windows 7/8
+                                         (UniformGrid Columns=3, mai 2 per riga
+                                         come farebbe Windows 10/11). -->
+                                    <Border Padding="5">
+                                        <!-- Griglia a tre colonne come nel tema e
+                                             nel riquadro vero di Windows 7. -->
+                                        <ItemsControl x:Name="OverflowIcons"
+                                                      ItemsSource="{Binding NotificationArea.UnpinnedIcons}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <UniformGrid Columns="3" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemContainerStyle>
+                                                <!-- v2.2: 9+9 = 18 DIP di spazio fra
+                                                     le icone (ICON_PADDING del mod
+                                                     "Aero Tray", a 96 DPI). -->
+                                                <Style TargetType="ContentPresenter">
+                                                    <Setter Property="Margin"
+                                                            Value="5,5,5,5" />
+                                                </Style>
+                                            </ItemsControl.ItemContainerStyle>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <controls:NotifyIcon
+                                                            Style="{StaticResource PopupNotifyIcon}"
+                                                            IsPinned="{Binding IsPinned, Mode=TwoWay}"
+                                                            ToolTip="{Binding Tooltip}"
+                                                            PreviewMouseLeftButtonDown="TrayIcon_PreviewMouseLeftButtonDown"
+                                                            MouseLeftButtonDown="TrayIcon_MouseLeftButtonDown"
+                                                            MouseLeftButtonUp="TrayIcon_MouseLeftButtonUp"
+                                                            MouseRightButtonUp="TrayIcon_MouseRightButtonUp"
+                                                            MouseUp="TrayIcon_MouseUp">
+                                                        <Image Source="{Binding Icon}"
+                                                               Style="{DynamicResource NotifyIcon}" />
+                                                    </controls:NotifyIcon>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Border>
+                                </DockPanel>
+                            </Border>
+                        </Border>
+                    </Popup>
+
+                    <!-- Icone visibili. -->
+                    <ItemsControl x:Name="TrayIcons"
+                                  ItemsSource="{Binding NotificationArea.PinnedIcons}"
+                                  Style="{DynamicResource NotifyIconItems}">
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Path=Orientation, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type Window}}}"
+                                                 Value="Vertical">
+                                        <Setter Property="HorizontalAlignment"
+                                                Value="Stretch" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <!-- Il contenitore si estende nella cella verticale e
+                                     mantiene il controllo centrato; in orizzontale
+                                     conserva la larghezza naturale dell'icona. -->
+                                <Grid HorizontalAlignment="Stretch">
+                                    <controls:NotifyIcon
+                                            HorizontalAlignment="Center"
+                                            IsPinned="{Binding IsPinned, Mode=TwoWay}"
+                                            ToolTip="{Binding Tooltip}"
+                                            PreviewMouseLeftButtonDown="TrayIcon_PreviewMouseLeftButtonDown"
+                                            MouseLeftButtonDown="TrayIcon_MouseLeftButtonDown"
+                                            MouseLeftButtonUp="TrayIcon_MouseLeftButtonUp"
+                                            MouseRightButtonUp="TrayIcon_MouseRightButtonUp"
+                                            MouseUp="TrayIcon_MouseUp">
+                                        <Image Source="{Binding Icon}"
+                                               Style="{DynamicResource NotifyIcon}" />
+                                    </controls:NotifyIcon>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+
+                </StackPanel>
+            </GroupBox>
+
+            <!-- ============ Orologio ============
+                 Il template ClockTemplateKey del tema centra il testo SOLO
+                 in questo riquadro; il resto della barra resta allineato a
+                 sinistra. Il DataContext e' ClockModel, che espone Now. -->
+            <UserControl x:Name="ClockHost"
+                         Grid.Column="5"
+                         Template="{DynamicResource ClockTemplateKey}"
+                         DataContext="{Binding Clock}"
+                         Background="Transparent"
+                         MouseLeftButtonUp="Clock_MouseLeftButtonUp"
+                         MouseRightButtonUp="Clock_MouseRightButtonUp"
+                         ToolTipService.InitialShowDelay="500"
+                         ToolTipService.BetweenShowDelay="0"
+                         ToolTipOpening="ClockHost_ToolTipOpening"
+                         ToolTip="{Binding Now, StringFormat=D}"
+                         VerticalAlignment="Center" />
+
+            <!-- ============ Mostra desktop ============ -->
+            <!-- Aero Peek: passando sopra il pulsante le finestre diventano
+                 trasparenti e si vede il desktop; il clic invece lo mostra
+                 davvero. E' il comportamento della barra di Windows 7. -->
+            <ToggleButton x:Name="ShowDesktopButton"
+                          Grid.Column="6"
+                          Style="{DynamicResource ShowDesktopButton}"
+                          Click="ShowDesktopButton_Click"
+                          MouseEnter="ShowDesktopButton_MouseEnter"
+                          MouseLeave="ShowDesktopButton_MouseLeave"
+                          MouseRightButtonUp="ShowDesktopButton_MouseRightButtonUp" />
+
+            <!-- ============ v2.44: anteprime live cliccabili ============
+                 Un solo Popup per tutta la barra, riusato dal pulsante
+                 sotto il mouse (una sola anteprima aperta alla volta, come
+                 la Superbar). Prima era il ToolTip del pulsante: si
+                 chiudeva appena il mouse usciva dal pulsante e non poteva
+                 ospitare clic.
+
+                 - AllowsTransparency="True": come in RetroBar, il popup
+                   layered lascia che il DWM componga la miniatura; nessun
+                   pennello deve coprire la sua superficie centrale.
+                 - StaysOpen="True": la chiusura la decide il code-behind
+                   (TaskbarWindow: timer di controllo a 200 ms), perche' il
+                   mouse passa da una finestra all'altra (pulsante ->
+                   popup) e un MouseLeave singolo chiuderebbe l'anteprima
+                   proprio mentre l'utente ci sta entrando. -->
+            <Popup x:Name="TaskPreviewPopup"
+                   AllowsTransparency="True"
+                   StaysOpen="True"
+                   Placement="Custom"
+                   PopupAnimation="None"
+                   SnapsToDevicePixels="True"
+                   Opened="TaskPreviewPopup_Opened"
+                   Closed="TaskPreviewPopup_Closed">
+                <Grid x:Name="TaskPreviewPopupRoot" ClipToBounds="True">
+                    <!-- One static screen capture per opening. Code-behind clips
+                         this host to the four outer-frame bands of every item,
+                         so neither this Image nor its BlurEffect ever paints the
+                         central ContentPresenter/TaskThumbnail DWM destination. -->
+                    <Grid x:Name="TaskPreviewBlurHost"
+                          IsHitTestVisible="False">
+                        <Image x:Name="TaskPreviewBlurImage"
+                               Stretch="Fill"
+                               RenderOptions.BitmapScalingMode="HighQuality">
+                            <Image.Effect>
+                                <BlurEffect Radius="15"
+                                            RenderingBias="Quality" />
+                            </Image.Effect>
+                        </Image>
+                    </Grid>
+
+                    <ItemsControl x:Name="TaskPreviewItems"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
+                                  ItemTemplate="{StaticResource LiveThumbnailItemTemplate}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal"
+                                            HorizontalAlignment="Center" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </Grid>
+            </Popup>
+        </Grid>
+    </ContentControl>
+</Window>
