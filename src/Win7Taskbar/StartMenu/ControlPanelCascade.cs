@@ -446,7 +446,7 @@ namespace Win7Taskbar.StartMenu
         {
             try
             {
-                if (SystemParameters.IsMenuFadeEnabled && SystemParameters.IsMenuAnimationEnabled)
+                if (SystemParameters.MenuAnimation)
                 {
                     var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(120))
                     {
