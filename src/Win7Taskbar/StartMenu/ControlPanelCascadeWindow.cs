@@ -230,7 +230,7 @@ namespace Win7Taskbar.StartMenu
             int delay = 500;
             try
             {
-                delay = SystemParameters.MouseHoverTime;
+                delay = (int)SystemParameters.MouseHoverTime.TotalMilliseconds;
                 if (delay < 400)
                 {
                     delay = 400;
