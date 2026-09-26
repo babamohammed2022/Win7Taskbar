@@ -611,6 +611,7 @@ namespace Win7Taskbar
                 RunStage("appbar", RegisterAppBar);
                 RunStage("nascondi-barra-nativa", () => _bridge.SetNativeTaskbarHidden(true));
                 RunStage("appbar-dopo-autohide", UpdateAppBarPosition);
+                ScheduleNativeTaskbarHideRetries();
             }
 
             /* Il server tray deve possedere davvero Shell_TrayWnd prima che
@@ -2557,6 +2558,14 @@ namespace Win7Taskbar
                 if (_appBarRegistered)
                 {
                     UpdateAppBarPosition();
+                }
+                if (!StartupGuard.SafeMode)
+                {
+                    try { _bridge.SetNativeTaskbarHidden(true); }
+                    catch (Exception hideEx)
+                    {
+                        _bridge.Log("geometria barra: ri-nascondi nativa: " + hideEx.Message);
+                    }
                 }
             }
             catch (Exception ex)
@@ -8124,7 +8133,45 @@ namespace Win7Taskbar
         // rettangolo e' DAVVERO cambiato.
 
         private DispatcherTimer? _iconRectDebounce;
+        private DispatcherTimer? _nativeHideRetryTimer;
+        private int _nativeHideRetry;
+        private static readonly int[] NativeHideRetryMs = { 250, 800, 2000, 4000 };
         private readonly Dictionary<(ulong Hwnd, uint Uid), (int L, int T, int R, int B)> _lastReportedRects = new();
+
+        private void ScheduleNativeTaskbarHideRetries()
+        {
+            _nativeHideRetry = 0;
+            if (_nativeHideRetryTimer == null)
+            {
+                _nativeHideRetryTimer = new DispatcherTimer();
+                _nativeHideRetryTimer.Tick += OnNativeHideRetry;
+            }
+            _nativeHideRetryTimer.Stop();
+            _nativeHideRetryTimer.Interval = TimeSpan.FromMilliseconds(NativeHideRetryMs[0]);
+            _nativeHideRetryTimer.Start();
+        }
+
+        private void OnNativeHideRetry(object? sender, EventArgs e)
+        {
+            try
+            {
+                _bridge.SetNativeTaskbarHidden(true);
+            }
+            catch (Exception)
+            {
+            }
+            _nativeHideRetry++;
+            if (_nativeHideRetry >= NativeHideRetryMs.Length)
+            {
+                _nativeHideRetryTimer?.Stop();
+                return;
+            }
+            if (_nativeHideRetryTimer != null)
+            {
+                _nativeHideRetryTimer.Interval =
+                    TimeSpan.FromMilliseconds(NativeHideRetryMs[_nativeHideRetry]);
+            }
+        }
 
         private void HookIconRectReporting()
         {

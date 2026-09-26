@@ -7,6 +7,7 @@
 // No DWM blur APIs. SetWindowRgn still clips chrome + photo.
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
@@ -77,6 +78,9 @@ namespace Win7Taskbar.StartMenu
         private string? _infotipText;
         private int _infotipX;
         private int _infotipY;
+        private DispatcherTimer? _cplHoverTimer;
+        private ControlPanelCascadeWindow? _cplCascade;
+        private FrameworkElement? _cplHost;
 
         internal StartMenuWindow(NativeBridge bridge)
         {
@@ -197,6 +201,7 @@ namespace Win7Taskbar.StartMenu
         internal void Dismiss()
         {
             try { _clickAway.Stop(); } catch (Exception) { }
+            CloseControlPanelCascade();
             CancelInfotip();
             _vm.SearchText = string.Empty;
             Topmost = false;
@@ -491,6 +496,14 @@ namespace Win7Taskbar.StartMenu
             {
                 ShowLinkIcon(item.Icon);
                 ShowWin32Infotip(sender as FrameworkElement, item);
+                if (string.Equals(item.Folder, "control", StringComparison.Ordinal))
+                {
+                    ArmControlPanelCascade(sender as FrameworkElement);
+                }
+                else
+                {
+                    CloseControlPanelCascade();
+                }
             }
         }
 
@@ -499,12 +512,108 @@ namespace Win7Taskbar.StartMenu
             /* Delay hide: the Win32 tip can fire Leave without the cursor
              * having moved. Keep the open tip until we leave for real. */
             ScheduleInfotipHide();
+            if (sender is ListBoxItem { DataContext: StartMenuItem item } &&
+                string.Equals(item.Folder, "control", StringComparison.Ordinal))
+            {
+                DisarmControlPanelCascade();
+            }
         }
 
         private void OnRightListMouseLeave(object sender, MouseEventArgs e)
         {
             CancelInfotip();
             ResetUserPhoto(animate: true);
+            DisarmControlPanelCascade();
+        }
+
+        private void ArmControlPanelCascade(FrameworkElement? host)
+        {
+            _cplHost = host;
+            if (_cplHoverTimer == null)
+            {
+                _cplHoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+                _cplHoverTimer.Tick += OnControlPanelHoverElapsed;
+            }
+            _cplHoverTimer.Stop();
+            _cplHoverTimer.Start();
+        }
+
+        private void DisarmControlPanelCascade()
+        {
+            if (_cplHoverTimer != null)
+            {
+                _cplHoverTimer.Stop();
+            }
+            _cplCascade?.ScheduleClose();
+        }
+
+        private void OnControlPanelHoverElapsed(object? sender, EventArgs e)
+        {
+            if (_cplHoverTimer != null)
+            {
+                _cplHoverTimer.Stop();
+            }
+            try
+            {
+                ShowControlPanelCascade();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void ShowControlPanelCascade()
+        {
+            CloseControlPanelCascade();
+            List<ControlPanelItem> items = ControlPanelItems.Enumerate();
+            if (items.Count == 0)
+            {
+                return;
+            }
+            var wnd = new ControlPanelCascadeWindow(items, () => Dismiss());
+            _cplCascade = wnd;
+            try
+            {
+                wnd.Owner = this;
+            }
+            catch (Exception)
+            {
+            }
+            Rect host = new Rect(Left, Top, ActualWidth, ActualHeight);
+            Rect row = host;
+            if (_cplHost != null)
+            {
+                try
+                {
+                    Point tl = _cplHost.PointToScreen(new Point(0, 0));
+                    Point br = _cplHost.PointToScreen(
+                        new Point(_cplHost.ActualWidth, _cplHost.ActualHeight));
+                    PresentationSource? src = PresentationSource.FromVisual(this);
+                    double sx = src?.CompositionTarget?.TransformFromDevice.M11 ?? 1.0;
+                    double sy = src?.CompositionTarget?.TransformFromDevice.M22 ?? 1.0;
+                    row = new Rect(tl.X * sx, tl.Y * sy,
+                        (br.X - tl.X) * sx, (br.Y - tl.Y) * sy);
+                }
+                catch (Exception)
+                {
+                }
+            }
+            wnd.PlaceNextTo(host, row);
+            wnd.Show();
+        }
+
+        private void CloseControlPanelCascade()
+        {
+            if (_cplHoverTimer != null)
+            {
+                _cplHoverTimer.Stop();
+            }
+            ControlPanelCascadeWindow? wnd = _cplCascade;
+            _cplCascade = null;
+            if (wnd != null)
+            {
+                try { wnd.Close(); } catch (Exception) { }
+            }
         }
 
         private void ShowWin32Infotip(FrameworkElement? host, StartMenuItem item)

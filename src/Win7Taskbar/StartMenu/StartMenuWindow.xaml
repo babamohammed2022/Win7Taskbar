@@ -518,19 +518,28 @@
                                                 </Style>
                                             </Rectangle.Style>
                                         </Rectangle>
-                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
-                                                   FontSize="12" Foreground="White" FontWeight="Normal">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="FontWeight" Value="Normal"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsSeparator}" Value="True">
-                                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="12"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center"
+                                                       FontSize="12" Foreground="White" FontWeight="Normal">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="FontWeight" Value="Normal"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsSeparator}" Value="True">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <Path Grid.Column="1" Data="M0,0 L5,4 L0,8 Z" Fill="White"
+                                                  VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                  Visibility="{Binding JumpVisibility}"/>
+                                        </Grid>
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>

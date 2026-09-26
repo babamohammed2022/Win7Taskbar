@@ -130,6 +130,10 @@ namespace Win7Taskbar.StartMenu
                     {
                         return;
                     }
+                    if (ControlPanelCascadeWindow.ContainsScreenPoint(x, y))
+                    {
+                        return;
+                    }
                     var name = new StringBuilder(32);
                     if (GetClassNameW(hit, name, name.Capacity) > 0 &&
                         name.ToString() == "#32768")

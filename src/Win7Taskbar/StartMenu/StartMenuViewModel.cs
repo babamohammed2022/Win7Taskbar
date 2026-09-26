@@ -1421,7 +1421,8 @@ namespace Win7Taskbar.StartMenu
             next.Add(new StartMenuItem { IsSeparator = true });
             next.Add(FolderLink(T("lang_sm_control", "Control Panel"), "control",
                 "::{26EE0668-A00A-44D7-9371-BEB064C98683}",
-                T("lang_sm_tip_control", "Opens Control Panel, where you change settings, add or remove programs, and manage accounts.")));
+                T("lang_sm_tip_control", "Opens Control Panel, where you change settings, add or remove programs, and manage accounts."),
+                hasCascade: true));
             next.Add(FolderLink(T("lang_sm_devices", "Devices and Printers"), "devices",
                 "shell:::{A8A91A66-3A7D-4424-8D24-04E180695C7A}",
                 T("lang_sm_tip_devices", "Opens Devices and Printers, where you view and manage printers, scanners, and other hardware.")));
@@ -1454,9 +1455,9 @@ namespace Win7Taskbar.StartMenu
         }
 
         private static StartMenuItem FolderLink(string name, string folder, string? iconPath,
-            string infotip, bool isPrimary = false)
+            string infotip, bool isPrimary = false, bool hasCascade = false)
         {
-            return new StartMenuItem
+            var item = new StartMenuItem
             {
                 Name = name,
                 Folder = folder,
@@ -1466,6 +1467,11 @@ namespace Win7Taskbar.StartMenu
                 Infotip = infotip,
                 Icon = IconFromParsingName(iconPath)
             };
+            if (hasCascade)
+            {
+                item.HasJumpList = true;
+            }
+            return item;
         }
 
         private static StartMenuItem HelpLink()

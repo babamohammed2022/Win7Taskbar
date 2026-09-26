@@ -203,30 +203,22 @@ BOOL CALLBACK SnapMaximizedEnumProc(HWND hwnd, LPARAM lp) {
         return TRUE;
     }
 
-    RECT vis = {};
-    if (FAILED(DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS,
-                                     &vis, sizeof(vis)))) {
-        if (!GetWindowRect(hwnd, &vis)) {
-            return TRUE;
-        }
-    }
-    RECT hit = {};
-    if (IntersectRect(&hit, &vis, &data->barRect) == FALSE ||
-        (hit.bottom - hit.top) <= 8 || (hit.right - hit.left) <= 8) {
-        return TRUE;
-    }
-
-    /* Place the maximized frame on the work area so the caption sits
-     * just below a top bar (same result Explorer produces when its
-     * stuck edge is ABE_TOP). */
+    /* Every maximized frame on this monitor is placed on the work area,
+     * not only those that already overlap the bar. Win7/8/10 did this
+     * automatically on every edge change. */
     const int width = data->work.right - data->work.left;
     const int height = data->work.bottom - data->work.top;
     if (width <= 0 || height <= 0) {
         return TRUE;
     }
-    SetWindowPos(hwnd, nullptr,
-                 data->work.left, data->work.top, width, height,
-                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    RECT vis = {};
+    if (!GetWindowRect(hwnd, &vis) ||
+        vis.left != data->work.left || vis.top != data->work.top ||
+        vis.right != data->work.right || vis.bottom != data->work.bottom) {
+        SetWindowPos(hwnd, nullptr,
+                     data->work.left, data->work.top, width, height,
+                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
     ++data->moved;
     return TRUE;
 }
@@ -304,26 +296,26 @@ void AppBarService::EnsureWorkAreaReserved(HWND hwnd, int32_t edge,
             return;
         }
 
-        if (desired.left != current.left || desired.top != current.top ||
-            desired.right != current.right || desired.bottom != current.bottom) {
-            LogAppBarDiagnostics(L"prima EnsureWorkArea", hwnd, &barRect);
-            /* SPIF_SENDCHANGE only: never write the user profile / registry. */
-            const BOOL ok = SystemParametersInfoW(SPI_SETWORKAREA, 0, &desired,
-                                                  SPIF_SENDCHANGE);
-            if (ok) {
-                m_workAreaOwned = true;
-                AppendCoreLog(L"appbar: SPI_SETWORKAREA monitor-barretta (ABE_TOP/BOTTOM stile taskbar-on-top)");
-                SendNotifyMessageW(HWND_BROADCAST, WM_SETTINGCHANGE,
-                                   SPI_SETWORKAREA, 0);
-            } else {
-                wchar_t line[160] = {};
-                swprintf(line, ARRAYSIZE(line),
-                         L"appbar: SPI_SETWORKAREA fallita err=%lu, resto overlay",
-                         static_cast<unsigned long>(GetLastError()));
-                AppendCoreLog(line);
-            }
-            LogAppBarDiagnostics(L"dopo EnsureWorkArea", hwnd, &desired);
+        /* Always push the work area, even when GetMonitorInfo already
+         * reports the same rcWork: Win11 often lies and maximized frames
+         * still fill rcMonitor. Win7/8/10 recalculated on every dock. */
+        LogAppBarDiagnostics(L"prima EnsureWorkArea", hwnd, &barRect);
+        const BOOL ok = SystemParametersInfoW(SPI_SETWORKAREA, 0, &desired,
+                                              SPIF_SENDCHANGE);
+        if (ok) {
+            m_workAreaOwned = true;
+            AppendCoreLog(L"appbar: SPI_SETWORKAREA applicata (ricalcolo a ogni posa)");
+            SendNotifyMessageW(HWND_BROADCAST, WM_SETTINGCHANGE,
+                               SPI_SETWORKAREA, 0);
+        } else {
+            wchar_t line[160] = {};
+            swprintf(line, ARRAYSIZE(line),
+                     L"appbar: SPI_SETWORKAREA fallita err=%lu, resto overlay",
+                     static_cast<unsigned long>(GetLastError()));
+            AppendCoreLog(line);
         }
+        LogAppBarDiagnostics(L"dopo EnsureWorkArea", hwnd, &desired);
+        (void)current;
 
         /* Win11 maximized windows often keep using the full monitor while
          * Explorer's taskbar is ABS_AUTOHIDE. Move any that still sit under
@@ -954,31 +946,33 @@ UINT AppBarService::SetNativeTaskbarState(UINT state) {
     return after;
 }
 
-void AppBarService::SetNativeTaskbarVisibility(bool hide) {
-    const UINT swp = hide ? SWP_HIDEWINDOW : SWP_SHOWWINDOW;
-    const bool wantHidden = hide;
-
-    HWND taskbar = FindNativeTaskbar();
-    if (taskbar != nullptr && (wantHidden == (IsWindowVisible(taskbar) != FALSE))) {
-        SetWindowPos(taskbar, HWND_BOTTOM, 0, 0, 0, 0,
-                     swp | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+namespace {
+void ApplyNativeBarVisibility(HWND hwnd, bool hide) {
+    if (hwnd == nullptr || !IsWindow(hwnd)) {
+        return;
     }
+    const UINT swp = hide ? SWP_HIDEWINDOW : SWP_SHOWWINDOW;
+    const int showCmd = hide ? SW_HIDE : SW_SHOWNOACTIVATE;
+    /* Always send hide/show: Win11 XAML often reports IsWindowVisible
+     * FALSE while the bar is still painted after a close+restart. */
+    SetWindowPos(hwnd, hide ? HWND_BOTTOM : HWND_TOPMOST, 0, 0, 0, 0,
+                 swp | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    ShowWindow(hwnd, showCmd);
+}
+} /* namespace */
+
+void AppBarService::SetNativeTaskbarVisibility(bool hide) {
+    ApplyNativeBarVisibility(FindNativeTaskbar(), hide);
 
     HWND start = FindWindowExW(nullptr, nullptr, kStartButtonAtom, nullptr);
     if (start == nullptr) {
         start = FindStartOrb();
     }
-    if (start != nullptr && (wantHidden == (IsWindowVisible(start) != FALSE))) {
-        SetWindowPos(start, HWND_BOTTOM, 0, 0, 0, 0,
-                     swp | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    }
+    ApplyNativeBarVisibility(start, hide);
 
     HWND secondary = nullptr;
     while ((secondary = FindSecondaryTaskbar(secondary)) != nullptr) {
-        if (wantHidden == (IsWindowVisible(secondary) != FALSE)) {
-            SetWindowPos(secondary, HWND_BOTTOM, 0, 0, 0, 0,
-                         swp | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        }
+        ApplyNativeBarVisibility(secondary, hide);
     }
 }
 
@@ -1145,18 +1139,14 @@ void AppBarService::HideWatcherLoop() {
             continue;
         }
         ReassertWorkAreaFromWatcher();
-        /* Rinasconde una volta; se Explorer la rimostra, arriva un altro
-         * evento. Il controllo di visibilita' evita lavoro inutile. */
+        /* Always re-send SW_HIDE: after close+restart Win11 can paint the
+         * XAML bar while IsWindowVisible(Shell_TrayWnd) is already FALSE.
+         * ABM_SETSTATE only when the HWND is actually shown, so we do not
+         * hammer the shell every 500 ms. */
+        SetNativeTaskbarVisibility(true);
         HWND taskbar = FindNativeTaskbar();
         if (taskbar != nullptr && IsWindowVisible(taskbar)) {
-            DoHideNativeTaskbar();
-        }
-        HWND secondary = nullptr;
-        while ((secondary = FindSecondaryTaskbar(secondary)) != nullptr) {
-            if (IsWindowVisible(secondary)) {
-                DoHideNativeTaskbar();
-                break;
-            }
+            SetNativeTaskbarState(ABS_AUTOHIDE);
         }
     }
 }
