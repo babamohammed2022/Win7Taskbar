@@ -37,6 +37,7 @@
 #include "NotificationPageSync.h"
 #include "LegacyToolbarShim.h"
 #include "SehGuard.h"   /* v3.15: reti SEH sui confini verso la shell */
+#include "TrayOverlayKill.h"
 #include "TrayFallbackIcons.h"
 #include "TrayPrefsStore.h"
 #include "SystemEventsWatch.h"
@@ -2509,6 +2510,7 @@ LRESULT TrayService::ForwardMsg(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 }
 
 void TrayService::DestroyWindows() {
+    TrayOverlayKill_Uninstall();
     /* L'hook va tolto prima di distruggere la finestra, altrimenti il
      * sistema resta con un riferimento a un HWND non piu' valido. */
     if (m_shellHookRegistered && m_trayWnd != nullptr) {
@@ -2620,6 +2622,7 @@ void TrayService::ThreadMain() {
         return;
     }
     m_startOk.store(true);
+    TrayOverlayKill_Install();
 
     MSG msg;
     while (m_running.load() && GetMessageW(&msg, nullptr, 0, 0) > 0) {
@@ -2904,6 +2907,7 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
          * annullato: non facciamo nulla, un eventuale Ensure pendente
          * riusera' il file di backup al prossimo clic. */
         OnBatteryKeySessionEnding();
+        TrayOverlayKill_OnSessionEnding();
         /* Lasciamo passare il messaggio a DefWindowProc: non neghiamo
          * MAI la chiusura della sessione. */
     }
@@ -2925,6 +2929,7 @@ LRESULT CALLBACK TrayService::TrayWndProcInner(HWND hwnd, UINT msg, WPARAM wPara
          * Explorer. La cache "Classic" del rilevatore Win11 deve quindi
          * essere invalidata prima della prossima riconciliazione. */
         Win11TrayReader::Instance().NoteExplorerRestart();
+        TrayOverlayKill_OnTaskbarCreated();
         self.ScheduleReconcile(kReconcileExplorer, 2500);
         return 0;
     }

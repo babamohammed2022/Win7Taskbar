@@ -158,6 +158,16 @@ namespace RetroBar.Utilities
         }
 
         /// <summary>
+        /// v1.3.42: hide the native Win11 XAML tray overlay by injecting
+        /// explorer.exe (default ON). Safety valve in Properties.
+        /// </summary>
+        public bool KillWin11XamlTrayOverlay
+        {
+            get => _killWin11XamlTrayOverlay;
+            set => SetField(ref _killWin11XamlTrayOverlay, value);
+        }
+
+        /// <summary>
         /// true = barra bloccata (default, come Win7). Sono disponibili solo
         /// le posizioni orizzontali Basso e Alto.
         /// </summary>
@@ -168,6 +178,7 @@ namespace RetroBar.Utilities
         }
 
         private bool _windowsKeyOpensOurMenu = true;
+        private bool _killWin11XamlTrayOverlay = true;
 
         /// <summary>
         /// v1.3.0: Windows key opens our Start Menu (default) or Windows.

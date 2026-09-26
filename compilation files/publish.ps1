@@ -148,6 +148,14 @@ if ($SkipNative) {
     if ($builtInject.Count -gt 0) {
         Copy-Item $builtInject[0] (Join-Path $dist 'W7TInject.dll') -Force
     }
+    $builtOverlayKill = @(@(
+        (Join-Path $buildDir "$Configuration/W7TTrayOverlayKill.dll"),
+        (Join-Path $buildDir 'W7TTrayOverlayKill.dll')
+    ) | Where-Object { Test-Path $_ } |
+        Sort-Object { (Get-Item $_).LastWriteTimeUtc } -Descending)
+    if ($builtOverlayKill.Count -gt 0) {
+        Copy-Item $builtOverlayKill[0] (Join-Path $dist 'W7TTrayOverlayKill.dll') -Force
+    }
     $builtHelper = @(@(
         (Join-Path $buildDir "$Configuration/Win7StartHelper.exe"),
         (Join-Path $buildDir 'Win7StartHelper.exe')
@@ -209,6 +217,12 @@ if (Test-Path $inject) {
     Copy-Item $inject $out -Force
 } else {
     Write-Host '    (W7TInject.dll not present in dist/: the frozen clock flyout will be skipped)' -ForegroundColor Yellow
+}
+$overlayKill = Join-Path $dist 'W7TTrayOverlayKill.dll'
+if (Test-Path $overlayKill) {
+    Copy-Item $overlayKill $out -Force
+} else {
+    Write-Host '    (W7TTrayOverlayKill.dll not present in dist/: Win11 XAML overlay kill will be skipped)' -ForegroundColor Yellow
 }
 $helper = Join-Path $dist 'Win7StartHelper.exe'
 if (Test-Path $helper) {

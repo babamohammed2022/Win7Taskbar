@@ -81,7 +81,7 @@ Right-click the clock → **Properties**. Available settings include language, c
 
 The script:
 * automatically installs the **.NET 8 SDK** if it is missing (without administrator rights);
-* also builds the native C++ component if CMake is available; otherwise it uses the **prebuilt native DLLs** included in the repository (`dist\Win7TaskbarCore.dll`, `dist\W7TInject.dll`);
+* also builds the native C++ component if CMake is available; otherwise it uses the **prebuilt native DLLs** included in the repository (`dist\Win7TaskbarCore.dll`, `dist\W7TInject.dll`, `dist\W7TTrayOverlayKill.dll`);
 * creates the **self-contained** package in `dist-package\` and the `Win7Taskbar-1.0.0-alpha-win-x64.zip` archive in the repository root;
 * opens the folder containing the finished ZIP.
 

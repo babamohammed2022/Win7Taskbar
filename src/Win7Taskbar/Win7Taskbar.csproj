@@ -475,10 +475,10 @@
          non appaiono piu' dopo la v3.13 - quando nemmeno la
          ricostruzione padre+relativo (v3.15) produce un parsing name,
          la voce resta pubblicata col nome mostrato come prima di v3.13. -->
-    <!-- 1.3.41-alpha: top bar uses Windhawk taskbar-on-top geometry
-         (work = monitor minus stuck strip) and snaps maximized windows
-         off the caption so min/max/close are not covered. -->
-    <Version>1.3.41-alpha</Version>
+    <!-- 1.3.42-alpha: PositionOnScreen uses the real monitor of the bar;
+         explorer.exe inject (W7TTrayOverlayKill, SEH) hides Win11 XAML
+         tray overlay and applies work-area from inside Explorer. -->
+    <Version>1.3.42-alpha</Version>
     <AssemblyVersion>1.3.26.0</AssemblyVersion>
     <FileVersion>1.3.26.0</FileVersion>
   
@@ -580,6 +580,8 @@
     name inside the published Win7Taskbar.dll): keep the three places in
     sync. W7TInject.dll is optional (its absence only degrades the frozen
     clock flyout) and is embedded with the same mechanism when present.
+    W7TTrayOverlayKill.dll is the explorer.exe WH_CALLWNDPROC payload
+    that hides the Win11 XAML tray overlay.
   -->
   <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll')">
     <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll">
@@ -591,6 +593,11 @@
       <LogicalName>Win7Taskbar.W7TInject.dll</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\dist\W7TTrayOverlayKill.dll')">
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\dist\W7TTrayOverlayKill.dll">
+      <LogicalName>Win7Taskbar.W7TTrayOverlayKill.dll</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 
   <!--
     Copia la DLL nativa accanto all'eseguibile, se e' gia' stata compilata.
@@ -600,11 +607,16 @@
   <Target Name="CopyNativeCore" AfterTargets="Build">
     <ItemGroup>
       <NativeCoreDll Include="$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll" />
+      <NativeOverlayKillDll Include="$(MSBuildThisFileDirectory)..\..\dist\W7TTrayOverlayKill.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(NativeCoreDll)"
           DestinationFolder="$(OutDir)"
           SkipUnchangedFiles="true"
           Condition="Exists('%(NativeCoreDll.FullPath)')" />
+    <Copy SourceFiles="@(NativeOverlayKillDll)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('%(NativeOverlayKillDll.FullPath)')" />
     <Warning Text="Win7TaskbarCore.dll non trovata in dist/. Compilare prima il progetto CMake in native/."
              Condition="!Exists('$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll')" />
   </Target>
@@ -614,6 +626,8 @@
     <ItemGroup>
       <NativeCoreDllPub Include="$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll" />
       <NativeHelperPub Include="$(MSBuildThisFileDirectory)..\..\dist\Win7StartHelper.exe" />
+      <NativeOverlayKillPub Include="$(MSBuildThisFileDirectory)..\..\dist\W7TTrayOverlayKill.dll" />
+      <NativeInjectPub Include="$(MSBuildThisFileDirectory)..\..\dist\W7TInject.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(NativeCoreDllPub)"
           DestinationFolder="$(PublishDir)"
@@ -623,6 +637,14 @@
           DestinationFolder="$(PublishDir)"
           SkipUnchangedFiles="true"
           Condition="Exists('%(NativeHelperPub.FullPath)')" />
+    <Copy SourceFiles="@(NativeOverlayKillPub)"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('%(NativeOverlayKillPub.FullPath)')" />
+    <Copy SourceFiles="@(NativeInjectPub)"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('%(NativeInjectPub.FullPath)')" />
     <Error Text="Win7TaskbarCore.dll non trovata in dist/: eseguire prima la build CMake in native/."
            Condition="!Exists('$(MSBuildThisFileDirectory)..\..\dist\Win7TaskbarCore.dll')" />
   </Target>

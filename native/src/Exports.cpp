@@ -33,6 +33,7 @@
 #include "PropertiesDialog.h"
 #include "FlyoutLauncher.h"
 #include "ExtraSettings.h"     /* v1.21.7: extra settings of the taskbar */
+#include "TrayOverlayKill.h"
 #include "AudioService.h"
 #include "JumpListWindow.h"
 #include "PreviewPolicy.h"
@@ -1016,6 +1017,13 @@ extern "C" W7T_API void W7T_CALL W7T_SetExtraSettings(
     W7T_SEH_END
 }
 
+extern "C" W7T_API void W7T_CALL W7T_SetKillXamlTrayOverlay(int32_t enabled) {
+    W7T_SEH_TRY
+        w7t::TrayOverlayKill_SetEnabled(enabled != 0);
+    W7T_SEH_CATCH
+    W7T_SEH_END
+}
+
 /* Resolved colour of the recreated flyout: the system accent when the mode
  * is "system colour" (asked to the system EVERY time), the chosen colour
  * otherwise. The frontend uses it to draw the swatch next to the choice; the
@@ -1078,7 +1086,8 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
         int32_t connectionPrivacyMode, int32_t themeSelection,
         int32_t autoStart,
         int32_t taskbarPosition, int32_t lockTaskbar,
-        int32_t windowsKeyOpensOurMenu) {
+        int32_t windowsKeyOpensOurMenu,
+        int32_t killXamlTrayOverlay) {
     try {
         /* v3.6: l'ordine DEVE essere quello della firma Show(): nativeFlyout,
          * enableSearch, netFlyout. Prima erano invertiti (netFlyout al posto
@@ -1096,7 +1105,7 @@ extern "C" W7T_API void W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
                           flyoutColorMode, flyoutColorRgb,
                           connectionPrivacyMode, themeSelection,
                           autoStart, taskbarPosition, lockTaskbar,
-                          windowsKeyOpensOurMenu);
+                          windowsKeyOpensOurMenu, killXamlTrayOverlay);
     } catch (...) { /* mai propagare */ }
 }
 

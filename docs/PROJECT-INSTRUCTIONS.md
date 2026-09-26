@@ -123,8 +123,8 @@ is missing (partial ZIP extraction, executable copied alone, launch from inside 
 viewer), belongs to another build, or cannot be loaded, the embedded copy is written back
 (next to the executable, or `%LOCALAPPDATA%\Win7Taskbar\core` when that folder is not
 writable) and preloaded with its full path, so every later `DllImport` resolves to it.
-The optional `W7TInject.dll` is healed the same way; the native code loads it by bare
-name, which resolves to an already-loaded module.
+The optional `W7TInject.dll` and `W7TTrayOverlayKill.dll` are healed the same way; the native code loads them by bare
+name, which resolves to an already-loaded module. `W7TTrayOverlayKill.dll` is injected into explorer.exe (`WH_CALLWNDPROC` + SEH) to hide the Win11 XAML tray overlay and to apply the work area from inside Explorer — this breaks the former out-of-process-only rule for those two jobs.
 
 The embedded copy must always be the DLL that ships next to the executable: both come
 from the same `dist/` file in the same build, so the pairing holds by construction. The

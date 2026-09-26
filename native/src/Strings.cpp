@@ -986,8 +986,8 @@ constexpr ExtraStrings kExtraIt = {
     L"Blocca la barra delle applicazioni",
     L"Tasto Windows apre:",
     L"Menu Start di Win7Taskbar",
-    L"Windows"
-
+    L"Windows",
+    L"Nascondi overlay XAML nativo della tray (Windows 11)"
 };
 constexpr ExtraStrings kExtraEn = {
     L"Extra settings",
@@ -1020,8 +1020,8 @@ constexpr ExtraStrings kExtraEn = {
     L"Lock the taskbar",
     L"Windows key opens:",
     L"Win7Taskbar Start menu",
-    L"Windows"
-
+    L"Windows",
+    L"Hide native XAML tray overlay (Windows 11)"
 };
 constexpr ExtraStrings kExtraEs = {
     L"Configuración extra",
@@ -1055,8 +1055,8 @@ constexpr ExtraStrings kExtraEs = {
     L"Bloquear la barra de tareas",
     L"La tecla Windows abre:",
     L"Menú Inicio de Win7Taskbar",
-    L"Windows"
-
+    L"Windows",
+    L"Ocultar superposición XAML nativa de la bandeja (Windows 11)"
 };
 constexpr ExtraStrings kExtraFr = {
     L"Paramètres supplémentaires",
@@ -1090,8 +1090,8 @@ constexpr ExtraStrings kExtraFr = {
     L"Verrouiller la barre des tâches",
     L"La touche Windows ouvre :",
     L"Menu Démarrer de Win7Taskbar",
-    L"Windows"
-
+    L"Windows",
+    L"Masquer la superposition XAML native de la zone de notification (Windows 11)"
 };
 constexpr ExtraStrings kExtraDe = {
     L"Weitere Einstellungen",
@@ -1125,8 +1125,8 @@ constexpr ExtraStrings kExtraDe = {
     L"Taskleiste sperren",
     L"Windows-Taste öffnet:",
     L"Startmenü von Win7Taskbar",
-    L"Windows"
-
+    L"Windows",
+    L"Natives XAML-Infobereich-Overlay ausblenden (Windows 11)"
 };
 constexpr ExtraStrings kExtraPt = {
     L"Configurações extras",
@@ -1160,8 +1160,8 @@ constexpr ExtraStrings kExtraPt = {
     L"Bloquear a barra de tarefas",
     L"A tecla Windows abre:",
     L"Menu Iniciar do Win7Taskbar",
-    L"Windows"
-
+    L"Windows",
+    L"Ocultar sobreposição XAML nativa da bandeja (Windows 11)"
 };
 constexpr ExtraStrings kExtraPl = {
     L"Ustawienia dodatkowe",
@@ -1195,8 +1195,8 @@ constexpr ExtraStrings kExtraPl = {
     L"Zablokuj pasek zadań",
     L"Klawisz Windows otwiera:",
     L"Menu Start programu Win7Taskbar",
-    L"Windows"
-
+    L"Windows",
+    L"Ukryj natywną nakładkę XAML zasobnika (Windows 11)"
 };
 constexpr ExtraStrings kExtraRu = {
     L"Дополнительные параметры",
@@ -1230,8 +1230,8 @@ constexpr ExtraStrings kExtraRu = {
     L"Заблокировать панель задач",
     L"Клавиша Windows открывает:",
     L"Меню «Пуск» Win7Taskbar",
-    L"Windows"
-
+    L"Windows",
+    L"Скрыть нативный XAML-оверлей области уведомлений (Windows 11)"
 };
 constexpr ExtraStrings kExtraJa = {
     L"詳細設定",
@@ -1264,8 +1264,8 @@ constexpr ExtraStrings kExtraJa = {
     L"タスク バーをロックする",
     L"Windows キーの動作:",
     L"Win7Taskbar のスタート メニュー",
-    L"Windows"
-
+    L"Windows",
+    L"ネイティブ XAML トレイ オーバーレイを隠す (Windows 11)"
 };
 constexpr ExtraStrings kExtraZh = {
     L"额外设置",
@@ -1297,8 +1297,8 @@ constexpr ExtraStrings kExtraZh = {
     L"锁定任务栏",
     L"Windows 键打开:",
     L"Win7Taskbar 开始菜单",
-    L"Windows"
-
+    L"Windows",
+    L"隐藏本机 XAML 通知区域叠加层 (Windows 11)"
 };
 constexpr ExtraStrings kExtraAr = {
     L"إعدادات إضافية",
@@ -1331,8 +1331,8 @@ constexpr ExtraStrings kExtraAr = {
     L"قفل شريط المهام",
     L"مفتاح Windows يفتح:",
     L"قائمة ابدأ في Win7Taskbar",
-    L"Windows"
-
+    L"Windows",
+    L"إخفاء طبقة XAML الأصلية لمنطقة الإعلام (Windows 11)"
 };
 
 const PropStrings& PickProp(Lang lang) {

@@ -131,6 +131,7 @@ enum CtrlId {
     /* Posizione orizzontale (Basso/Alto) + blocco barra. */
     IDC_LBL_EX_POSITION, IDC_CMB_EX_POSITION, IDC_CHK_EX_LOCK,
     IDC_LBL_EX_WINKEY, IDC_RADIO_WINKEY_OURS, IDC_RADIO_WINKEY_WINDOWS,
+    IDC_CHK_EX_KILL_XAML,
     IDC_BTN_APPLY = 3000,
 };
 
@@ -249,6 +250,7 @@ void ShowTabPage(HWND hwnd, int page) {
     vis(IDC_GRP_EX_TASKBAR, p4);
     vis(IDC_LBL_EX_WINKEY, p4);
     vis(IDC_RADIO_WINKEY_OURS, p4); vis(IDC_RADIO_WINKEY_WINDOWS, p4);
+    vis(IDC_CHK_EX_KILL_XAML, p4);
     vis(IDC_LBL_EX_ICON_ORDER, false); vis(IDC_TXT_ORDER_HINT, false);
 }
 
@@ -520,7 +522,8 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
                             int32_t connectionPrivacyMode, int32_t themeSelection,
                             int32_t autoStart,
                             int32_t taskbarPosition, int32_t lockTaskbar,
-                            int32_t windowsKeyOpensOurMenu) {
+                            int32_t windowsKeyOpensOurMenu,
+                            int32_t killXamlTrayOverlay) {
     try {
         if (m_hWnd && IsWindow(m_hWnd)) {
             return;
@@ -571,6 +574,7 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
         m_taskbarPosition = taskbarPosition == 1 ? 1 : 0;
         m_lockTaskbar = lockTaskbar ? 1 : 0;
         m_windowsKeyOpensOurMenu = windowsKeyOpensOurMenu ? 1 : 0;
+        m_killXamlTrayOverlay = killXamlTrayOverlay ? 1 : 0;
         RefreshExtraSwatchColor();
 
         /* v2.47: oltre alle schede e ai controlli standard serve la classe
@@ -786,13 +790,15 @@ void PropertiesDialog::Show(HWND owner, int32_t lang, int32_t seconds,
 
         /* La scheda extra conserva colori dei flyout, privacy e tasto Windows.
          * Tema, posizione e blocco sono gia' nella scheda principale. */
-        addCtrl(BS_GROUPBOX, 0, 12, 234, GROUP_WIDTH, 52, IDC_GRP_EX_TASKBAR, L"Button", L"");
-        addCtrl(SS_LEFT, 0, 18, 242, PAGE_TEXT_WIDTH, 10,
+        addCtrl(BS_GROUPBOX, 0, 12, 234, GROUP_WIDTH, 64, IDC_GRP_EX_TASKBAR, L"Button", L"");
+        addCtrl(SS_LEFT, 0, 18, 240, PAGE_TEXT_WIDTH, 10,
                 IDC_LBL_EX_WINKEY, L"Static", L"");
-        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP | WS_GROUP, 0, 18, 252,
+        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP | WS_GROUP, 0, 18, 250,
                 PAGE_TEXT_WIDTH, 10, IDC_RADIO_WINKEY_OURS, L"Button", L"");
-        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP, 0, 18, 262,
+        addCtrl(BS_AUTORADIOBUTTON | WS_TABSTOP, 0, 18, 260,
                 PAGE_TEXT_WIDTH, 10, IDC_RADIO_WINKEY_WINDOWS, L"Button", L"");
+        addCtrl(BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 0, 18, 272,
+                PAGE_TEXT_WIDTH, 14, IDC_CHK_EX_KILL_XAML, L"Button", L"");
 
         /* L'ordine delle icone continua a essere gestito dal trascinamento
          * sulla taskbar; qui non viene piu' mostrata la scritta esplicativa. */
@@ -921,6 +927,9 @@ void PropertiesDialog::SendApply(bool openSearch, bool closeApp) {
             & BST_CHECKED) ? 1 : 0;
     msg.windowsKeyOpensOurMenu =
         (SendDlgItemMessageW(m_hWnd, IDC_RADIO_WINKEY_OURS, BM_GETCHECK, 0, 0)
+            & BST_CHECKED) ? 1 : 0;
+    msg.killXamlTrayOverlay =
+        (SendDlgItemMessageW(m_hWnd, IDC_CHK_EX_KILL_XAML, BM_GETCHECK, 0, 0)
             & BST_CHECKED) ? 1 : 0;
     /* v1.21.37: avvio automatico con Windows (casella della scheda
      * Informazioni, logica copiata da RetroBar). Il pacchetto porta solo la
@@ -1104,6 +1113,10 @@ INT_PTR CALLBACK PropertiesDialog::DlgProc(HWND hwnd, UINT msg,
         SendDlgItemMessageW(hwnd, IDC_RADIO_WINKEY_WINDOWS, BM_SETCHECK,
                             self->m_windowsKeyOpensOurMenu ? BST_UNCHECKED
                                                            : BST_CHECKED, 0);
+        SetDlgItemTextW(hwnd, IDC_CHK_EX_KILL_XAML, X.chkKillXamlOverlay);
+        SendDlgItemMessageW(hwnd, IDC_CHK_EX_KILL_XAML, BM_SETCHECK,
+                            self->m_killXamlTrayOverlay ? BST_CHECKED
+                                                        : BST_UNCHECKED, 0);
         SetDlgItemTextW(hwnd, IDC_GRP_EX_TASKBAR, X.grpTaskbar);
         /* Le etichette dell'ordine icone non fanno parte del template: il
          * comportamento di riordino rimane quello della taskbar. */

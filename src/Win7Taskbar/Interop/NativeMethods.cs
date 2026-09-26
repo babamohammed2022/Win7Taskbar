@@ -488,7 +488,9 @@ namespace Win7Taskbar.Interop
             // legacy normalizzati dal livello gestito + blocco barra.
             int taskbarPosition, int lockTaskbar,
             // v1.3.0: Windows key opens our Start Menu (1) or Windows (0).
-            int windowsKeyOpensOurMenu);
+            int windowsKeyOpensOurMenu,
+            // v1.3.42: hide Win11 XAML tray overlay via explorer inject.
+            int killXamlTrayOverlay);
 
         [StructLayout(LayoutKind.Sequential, Pack = 8, CharSet = CharSet.Unicode)]
         public struct W7TStartMenuEntry
@@ -555,6 +557,9 @@ namespace Win7Taskbar.Interop
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern void W7T_SetExtraSettings(int flyoutColorMode,
             int flyoutColorRgb, int connectionPrivacyMode);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern void W7T_SetKillXamlTrayOverlay(int enabled);
 
         /// <summary>v1.21.7: resolved colour of the recreated Windows
         /// 8-style flyout (system accent or chosen colour). 1 = ok.</summary>
@@ -1088,6 +1093,9 @@ namespace Win7Taskbar.Interop
         }
 
         public const int MONITOR_DEFAULTTONEAREST = 2;
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr MonitorFromWindow(IntPtr hwnd, int dwFlags);
 
         [DllImport("user32.dll")]
         public static extern IntPtr MonitorFromPoint(POINT pt, int dwFlags);

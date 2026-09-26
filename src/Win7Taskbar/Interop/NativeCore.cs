@@ -105,12 +105,14 @@ namespace Win7Taskbar.Interop
     {
         public const string CoreFileName = "Win7TaskbarCore.dll";
         public const string InjectFileName = "W7TInject.dll";
+        public const string OverlayKillFileName = "W7TTrayOverlayKill.dll";
 
         // Nomi delle risorse incorporate (LogicalName nel csproj). Devono
         // restare allineati: la verifica del pacchetto in publish.ps1 cerca
         // esattamente il nome della risorsa del core dentro Win7Taskbar.dll.
         private const string EmbeddedCoreName = "Win7Taskbar.Win7TaskbarCore.dll";
         private const string EmbeddedInjectName = "Win7Taskbar.W7TInject.dll";
+        private const string EmbeddedOverlayKillName = "Win7Taskbar.W7TTrayOverlayKill.dll";
 
         // Cartella di ripiego quando quella dell'eseguibile non e' scrivibile
         // (installazione in Program Files, cartella protetta, antivirus...).
@@ -262,7 +264,7 @@ namespace Win7Taskbar.Interop
                         : "file assente e nessuna copia incorporata";
                 }
 
-                TryHealInject(exeDirectory, preferLocal);
+                TryHealSidecars(exeDirectory, preferLocal);
                 return;
             }
 
@@ -279,7 +281,7 @@ namespace Win7Taskbar.Interop
                     status.Source = "pacchetto";
                     // Il modulo opzionale segue lo stesso trattamento anche
                     // qui: un pacchetto puo' aver perso solo W7TInject.dll.
-                    TryHealInject(exeDirectory, preferLocal);
+                    TryHealSidecars(exeDirectory, preferLocal);
                     return;
                 }
 
@@ -308,7 +310,7 @@ namespace Win7Taskbar.Interop
                         status.Loaded = true;
                         status.LoadedPath = corePath;
                         status.Source = "pacchetto";
-                        TryHealInject(exeDirectory, preferLocal);
+                        TryHealSidecars(exeDirectory, preferLocal);
                         return;
                     }
                     status.RepairReason += $"; LoadLibrary fallita ({DescribeLoadError(err)})";
@@ -335,7 +337,7 @@ namespace Win7Taskbar.Interop
             }
 
             // Il modulo opzionale si cura da solo, senza mai bloccare.
-            TryHealInject(exeDirectory, preferLocal);
+            TryHealSidecars(exeDirectory, preferLocal);
         }
 
         /// <summary>
@@ -393,17 +395,26 @@ namespace Win7Taskbar.Interop
         /// Nessun fallimento qui puo' fermare l'avvio: la funzionalita'
         /// mancante e' stata sempre degradata dal core.
         /// </summary>
-        private static void TryHealInject(string exeDirectory, bool preferLocal)
+        private static void TryHealSidecars(string exeDirectory, bool preferLocal)
+        {
+            TryHealOptionalDll(exeDirectory, preferLocal, InjectFileName,
+                EmbeddedInjectName, "W7TInject");
+            TryHealOptionalDll(exeDirectory, preferLocal, OverlayKillFileName,
+                EmbeddedOverlayKillName, "W7TTrayOverlayKill");
+        }
+
+        private static void TryHealOptionalDll(string exeDirectory, bool preferLocal,
+            string fileName, string embeddedName, string label)
         {
             try
             {
-                byte[]? embedded = ReadEmbeddedResource(EmbeddedInjectName);
+                byte[]? embedded = ReadEmbeddedResource(embeddedName);
                 if (embedded == null)
                 {
-                    return; // pacchetto che non la includeva: com'era prima
+                    return;
                 }
 
-                string exePath = Path.Combine(exeDirectory, InjectFileName);
+                string exePath = Path.Combine(exeDirectory, fileName);
                 bool exeOk = File.Exists(exePath) &&
                              (preferLocal || FilesEqual(exePath, embedded));
 
@@ -413,25 +424,26 @@ namespace Win7Taskbar.Interop
                     return;
                 }
 
-                // Manca o differisce: riscrivila accanto all'exe, altrimenti
-                // usa la cartella di ripiego e pre-caricala da li'.
-                if (WriteAtomic(exeDirectory, InjectFileName, embedded) &&
+                if (WriteAtomic(exeDirectory, fileName, embedded) &&
                     TryPreload(exePath, out _))
                 {
-                    StartupGuard.Note("core-nativo: W7TInject.dll ripristinata accanto all'eseguibile");
+                    StartupGuard.Note("core-nativo: " + label +
+                        " ripristinata accanto all'eseguibile");
                     return;
                 }
 
-                string fallbackPath = Path.Combine(FallbackDirectory, InjectFileName);
-                if (WriteAtomic(FallbackDirectory, InjectFileName, embedded) &&
+                string fallbackPath = Path.Combine(FallbackDirectory, fileName);
+                if (WriteAtomic(FallbackDirectory, fileName, embedded) &&
                     TryPreload(fallbackPath, out _))
                 {
-                    StartupGuard.Note("core-nativo: W7TInject.dll ripristinata in " + FallbackDirectory);
+                    StartupGuard.Note("core-nativo: " + label +
+                        " ripristinata in " + FallbackDirectory);
                 }
             }
             catch (Exception ex)
             {
-                StartupGuard.Note("core-nativo: riparo W7TInject non riuscito: " + ex.Message);
+                StartupGuard.Note("core-nativo: riparo " + label +
+                    " non riuscito: " + ex.Message);
             }
         }
 

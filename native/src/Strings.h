@@ -242,6 +242,8 @@ struct ExtraStrings {
     const wchar_t* lblWinKey;
     const wchar_t* optWinKeyOurs;
     const wchar_t* optWinKeyWindows;
+    /* v1.3.42: hide native Win11 XAML tray overlay (explorer inject). */
+    const wchar_t* chkKillXamlOverlay;
 };
 
 const ExtraStrings& ExtraStringsFor(Lang lang);

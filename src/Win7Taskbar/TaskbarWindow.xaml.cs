@@ -20,6 +20,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Runtime.InteropServices;
 using Win7Taskbar.Converters;
 using Win7Taskbar.Interop;
 using Win7Taskbar.Models;
@@ -2593,6 +2594,37 @@ namespace Win7Taskbar
 
             double screenWidthDip = SystemParameters.PrimaryScreenWidth;
             double screenHeightDip = SystemParameters.PrimaryScreenHeight;
+            try
+            {
+                IntPtr hwnd = _hwndSource.Handle;
+                IntPtr mon = NativeMethods.MonitorFromWindow(
+                    hwnd, NativeMethods.MONITOR_DEFAULTTONEAREST);
+                var mi = new NativeMethods.MONITORINFO();
+                mi.cbSize = Marshal.SizeOf(typeof(NativeMethods.MONITORINFO));
+                if (mon != IntPtr.Zero && NativeMethods.GetMonitorInfoW(mon, ref mi))
+                {
+                    int pxW = mi.rcMonitor.Right - mi.rcMonitor.Left;
+                    int pxH = mi.rcMonitor.Bottom - mi.rcMonitor.Top;
+                    if (pxW > 0 && pxH > 0)
+                    {
+                        screenWidthDip = pxW / scale;
+                        screenHeightDip = pxH / scale;
+                    }
+                    else
+                    {
+                        _bridge.Log("posizione: rcMonitor degenerato, ripiego SystemParameters");
+                    }
+                }
+                else
+                {
+                    _bridge.Log("posizione: GetMonitorInfoW fallita, ripiego SystemParameters");
+                }
+            }
+            catch (Exception ex)
+            {
+                _bridge.Log("posizione: monitor reale non disponibile, ripiego SystemParameters: " +
+                            ex.Message);
+            }
 
             double thicknessDip = TaskbarThicknessDip;
             var st = RetroBar.Utilities.Settings.Instance;
@@ -3166,6 +3198,12 @@ namespace Win7Taskbar
                     int winKey = System.Runtime.InteropServices.Marshal
                         .ReadInt32(cds.lpData, 88);
                     st.WindowsKeyOpensOurMenu = winKey != 0;
+                }
+                if (cds.cbData >= 96)
+                {
+                    int killXaml = System.Runtime.InteropServices.Marshal
+                        .ReadInt32(cds.lpData, 92);
+                    st.KillWin11XamlTrayOverlay = killXaml != 0;
                 }
                 if (geometryChanged)
                 {
@@ -9227,6 +9265,7 @@ namespace Win7Taskbar
                 int privacyMode = st.ConnectionFlyoutPrivacyMode == 1 ? 1 : 0;
 
                 _bridge.SetExtraSettings(colorMode, colorRgb, privacyMode);
+                _bridge.SetKillXamlTrayOverlay(st.KillWin11XamlTrayOverlay);
 
                 _bridge.Log(
                     "SETTINGS-EXTRA: colore-flyout=" +
@@ -9241,7 +9280,9 @@ namespace Win7Taskbar
                         RetroBar.Utilities.TaskbarThemeIds.Windows8Beta8148 => "Windows8Beta8148",
                         _ => "Windows7",
                     }) +
-                    " ordine-icone=" + st.TaskbarIconOrder.Count);
+                    " ordine-icone=" + st.TaskbarIconOrder.Count +
+                    " kill-xaml-overlay=" +
+                    (st.KillWin11XamlTrayOverlay ? "on" : "off"));
             }
             catch (Exception ex)
             {
@@ -9510,7 +9551,8 @@ namespace Win7Taskbar
                      * impostazioni ha gia' convertito i valori legacy 2/3. */
                     st.TaskbarPosition,
                     st.LockTaskbar ? 1 : 0,
-                    st.WindowsKeyOpensOurMenu ? 1 : 0);
+                    st.WindowsKeyOpensOurMenu ? 1 : 0,
+                    st.KillWin11XamlTrayOverlay ? 1 : 0);
             }
             catch (Exception ex)
             {

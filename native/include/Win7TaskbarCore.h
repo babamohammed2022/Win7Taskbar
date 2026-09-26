@@ -436,7 +436,9 @@ W7T_API void    W7T_CALL W7T_PropertiesShow(uint64_t ownerTaskbar,
          * ordering used by older managed callers. */
         int32_t taskbarPosition, int32_t lockTaskbar,
         /* v1.3.0: Windows key opens our Start Menu (1) or Windows (0). */
-        int32_t windowsKeyOpensOurMenu);
+        int32_t windowsKeyOpensOurMenu,
+        /* v1.3.42: hide Win11 XAML tray overlay (1, default) or leave it. */
+        int32_t killXamlTrayOverlay);
 
 /* ------------------------------------------------------------------ */
 /*  Start Menu (in-process WPF host + native scan/index/power)         */
@@ -495,6 +497,9 @@ W7T_API int32_t W7T_CALL W7T_ShellItemIconBitmap(const wchar_t* parsingName,
 W7T_API void    W7T_CALL W7T_SetExtraSettings(int32_t flyoutColorMode,
         uint32_t flyoutColorRgb, int32_t connectionPrivacyMode);
 W7T_API int32_t W7T_CALL W7T_GetExtraFlyoutColor(uint32_t* outRgb);
+/* v1.3.42: hide Win11 XAML tray overlay via explorer.exe injection.
+ * 1 = install WH_CALLWNDPROC hook (default), 0 = restore and unhook. */
+W7T_API void    W7T_CALL W7T_SetKillXamlTrayOverlay(int32_t enabled);
 /* v1.21.30: theme selects the search skin (0 Win7, 1 Win8.1 metro). */
 W7T_API void    W7T_CALL W7T_AppSearchShow(int32_t x, int32_t y,
         int32_t theme);

@@ -48,6 +48,7 @@ add_library(Win7TaskbarCore SHARED
     src/Win7NetworkFlyout.cpp src/Win8NetworkFlyout.cpp src/BatteryFlyout.cpp src/JumpListWindow.cpp
     src/PropertiesDialog.cpp src/PinnedApps.cpp src/Exports.cpp
     src/ExtraSettings.cpp
+    src/TrayOverlayKill.cpp
     src/LanguageSwitcher.cpp src/AeroThumbnailFrame.cpp src/PreviewPolicy.cpp src/TaskbarButtonNotify.cpp src/PinVerbs.cpp
     src/Strings.cpp src/LocalizationExports.cpp
     src/TrayFallbackIcons.cpp src/CrashHandler.cpp
@@ -147,6 +148,16 @@ add_custom_command(TARGET W7TInject POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:W7TInject> "${W7T_DIST_DIR}/"
     COMMENT "Copy W7TInject.dll to dist/")
+add_library(W7TTrayOverlayKill SHARED src/W7TTrayOverlayKill.cpp)
+set_target_properties(W7TTrayOverlayKill PROPERTIES PREFIX "" OUTPUT_NAME "W7TTrayOverlayKill")
+target_link_libraries(W7TTrayOverlayKill PRIVATE user32 gdi32)
+if(NOT MSVC)
+    target_link_options(W7TTrayOverlayKill PRIVATE -static-libgcc -static-libstdc++ -static)
+endif()
+add_custom_command(TARGET W7TTrayOverlayKill POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${W7T_DIST_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:W7TTrayOverlayKill> "${W7T_DIST_DIR}/"
+    COMMENT "Copy W7TTrayOverlayKill.dll to dist/")
 add_executable(Win7StartHelper WIN32 src/Win7StartHelper.cpp)
 target_compile_definitions(Win7StartHelper PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 target_link_libraries(Win7StartHelper PRIVATE user32 advapi32)
@@ -163,7 +174,7 @@ add_custom_command(TARGET Win7StartHelper POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:Win7StartHelper> "${W7T_DIST_DIR}/"
     COMMENT "Copy Win7StartHelper.exe to dist/")
 
-install(TARGETS Win7TaskbarCore W7TInject Win7StartHelper RUNTIME DESTINATION bin)
+install(TARGETS Win7TaskbarCore W7TInject W7TTrayOverlayKill Win7StartHelper RUNTIME DESTINATION bin)
 install(FILES include/Win7TaskbarCore.h DESTINATION include)
 
 # Unit tests (pure layout + registry policy on temp HKCI keys). Built

@@ -19,6 +19,7 @@
 #include "AppBarService.h"
 #include "TaskbarButtonNotify.h"
 #include "SehGuard.h"
+#include "TrayOverlayKill.h"
 
 #include <cstdlib>
 #include <dwmapi.h>
@@ -328,6 +329,7 @@ void AppBarService::EnsureWorkAreaReserved(HWND hwnd, int32_t edge,
          * Explorer's taskbar is ABS_AUTOHIDE. Move any that still sit under
          * our bar so the caption/min/max/close row is in the work area. */
         SnapMaximizedAwayFromBar(mon, hwnd, barRect, desired);
+        TrayOverlayKill_PushWorkArea(edge, barRect, desired);
     } catch (...) {
         AppendCoreLog(L"appbar: eccezione in EnsureWorkAreaReserved, overlay fallback");
     }

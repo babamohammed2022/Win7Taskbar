@@ -59,6 +59,9 @@ struct PropsApplyMsg {
     /* v1.3.0: Windows key opens our Start Menu (1) or Windows (0).
      * Offset 88, packet 92 bytes. Older cores keep lock. */
     int32_t windowsKeyOpensOurMenu;
+    /* v1.3.42: hide Win11 XAML tray overlay (explorer inject). Offset 92,
+     * packet 96 bytes. Default ON; older packets omit the field. */
+    int32_t killXamlTrayOverlay;
 };
 constexpr DWORD kPropsCopyDataId = 'W7PA';
 
@@ -76,7 +79,8 @@ public:
               int32_t connectionPrivacyMode, int32_t themeSelection,
               int32_t autoStart,
               int32_t taskbarPosition, int32_t lockTaskbar,
-              int32_t windowsKeyOpensOurMenu);
+              int32_t windowsKeyOpensOurMenu,
+              int32_t killXamlTrayOverlay);
 
     /* v2.47: il font del dialogo e' un oggetto GDI: si crea una volta per
      * apertura e si distrugge alla chiusura, nel distruttore della classe
@@ -109,6 +113,7 @@ private:
     int32_t m_taskbarPosition = 0;
     int32_t m_lockTaskbar = 1;
     int32_t m_windowsKeyOpensOurMenu = 1;
+    int32_t m_killXamlTrayOverlay = 1;
     int32_t m_enableSearch = 0;
     int32_t m_netFlyout = 0;
     int32_t m_classicVolume = 0;

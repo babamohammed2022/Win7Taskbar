@@ -15,14 +15,27 @@ accumulated technical findings live here.
 
 ## 1. Constraints recap (binding)
 
-* Out-of-process only. The product must not ship any code that injects,
-  patches symbols, or detours functions inside `explorer.exe`.
-  Reading explorer's address space (`VirtualAllocEx` + `ReadProcessMemory`
-  on buffers allocated for `TB_*` messages) is out-of-process by the
+* **Broken (v1.3.42):** the product now ships an in-process explorer.exe
+  injection. `W7TTrayOverlayKill.dll` is loaded into Explorer with the
+  documented `LoadLibrary` + `SetWindowsHookExW(WH_CALLWNDPROC)` path
+  already used by `W7TInject.dll`. The injected callback (every Win32
+  call wrapped in SEH / `SehGuard.h`) only (1) disables the Win11 XAML
+  tray overlay HWNDs `Windows.UI.Composition.DesktopWindowContentBridge`
+  and `Windows.UI.Input.InputSite.WindowClass` (`WS_DISABLED` + empty
+  `SetWindowRgn` + hide — no icon enumeration or drawing), and (2)
+  applies `SPI_SETWORKAREA` + snaps maximized frames from inside Explorer.
+  The hook is reinstalled on `TaskbarCreated` and reversed on process
+  exit / `WM_ENDSESSION` / host-mutex disappearance. Properties extra
+  settings has a persistent kill switch (default ON). This **breaks** the
+  former out-of-process-only rule for these two jobs only. Toolbar icon
+  data still comes from the out-of-process readers
+  (`ExplorerTrayReader` / `Win11_Fake_ToolbarWindow32_Shim`).
+  There are still no IAT/vtable detours of TrayUI symbols.
+* Reading explorer's address space (`VirtualAllocEx` + `ReadProcessMemory`
+  on buffers allocated for `TB_*` messages) remains out-of-process by the
   Windows definition and is the classic, documented practice for
-  toolbar enumeration — it is allowed where the mission explicitly
-  allows it (Phase 2.5 legacy control channel). Everything must degrade
-  gracefully when that is not possible.
+  toolbar enumeration. Everything must degrade
+  gracefully when injection or the overlay HWNDs are not present.
 * The legacy Win32 layer, where it is alive on Windows 11, may only be
   used as a **data/control plane** (read state, anchor rects, button
   lists, callback metadata). It must never be made visible: no

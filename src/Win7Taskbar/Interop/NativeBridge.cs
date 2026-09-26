@@ -786,7 +786,7 @@ namespace Win7Taskbar.Interop
             int flyoutColorMode, int flyoutColorRgb,
             int connectionPrivacyMode, int themeSelection,
             int autoStart, int taskbarPosition, int lockTaskbar,
-            int windowsKeyOpensOurMenu)
+            int windowsKeyOpensOurMenu, int killXamlTrayOverlay)
         {
             try
             {
@@ -797,7 +797,7 @@ namespace Win7Taskbar.Interop
                     flyoutColorMode, flyoutColorRgb,
                     connectionPrivacyMode, themeSelection,
                     autoStart, taskbarPosition, lockTaskbar,
-                    windowsKeyOpensOurMenu);
+                    windowsKeyOpensOurMenu, killXamlTrayOverlay);
             }
             catch { }
         }
@@ -921,6 +921,15 @@ namespace Win7Taskbar.Interop
             {
                 NativeMethods.W7T_SetExtraSettings(flyoutColorMode, flyoutColorRgb,
                     connectionPrivacyMode);
+            }
+            catch { }
+        }
+
+        public void SetKillXamlTrayOverlay(bool enabled)
+        {
+            try
+            {
+                NativeMethods.W7T_SetKillXamlTrayOverlay(enabled ? 1 : 0);
             }
             catch { }
         }
