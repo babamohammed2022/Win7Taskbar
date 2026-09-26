@@ -27,7 +27,10 @@ namespace Win7Taskbar.StartMenu
         public string Name { get; init; } = string.Empty;
         public string ParsingName { get; init; } = string.Empty;
         public ImageSource? Icon { get; init; }
+        /* Absolute PIDL (parent + relative, ILCombine). */
         public IntPtr Pidl { get; init; }
+        public IntPtr RelativePidl { get; init; }
+        public IntPtr ParentPidl { get; init; }
     }
 
     internal static class ControlPanelItems
@@ -67,10 +70,26 @@ namespace Win7Taskbar.StartMenu
             new("93F2F68C-1D1B-11D3-A30E-00C04F79ABD1");
         private static readonly Guid IidShellItem =
             new("43826d1e-e718-42ee-bc55-a1e261c37bfe");
+        private static readonly Guid IidContextMenu =
+            new("000214E4-0000-0000-C000-000000000046");
+        private static readonly Guid IidQueryInfo =
+            new("00021500-0000-0000-C000-000000000046");
+        private static readonly Guid ClsidAllItems =
+            new("21EC2020-3AEA-1069-A2DD-08002B30309D");
+        private static readonly Guid ClsidCategoryView =
+            new("26EE0668-A00A-44D7-9371-BEB064C98683");
+        private static readonly Guid ClsidControlPanelRoot =
+            new("5399E694-6CE5-4D6C-8FCE-1D8870FDCBA0");
         private static readonly PROPERTYKEY PkeyItemNameDisplay = new()
         {
             fmtid = new Guid("B725F130-47EF-101A-A5F1-02608C9EEBAC"),
             pid = 10
+        };
+        /* PKEY_InfoTip {C9944A21-A406-48FE-8225-AEC7E24C211B}, 4 */
+        private static readonly PROPERTYKEY PkeyInfoTip = new()
+        {
+            fmtid = new Guid("C9944A21-A406-48FE-8225-AEC7E24C211B"),
+            pid = 4
         };
         private static readonly Regex GuidInText = new(
             @"\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}",
@@ -116,9 +135,15 @@ namespace Win7Taskbar.StartMenu
             }
             try
             {
-                if (item.Pidl != IntPtr.Zero &&
-                    ShellExecutePidl(item.Pidl))
+                if (InvokeDefaultVerb(item))
                 {
+                    LogLaunch(item, "IContextMenu", true, 0, 0);
+                    return true;
+                }
+                if (item.Pidl != IntPtr.Zero &&
+                    ShellExecutePidl(item.Pidl, out int seeErr, out int hInst))
+                {
+                    LogLaunch(item, "ShellExecuteEx pidl", true, seeErr, hInst);
                     return true;
                 }
                 string raw = item.ParsingName ?? string.Empty;
@@ -126,20 +151,56 @@ namespace Win7Taskbar.StartMenu
                 if (uri.StartsWith("shell:", StringComparison.OrdinalIgnoreCase) ||
                     uri.StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (StartExplorer(uri) || ShellExecuteFile(uri))
+                    if (ShellExecuteFile(uri, out seeErr, out hInst))
                     {
+                        LogLaunch(item, "ShellExecuteEx file", true, seeErr, hInst);
+                        return true;
+                    }
+                    if (StartExplorer(uri))
+                    {
+                        LogLaunch(item, "explorer.exe", true, 0, 0);
                         return true;
                     }
                 }
                 else if (!string.IsNullOrWhiteSpace(raw) && LaunchCommand(raw))
                 {
+                    LogLaunch(item, "command", true, 0, 0);
                     return true;
                 }
+                LogLaunch(item, "all-paths-failed", false,
+                    Marshal.GetLastWin32Error(), 0);
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    Win7Taskbar.Utilities.DiagnosticLogger.WriteException(
+                        "CPL", ex, "launch " + item.Name);
+                }
+                catch (Exception)
+                {
+                }
+            }
+            return false;
+        }
+
+        private static void LogLaunch(ControlPanelItem item, string how,
+            bool ok, int win32, int hInst)
+        {
+            try
+            {
+                Win7Taskbar.Utilities.DiagnosticLogger.Write("CPL",
+                    (ok ? "ok " : "FAIL ") + how +
+                    " name=\"" + item.Name + "\"" +
+                    " parse=" + (item.ParsingName ?? "") +
+                    " pidl=" + (item.Pidl != IntPtr.Zero ? "yes" : "no") +
+                    " rel=" + (item.RelativePidl != IntPtr.Zero ? "yes" : "no") +
+                    " win32=" + win32 +
+                    " hInst=" + hInst);
             }
             catch (Exception)
             {
             }
-            return false;
         }
 
         private static bool LaunchCommand(string command)
@@ -189,20 +250,24 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        private static bool ShellExecutePidl(IntPtr pidl)
+        private static bool ShellExecutePidl(IntPtr pidl, out int win32, out int hInst)
         {
+            win32 = 0;
+            hInst = 0;
             try
             {
                 var info = new NativeMethods.SHELLEXECUTEINFO
                 {
                     cbSize = Marshal.SizeOf<NativeMethods.SHELLEXECUTEINFO>(),
-                    fMask = SeeMaskInvokeIdList | SeeMaskIdList |
-                            SeeMaskFlagDdeWait | SeeMaskNoAsync,
-                    lpVerb = "open",
+                    fMask = SeeMaskInvokeIdList | SeeMaskIdList | SeeMaskFlagDdeWait,
+                    lpVerb = null,
                     lpIDList = pidl,
                     nShow = NativeMethods.SW_SHOWNORMAL
                 };
-                return NativeMethods.ShellExecuteExW(ref info);
+                bool ok = NativeMethods.ShellExecuteExW(ref info);
+                win32 = Marshal.GetLastWin32Error();
+                hInst = unchecked((int)info.hInstApp.ToInt64());
+                return ok && (long)info.hInstApp > 32;
             }
             catch (Exception)
             {
@@ -210,23 +275,284 @@ namespace Win7Taskbar.StartMenu
             }
         }
 
-        private static bool ShellExecuteFile(string file)
+        private static bool ShellExecuteFile(string file, out int win32, out int hInst)
         {
+            win32 = 0;
+            hInst = 0;
             try
             {
                 var info = new NativeMethods.SHELLEXECUTEINFO
                 {
                     cbSize = Marshal.SizeOf<NativeMethods.SHELLEXECUTEINFO>(),
-                    fMask = SeeMaskInvokeIdList | SeeMaskFlagDdeWait,
-                    lpVerb = "open",
+                    fMask = SeeMaskFlagDdeWait,
+                    lpVerb = null,
                     lpFile = file,
                     nShow = NativeMethods.SW_SHOWNORMAL
                 };
-                return NativeMethods.ShellExecuteExW(ref info);
+                bool ok = NativeMethods.ShellExecuteExW(ref info);
+                win32 = Marshal.GetLastWin32Error();
+                hInst = unchecked((int)info.hInstApp.ToInt64());
+                return ok && (long)info.hInstApp > 32;
             }
             catch (Exception)
             {
                 return false;
+            }
+        }
+
+        private static bool InvokeDefaultVerb(ControlPanelItem item)
+        {
+            IntPtr folderPtr = IntPtr.Zero;
+            IntPtr menuPtr = IntPtr.Zero;
+            IntPtr pidlArray = IntPtr.Zero;
+            IntPtr hmenu = IntPtr.Zero;
+            IntPtr relative = item.RelativePidl;
+            try
+            {
+                if (item.Pidl == IntPtr.Zero && relative == IntPtr.Zero)
+                {
+                    return false;
+                }
+                Guid iidFolder = IidShellFolder;
+                IntPtr last = IntPtr.Zero;
+                if (item.ParentPidl != IntPtr.Zero && relative != IntPtr.Zero)
+                {
+                    if (SHGetDesktopFolder(out IntPtr desktopPtr) != 0 ||
+                        desktopPtr == IntPtr.Zero)
+                    {
+                        return false;
+                    }
+                    try
+                    {
+                        var desktop = (IShellFolder)Marshal.GetObjectForIUnknown(desktopPtr);
+                        if (desktop.BindToObject(item.ParentPidl, IntPtr.Zero,
+                                ref iidFolder, out folderPtr) != 0 ||
+                            folderPtr == IntPtr.Zero)
+                        {
+                            return false;
+                        }
+                    }
+                    finally
+                    {
+                        try { Marshal.Release(desktopPtr); } catch (Exception) { }
+                    }
+                }
+                else
+                {
+                    if (SHBindToParent(item.Pidl, ref iidFolder, out folderPtr, out last) != 0 ||
+                        folderPtr == IntPtr.Zero)
+                    {
+                        return false;
+                    }
+                    relative = last;
+                }
+                if (relative == IntPtr.Zero)
+                {
+                    return false;
+                }
+                var folder = (IShellFolder)Marshal.GetObjectForIUnknown(folderPtr);
+                pidlArray = Marshal.AllocHGlobal(IntPtr.Size);
+                Marshal.WriteIntPtr(pidlArray, relative);
+                Guid iidMenu = IidContextMenu;
+                if (folder.GetUIObjectOf(IntPtr.Zero, 1, pidlArray, ref iidMenu,
+                        IntPtr.Zero, out menuPtr) != 0 ||
+                    menuPtr == IntPtr.Zero)
+                {
+                    return false;
+                }
+                var menu = (IContextMenu)Marshal.GetObjectForIUnknown(menuPtr);
+                hmenu = CreatePopupMenu();
+                if (hmenu == IntPtr.Zero)
+                {
+                    return false;
+                }
+                const uint CmfDefaultOnly = 0x00000001;
+                int qhr = menu.QueryContextMenu(hmenu, 0, 1, 0x7FFF, CmfDefaultOnly);
+                if (qhr < 0)
+                {
+                    return false;
+                }
+                var cmd = new CMINVOKECOMMANDINFO
+                {
+                    cbSize = Marshal.SizeOf<CMINVOKECOMMANDINFO>(),
+                    fMask = 0,
+                    hwnd = IntPtr.Zero,
+                    lpVerb = IntPtr.Zero, /* MAKEINTRESOURCEA(0) = default */
+                    nShow = NativeMethods.SW_SHOWNORMAL
+                };
+                int ihr = menu.InvokeCommand(ref cmd);
+                return ihr >= 0;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+            finally
+            {
+                if (hmenu != IntPtr.Zero)
+                {
+                    try { DestroyMenu(hmenu); } catch (Exception) { }
+                }
+                if (pidlArray != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(pidlArray);
+                }
+                if (menuPtr != IntPtr.Zero)
+                {
+                    try { Marshal.Release(menuPtr); } catch (Exception) { }
+                }
+                if (folderPtr != IntPtr.Zero)
+                {
+                    try { Marshal.Release(folderPtr); } catch (Exception) { }
+                }
+            }
+        }
+
+        public static string? GetInfoTip(ControlPanelItem item)
+        {
+            if (item == null)
+            {
+                return null;
+            }
+            IntPtr folderPtr = IntPtr.Zero;
+            IntPtr qiPtr = IntPtr.Zero;
+            IntPtr pidlArray = IntPtr.Zero;
+            IntPtr relative = item.RelativePidl;
+            try
+            {
+                Guid iidFolder = IidShellFolder;
+                IntPtr last = IntPtr.Zero;
+                if (item.ParentPidl != IntPtr.Zero && relative != IntPtr.Zero)
+                {
+                    if (SHGetDesktopFolder(out IntPtr desktopPtr) != 0 ||
+                        desktopPtr == IntPtr.Zero)
+                    {
+                        return GetInfoTipDetailsEx(item);
+                    }
+                    try
+                    {
+                        var desktop = (IShellFolder)Marshal.GetObjectForIUnknown(desktopPtr);
+                        if (desktop.BindToObject(item.ParentPidl, IntPtr.Zero,
+                                ref iidFolder, out folderPtr) != 0)
+                        {
+                            folderPtr = IntPtr.Zero;
+                        }
+                    }
+                    finally
+                    {
+                        try { Marshal.Release(desktopPtr); } catch (Exception) { }
+                    }
+                }
+                else if (item.Pidl != IntPtr.Zero)
+                {
+                    if (SHBindToParent(item.Pidl, ref iidFolder, out folderPtr, out last) == 0)
+                    {
+                        relative = last;
+                    }
+                }
+                if (folderPtr == IntPtr.Zero || relative == IntPtr.Zero)
+                {
+                    return GetInfoTipDetailsEx(item);
+                }
+                var folder = (IShellFolder)Marshal.GetObjectForIUnknown(folderPtr);
+                pidlArray = Marshal.AllocHGlobal(IntPtr.Size);
+                Marshal.WriteIntPtr(pidlArray, relative);
+                Guid iidQi = IidQueryInfo;
+                if (folder.GetUIObjectOf(IntPtr.Zero, 1, pidlArray, ref iidQi,
+                        IntPtr.Zero, out qiPtr) == 0 &&
+                    qiPtr != IntPtr.Zero)
+                {
+                    var qi = (IQueryInfo)Marshal.GetObjectForIUnknown(qiPtr);
+                    if (qi.GetInfoTip(0, out IntPtr tip) == 0 && tip != IntPtr.Zero)
+                    {
+                        try
+                        {
+                            string? text = Marshal.PtrToStringUni(tip);
+                            if (!string.IsNullOrWhiteSpace(text))
+                            {
+                                return text.Trim();
+                            }
+                        }
+                        finally
+                        {
+                            Marshal.FreeCoTaskMem(tip);
+                        }
+                    }
+                }
+                return DetailsExTip(folder as IShellFolder2, relative)
+                    ?? GetInfoTipDetailsEx(item);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                if (pidlArray != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(pidlArray);
+                }
+                if (qiPtr != IntPtr.Zero)
+                {
+                    try { Marshal.Release(qiPtr); } catch (Exception) { }
+                }
+                if (folderPtr != IntPtr.Zero)
+                {
+                    try { Marshal.Release(folderPtr); } catch (Exception) { }
+                }
+            }
+        }
+
+        private static string? GetInfoTipDetailsEx(ControlPanelItem item)
+        {
+            if (item.Pidl == IntPtr.Zero)
+            {
+                return null;
+            }
+            IntPtr folderPtr = IntPtr.Zero;
+            try
+            {
+                Guid iid = IidShellFolder2;
+                if (SHBindToParent(item.Pidl, ref iid, out folderPtr, out IntPtr last) != 0 ||
+                    folderPtr == IntPtr.Zero || last == IntPtr.Zero)
+                {
+                    return null;
+                }
+                var folder2 = (IShellFolder2)Marshal.GetObjectForIUnknown(folderPtr);
+                return DetailsExTip(folder2, last);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                if (folderPtr != IntPtr.Zero)
+                {
+                    try { Marshal.Release(folderPtr); } catch (Exception) { }
+                }
+            }
+        }
+
+        private static string? DetailsExTip(IShellFolder2? folder2, IntPtr child)
+        {
+            if (folder2 == null || child == IntPtr.Zero)
+            {
+                return null;
+            }
+            try
+            {
+                PROPERTYKEY key = PkeyInfoTip;
+                if (folder2.GetDetailsEx(child, ref key, out object pv) != 0 || pv == null)
+                {
+                    return null;
+                }
+                string? s = pv as string ?? Convert.ToString(pv);
+                return string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
 
@@ -352,6 +678,10 @@ namespace Win7Taskbar.StartMenu
             IntPtr pidl = IntPtr.Zero;
             try
             {
+                if (IsControlPanelViewParsing(parsing))
+                {
+                    return;
+                }
                 if (NativeMethods.SHParseDisplayName(parsing, IntPtr.Zero,
                         out pidl, 0, IntPtr.Zero) != 0 ||
                     pidl == IntPtr.Zero)
@@ -378,6 +708,11 @@ namespace Win7Taskbar.StartMenu
                 if (!IsUsableName(name))
                 {
                     name = RegistryClsidName(parsing);
+                }
+                if (IsUsableName(name) && IsControlPanelViewName(name))
+                {
+                    NativeMethods.ILFree(pidl);
+                    return;
                 }
                 if (!IsUsableName(name) || !seen.Add(name))
                 {
@@ -479,10 +814,23 @@ namespace Win7Taskbar.StartMenu
             }
             foreach (ControlPanelItem item in items)
             {
-                if (item.Pidl != IntPtr.Zero)
-                {
-                    NativeMethods.ILFree(item.Pidl);
-                }
+                FreeItem(item);
+            }
+        }
+
+        private static void FreeItem(ControlPanelItem item)
+        {
+            if (item.Pidl != IntPtr.Zero)
+            {
+                NativeMethods.ILFree(item.Pidl);
+            }
+            if (item.RelativePidl != IntPtr.Zero)
+            {
+                NativeMethods.ILFree(item.RelativePidl);
+            }
+            if (item.ParentPidl != IntPtr.Zero)
+            {
+                NativeMethods.ILFree(item.ParentPidl);
             }
         }
 
@@ -549,10 +897,7 @@ namespace Win7Taskbar.StartMenu
                         }
                         else if (item != null)
                         {
-                            if (item.Pidl != IntPtr.Zero)
-                            {
-                                NativeMethods.ILFree(item.Pidl);
-                            }
+                            FreeItem(item);
                         }
                     }
                     finally
@@ -592,10 +937,23 @@ namespace Win7Taskbar.StartMenu
             /* Nested Control Panel applets (BitLocker, Sync Center, RemoteApp,
              * Windows To Go, …) are SFGAO_FOLDER. They are real items in
              * "All Control Panel Items" — never skip them. */
+            if (IsControlPanelViewItem(folder, child))
+            {
+                return null;
+            }
             IntPtr full = ILCombine(folderPidl, child);
             string parse = DisplayNameOf(folder, child, ShgdnForParsing);
+            if (IsControlPanelViewParsing(parse))
+            {
+                if (full != IntPtr.Zero)
+                {
+                    NativeMethods.ILFree(full);
+                }
+                return null;
+            }
             string name = ResolveDisplayName(folder, folder2, folderPidl, child, full, parse);
-            if (string.IsNullOrWhiteSpace(name) || LooksLikeGuid(name))
+            if (string.IsNullOrWhiteSpace(name) || LooksLikeGuid(name) ||
+                IsControlPanelViewName(name))
             {
                 if (full != IntPtr.Zero)
                 {
@@ -613,8 +971,86 @@ namespace Win7Taskbar.StartMenu
                 Name = name.Trim(),
                 ParsingName = parse ?? string.Empty,
                 Icon = icon,
-                Pidl = full
+                Pidl = full,
+                RelativePidl = ILClone(child),
+                ParentPidl = ILClone(folderPidl)
             };
+        }
+
+        private static bool IsControlPanelViewItem(IShellFolder folder, IntPtr child)
+        {
+            try
+            {
+                int size = Marshal.SizeOf<SHDESCRIPTIONID>();
+                IntPtr buf = Marshal.AllocHGlobal(size);
+                try
+                {
+                    if (SHGetDataFromIDListW(folder, child, 3 /* SHGDFIL_DESCRIPTIONID */,
+                            buf, size) != 0)
+                    {
+                        return false;
+                    }
+                    var desc = Marshal.PtrToStructure<SHDESCRIPTIONID>(buf);
+                    return IsControlPanelViewClsid(desc.clsid);
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(buf);
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static bool IsControlPanelViewClsid(Guid clsid)
+            => clsid == ClsidAllItems ||
+               clsid == ClsidCategoryView ||
+               clsid == ClsidControlPanelRoot;
+
+        private static bool IsControlPanelViewParsing(string parse)
+        {
+            if (string.IsNullOrWhiteSpace(parse))
+            {
+                return false;
+            }
+            var found = new List<Guid>();
+            foreach (Match m in GuidInText.Matches(parse))
+            {
+                if (Guid.TryParse(m.Value, out Guid g))
+                {
+                    found.Add(g);
+                }
+            }
+            if (found.Count == 0)
+            {
+                return false;
+            }
+            foreach (Guid g in found)
+            {
+                if (!IsControlPanelViewClsid(g))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static bool IsControlPanelViewName(string name)
+        {
+            string n = name.Trim();
+            if (n.Equals("Control Panel", StringComparison.CurrentCultureIgnoreCase) ||
+                n.Equals("Pannello di controllo", StringComparison.CurrentCultureIgnoreCase))
+            {
+                return true;
+            }
+            if (n.StartsWith("All Control Panel Items", StringComparison.CurrentCultureIgnoreCase) ||
+                n.StartsWith("Tutti gli elementi del Pannello", StringComparison.CurrentCultureIgnoreCase))
+            {
+                return true;
+            }
+            return false;
         }
 
         private static string ResolveDisplayName(IShellFolder folder, IShellFolder2? folder2,
@@ -957,6 +1393,66 @@ namespace Win7Taskbar.StartMenu
 
         [DllImport("shell32.dll")]
         private static extern IntPtr ILCombine(IntPtr pidl1, IntPtr pidl2);
+
+        [DllImport("shell32.dll")]
+        private static extern IntPtr ILClone(IntPtr pidl);
+
+        [DllImport("shell32.dll")]
+        private static extern int SHBindToParent(IntPtr pidl, ref Guid riid,
+            out IntPtr ppv, out IntPtr ppidlLast);
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        private static extern int SHGetDataFromIDListW(IShellFolder psf, IntPtr pidl,
+            int nFormat, IntPtr pv, int cb);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SHDESCRIPTIONID
+        {
+            public uint dwDescriptionId;
+            public Guid clsid;
+        }
+
+        [ComImport]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [Guid("000214E4-0000-0000-C000-000000000046")]
+        private interface IContextMenu
+        {
+            [PreserveSig] int QueryContextMenu(IntPtr hmenu, uint indexMenu,
+                uint idCmdFirst, uint idCmdLast, uint uFlags);
+            [PreserveSig] int InvokeCommand(ref CMINVOKECOMMANDINFO pici);
+            [PreserveSig] int GetCommandString(UIntPtr idCmd, uint uType,
+                IntPtr pReserved, IntPtr pszName, uint cchMax);
+        }
+
+        [ComImport]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [Guid("00021500-0000-0000-C000-000000000046")]
+        private interface IQueryInfo
+        {
+            [PreserveSig] int GetInfoTip(uint dwFlags, out IntPtr ppwszTip);
+            [PreserveSig] int GetInfoFlags(out uint pdwFlags);
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CMINVOKECOMMANDINFO
+        {
+            public int cbSize;
+            public int fMask;
+            public IntPtr hwnd;
+            public IntPtr lpVerb;
+            public IntPtr lpParameters;
+            public IntPtr lpDirectory;
+            public int nShow;
+            public int dwHotKey;
+            public IntPtr hIcon;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CreatePopupMenu();
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool DestroyMenu(IntPtr hMenu);
 
         [DllImport("shell32.dll", PreserveSig = true)]
         private static extern int SHCreateItemWithParent(IntPtr pidlParent,

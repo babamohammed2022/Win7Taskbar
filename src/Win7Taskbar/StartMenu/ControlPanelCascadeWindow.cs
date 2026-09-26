@@ -22,6 +22,9 @@ namespace Win7Taskbar.StartMenu
         private readonly List<ControlPanelItem> _items;
         private readonly Action _onLaunch;
         private readonly DispatcherTimer _leaveTimer;
+        private readonly StartMenuWin32Tooltip _infotip = new();
+        private DispatcherTimer? _tipTimer;
+        private ControlPanelItem? _tipItem;
         internal bool PointerInside { get; private set; }
 
         internal ControlPanelCascadeWindow(List<ControlPanelItem> items, Action onLaunch)
@@ -61,6 +64,8 @@ namespace Win7Taskbar.StartMenu
             Closed += (_, _) =>
             {
                 _leaveTimer.Stop();
+                CancelInfotip();
+                try { _infotip.Dispose(); } catch (Exception) { }
                 ControlPanelItems.Free(_items);
             };
 
@@ -190,17 +195,20 @@ namespace Win7Taskbar.StartMenu
                 rowGrid.Children.Add(img);
                 rowGrid.Children.Add(text);
                 rowGrid.Background = Brushes.Transparent;
+                ControlPanelItem captured = item;
                 rowGrid.MouseEnter += (_, _) =>
                 {
                     rowGrid.Background = new SolidColorBrush(Color.FromRgb(0xCE, 0xE4, 0xF7));
+                    ScheduleInfotip(captured);
                 };
                 rowGrid.MouseLeave += (_, _) =>
                 {
                     rowGrid.Background = Brushes.Transparent;
+                    CancelInfotip();
                 };
-                ControlPanelItem captured = item;
                 void LaunchRow(MouseButtonEventArgs e)
                 {
+                    CancelInfotip();
                     ControlPanelItems.Launch(captured);
                     _onLaunch();
                     e.Handled = true;
@@ -213,6 +221,94 @@ namespace Win7Taskbar.StartMenu
 
             border.Child = grid;
             return border;
+        }
+
+        private void ScheduleInfotip(ControlPanelItem item)
+        {
+            CancelInfotip();
+            _tipItem = item;
+            int delay = 500;
+            try
+            {
+                delay = SystemParameters.MouseHoverTime;
+                if (delay < 400)
+                {
+                    delay = 400;
+                }
+                if (delay > 800)
+                {
+                    delay = 800;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            _tipTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(delay) };
+            _tipTimer.Tick += OnInfotipDelay;
+            _tipTimer.Start();
+        }
+
+        private void OnInfotipDelay(object? sender, EventArgs e)
+        {
+            if (_tipTimer != null)
+            {
+                _tipTimer.Stop();
+                _tipTimer.Tick -= OnInfotipDelay;
+                _tipTimer = null;
+            }
+            ControlPanelItem? item = _tipItem;
+            if (item == null)
+            {
+                return;
+            }
+            string? tip = null;
+            try
+            {
+                tip = ControlPanelItems.GetInfoTip(item);
+            }
+            catch (Exception)
+            {
+            }
+            if (string.IsNullOrWhiteSpace(tip))
+            {
+                return;
+            }
+            try
+            {
+                IntPtr owner = new WindowInteropHelper(this).Handle;
+                if (owner == IntPtr.Zero)
+                {
+                    return;
+                }
+                int x = 0, y = 0;
+                if (NativeMethods.GetCursorPos(out NativeMethods.POINT cursor))
+                {
+                    x = cursor.x;
+                    y = cursor.y;
+                }
+                _infotip.Show(owner, item.Name, tip, x, y);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void CancelInfotip()
+        {
+            if (_tipTimer != null)
+            {
+                try
+                {
+                    _tipTimer.Stop();
+                    _tipTimer.Tick -= OnInfotipDelay;
+                }
+                catch (Exception)
+                {
+                }
+                _tipTimer = null;
+            }
+            _tipItem = null;
+            try { _infotip.Hide(); } catch (Exception) { }
         }
     }
 }
