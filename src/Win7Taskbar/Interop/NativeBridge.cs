@@ -630,18 +630,8 @@ namespace Win7Taskbar.Interop
             catch (EntryPointNotFoundException) { }
         }
 
-        public bool SetNativeTaskbarHidden(bool hidden)
-        {
-            try
-            {
-                return NativeMethods.W7T_SetNativeTaskbarHidden(hidden ? 1 : 0)
-                    == W7TResult.Ok;
-            }
-            catch
-            {
-                return false;
-            }
-        }
+        public void SetNativeTaskbarHidden(bool hidden)
+            => NativeMethods.W7T_SetNativeTaskbarHidden(hidden ? 1 : 0);
 
         /// <summary>True se la taskbar di Explorer risulta nascosta da noi.</summary>
         public bool IsNativeTaskbarHidden()

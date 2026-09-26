@@ -29,9 +29,10 @@
 //      osservati), che scrivono un rapporto completo invece di far comparire
 //      la finestra di crash di Windows;
 //   3. la MODALITA' PROVVISORIA: se l'avvio precedente e' morto, o se l'utente
-//      passa /safe, importazione tray e registrazione AppBar vengono saltate.
-//      La finestra sostitutiva non viene mai mostrata senza area riservata:
-//      si ripristina la barra nativa e si esce in modo esplicito.
+//      passa /safe, le due operazioni piu' rischiose (importare le icone
+//      leggendo la memoria di Explorer e registrare l'AppBar nascondendo la
+//      barra di sistema) vengono saltate, cosi' il programma resta usabile e
+//      il rapporto arriva comunque.
 
 using System;
 using System.Diagnostics;
@@ -540,11 +541,7 @@ namespace Win7Taskbar
         {
             try
             {
-                int result = Interop.NativeMethods.W7T_SetNativeTaskbarHidden(0);
-                if (result != Interop.W7TResult.Ok)
-                {
-                    Note("ripristino taskbar nativa incompleto (codice core: " + result + ")");
-                }
+                Interop.NativeMethods.W7T_SetNativeTaskbarHidden(0);
             }
             catch (Exception)
             {

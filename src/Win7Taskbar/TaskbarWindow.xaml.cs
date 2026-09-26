@@ -635,53 +635,19 @@ namespace Win7Taskbar
             RunStage("dpi", UpdateDpiScaling);
             RunStage("posizione", PositionOnScreen);
 
-            // In recovery mode App.OnStartup exits before creating this window.
-            // Keep the guard here as defence in depth if startup is refactored.
+            RunStage("importa-icone-explorer", ImportExplorerIconsWithRetry);
+
             if (StartupGuard.SafeMode)
             {
-                AbortUnsafeTaskbarStartup(
-                    "modalita-provvisoria",
-                    "la finestra sostitutiva non deve essere mostrata senza AppBar in modalita' di recupero");
-                return;
+                StartupGuard.Note("modalita' provvisoria: saltati AppBar e nascondimento della barra nativa");
+                RunStage("ripristina-barra-nativa",
+                         () => _bridge.SetNativeTaskbarHidden(false));
             }
-
-            bool nativeTaskbarHidden = false;
-            RunStage("nascondi-barra-nativa", () =>
+            else
             {
-                nativeTaskbarHidden = _bridge.SetNativeTaskbarHidden(true);
-                if (!nativeTaskbarHidden)
-                {
-                    throw new InvalidOperationException(
-                        "non e' stato possibile nascondere in sicurezza la taskbar nativa");
-                }
-            });
-            if (!nativeTaskbarHidden)
-            {
-                AbortUnsafeTaskbarStartup(
-                    "nascondi-barra-nativa",
-                    "lo stato originale della taskbar non e' stato messo al sicuro; avvio interrotto per non mostrare due barre o sovrapporle");
-                return;
+                RunStage("nascondi-barra-nativa", () => _bridge.SetNativeTaskbarHidden(true));
+                RunStage("appbar", RegisterAppBar);
             }
-
-            bool appBarReady = false;
-            RunStage("appbar", () => appBarReady = RegisterAppBar());
-            if (!appBarReady)
-            {
-                AbortUnsafeTaskbarStartup(
-                    "appbar",
-                    "ABM_NEW/ABM_SETPOS non ha confermato una riserva valida per la barra.");
-                return;
-            }
-
-            // The WPF taskbar starts visually and interactively disabled. Only
-            // reveal it once the shell has confirmed its reserved rectangle.
-            Opacity = 1.0;
-            IsHitTestVisible = true;
-
-            // Start the Explorer tray import only after the replacement has a
-            // shell-confirmed work-area reservation and the native crash
-            // restorer is armed. Import work runs on a native worker thread.
-            RunStage("importa-icone-explorer", ImportExplorerIconsWithRetry);
 
             AppDomain.CurrentDomain.ProcessExit += OnProcessExitRestoreTaskbar;
 
@@ -890,17 +856,7 @@ namespace Win7Taskbar
                 _batteryMonitor.Start();
             });
 
-            StartupGuard.Enter("start-menu");
-            Win7Taskbar.StartMenu.StartMenuHost.Start(_bridge);
-            ReassertAppBar();
-            if (_appBarStartupFailureHandled)
-            {
-                return;
-            }
-
-            StartupGuard.Enter("pronto");
             StartupGuard.Complete();
-            StartupGuard.Note("avvio completato");
         }
 
         // ===============================================================
@@ -2656,20 +2612,12 @@ namespace Win7Taskbar
                 _hwndSource?.CompositionTarget?.TransformToDevice.M11 ?? 1.0);
         }
 
-        private bool RegisterAppBar()
+        private void RegisterAppBar()
         {
-            if (_hwndSource == null)
+            if (_hwndSource == null || _appBarRegistered)
             {
-                StartupGuard.Note("appbar: HwndSource non disponibile");
-                return false;
+                return;
             }
-            if (_appBarRegistered)
-            {
-                return true;
-            }
-
-            _appBarRect = Rect.Empty;
-            _appBarCallbackMessage = 0;
 
             try
             {
@@ -2678,117 +2626,48 @@ namespace Win7Taskbar
                 var st = RetroBar.Utilities.Settings.Instance;
                 int edge = AppBarEdgeFromPosition(st.TaskbarPosition);
 
+                _appBarRect = Rect.Empty;
                 if (!_bridge.RegisterAppBar(_hwndSource.Handle, edge, sizePx))
                 {
-                    StartupGuard.Note("appbar: ABM_NEW/ABM_SETPOS non riuscito; rilascio anche di un'eventuale registrazione parziale");
-                    CleanupAppBarRegistration();
-                    return false;
+                    _appBarRegistered = false;
+                    _appBarCallbackMessage = 0;
+                    return;
                 }
 
                 _appBarRegistered = true;
                 // Il core, dentro la Register, esegue gia' QUERYPOS/SETPOS e
                 // sposta la finestra sul rettangolo confermato dalla shell.
                 _appBarCallbackMessage = _bridge.AppBarCallbackMessage();
-                if (_appBarCallbackMessage == 0)
-                {
-                    StartupGuard.Note("appbar: messaggio callback non valido dopo ABM_NEW");
-                    CleanupAppBarRegistration();
-                    return false;
-                }
-
                 UpdateAppBarPosition();
                 if (_appBarRect.IsEmpty)
                 {
-                    StartupGuard.Note("appbar: registrata ma senza rettangolo valido; rimozione della registrazione parziale");
-                    CleanupAppBarRegistration();
-                    return false;
+                    /* Registrazione senza rettangolo approvato: non lasciare
+                     * una AppBar a meta' che impedisce al menu Start di
+                     * ripristinare correttamente la barra. */
+                    try { _bridge.UnregisterAppBar(_hwndSource.Handle); }
+                    catch (Exception cleanupEx)
+                    {
+                        Debug.WriteLine($"appbar cleanup: {cleanupEx.Message}");
+                    }
+                    _appBarRegistered = false;
+                    _appBarCallbackMessage = 0;
                 }
-
-                return true;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"appbar register: {ex}");
-                StartupGuard.Note("appbar: registrazione fallita: " + ex.GetType().Name + ": " + ex.Message);
-                CleanupAppBarRegistration();
-                return false;
-            }
-        }
-
-        private void CleanupAppBarRegistration()
-        {
-            if (_hwndSource != null)
-            {
-                try
+                if (_appBarRegistered && _hwndSource != null)
                 {
-                    // ABM_NEW may have succeeded even if the first ABM_SETPOS
-                    // failed, so always send ABM_REMOVE on every failure path.
-                    _bridge.UnregisterAppBar(_hwndSource.Handle);
+                    try { _bridge.UnregisterAppBar(_hwndSource.Handle); }
+                    catch (Exception cleanupEx)
+                    {
+                        Debug.WriteLine($"appbar cleanup: {cleanupEx.Message}");
+                    }
                 }
-                catch (Exception cleanupEx)
-                {
-                    Debug.WriteLine($"appbar cleanup: {cleanupEx.Message}");
-                }
+                _appBarRegistered = false;
+                _appBarCallbackMessage = 0;
+                _appBarRect = Rect.Empty;
             }
-
-            _appBarRegistered = false;
-            _appBarCallbackMessage = 0;
-            _appBarRect = Rect.Empty;
-        }
-
-        private bool _appBarStartupFailureHandled;
-
-        private void AbortUnsafeTaskbarStartup(string stage, string detail)
-        {
-            if (_appBarStartupFailureHandled || _shuttingDown)
-            {
-                return;
-            }
-            _appBarStartupFailureHandled = true;
-
-            StartupGuard.Enter(stage);
-            StartupGuard.Note(
-                "fail-safe taskbar: " + detail +
-                "; la finestra sostitutiva viene nascosta e la taskbar nativa ripristinata");
-
-            try
-            {
-                Topmost = false;
-                Hide();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"appbar fail-safe hide: {ex.Message}");
-            }
-
-            CleanupAppBarRegistration();
-
-            bool nativeRestored = false;
-            try
-            {
-                nativeRestored = _bridge.SetNativeTaskbarHidden(false);
-            }
-            catch (Exception ex)
-            {
-                StartupGuard.Note("fail-safe taskbar restore threw: " + ex.GetType().Name + ": " + ex.Message);
-            }
-
-            StartupGuard.Complete();
-            MessageBox.Show(
-                "Win7Taskbar non ha ottenuto dal sistema una registrazione AppBar valida.\n\n" +
-                detail + "\n\n" +
-                "Per evitare che la barra si sovrapponga a Chrome o alle finestre massimizzate, " +
-                "la barra sostitutiva e' stata nascosta e Win7Taskbar verra' chiuso. " +
-                (nativeRestored
-                    ? "La taskbar di Windows e' stata ripristinata."
-                    : "Non e' stato possibile confermare il ripristino della taskbar di Windows.") +
-                "\n\nSe il problema si ripete, allega i log in:\n" +
-                StartupGuard.LogDirectory,
-                "Win7Taskbar - registrazione AppBar non riuscita",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-
-            Application.Current.Shutdown(1);
         }
 
         /// <summary>
@@ -2826,26 +2705,16 @@ namespace Win7Taskbar
                             Debug.WriteLine($"appbar stale cleanup: {cleanupEx.Message}");
                         }
                     }
-                    CleanupAppBarRegistration();
-                    if (!RegisterAppBar())
-                    {
-                        AbortUnsafeTaskbarStartup(
-                            "appbar-riapplicazione",
-                            "la registrazione AppBar e' andata persa e non e' stato possibile ricrearla");
-                        return;
-                    }
+                    _appBarRegistered = false;
+                    _appBarCallbackMessage = 0;
+                    _appBarRect = Rect.Empty;
+                    RegisterAppBar();
                 }
 
                 if (_appBarRegistered)
                 {
                     UpdateDpiScaling();
                     UpdateAppBarPosition();
-                    if (_appBarRect.IsEmpty)
-                    {
-                        AbortUnsafeTaskbarStartup(
-                            "appbar-riapplicazione",
-                            "la shell non ha confermato un rettangolo valido durante il ripristino AppBar");
-                    }
                 }
             }
             catch (Exception ex)
@@ -3020,33 +2889,12 @@ namespace Win7Taskbar
 
             RunStage("appbar-riavvio-explorer", () =>
             {
-                // Prima si ripristina il nascondimento della barra nuova di
-                // Explorer, poi si rifà la negoziazione AppBar. Se la shell
-                // non conferma stato o rettangolo, si rientra nel percorso
-                // fail-safe: barra nativa visibile, finestra sostitutiva nascosta.
-                if (!_bridge.SetNativeTaskbarHidden(true))
-                {
-                    AbortUnsafeTaskbarStartup(
-                        "appbar-riavvio-explorer",
-                        "non e' stato possibile nascondere in sicurezza la nuova taskbar di Explorer");
-                    return;
-                }
-
-                if (!RegisterAppBar())
-                {
-                    AbortUnsafeTaskbarStartup(
-                        "appbar-riavvio-explorer",
-                        "la registrazione AppBar non e' riuscita dopo il riavvio di Explorer");
-                    return;
-                }
-
+                // Prima si rimette in auto-hide la barra nuova di Explorer
+                // (come all'avvio), poi si registra la nostra: la shell non
+                // deve trovare due barre sul bordo quando calcola la posa.
+                _bridge.SetNativeTaskbarHidden(true);
+                RegisterAppBar();
                 UpdateAppBarPosition();
-                if (_appBarRect.IsEmpty)
-                {
-                    AbortUnsafeTaskbarStartup(
-                        "appbar-riavvio-explorer",
-                        "la shell non ha confermato un rettangolo dopo il riavvio di Explorer");
-                }
             });
         }
 

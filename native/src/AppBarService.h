@@ -110,9 +110,8 @@ public:
     void    ReassertNativeTaskbarHidden();
 
     /// Rimostra la barra di Explorer e ne ripristina lo stato salvato, se
-    /// era nascosta. Lo stato persistito permette il recupero anche in un
-    /// processo successivo dopo una terminazione forzata. Pubblico perche'
-    /// lo usano anche il filtro di ultima istanza e atexit().
+    /// era nascosta. Pubblico perche' lo usano anche il filtro di ultima
+    /// istanza e atexit(), che vivono fuori dalla classe.
     void    RestoreNativeTaskbarNow();
 
     static int32_t GetPrimaryWorkArea(RECT* out);
