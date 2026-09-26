@@ -1446,10 +1446,6 @@ void TrayService::ReconcileWithExplorer(uint32_t sources) {
         }
     }
 
-    /* La pagina legacy viene aggiornata solo dopo la fotografia completa del
-     * modello, non dal window procedure che riceve TaskbarCreated. */
-    MaybeSyncNotificationPageLegacy();
-
     /* v3.8 - ripiego "icone sparite" (ispirazione dalla mod "Disappearing
      * Tray Icons Fix" della collezione Windhawk, MIT; solo l'idea: niente
      * codice Windhawk e nessun hook): un'icona e' stata CONFERMATA assente

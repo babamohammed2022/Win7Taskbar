@@ -226,11 +226,6 @@ public:
     /* Passata periodica di sola verifica proprietari vivi + diff leggero. */
     void WatchdogLoop();
 
-    /* Registra il backfill dopo TaskbarCreated; il lavoro vero viene eseguito
-     * dopo una riconciliazione completa, mai dentro il window procedure. */
-    void SyncNotificationPageLegacy();
-    void MaybeSyncNotificationPageLegacy();
-
     /* La finestra fantasma registrata come Shell_TrayWnd (e la figlia
      * TrayNotifyWnd) deve occupare lo stesso rettangolo della nostra
      * barra: i flyout che si ancorano li' (volume di Windows 7, SndVol)
