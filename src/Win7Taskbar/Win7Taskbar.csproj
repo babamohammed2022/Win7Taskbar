@@ -475,11 +475,9 @@
          non appaiono piu' dopo la v3.13 - quando nemmeno la
          ricostruzione padre+relativo (v3.15) produce un parsing name,
          la voce resta pubblicata col nome mostrato come prima di v3.13. -->
-    <!-- 1.3.43-alpha: rotate-to-top recalculates work area and maximized
-         frames every time; native taskbar hide is reasserted after
-         close+restart; Start Menu Control Panel cascade. DPI placement
-         is unchanged. -->
-    <Version>1.3.43-alpha</Version>
+    <!-- 1.3.44-alpha: Control Panel cascade names (no raw GUIDs) and
+         SFGAO_FOLDER applets included. DPI placement unchanged. -->
+    <Version>1.3.44-alpha</Version>
     <AssemblyVersion>1.3.26.0</AssemblyVersion>
     <FileVersion>1.3.26.0</FileVersion>
   
